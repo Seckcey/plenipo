@@ -47,27 +47,28 @@ The **minor** version increases by one each time a rollout phase is accepted, un
 
 After the MVP:
 
-| Release                                                                | Version  |
-| ---------------------------------------------------------------------- | -------- |
-| Grok joins the AI tools (ADR-015)                                      | `1.1.0`  |
-| Ollama's cloud models join the AI tools (ADR-017)                      | `1.2.0`  |
-| Phase 10 — Browser automation and computer use (Phase 9 postponed)     | `1.3.0`  |
-| Switches in Settings and workers learning (ADR-023, ADR-024)           | `1.4.0`  |
-| Kimi joins the AI tools (ADR-027)                                      | `1.5.0`  |
-| Phase 11 — Servers over SSH (ADR-025, ADR-026)                         | `1.6.0`  |
-| Phase 12A — Visual design system (ADR-030)                             | `1.7.0`  |
-| Phase 12 — Home, the pages, the terminal, notices (ADR-031, 033)       | `1.8.0`  |
-| Phase 13 — Installer, updates, and recovery (ADR-037, ADR-038)         | `1.9.0`  |
-| Phase 17 — The owner's control over workers (ADR-041 to ADR-045)       | `1.10.0` |
-| Phase 18 — The organization canvas (ADR-053 to ADR-056)                | `1.11.0` |
-| Phase 19 — The AI tools page (ADR-058 to ADR-060)                      | `1.12.0` |
-| Phase 20A — Connections: Microsoft 365 (ADR-061 to ADR-068)            | `1.13.0` |
-| Phase 16 Wave 1 — Who made each model; Antigravity (ADR-080–082)       | `1.14.0` |
-| Phase 20B — Connections: Slack and Google (ADR-070)                    | `1.14.1` |
-| Phase 20C — Connections: HubSpot, Stripe, website, add-ons (ADR-071)   | `1.14.2` |
-| Fix — WooCommerce keys: add one later, and why one is refused          | `1.14.3` |
-| Phase 16 Wave 2 — GitHub Copilot; Cursor's finding (ADR-083, 084)      | `1.15.0` |
-| Phase 21 — Panels, files, and more than one organization (ADR-091–094) | `1.16.0` |
+| Release                                                                              | Version  |
+| ------------------------------------------------------------------------------------ | -------- |
+| Grok joins the AI tools (ADR-015)                                                    | `1.1.0`  |
+| Ollama's cloud models join the AI tools (ADR-017)                                    | `1.2.0`  |
+| Phase 10 — Browser automation and computer use (Phase 9 postponed)                   | `1.3.0`  |
+| Switches in Settings and workers learning (ADR-023, ADR-024)                         | `1.4.0`  |
+| Kimi joins the AI tools (ADR-027)                                                    | `1.5.0`  |
+| Phase 11 — Servers over SSH (ADR-025, ADR-026)                                       | `1.6.0`  |
+| Phase 12A — Visual design system (ADR-030)                                           | `1.7.0`  |
+| Phase 12 — Home, the pages, the terminal, notices (ADR-031, 033)                     | `1.8.0`  |
+| Phase 13 — Installer, updates, and recovery (ADR-037, ADR-038)                       | `1.9.0`  |
+| Phase 17 — The owner's control over workers (ADR-041 to ADR-045)                     | `1.10.0` |
+| Phase 18 — The organization canvas (ADR-053 to ADR-056)                              | `1.11.0` |
+| Phase 19 — The AI tools page (ADR-058 to ADR-060)                                    | `1.12.0` |
+| Phase 20A — Connections: Microsoft 365 (ADR-061 to ADR-068)                          | `1.13.0` |
+| Phase 16 Wave 1 — Who made each model; Antigravity (ADR-080–082)                     | `1.14.0` |
+| Phase 20B — Connections: Slack and Google (ADR-070)                                  | `1.14.1` |
+| Phase 20C — Connections: HubSpot, Stripe, website, add-ons (ADR-071)                 | `1.14.2` |
+| Fix — WooCommerce keys: add one later, and why one is refused                        | `1.14.3` |
+| Phase 16 Wave 2 — GitHub Copilot; Cursor's finding (ADR-083, 084)                    | `1.15.0` |
+| Phase 21 — Panels, files, and more than one organization (ADR-091–094)               | `1.16.0` |
+| Phase 16 Wave 3 — Paid AI keys, spending caps, OpenRouter, direct keys (ADR-085–087) | `1.17.0` |
 
 ## Releasing
 

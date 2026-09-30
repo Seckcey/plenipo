@@ -97,8 +97,15 @@ before granting access.
 | Antigravity    | Google's Antigravity CLI, signed in with Google; text conversations only           |
 | GitHub Copilot | GitHub's Copilot CLI, signed in with GitHub; paid extra use must be off; text only |
 
-Plenipo uses account sign-ins and rejects API-key authentication. Provider plans, usage limits,
-and availability still apply. [Installation and adapter details](docs/development/setup.md#3-ai-tools-claude-code-codex-grok-kimi-ollama-antigravity-and-github-copilot-optional).
+Plenipo uses account sign-ins for these tools and rejects API-key authentication for them. Provider plans, usage limits,
+and availability still apply.
+
+**Paid per use, only if you choose it:** with **Let workers use paid AI keys** switched on and a
+monthly spending cap set, you can add your own key for OpenRouter, or for an AI company's own service
+(Anthropic, OpenAI, xAI, Moonshot AI, Google, DeepSeek, Z.ai, MiniMax, Mistral, and Alibaba Cloud).
+The key is typed only into Plenipo and kept in Windows Credential Manager, a paid model runs only
+where you list it, and Plenipo never starts a paid task that could pass a cap
+([paid keys and spending caps](docs/development/setup.md)). [Installation and adapter details](docs/development/setup.md#3-ai-tools-claude-code-codex-grok-kimi-ollama-antigravity-and-github-copilot-optional).
 
 **Local-first means local control and records.** AI requests and task context still go to the
 connected providers. This is not an offline-inference app. [Data and privacy FAQ](docs/faq.md#is-it-offline-does-my-work-stay-on-my-pc).

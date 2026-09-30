@@ -362,9 +362,9 @@ own department, while the gate counts the team's (the gate decides, so nothing i
 bill still unrecorded after three tries counts only at what was set aside; and the key form's
 Ledger and Vault writes run on a background worker, not the window.
 
-## Pull request 3 — direct keys and v1.16.0 (ADR-087)
+## Pull request 3 — direct keys and v1.17.0 (ADR-087)
 
-- [ ] **Every AI company whose models take a key (choice 14):** the makers Plenipo lists today, and
+- [x] **Every AI company whose models take a key (choice 14):** the makers Plenipo lists today, and
       the makers on OpenRouter's short list that sell keys themselves:
 
       | Company              | Address (fixed)                     | The owner's key         |
@@ -377,36 +377,74 @@ Ledger and Vault writes run on a background worker, not the window.
       | DeepSeek             | `api.deepseek.com`                  | later                   |
       | Z.ai (GLM)           | `api.z.ai`                          | later                   |
       | MiniMax              | `api.minimax.io`                    | later                   |
-      | NVIDIA               | `integrate.api.nvidia.com`          | later                   |
+      | NVIDIA               | `integrate.api.nvidia.com`          | no row (see below)      |
       | Mistral              | `api.mistral.ai`                    | later                   |
       | Alibaba Cloud (Qwen) | `dashscope-intl.aliyuncs.com`       | later                   |
 
       Each address is checked against the company's own documentation when built. Meta's Llama is
       reached through OpenRouter. GitHub Copilot and Cursor sell no key; Ollama's own key is not a
-      pay-per-use key, so it stays refused (ADR-017).
+      pay-per-use key, so it stays refused (ADR-017). **As built:** ten companies; NVIDIA's key
+      comes with trial credits and no price per use, so it has no row (ADR-087 §6).
 
-- [ ] The same helper for all of them, with one small part per way of talking: Anthropic's own,
+- [x] The same helper for all of them, with one small part per way of talking: Anthropic's own,
       and the OpenAI-style chat most of the others offer. Each company is a row: its fixed
       address, its key check, its models with their maker, and its dated prices.
 - [ ] Each company's models checked against its own list with the owner's key where the owner has
       one; the others marked "not checked with a real key yet" until the owner's key arrives.
-- [ ] A persona per way of talking in `plenipo-fake-agent`, and the full contract suite for every
+      (Built: every card says so until its key passes its check. The checks with the owner's keys
+      for Anthropic, OpenAI, xAI, and Moonshot AI are the owner's, on Windows.)
+- [x] A persona per way of talking in `plenipo-fake-agent`, and the full contract suite for every
       company.
-- [ ] Version 1.16.0 (1.17.0 if Phase 21 merges first; ADR-090 §6), and the release started once
-      every check passes (choice 13).
+- [x] Version 1.16.0 (1.17.0 if Phase 21 merges first; ADR-090 §6), and the release started once
+      every check passes (choice 13). **1.17.0:** Phase 21 merged first, as 1.16.0.
+
+## Review of part 3
+
+Three reviewers each read part 3 for one area: money and prices (every price checked against the
+company's own page), the network and secrets (every address and field against the company's own
+reference, with key-free requests), and the adapter, screens, and words. A second reviewer checked
+every money and network finding against the code and the companies' documentation; the lead
+checked the screen findings against the code.
+
+| Area    | Finding                                                                               | Second reviewer            | What was done                                                                               |
+| ------- | ------------------------------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------- |
+| Money   | Alibaba Cloud's `max_tokens` leaves the thinking out, and its models think by default | Confirmed (high)           | `max_completion_tokens`, which counts both                                                  |
+| Money   | No xAI field limits Grok's thinking (xAI's own reference)                             | Confirmed (high)           | Each step sets aside what the model's context allows; xAI's own bill is read                |
+| Money   | Moonshot AI's and Z.ai's references do not say whether thinking counts in the limit   | Plausible                  | Each step sets aside the context (Moonshot AI) or the longest output (Z.ai, 128,000 tokens) |
+| Money   | An OpenAI project set to Fast mode is billed twice the row                            | Confirmed (when set)       | Every request asks for the standard tier                                                    |
+| Money   | An Anthropic workspace set to the United States only is billed 1.1 times              | Confirmed (when set)       | Every request asks to be processed anywhere (not Haiku, which refuses the field)            |
+| Money   | Anthropic counts missing from an answer read as zero                                  | Confirmed (low)            | Unknown, so the step is "not priced yet"                                                    |
+| Money   | Thousands of short messages could carry a prompt past a price step                    | Plausible (low)            | At most 500 messages kept on file                                                           |
+| Money   | MiniMax charges for storing only when asked to                                        | Refuted as a risk (over)   | Its storing price is off the row                                                            |
+| Network | Google's OpenAI-style chat ignores `x-goog-api-key` (a live check answered 404)       | Confirmed (high; no money) | Bearer on the chat, `x-goog-api-key` on its list                                            |
+| Network | Anthropic's 400 at a spending limit read as a bad request, so no backup ran           | Confirmed (medium)         | A usage limit                                                                               |
+| Network | Google's 400 for a bad or expired key read as a bad request                           | Confirmed / plausible      | "It needs a new key", in the check and in a task                                            |
+| Network | An OpenAI key allowed to chat but not to list models refused at its check             | Confirmed (when so)        | Accepted; its models come from the row                                                      |
+| Network | MiniMax refusals sent inside a 200 counted at the most                                | Plausible                  | Read, and not billed                                                                        |
+| Network | Alibaba Cloud's shared address is its older one                                       | Confirmed (no end date)    | Recorded as a limit                                                                         |
+| Screens | The "not checked with a real key yet" note never went away                            | Confirmed                  | Once the key passes, the card says where its prices come from                               |
+| Screens | "Anthropic (paid per use) is paid per use"                                            | Confirmed                  | Each card is named by the company, beside its subscription tool                             |
+| Screens | "API keys" and a bare date on screen                                                  | Confirmed                  | "on its keys page"; "September 30, 2026"                                                    |
+| Screens | A subscription card named only OpenRouter as the way to pay per use                   | Confirmed                  | "OpenRouter, or the AI company's own"                                                       |
+| Routes  | With "wait" on a usage limit, a paid route from the same company can run              | Behavior (low)             | Kept: the owner listed that route, and it stays within the caps                             |
+
+**Limits, recorded:** nothing here has met the real services until the owner's keys are typed in;
+xAI's, Moonshot AI's, and Z.ai's models need more room under a cap until a real key shows their
+thinking inside the limit; prices are dated and can go stale; Alibaba Cloud's shared address may be
+retired some day; paid keys work in the first organization only (ADR-094).
 
 ## Paperwork
 
-- [ ] [ADR-085](../adr/), [ADR-086](../adr/), and [ADR-087](../adr/), each with "As built"; the ADR
+- [x] [ADR-085](../adr/), [ADR-086](../adr/), and [ADR-087](../adr/), each with "As built"; the ADR
       index; notes in ADR-003, ADR-007, ADR-011, and ADR-014 pointing to ADR-085.
-- [ ] Setup guide (paid keys, caps, and the switch), the adding-an-AI-tool guide (a paid helper),
+- [x] Setup guide (paid keys, caps, and the switch), the adding-an-AI-tool guide (a paid helper),
       and README.
-- [ ] New word pairs in [the word list](../design/vocabulary.md) (spending cap, paid key, the ways
+- [x] New word pairs in [the word list](../design/vocabulary.md) (spending cap, paid key, the ways
       to reach a model, "not priced yet").
-- [ ] The acceptance report, release notes v1.16.0, a row in
+- [x] The acceptance report, release notes v1.17.0, a row in
       [versioning](../development/versioning.md), and the plan's Phase 16 line and order-of-work
       row.
-- [ ] A review across several areas (secrets and the Vault, money and caps, Guard and the network,
+- [x] A review across several areas (secrets and the Vault, money and caps, Guard and the network,
       desktop commands, screens and words), each finding checked by a second reviewer; each
       confirmed finding fixed with a test, or recorded as a design limit.
 

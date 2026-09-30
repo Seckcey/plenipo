@@ -50,6 +50,9 @@ const MAX_CONVERSATION_FILE: u64 = 16 * 1024 * 1024;
 /// The conversation text kept on file: twice what a task sends, so the newest part is always
 /// there to send.
 const KEPT_TEXT: usize = 2 * MAX_INPUT_BYTES as usize;
+/// The most messages kept on file: their wrapping (8 tokens each) stays well inside the room left
+/// under a price step (ADR-087 §3).
+const KEPT_MESSAGES: usize = 500;
 
 /// The least any step on a paid AI tool can set aside at `price`: its shortest words, its fixed
 /// wrapping, and the answer it asks for. A route with less left under the caps cannot run
@@ -291,7 +294,8 @@ pub fn load_conversation(file: &Path) -> Option<Vec<Value>> {
 pub fn save_conversation(file: &Path, model: &str, messages: &[Value]) -> std::io::Result<()> {
     let mut start = 0;
     let mut text: usize = messages.iter().map(content_len).sum();
-    while text > KEPT_TEXT && start + 2 < messages.len() {
+    while (text > KEPT_TEXT || messages.len() - start > KEPT_MESSAGES) && start + 2 < messages.len()
+    {
         text -= content_len(&messages[start]) + content_len(&messages[start + 1]);
         start += 2;
     }
@@ -1268,5 +1272,38 @@ mod tests {
             args.windows(2).any(|w| w == ["--price-output", "15000000"]),
             "{args:?}"
         );
+    }
+
+    #[test]
+    fn a_conversation_keeps_at_most_five_hundred_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("c.json");
+        let messages: Vec<Value> = (0..1_200)
+            .map(|i| json!({ "role": if i % 2 == 0 { "user" } else { "assistant" }, "content": "hi" }))
+            .collect();
+        save_conversation(&file, "m", &messages).unwrap();
+        let kept = load_conversation(&file).unwrap();
+        assert!(kept.len() <= KEPT_MESSAGES, "{}", kept.len());
+        // Whole exchanges: it still starts with the owner's words.
+        assert_eq!(kept[0]["role"], "user");
+    }
+
+    #[test]
+    fn a_busy_service_bills_nothing_and_is_unavailable_for_now() {
+        let price = Price::per_million_dollars(3, 15);
+        let mut p = PaidParser::new("Anthropic");
+        p.line(
+            r#"{"type":"error","message":"Anthropic is too busy right now (529).","kind":"busy"}"#,
+            false,
+        );
+        assert!(matches!(p.paid_bill(&price, true), Some(PaidBill::NotSent)));
+        let end = ProcessEnd {
+            state: ExecutionState::Failed,
+            exit_code: Some(1),
+            started: true,
+            detail: None,
+            duration_ms: None,
+        };
+        assert_eq!(p.finish(&end).outcome, TurnOutcome::ProviderUnavailable);
     }
 }

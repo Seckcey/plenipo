@@ -39,12 +39,15 @@ Checked on 2026-09-30 against each company's own documentation:
   `/v1beta/openai`); Anthropic has its own messages. The helper already speaks both.
 - Each lists its models at a fixed address that costs nothing and needs the key, so the list is
   the key check. Google's list is its own (`/v1beta/models`), outside its OpenAI-style base.
-- None of those lists gives prices, and none but OpenRouter sends a bill with the answer. Prices
+- None of those lists gives prices, and only OpenRouter and xAI send a bill with the answer. Prices
   come from each company's own pricing page.
-- Some companies price by prompt size (xAI and Google double at 200,000 prompt tokens; OpenAI
-  charges more above 272,000), by time of day (DeepSeek's busy hours cost twice its off-peak), or
-  store input for reuse by themselves and charge more for that (OpenAI's newest models, 1.25
-  times the input price; MiniMax M2.7).
+- Some companies price by prompt size (xAI doubles at 200,000 prompt tokens and Google's Gemini
+  3.1 Pro charges up to 1.5 times; OpenAI charges more above 272,000), by time of day (DeepSeek's busy hours cost twice its off-peak), or
+  store input for reuse by themselves and charge more for that (OpenAI's newest models, 1.25 times
+  the input price).
+- Some answer-length fields leave the thinking out: xAI's reference says no field limits Grok's
+  thinking, Alibaba Cloud's `max_tokens` leaves it out (its `max_completion_tokens` does not), and
+  Moonshot AI's and Z.ai's references do not say.
 - NVIDIA's key comes with trial credits and no published price per use.
 
 ## Decision
@@ -57,26 +60,31 @@ with their prices. One adapter (`Direct`) serves every row. `plenipo_guard::Paid
 network half of each row: the only host, the base address, the way of talking, how the key is
 carried, the key check, and the request's field for the longest answer.
 
-| Company       | Paid AI tool    | Address (fixed)                                          | Talks           | Key carried             |
-| ------------- | --------------- | -------------------------------------------------------- | --------------- | ----------------------- |
-| Anthropic     | `anthropic-key` | `https://api.anthropic.com/v1`                           | Anthropic's own | `x-api-key`             |
-| OpenAI        | `openai-key`    | `https://api.openai.com/v1`                              | OpenAI-style    | `Authorization: Bearer` |
-| xAI           | `xai-key`       | `https://api.x.ai/v1`                                    | OpenAI-style    | `Authorization: Bearer` |
-| Moonshot AI   | `moonshot-key`  | `https://api.moonshot.ai/v1`                             | OpenAI-style    | `Authorization: Bearer` |
-| Google        | `google-key`    | `https://generativelanguage.googleapis.com/v1beta`       | OpenAI-style    | `x-goog-api-key`        |
-| DeepSeek      | `deepseek-key`  | `https://api.deepseek.com`                               | OpenAI-style    | `Authorization: Bearer` |
-| Z.ai          | `zai-key`       | `https://api.z.ai/api/paas/v4`                           | OpenAI-style    | `Authorization: Bearer` |
-| MiniMax       | `minimax-key`   | `https://api.minimax.io/v1`                              | OpenAI-style    | `Authorization: Bearer` |
-| Mistral       | `mistral-key`   | `https://api.mistral.ai/v1`                              | OpenAI-style    | `Authorization: Bearer` |
-| Alibaba Cloud | `alibaba-key`   | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | OpenAI-style    | `Authorization: Bearer` |
-
-The international address where a company has more than one. Alibaba Cloud's Singapore address is
-its older shared one, still offered; a key made in another region does not work there.
+| Company                                                                                             | Paid AI tool    | Address (fixed)                                          | Talks           | Key carried                            |
+| --------------------------------------------------------------------------------------------------- | --------------- | -------------------------------------------------------- | --------------- | -------------------------------------- |
+| Anthropic                                                                                           | `anthropic-key` | `https://api.anthropic.com/v1`                           | Anthropic's own | `x-api-key`                            |
+| OpenAI                                                                                              | `openai-key`    | `https://api.openai.com/v1`                              | OpenAI-style    | `Authorization: Bearer`                |
+| xAI                                                                                                 | `xai-key`       | `https://api.x.ai/v1`                                    | OpenAI-style    | `Authorization: Bearer`                |
+| Moonshot AI                                                                                         | `moonshot-key`  | `https://api.moonshot.ai/v1`                             | OpenAI-style    | `Authorization: Bearer`                |
+| Google                                                                                              | `google-key`    | `https://generativelanguage.googleapis.com/v1beta`       | OpenAI-style    | `x-goog-api-key` (list); Bearer (chat) |
+| DeepSeek                                                                                            | `deepseek-key`  | `https://api.deepseek.com`                               | OpenAI-style    | `Authorization: Bearer`                |
+| Z.ai                                                                                                | `zai-key`       | `https://api.z.ai/api/paas/v4`                           | OpenAI-style    | `Authorization: Bearer`                |
+| MiniMax                                                                                             | `minimax-key`   | `https://api.minimax.io/v1`                              | OpenAI-style    | `Authorization: Bearer`                |
+| Mistral                                                                                             | `mistral-key`   | `https://api.mistral.ai/v1`                              | OpenAI-style    | `Authorization: Bearer`                |
+| Alibaba Cloud                                                                                       | `alibaba-key`   | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | OpenAI-style    | `Authorization: Bearer`                |
+| The international address where a company has more than one. Alibaba Cloud's Singapore address is   |
+| its older shared one, still offered with no end date; its documentation now recommends each         |
+| account's own address, which a fixed list cannot follow (a limit), and a key made in another region |
+| does not work there.                                                                                |
 
 ### 2. What each is asked
 
-The helper sends each company what it takes: `max_completion_tokens` to OpenAI, Moonshot AI, and
-MiniMax (whose reasoning models refuse `max_tokens`), `max_tokens` elsewhere; the counts at the
+The helper sends each company what it takes: `max_completion_tokens` to OpenAI, Alibaba Cloud
+(where it counts the thinking too), Moonshot AI, and xAI (where it is the only one left),
+`max_tokens` elsewhere (MiniMax counts the thinking in it); OpenAI's standard prices
+(`service_tier`), whatever a project's default; Anthropic's processing anywhere (`inference_geo`,
+not for Haiku), not a workspace's United States default at 1.1 times; Google's chat with the key as
+`Authorization: Bearer` (its own list takes `x-goog-api-key`); the counts at the
 end of the answer (`stream_options`) except to Mistral, which refuses fields it does not know and
 sends them by itself; the effort level as `reasoning_effort`, or Anthropic's `output_config`;
 MiniMax's thinking apart from the answer (`reasoning_split`). The counts are read as each company
@@ -111,7 +119,7 @@ company's own pricing page on 2026-09-30:
 | Z.ai          | GLM-5.3                  | $1.40  | $0.26  | $4.40  |                                                 |
 | Z.ai          | GLM-5.3 Flash            | $0.15  | $0.03  | $0.50  |                                                 |
 | MiniMax       | MiniMax M3               | $0.30  | $0.06  | $1.20  |                                                 |
-| MiniMax       | MiniMax M2.7             | $0.30  | $0.06  | $1.20  | storing for reuse $0.375                        |
+| MiniMax       | MiniMax M2.7             | $0.30  | $0.06  | $1.20  |                                                 |
 | Mistral       | Mistral Medium 3.5       | $1.50  | $0.15  | $7.50  |                                                 |
 | Alibaba Cloud | Qwen3.8 Flash            | $0.15  | —      | $0.47  | Singapore prices                                |
 | Alibaba Cloud | Qwen3.8 Max              | $2.00  | —      | $6.00  | Singapore prices                                |
@@ -123,15 +131,21 @@ company's own pricing page on 2026-09-30:
 3. **A price by time of day** is counted at its dearest.
 4. **Input a company stores for reuse by itself**, at a dearer price, is counted at that price for
    every fresh input token (`Price::cache_write`), since the counts do not say which were stored.
-5. **The bill** is the step's token counts at the row's prices; a company that sent a bill would
-   be read first, as OpenRouter's is. Without both counts, the step is "not priced yet" and counts
+5. **The bill** is the step's token counts at the row's prices, or the company's own bill where it
+   sends one (xAI's, in ten-billionths of a dollar), as OpenRouter's is. Without both counts, the step is "not priced yet" and counts
    at the most it could have cost.
+6. **Thinking no field limits** (xAI, whose reference says so; Moonshot AI and Z.ai, whose
+   references do not say): each step sets aside the most the model can write, thinking included,
+   instead of its asked-for answer: its context window (xAI, Moonshot AI) or its documented longest
+   output (Z.ai, 128,000 tokens). What was not used is freed when the step ends. Those models need
+   more room under a cap; a later update narrows this once a real key shows the thinking inside
+   the limit.
 
 ### 4. Not checked with a real key yet
 
 Until the owner types each company's key into its card, nothing here has met the real service.
-Each card says so, with where to make a key ("Plenipo has not checked Anthropic's service with a
-real key yet…"), and the checklist lists each company's check. The owner has keys for Anthropic,
+Each card says so, with where to make a key ("Plenipo has not checked Anthropic with a real key
+yet…"), until its key passes its check; then it says where its prices come from, and the checklist lists each company's check. The owner has keys for Anthropic,
 OpenAI, xAI, and Moonshot AI now; the others follow.
 
 ### 5. The same model, more than one way
@@ -181,3 +195,11 @@ OpenRouter.
 - Tests: every company's address and no other's; each company asked in its own words; the row's
   prices only; a model held under its price step; storing for reuse at its price; the contract
   suite runs a task on every company's service.
+- **The review** (three reviewers — money and prices, the network and secrets, the adapter and
+  screens — with each finding checked by a second reviewer; details in the
+  [checklist](../phases/phase-16-wave-3-checklist.md#review-of-part-3)) led to: Alibaba Cloud and
+  xAI asked with the field their references name; steps on xAI, Moonshot AI, and Z.ai setting aside
+  the most the model can write (§3.6); xAI's own bill read; OpenAI's standard tier and Anthropic's
+  processing anywhere on every request; Google's chat signed with Bearer; Anthropic's spending limit
+  and Google's bad key read as what they are; MiniMax's refusals inside a 200 not billed; at most 500
+  messages kept; and on screen, cards named by the company and a note that follows the key check.

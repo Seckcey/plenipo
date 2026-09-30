@@ -44,6 +44,10 @@ pub struct Sold {
     pub max_input_bytes: u64,
     /// The same model on other AI tools (ADR-036 §4).
     pub same: Option<&'static str>,
+    /// Where the company's answer-length field does not (or is not documented to) limit the
+    /// model's thinking: the most it can write, thinking included (its context, or its documented
+    /// longest output), which each step sets aside (ADR-087 §3).
+    pub most_output: Option<u64>,
 }
 
 const fn sold(name: &'static str, label: &'static str, price: Price) -> Sold {
@@ -54,6 +58,7 @@ const fn sold(name: &'static str, label: &'static str, price: Price) -> Sold {
         effort: &[],
         max_input_bytes: MAX_INPUT_BYTES,
         same: None,
+        most_output: None,
     }
 }
 
@@ -68,6 +73,11 @@ impl Sold {
     }
     const fn same(mut self, same: &'static str) -> Self {
         self.same = Some(same);
+        self
+    }
+    /// Its thinking is not limited by the answer-length field: set aside `tokens` of output.
+    const fn thinks_unlimited(mut self, tokens: u64) -> Self {
+        self.most_output = Some(tokens);
         self
     }
 }
@@ -148,27 +158,36 @@ const OPENAI_MODELS: &[Sold] = &[
 ];
 
 const XAI_MODELS: &[Sold] = &[
-    sold("grok-4.7", "Grok 4.7", m(2_000_000, 500_000, 6_000_000)).under(UNDER_200K),
-    sold("grok-4.3", "Grok 4.3", m(1_250_000, 200_000, 2_500_000)).under(UNDER_200K),
+    sold("grok-4.7", "Grok 4.7", m(2_000_000, 500_000, 6_000_000))
+        .under(UNDER_200K)
+        .thinks_unlimited(500_000),
+    sold("grok-4.3", "Grok 4.3", m(1_250_000, 200_000, 2_500_000))
+        .under(UNDER_200K)
+        .thinks_unlimited(1_000_000),
     sold(
         "grok-build-0.1",
         "Grok Build 0.1 (coding)",
         m(1_000_000, 200_000, 2_000_000),
     )
-    .under(UNDER_200K),
+    .under(UNDER_200K)
+    .thinks_unlimited(256_000),
 ];
 
 const MOONSHOT_MODELS: &[Sold] = &[
     sold("kimi-k3", "Kimi K3", m(3_000_000, 300_000, 15_000_000))
         .thinks(LOW_HIGH_MAX)
-        .same("kimi-k3"),
+        .same("kimi-k3")
+        .thinks_unlimited(1_048_576),
     sold(
         "kimi-k2.7-code",
         "Kimi K2.7 Code",
         m(950_000, 190_000, 4_000_000),
     )
-    .under(IN_262K),
-    sold("kimi-k2.6", "Kimi K2.6", m(950_000, 160_000, 4_000_000)).under(IN_262K),
+    .under(IN_262K)
+    .thinks_unlimited(262_144),
+    sold("kimi-k2.6", "Kimi K2.6", m(950_000, 160_000, 4_000_000))
+        .under(IN_262K)
+        .thinks_unlimited(262_144),
 ];
 
 const GOOGLE_MODELS: &[Sold] = &[
@@ -215,14 +234,16 @@ const DEEPSEEK_MODELS: &[Sold] = &[
 const ZAI_MODELS: &[Sold] = &[
     sold("glm-5.3", "GLM-5.3", m(1_400_000, 260_000, 4_400_000))
         .thinks(LOW_HIGH_MAX)
-        .same("glm-5.3"),
+        .same("glm-5.3")
+        .thinks_unlimited(128_000),
     sold(
         "glm-5.3-flash",
         "GLM-5.3 Flash",
         m(150_000, 30_000, 500_000),
     )
     .thinks(LOW_HIGH_MAX)
-    .same("glm-5.3-flash"),
+    .same("glm-5.3-flash")
+    .thinks_unlimited(128_000),
 ];
 
 const MINIMAX_MODELS: &[Sold] = &[
@@ -230,7 +251,7 @@ const MINIMAX_MODELS: &[Sold] = &[
     sold(
         "MiniMax-M2.7",
         "MiniMax M2.7",
-        m(300_000, 60_000, 1_200_000).with_cache_write(375_000),
+        m(300_000, 60_000, 1_200_000),
     )
     .under(IN_204K),
 ];
@@ -578,6 +599,15 @@ impl RuntimeAdapter for Direct {
         self.sold(model).map(|s| s.price).filter(Price::is_sane)
     }
 
+    fn most_output_tokens(&self, request: &TurnRequest) -> Option<u64> {
+        request
+            .model
+            .as_deref()
+            .or_else(|| self.default_model())
+            .and_then(|m| self.sold(m))
+            .and_then(|s| s.most_output)
+    }
+
     fn paid_limits(&self, request: &TurnRequest, prompt_bytes: usize) -> PaidLimits {
         let id = match &request.session {
             ProviderSession::Resume { id } => Some(id.as_str()),
@@ -669,5 +699,43 @@ mod tests {
         assert_eq!(models[0].maker.as_ref().unwrap().id, "anthropic");
         assert_eq!(models[1].price, None);
         assert_eq!(models[1].maker.as_ref().unwrap().id, "anthropic");
+    }
+
+    #[test]
+    fn where_thinking_is_not_limited_the_step_sets_aside_the_most_the_model_can_write() {
+        let request = |model: &str| TurnRequest {
+            model: Some(model.into()),
+            ..TurnRequest::default()
+        };
+        let by_id = |id: &str| Direct {
+            company: COMPANIES.iter().find(|c| c.id == id).unwrap(),
+        };
+        // xAI's reference: no field limits Grok's thinking.
+        assert_eq!(
+            by_id("xai-key").most_output_tokens(&request("grok-4.7")),
+            Some(500_000)
+        );
+        assert_eq!(
+            by_id("zai-key").most_output_tokens(&request("glm-5.3")),
+            Some(128_000)
+        );
+        assert_eq!(
+            by_id("moonshot-key").most_output_tokens(&request("kimi-k3")),
+            Some(1_048_576)
+        );
+        // Where the field counts the thinking, the asked-for answer is the most.
+        for (id, model) in [
+            ("anthropic-key", "claude-sonnet-5-5"),
+            ("openai-key", "gpt-6.1-sol"),
+            ("google-key", "gemini-3.8-flash"),
+            ("alibaba-key", "qwen3.8-max"),
+            ("minimax-key", "MiniMax-M3"),
+        ] {
+            assert_eq!(
+                by_id(id).most_output_tokens(&request(model)),
+                None,
+                "{model}"
+            );
+        }
     }
 }

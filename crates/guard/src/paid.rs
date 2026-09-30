@@ -195,12 +195,14 @@ impl PaidService {
         }
     }
 
-    /// The request's field for the longest answer: `max_completion_tokens` where the service
-    /// takes only that (its reasoning models), `max_tokens` elsewhere. Either way the thinking
-    /// counts inside it, where the service says so.
+    /// The request's field for the longest answer, as each company's own reference names it:
+    /// `max_completion_tokens` where that is the one that counts the thinking too (OpenAI,
+    /// Alibaba Cloud, whose `max_tokens` leaves the thinking out) or the only one left (Moonshot
+    /// AI, and xAI, whose thinking no field limits: its steps set aside more, ADR-087 §3);
+    /// `max_tokens` elsewhere (MiniMax counts the thinking in it).
     pub fn max_tokens_field(self) -> &'static str {
         match self {
-            Self::OpenAi | Self::Moonshot | Self::MiniMax => "max_completion_tokens",
+            Self::OpenAi | Self::Moonshot | Self::Alibaba | Self::Xai => "max_completion_tokens",
             _ => "max_tokens",
         }
     }

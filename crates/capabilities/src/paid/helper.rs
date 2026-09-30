@@ -188,6 +188,15 @@ impl Client {
             .map_err(|e| format!("The helper could not set up a connection: {e}"))
     }
 
+    /// A task's request with the key: as `signed`, except Google's OpenAI-style chat, which
+    /// takes the key as `Authorization: Bearer` (its own list takes `x-goog-api-key`).
+    fn signed_chat(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        match self.service.auth() {
+            plenipo_guard::paid::PaidAuth::GoogleKey => request.bearer_auth(&self.key),
+            _ => self.signed(request),
+        }
+    }
+
     /// The service's own sign-in headers for the key.
     fn signed(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         match self.service.auth() {
@@ -216,6 +225,20 @@ fn error_text(service: PaidService, status: u16, body: &str, key: &str) -> (Stri
     // Hidden before it is cut short, so no part of an echoed key is left past the cut.
     let message: String = hide(&message, key).chars().take(300).collect();
     let label = service.label();
+    // Google answers a key it does not know, or one that has expired, with 400.
+    if status == 400 && google_bad_key(body) {
+        return (
+            format!("{label} refused the key ({status}): it needs a new key. {message}"),
+            "key",
+        );
+    }
+    // Anthropic answers a spending limit set in its console with 400.
+    if status == 400 && message.starts_with("You have reached your specified") {
+        return (
+            format!("{label} usage limit ({status}): {message}"),
+            "limit",
+        );
+    }
     match status {
         401 => (
             format!("{label} refused the key ({status}): it needs a new key. {message}"),
@@ -288,13 +311,60 @@ fn service_bill(usage: &Value) -> Option<String> {
         };
         plenipo_runtime::pricing::dollars_to_micros(&text)
     };
-    let own = micros(usage.get("cost"));
+    // xAI's own bill: ten billion "ticks" to the dollar, so ten thousand to the micro.
+    let ticks = usage
+        .get("cost_in_usd_ticks")
+        .and_then(Value::as_u64)
+        .map(|t| t.div_ceil(10_000));
+    let own = micros(usage.get("cost")).or(ticks);
     let upstream = micros(usage.pointer("/cost_details/upstream_inference_cost"));
     let total = match (own, upstream) {
         (None, None) => return None,
         (a, b) => a.unwrap_or(0).checked_add(b.unwrap_or(0))?,
     };
     Some(format!("{}.{:06}", total / 1_000_000, total % 1_000_000))
+}
+
+/// Google's answer to a key it does not know, or one that has expired.
+fn google_bad_key(body: &str) -> bool {
+    body.contains("API_KEY_INVALID")
+        || body.contains("API_KEY_EXPIRED")
+        || body.to_lowercase().contains("api key not valid")
+        || body.contains("Please pass a valid API key")
+}
+
+/// A refusal MiniMax sends as a 200 with a JSON body (`base_resp`) instead of a stream: its
+/// words and kind, or None when the body is not one. Nothing was billed.
+fn minimax_refusal(body: &str) -> Option<(String, &'static str)> {
+    let v: Value = serde_json::from_str(body).ok()?;
+    let code = v
+        .pointer("/base_resp/status_code")
+        .and_then(Value::as_i64)?;
+    if code == 0 {
+        return None;
+    }
+    let said = v
+        .pointer("/base_resp/status_msg")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .chars()
+        .take(200)
+        .collect::<String>();
+    Some(match code {
+        1008 => (
+            format!("MiniMax says the account is out of credit ({code}). {said}"),
+            "credit",
+        ),
+        1004 | 2049 => (
+            format!("MiniMax refused the key ({code}): it needs a new key. {said}"),
+            "key",
+        ),
+        1002 => (format!("MiniMax usage limit ({code}): {said}"), "limit"),
+        _ => (
+            format!("MiniMax did not take this request ({code}): {said}"),
+            "input",
+        ),
+    })
 }
 
 /// `text` with the key, and anything that starts like it, hidden.
@@ -339,9 +409,17 @@ async fn check(client: &Client, out: &mut dyn Write) -> i32 {
     let body = read_capped(response, MAX_CHECK_BYTES)
         .await
         .unwrap_or_default();
-    // Google answers a key it does not know with 400 and says so.
-    let bad_key = status == 400
-        && (body.contains("API_KEY_INVALID") || body.to_lowercase().contains("api key not valid"));
+    // A key that may chat but not list models (OpenAI's restricted keys without "Models:
+    // Read"): it works; the models and prices come from Plenipo's own row.
+    if status == 403 && body.contains("api.model.read") {
+        emit(
+            out,
+            &json!({ "signedIn": true, "limit": Value::Null, "models": [] }),
+        );
+        return 0;
+    }
+    // Google answers a key it does not know, or an expired one, with 400 and says so.
+    let bad_key = status == 400 && google_bad_key(&body);
     if status == 401 || status == 403 || bad_key {
         let (reason, _) = error_text(client.service, status, &body, &client.key);
         emit(out, &json!({ "signedIn": false, "reason": reason }));
@@ -604,7 +682,7 @@ async fn chat(client: &Client, args: &[String], input: &mut dyn Read, out: &mut 
     };
     let started = Instant::now();
     let response = match client
-        .signed(http.post(&address))
+        .signed_chat(http.post(&address))
         .header(reqwest::header::CONTENT_TYPE, "application/json")
         .body(body.to_string())
         .send()
@@ -641,6 +719,26 @@ async fn chat(client: &Client, args: &[String], input: &mut dyn Read, out: &mut 
             None => message,
         };
         return fail(out, &message, kind);
+    }
+    // A 200 that is not a stream: MiniMax sends its refusals so.
+    let streamed = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_none_or(|t| t.contains("event-stream"));
+    if !streamed {
+        let text = read_capped(response, 64 * 1024).await.unwrap_or_default();
+        if let Some((message, kind)) = minimax_refusal(&text) {
+            return fail(out, &hide(&message, &client.key), kind);
+        }
+        return fail(
+            out,
+            &format!(
+                "{} answered with something other than a stream",
+                client.service.label()
+            ),
+            "service",
+        );
     }
     let mut stream = Stream::new(client.service);
     let mut response = response;
@@ -752,6 +850,11 @@ fn request_body(
             if service == PaidService::MiniMax {
                 body["reasoning_split"] = json!(true);
             }
+            // OpenAI's standard prices: without this, a project set to its dearer Fast mode
+            // would be billed more than the row says.
+            if service == PaidService::OpenAi {
+                body["service_tier"] = json!("default");
+            }
             if service == PaidService::OpenRouter {
                 // OpenRouter's own bill for the request, in its final line.
                 body["usage"] = json!({ "include": true });
@@ -795,6 +898,11 @@ fn request_body(
             if let Some(level) = effort {
                 body["output_config"] = json!({ "effort": level });
             }
+            // Processed anywhere, at the row's price: a workspace may default to the United
+            // States only, at 1.1 times (not offered for Haiku, which refuses the field).
+            if !model.contains("haiku") {
+                body["inference_geo"] = json!("global");
+            }
             (service.chat_path(), body)
         }
     }
@@ -818,7 +926,7 @@ struct Stream {
     stop: Option<String>,
     finished: bool,
     /// Anthropic's counts arrive in two parts.
-    input_tokens: u64,
+    input_tokens: Option<u64>,
     cached_tokens: u64,
 }
 
@@ -832,7 +940,7 @@ impl Stream {
             usage: None,
             stop: None,
             finished: false,
-            input_tokens: 0,
+            input_tokens: None,
             cached_tokens: 0,
         }
     }
@@ -931,9 +1039,14 @@ impl Stream {
                 Some("message_start") => {
                     let n = |p: &str| v.pointer(p).and_then(Value::as_u64).unwrap_or(0);
                     self.cached_tokens = n("/message/usage/cache_read_input_tokens");
-                    self.input_tokens = n("/message/usage/input_tokens")
-                        + self.cached_tokens
-                        + n("/message/usage/cache_creation_input_tokens");
+                    self.input_tokens = v
+                        .pointer("/message/usage/input_tokens")
+                        .and_then(Value::as_u64)
+                        .map(|fresh| {
+                            fresh
+                                + self.cached_tokens
+                                + n("/message/usage/cache_creation_input_tokens")
+                        });
                 }
                 Some("content_block_delta") => {
                     let delta = v.get("delta").cloned().unwrap_or(Value::Null);
@@ -952,10 +1065,7 @@ impl Stream {
                     if let Some(reason) = v.pointer("/delta/stop_reason").and_then(Value::as_str) {
                         self.stop = Some(reason.to_owned());
                     }
-                    let out = v
-                        .pointer("/usage/output_tokens")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(0);
+                    let out = v.pointer("/usage/output_tokens").and_then(Value::as_u64);
                     self.usage = Some(json!({
                         "inputTokens": self.input_tokens,
                         "cachedTokens": self.cached_tokens,
@@ -1270,7 +1380,7 @@ mod tests {
         let body = |s: PaidService, effort: Option<&str>| {
             request_body(s, "m", &messages, 16_000, effort, None)
         };
-        // OpenAI and Moonshot take only max_completion_tokens; xAI max_tokens.
+        // Each company's own field for the answer's length, as its reference names it.
         let (path, openai) = body(PaidService::OpenAi, Some("high"));
         assert_eq!(path, "/chat/completions");
         assert_eq!(openai["max_completion_tokens"], 16_000);
@@ -1278,7 +1388,27 @@ mod tests {
         assert_eq!(openai["reasoning_effort"], "high");
         assert_eq!(openai["stream_options"]["include_usage"], true);
         assert!(openai.get("provider").is_none(), "only OpenRouter routes");
-        assert_eq!(body(PaidService::Xai, None).1["max_tokens"], 16_000);
+        // OpenAI's standard prices, whatever the project's default.
+        assert_eq!(openai["service_tier"], "default");
+        for s in [
+            PaidService::Moonshot,
+            PaidService::Alibaba,
+            PaidService::Xai,
+        ] {
+            let b = body(s, None).1;
+            assert_eq!(b["max_completion_tokens"], 16_000, "{s:?}");
+            assert!(b.get("max_tokens").is_none(), "{s:?}");
+            assert!(b.get("service_tier").is_none(), "{s:?}");
+        }
+        // Alibaba's max_tokens would leave the thinking out; MiniMax's counts it.
+        for s in [
+            PaidService::MiniMax,
+            PaidService::DeepSeek,
+            PaidService::Zai,
+            PaidService::Google,
+        ] {
+            assert_eq!(body(s, None).1["max_tokens"], 16_000, "{s:?}");
+        }
         // Mistral refuses fields it does not know, and sends the counts by itself.
         assert!(body(PaidService::Mistral, None)
             .1
@@ -1297,6 +1427,17 @@ mod tests {
         assert_eq!(anthropic["max_tokens"], 16_000);
         assert_eq!(anthropic["output_config"]["effort"], "max");
         assert!(anthropic.get("stream_options").is_none());
+        // Processed anywhere, at the row's price; Haiku refuses the field.
+        assert_eq!(anthropic["inference_geo"], "global");
+        let (_, haiku) = request_body(
+            PaidService::Anthropic,
+            "claude-haiku-4-5",
+            &messages,
+            16_000,
+            None,
+            None,
+        );
+        assert!(haiku.get("inference_geo").is_none());
     }
 
     #[test]
@@ -1334,5 +1475,70 @@ mod tests {
         let mut s = Stream::new(PaidService::Google);
         s.feed(b"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":10,\"total_tokens\":150}}\n");
         assert_eq!(s.usage.as_ref().unwrap()["outputTokens"], 50);
+    }
+
+    #[test]
+    fn a_bad_key_or_a_spending_limit_behind_a_400_is_read_as_what_it_is() {
+        // Google's answers to a key it does not know, or an expired one.
+        for body in [
+            r#"{"error":{"code":400,"message":"Please pass a valid API key","status":"INVALID_ARGUMENT"}}"#,
+            r#"{"error":{"code":400,"message":"API key expired.","details":[{"reason":"API_KEY_EXPIRED"}]}}"#,
+            r#"{"error":{"code":400,"message":"API key not valid.","details":[{"reason":"API_KEY_INVALID"}]}}"#,
+        ] {
+            assert_eq!(
+                error_text(PaidService::Google, 400, body, KEY).1,
+                "key",
+                "{body}"
+            );
+        }
+        // Anthropic's spending limit set in its console.
+        let body = r#"{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified API usage limits. You will regain access on 2026-11-01 at 00:00 UTC."}}"#;
+        assert_eq!(
+            error_text(PaidService::Anthropic, 400, body, KEY).1,
+            "limit"
+        );
+        // Any other 400 never reached a model.
+        assert_eq!(
+            error_text(
+                PaidService::Anthropic,
+                400,
+                r#"{"error":{"message":"bad field"}}"#,
+                KEY
+            )
+            .1,
+            "input"
+        );
+    }
+
+    #[test]
+    fn minimax_refusals_inside_a_200_are_not_billed() {
+        let refused = |code: i64| {
+            minimax_refusal(
+                &json!({ "base_resp": { "status_code": code, "status_msg": "no" } }).to_string(),
+            )
+            .map(|(_, kind)| kind)
+        };
+        assert_eq!(refused(1008), Some("credit"));
+        assert_eq!(refused(1004), Some("key"));
+        assert_eq!(refused(2049), Some("key"));
+        assert_eq!(refused(1002), Some("limit"));
+        assert_eq!(refused(1026), Some("input"));
+        assert_eq!(refused(0), None);
+        assert_eq!(minimax_refusal("not json"), None);
+    }
+
+    #[test]
+    fn xais_own_bill_is_read_and_a_missing_count_stays_unknown() {
+        // Ten billion ticks to the dollar: 1,234,567,890 ticks is $0.123457 (rounded up).
+        assert_eq!(
+            service_bill(&json!({ "cost_in_usd_ticks": 1_234_567_890u64 })).as_deref(),
+            Some("0.123457")
+        );
+        // Anthropic without its counts: unknown, never zero.
+        let mut s = Stream::new(PaidService::Anthropic);
+        s.feed(b"data: {\"type\":\"message_start\",\"message\":{\"usage\":{}}}\n");
+        s.feed(b"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{}}\n");
+        let usage = s.usage.as_ref().unwrap();
+        assert!(usage["inputTokens"].is_null() && usage["outputTokens"].is_null());
     }
 }
