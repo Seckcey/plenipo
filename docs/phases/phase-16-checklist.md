@@ -15,9 +15,9 @@ rules, no paid key"), and the records for it:
 - [ADR-036 (every AI model worth having)](../adr/ADR-036-every-ai-model.md) — accepted
   2026-09-27; this wave carries out its §3 and the Wave 1 part of §5
 - [ADR-080 (building Phase 16's first wave alongside Phase 20)](../adr/ADR-080-phase-16-wave-1-alongside-phase-20.md) —
-  **proposed**; the owner's instruction to start now, written down first
+  **accepted**; the owner's instruction to start now, written down first
 - [ADR-081 (who made each model: the maker, cross-company review by maker, and the model list two ways)](../adr/ADR-081-who-made-each-model.md) —
-  **proposed**; the design below, with three of the choices
+  **accepted**; the design below, with three of the choices
 - Read for this design: [ADR-011 (how Plenipo picks each worker's AI model)](../adr/ADR-011-model-policy-routing.md),
   [ADR-014 (adding AI tools)](../adr/ADR-014-adding-ai-tools.md),
   [ADR-015 (running AI tools over ACP)](../adr/ADR-015-acp-ai-tools.md),
@@ -74,9 +74,9 @@ built it: see the [acceptance report](phase-16-acceptance-report.md).
 1. ~~Answer choices 1 to 3~~ — done: as recommended.
 2. ~~Finish the checks on your Windows PC~~ — done (E9, the `/credits` screenshot, and the plan's
    name).
-3. **Now:** accept or change ADR-082 (Antigravity as an AI tool), and try Wave 1 on your PC (the
-   [acceptance report](phase-16-acceptance-report.md) lists what to try). Part D (Ollama) once
-   your paid plan starts.
+3. ~~Accept or change ADR-082 (Antigravity as an AI tool)~~ — done: accepted (2026-09-29).
+4. **Now:** try Wave 1 on your PC (the [acceptance report](phase-16-acceptance-report.md) lists
+   what to try). Part D (Ollama) once your paid plan starts.
 
 ## Choices for you
 
@@ -442,5 +442,5 @@ versions, and `Cargo.lock`, keep both sides.
 - ~~The checks on [the check page](phase-16-owner-checks.md)~~ — done, except Part D (Ollama).
 - At acceptance: Settings → AI models grouped both ways; a cross-company review with an Ollama
   model; a task on an exact Claude version; Antigravity: one task, a resumed task, cancel, a named
-  model, a refused sign-in, and asking it to search the web (ADR-082 §8); then accept or change
-  ADR-082 (Antigravity as an AI tool).
+  model, a refused sign-in, and asking it to search the web (ADR-082 §8). ADR-082 (Antigravity
+  as an AI tool) is accepted (2026-09-29).

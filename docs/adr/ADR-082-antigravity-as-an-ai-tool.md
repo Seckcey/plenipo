@@ -1,10 +1,10 @@
 # ADR-082: Antigravity as an AI tool — Google's Antigravity CLI, run with a settings folder of its own
 
-- **Status:** Proposed (2026-09-29). Built at the owner's direction: Google's Gemini CLI failed its
-  check, and the owner asked for its replacement, Antigravity CLI, in its place (choice 5 of the
+- **Status:** Accepted (2026-09-29). The owner accepted it as built, with its known limits ("I
+  accept"), after v1.14.0 was released. Built at the owner's direction: Google's Gemini CLI failed
+  its check, and the owner asked for its replacement, Antigravity CLI, in its place (choice 5 of the
   [Phase 16 checklist](../phases/phase-16-checklist.md#choices-for-you): "gemini is a critical AI
-  LLM we need working in Plenipo so yes, do A now please"). Waiting for the owner to accept the
-  design below.
+  LLM we need working in Plenipo so yes, do A now please").
 - **Date:** 2026-09-29
 - **Phase:** 16, Wave 1 (built beside Phase 20 by
   [ADR-080 (building Phase 16's first wave alongside Phase 20)](ADR-080-phase-16-wave-1-alongside-phase-20.md))
