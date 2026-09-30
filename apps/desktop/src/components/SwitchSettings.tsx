@@ -145,6 +145,13 @@ export function SwitchSettings({ learning }: { learning?: ReactNode }) {
           disabled={pending}
           onChange={flip("servers")}
         />
+        <Toggle
+          label="Let workers use paid AI keys"
+          hint="Off to start with: Plenipo uses only your subscriptions. On: workers may use the paid AI keys you save, and only within your spending caps (Settings → Spending caps). No paid key works without the business's cap."
+          checked={s.paidAiKeys}
+          disabled={pending}
+          onChange={flip("paidAiKeys")}
+        />
         {learning}
       </section>
       <section aria-labelledby="switches-websites">

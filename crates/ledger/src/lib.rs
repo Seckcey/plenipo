@@ -22,6 +22,7 @@ pub mod pages;
 mod records;
 mod rows;
 mod sessions;
+pub mod spending;
 mod tasks;
 pub mod workforce;
 mod workspaces;
@@ -40,6 +41,10 @@ pub use lessons::{clean_lesson, MAX_LESSONS_PER_TASK, MAX_LESSON_CHARS};
 pub use migrate::{Migration, MIGRATIONS};
 pub use notices::{Notice, NoticeGate, NoticeKind, NoticeSettings, NOTICE_REPEAT_MS};
 pub use pages::{WorkOf, DECISIONS, MAX_PAGE_EVENTS};
+pub use spending::{
+    Bill, CapCovers, CapState, CapStatus, PaidTask, PricedBy, SetAside, Settled, SpendingCap,
+    SpendingPage, SpendingRecord, SpendingRefusal, SpendingState,
+};
 pub use workforce::RoleTemplate;
 
 /// Called after every committed event (e.g. to stream it to the UI).

@@ -770,7 +770,9 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     for (const s of switches) {
       expect(s).toBeDisabled();
       expect(s).toHaveAttribute("aria-checked", "false");
-      expect(s).toHaveAccessibleDescription("Comes with spending caps in a later version.");
+      expect(s).toHaveAccessibleDescription(
+        "Comes in a later update, within your spending caps (Settings → Spending caps).",
+      );
       await user.click(s);
     }
     expect(api.setAiToolPayment).not.toHaveBeenCalled();

@@ -1,6 +1,9 @@
 # ADR-003: Provider-independent roles
 
 - **Status:** Accepted (specified by ROLLOUT_PLAN.md)
+- **Amended by:** [ADR-085 (paid AI keys with spending caps)](ADR-085-paid-ai-keys-with-spending-caps.md):
+  paid use only while the owner's switch is on, only on routes the owner chose, within spending
+  caps, and the Router says when a route costs money.
 - **Date:** 2026-09-25
 - **Phase:** 0
 

@@ -22,6 +22,7 @@ pub mod recovery;
 pub mod runtime_host;
 pub mod settings_health;
 pub mod smoke;
+pub mod spending_commands;
 pub mod start_close;
 pub mod tray;
 pub mod uninstall;
@@ -244,6 +245,16 @@ pub fn configure<R: Runtime>(
             } else {
                 recovery::InProgress::default()
             };
+            // Money still set aside for paid tasks belongs to tasks that stopped with the last
+            // run (Phase 16 Wave 3, ADR-085): each counts at the most it could have cost, so a
+            // spending cap is never passed unseen.
+            match ledger.recover_spending(plenipo_ledger::now_ms()) {
+                Ok(0) => {}
+                Ok(n) => log::info!(
+                    "{n} paid task(s) from the last run count at the most they could have cost"
+                ),
+                Err(e) => log::warn!("could not settle spending left from the last run: {e}"),
+            }
             app.manage(ledger.clone());
             app.manage(options.persistence);
             let supervisor =
@@ -461,6 +472,9 @@ pub fn configure<R: Runtime>(
             canvas_commands::unsubscribe_watch,
             canvas_commands::get_owner_profile,
             canvas_commands::set_owner_profile,
+            spending_commands::get_spending,
+            spending_commands::set_spending_cap,
+            spending_commands::remove_spending_cap,
             ai_tools_commands::get_ai_tools,
             ai_tools_commands::check_ai_tool,
             ai_tools_commands::check_ai_tool_versions,
@@ -4055,7 +4069,7 @@ mod ipc_boundary_tests {
             (
                 "set_ai_tool_payment",
                 serde_json::json!({ "runtimeId": "codex", "method": "paidKey" }),
-                "comes with spending caps",
+                "comes in a later update",
             ),
             (
                 "set_ai_tool_payment",
@@ -4865,5 +4879,126 @@ mod ipc_boundary_tests {
             subscribers.add(tauri::ipc::Channel::new(|_| Ok(())));
         }
         assert_eq!(subscribers.len(), guard_host::MAX_WATCH_SUBSCRIBERS);
+    }
+
+    // ---- Phase 16 Wave 3: spending caps (ADR-085) ----
+
+    const SPENDING: [&str; 3] = ["get_spending", "set_spending_cap", "remove_spending_cap"];
+
+    /// Arguments that fit every spending command (each takes the ones it names).
+    fn spending_args() -> serde_json::Value {
+        serde_json::json!({
+            "covers": { "kind": "business" }, "monthlyMicros": 50_000_000, "capId": "nope",
+        })
+    }
+
+    #[test]
+    fn spending_caps_are_the_main_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for cmd in SPENDING {
+            for (answer, from) in [
+                (invoke_json(&other, cmd, spending_args()), "another window"),
+                (invoke_json(&sign, cmd, spending_args()), "the sign"),
+                (
+                    invoke_with(&main, cmd, spending_args(), "https://example.com"),
+                    "a web page",
+                ),
+            ] {
+                let err = answer.expect_err(from);
+                assert!(
+                    err.to_string().contains("not allowed"),
+                    "{cmd} from {from}: {err}"
+                );
+            }
+        }
+        // Nothing was changed by the refused calls.
+        let page: plenipo_ledger::SpendingPage = body(invoke(&main, "get_spending"));
+        assert!(!page.has_business_cap && page.caps.is_empty());
+    }
+
+    #[test]
+    fn the_spending_commands_set_and_remove_caps_and_check_what_they_are_given() {
+        let app = app();
+        let main = window(&app, "main");
+        let page: plenipo_ledger::SpendingPage = body(invoke_json(
+            &main,
+            "set_spending_cap",
+            serde_json::json!({ "covers": { "kind": "business" }, "monthlyMicros": 50_000_000 }),
+        ));
+        assert!(page.has_business_cap);
+        assert_eq!(page.caps[0].cap.monthly_micros, 50_000_000);
+        assert_eq!(page.caps[0].cap.set_by, "owner");
+        assert_eq!(page.caps[0].left_micros, 50_000_000);
+        for (cmd, args, why) in [
+            (
+                "set_spending_cap",
+                serde_json::json!({ "covers": { "kind": "business" }, "monthlyMicros": 0 }),
+                "a spending cap must be from",
+            ),
+            (
+                "set_spending_cap",
+                serde_json::json!({
+                    "covers": { "kind": "department", "id": "nope" }, "monthlyMicros": 1_000_000,
+                }),
+                "not found",
+            ),
+            (
+                "set_spending_cap",
+                serde_json::json!({ "covers": { "kind": "everyone" }, "monthlyMicros": 1_000_000 }),
+                "unknown variant",
+            ),
+            (
+                "set_spending_cap",
+                serde_json::json!({ "covers": { "kind": "business" }, "monthlyMicros": -1 }),
+                "invalid value",
+            ),
+            (
+                "remove_spending_cap",
+                serde_json::json!({ "capId": "" }),
+                "invalid spending cap",
+            ),
+            (
+                "remove_spending_cap",
+                serde_json::json!({ "capId": "nope" }),
+                "not found",
+            ),
+        ] {
+            let err = invoke_json(&main, cmd, args.clone())
+                .expect_err(&format!("{cmd} must refuse {args}"));
+            let said = err["message"]
+                .as_str()
+                .map_or_else(|| err.to_string(), str::to_owned);
+            assert!(
+                said.contains(why),
+                "{cmd} refused {args} with {said}, not {why}"
+            );
+        }
+        let id = page.caps[0].cap.id.clone();
+        let page: plenipo_ledger::SpendingPage = body(invoke_json(
+            &main,
+            "remove_spending_cap",
+            serde_json::json!({ "capId": id }),
+        ));
+        assert!(!page.has_business_cap && page.caps.is_empty());
+    }
+
+    #[test]
+    fn the_paid_keys_switch_starts_off_and_the_owner_can_turn_it_on() {
+        let app = app();
+        let main = window(&app, "main");
+        let snap: plenipo_capabilities::PermissionsSnapshot =
+            body(invoke(&main, "get_permissions"));
+        assert!(!snap.settings.switches.paid_ai_keys);
+        let snap: plenipo_capabilities::PermissionsSnapshot = body(invoke_json(
+            &main,
+            "set_switches",
+            serde_json::json!({ "switches": { "paidAiKeys": true } }),
+        ));
+        assert!(snap.settings.switches.paid_ai_keys);
+        // The other switches keep their defaults when a setting names only this one.
+        assert!(snap.settings.switches.browser && !snap.settings.switches.servers);
     }
 }

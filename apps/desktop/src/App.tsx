@@ -69,6 +69,7 @@ import { ProjectsView } from "./views/ProjectsView";
 import { RuntimesView } from "./views/RuntimesView";
 import { SettingsView } from "./views/SettingsView";
 import { WorkersView } from "./views/WorkersView";
+import { SpendingBanner } from "./spending/SpendingBanner";
 import { RecoveryBanners } from "./upkeep/RecoveryBanners";
 import { UpdateMark } from "./upkeep/UpdateSettings";
 import { useWindowHeartbeat } from "./upkeep/useWindowHeartbeat";
@@ -351,6 +352,7 @@ function Shell({ core }: { core: CoreState }) {
           <BannerSlot>
             <ControlBanner control={control} />
             <RecoveryBanners go={go} />
+            <SpendingBanner go={go} />
             {ledgerNotices.length > 0 && !noticesDismissed && (
               <Banner
                 tone={severe ? "error" : "info"}

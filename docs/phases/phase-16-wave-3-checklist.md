@@ -1,7 +1,7 @@
 # Phase 16 — Implementation Checklist (Wave 3)
 
-**Status:** planned (2026-09-30). The owner's choices are recorded below. Coding starts after the
-owner raises the effort level.
+**Status:** in progress (2026-09-30). Pull request 0 (the Windows-only failures) and part 1
+(spending caps, pricing, records, and the switch) are built; parts 2 and 3 are next.
 
 Source: `ROLLOUT_PLAN.md`, Phase 16 — Every AI Model Worth Having, **Wave 3 only** ("spending caps
 first, then paid routes"):
@@ -145,74 +145,77 @@ New records (numbers from Phase 16's range, ADR-085 to ADR-089, kept by ADR-090)
 
 ### Money and months
 
-- [ ] Money is kept as whole millionths of a dollar (`u64`), never as a floating-point number.
-- [ ] A month is the calendar month in Pacific time (choice 2), daylight saving included.
-- [ ] Prices: per million tokens for input, cached input, and output. A dated built-in price list
-      for direct-key models (like `checked_version()` for model lists); OpenRouter prices from its
-      public list (PR 2).
+- [x] Money is kept as whole millionths of a dollar (`u64`), never as a floating-point number.
+- [x] A month is the calendar month in Pacific time (choice 2), daylight saving included.
+- [x] Prices: per million tokens for input, cached input, and output (`pricing::Price`, rounded
+      up, exact decimal dollars). The dated built-in price list for direct-key models comes with
+      PR 3, and OpenRouter's prices from its public list with PR 2.
 
 ### Caps (a new setting, recorded in the Ledger)
 
-- [ ] A cap: who it covers (the business, one department, or one position), a monthly amount, when
+- [x] A cap: who it covers (the business, one department, or one position), a monthly amount, when
       it was set, and by whom. The 80% warning and the hard stop are fixed, not settings.
-- [ ] Setting, raising, lowering, and removing a cap is recorded as an event. The business cap
+- [x] Setting, raising, lowering, and removing a cap is recorded as an event. The business cap
       cannot be removed while a paid key exists.
-- [ ] **The gate** (one place, used by every paid route): before a paid task, add up this month's
+- [x] **The gate** (one place, used by every paid route): before a paid task, add up this month's
       spending plus what is set aside for running tasks, for the position, its department (worked
       out from who it reports to, as today), and the business. Refuse if the most the task could
       cost does not fit under every cap; otherwise set that amount aside. After the task, record
       the real amount and free the rest.
-- [ ] The position and department are stored with each spending record, so a later
+- [x] The position and department are stored with each spending record, so a later
       reorganisation or a loan does not move past spending.
-- [ ] Crossing 80% of a cap: an event, a banner on every page, and one Windows notification per cap
+- [x] Crossing 80% of a cap: an event, a banner on every page, and one Windows notification per cap
       per month.
-- [ ] Reaching the hard stop: new paid tasks under that cap are refused with the reason; a running
-      task whose real bill passes a cap is stopped at once; the banner stays until the cap is raised
-      or the month turns over.
-- [ ] After a restart, amounts set aside for tasks that were interrupted are freed; nothing set
-      aside is lost or counted twice.
+- [x] Reaching the hard stop: new paid tasks under that cap are refused with the reason; a bill
+      that passes a cap names the caps it passed, for the caller to stop that task at once (the
+      caller is PR 2's paid helper); the banner stays until the cap is raised or the month turns
+      over.
+- [x] After a restart, money still set aside counts at the most its task could have cost ("not
+      priced yet"), never freed, so a cap is never passed unseen (the service may have billed it).
 
 ### Recording every paid task (Ledger migration 0012)
 
-- [ ] A spending record per paid task: task and execution, position and department, AI tool and
+- [x] A spending record per paid task: task and execution, position and department, AI tool and
       model, which key by its name (never the key), the amount or "not priced yet", how it was
       priced (the service's own bill, or the price list), the Pacific month, and the time.
-- [ ] Nothing about subscription tasks changes.
+- [x] Nothing about subscription tasks changes.
 
 ### The switch
 
-- [ ] `Switches.paidAiKeys` ("Let workers use paid AI keys"), off by default; older settings read
+- [x] `Switches.paidAiKeys` ("Let workers use paid AI keys"), off by default; older settings read
       it as off.
-- [ ] Off: no key can be saved, no paid route is offered or run, and every test that forbids keys
-      passes unchanged.
-- [ ] The AI tools page's "How it is paid for" row: the paid choice stays locked, with the reason,
+- [x] Off: no key can be saved, no paid route is offered or run, and every test that forbids keys
+      passes unchanged. (In part 1 there are no keys or paid routes at all; PR 2 tests the switch
+      with them.)
+- [x] The AI tools page's "How it is paid for" row: the paid choice stays locked, with the reason,
       until the switch is on and the business cap exists (PR 2 unlocks it for tools that take a
       key).
 
 ### Screens (Settings)
 
-- [ ] **Spending caps:** the business, each department, and each position with a cap; this
+- [x] **Spending caps:** the business, each department, and each position with a cap; this
       month's spending against each, what is set aside, and when the month turns over.
-- [ ] The switch in Settings → Switches, with a plain sentence about what it allows.
-- [ ] The banner for a warning or a hard stop, like the approvals banner, linking to Spending caps.
+- [x] The switch in Settings → Switches, with a plain sentence about what it allows.
+- [x] The banner for a warning or a hard stop, like the approvals banner, linking to Spending caps.
 
 ### Desktop commands (main window only)
 
-- [ ] Read spending and caps; set a cap; remove a cap. Each is listed in `build.rs`, granted only in
+- [x] Read spending and caps; set a cap; remove a cap. Each is listed in `build.rs`, granted only in
       `capabilities/default.json` (the main window), and has IPC tests that refuse the sign window,
       another window, and a web page.
 
 ### Tests
 
-- [ ] Money arithmetic and Pacific months (turning over, daylight saving).
-- [ ] Warning at 80% of a cap; hard stop at 100%, with the work stopped and the owner told.
-- [ ] A cap enforced for the business, a department, and one position; the smallest amount left
+- [x] Money arithmetic and Pacific months (turning over, daylight saving).
+- [x] Warning at 80% of a cap; hard stop at 100%, with the work stopped and the owner told (the
+      gate and the notices; a paid task stopped end to end comes with PR 2).
+- [x] A cap enforced for the business, a department, and one position; the smallest amount left
       decides.
-- [ ] A task that could pass a cap is not started; setting aside and freeing add up after
-      restarts.
-- [ ] "Not priced yet" is never counted as zero.
-- [ ] With the switch off: no key can be saved and no paid route is offered.
-- [ ] Vitest for the Spending caps screen, the switch, and the banner; IPC tests for every new
+- [x] A task that could pass a cap is not started; after a restart, what was set aside counts
+      once, at the most it could have cost.
+- [x] "Not priced yet" is never counted as zero.
+- [x] With the switch off: no key can be saved and no paid route is offered.
+- [x] Vitest for the Spending caps screen, the switch, and the banner; IPC tests for every new
       command.
 
 ## Pull request 2 — keys in the Vault, routes, and OpenRouter

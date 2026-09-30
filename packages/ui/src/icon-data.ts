@@ -75,6 +75,11 @@ export const ICONS = {
     ],
   },
   key: { d: "M11 12l8-8M16 7l2 2M14 9l2 2", circles: [[8, 15, 4]] },
+  // A coin with a dollar sign: spending caps (Phase 16 Wave 3).
+  spending: {
+    d: "M14.5 9.5c-.4-.9-1.4-1.5-2.5-1.5-1.4 0-2.5.8-2.5 2s1.1 1.6 2.5 2 2.5.8 2.5 2-1.1 2-2.5 2c-1.1 0-2.1-.6-2.5-1.5M12 6.5v11",
+    circles: [[12, 12, 9]],
+  },
   lock: { d: "M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3" },
   clock: { d: "M12 7v5l3 2", circles: [[12, 12, 9]] },
   alert: { d: "M12 4l9 16H3zM12 10v4M12 17h.01" },

@@ -9,6 +9,9 @@ import {
   getAiToolUsage,
   setAiToolPayment,
   setAiToolsAutoUpdate,
+  getSpending,
+  removeSpendingCap,
+  setSpendingCap,
   updateAiTool,
   archiveDepartment,
   bringBack,
@@ -199,5 +202,17 @@ describe("command client", () => {
       runtimeId: "codex",
       method: "subscription",
     });
+  });
+
+  it("sends the spending commands their arguments (Phase 16 Wave 3)", async () => {
+    await getSpending();
+    expect(mockedInvoke).toHaveBeenLastCalledWith("get_spending", undefined);
+    await setSpendingCap({ kind: "department", id: "d1" }, 25_000_000);
+    expect(mockedInvoke).toHaveBeenLastCalledWith("set_spending_cap", {
+      covers: { kind: "department", id: "d1" },
+      monthlyMicros: 25_000_000,
+    });
+    await removeSpendingCap("cap-1");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("remove_spending_cap", { capId: "cap-1" });
   });
 });

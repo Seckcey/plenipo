@@ -64,6 +64,7 @@ const notices: NoticeSettings = {
   finished: true,
   lessons: true,
   plenipo: true,
+  spending: true,
   onlyWhenAway: true,
 };
 
@@ -158,6 +159,7 @@ describe("Settings in one place", () => {
     ).toEqual([
       "AI tools",
       "AI models",
+      "Spending caps",
       "Permissions",
       "Organization",
       "Servers",

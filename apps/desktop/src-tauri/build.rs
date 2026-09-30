@@ -84,6 +84,10 @@ const COMMANDS: &[&str] = &[
     "cancel_ai_tool_update",
     "set_ai_tools_auto_update",
     "set_ai_tool_payment",
+    // Phase 16 Wave 3 (ADR-085): spending caps.
+    "get_spending",
+    "set_spending_cap",
+    "remove_spending_cap",
     // Phase 20: Settings → Connections (signing in happens in the owner's own browser).
     "get_connections",
     "connect_connection",

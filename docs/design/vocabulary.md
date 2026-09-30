@@ -285,6 +285,12 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | Changed — look again (an add-on's tool)                                        | tool drift, schema change, rug pull                                                        |
 | the program's words (what an add-on says)                                      | tool description, untrusted tool output                                                    |
 | Stored secrets to give it (an add-on)                                          | environment variables, secret injection                                                    |
+| Spending caps / a monthly cap / the business's cap                             | budget, spend limit, quota, billing threshold                                              |
+| Let workers use paid AI keys (the switch)                                      | enable BYOK, metered API access, API billing                                               |
+| set aside (the most a paid task could cost, before it starts)                  | reservation, hold, pre-authorization, escrow                                               |
+| not priced yet (counted at the most it could have cost)                        | unpriced, cost unknown, null cost                                                          |
+| 80% of a cap is used / Paid AI work stopped                                    | soft limit, budget alert, hard limit, quota exceeded                                       |
+| the month starts over (the 1st, Pacific time)                                  | billing cycle reset, period rollover                                                       |
 
 ## Where technical words may stay
 
