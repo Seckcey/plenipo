@@ -5,12 +5,12 @@
   </picture>
 </p>
 
-<h1 align="center">Your AI workforce. One place to run it.</h1>
+<h1 align="center">Hire your AI team. Give it a goal.</h1>
 
 <p align="center">
-  A local-first Windows desktop app for organizing AI workers across<br>
-  <strong>Claude Code · Codex · Grok · Kimi · Ollama · Antigravity</strong>.<br>
-  Give a team an objective. Choose its models and permissions. Review what happened.
+  Hire agents by role. A coordinator brings their work together across AI providers.<br>
+  Start with Plenipo's suggested role policies, then adjust model choices and reasoning effort.<br>
+  Follow the work in one Windows desktop workspace.
 </p>
 
 <p align="center">
@@ -30,10 +30,18 @@
 
 ## Meet your team
 
-Plenipo is for developers and small teams who want to coordinate several AI tools without
-manually carrying every handoff between them. Organize departments and projects, assign a
-Supervisor, and bring in workers for implementation, review, testing, and documentation.
-You stay in charge of the permissions and approvals.
+Start with the outcome you want and the roles needed to achieve it. Hire a developer,
+reviewer, QA engineer, or writer, and give your Supervisor an objective. The Supervisor
+delegates tasks, coordinates handoffs, and brings the team's results back together.
+
+Workers can use different supported AI providers in the same project. Automatic agents follow
+model policies: start with Plenipo's suggested role preferences, then set models and effort for
+your organization, department, role, or agent. Unset effort uses the model or AI tool's default.
+You control permissions and approvals, and can inspect why a model was chosen.
+
+For example, hire a developer to build a services page and a reviewer to check it. Your policies
+could assign Claude Code to the developer and Codex to the reviewer. Separate working copies,
+owner terminals, read-only code Watch, test results, and task history support the work.
 
 <p align="center">
   <a href="docs/discovery/assets/organization-v1.7.0.png"><img src="docs/discovery/assets/organization-v1.7.0.png" alt="Plenipo Organization view with a role palette, reporting lines, and a Supervisor's objective and model details" width="1000"></a>
