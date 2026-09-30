@@ -39,8 +39,10 @@ Three ways to update it automatically were weighed:
    version and its notes, `docs/releases/vX.Y.Z.md` as it reads on `main` (from the release's tag
    only if `main` has none). A correction to the notes merged after a release is shown within 15
    minutes, because a run also updates the site when the shown release's notes changed. A
-   website code fix merged after a release is shown with the next release (or at once with
-   `--force`).
+   website code fix merged after a release originally showed with the next release (or at once
+   with `--force`). The September 30 update,
+   [publish checked website changes](website-changes-follow-checks.md), makes those changes
+   automatic too after GitHub checks pass, once the updated script is installed on Coastline.
 4. **Release notes on the page.** A "What's new in vX.Y.Z" section above Download shows the
    notes' title and opening paragraphs, with the rest under **Read the full release notes**. The
    notes are rendered as plain text with a few shapes (headings, paragraphs, lists, code, bold,

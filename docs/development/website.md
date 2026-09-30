@@ -116,9 +116,11 @@ website delivery, and support practices when updating the privacy statement. The
 [shared policy decision](../adr/website-legal-statements.md) records the scope.
 
 Publishing these pages requires the normal reviewed website deployment below.
-For a website-only change, the updater may need `--force` after merge; its timer
-usually waits for a new release or changed release notes. A local build or a GitHub
-branch does not establish that the public pages have been deployed.
+With the current updater installed, its timer detects website-only changes after
+merge and waits for passing GitHub checks. Older installed copies still need
+`--force` or the one-time [updater upgrade](#upgrade-an-existing-updater).
+A local build or a GitHub branch does not establish that the public pages have
+been deployed.
 
 ## Build and check
 
@@ -234,22 +236,34 @@ stop other services, modify firewall/DNS, or restart the Tunnel as part of a web
 [ADR-069 (the website follows new releases)](../adr/ADR-069-website-follows-releases.md): a systemd
 timer on Coastline runs [`apps/website/deploy/auto-release.sh`](../../apps/website/deploy/auto-release.sh)
 every 15 minutes. When GitHub's latest published release (not a draft or pre-release, with its
-installer attached) is newer than what `release.json` shows, or that release's notes changed on
-`main` since they were shown, it:
+installer attached) changes, its release notes change, or the website files change on `main`, it:
 
-1. exports the website from `main` and the release's `docs/releases/vX.Y.Z.md` (from `main`, so
+1. waits for the latest CI run at the selected source commit to finish successfully and for a
+   successful Website run at the most recent first-parent commit that changed `apps/website`
+   or its Website workflow; a docs-only commit can reuse the checks for identical website files;
+2. exports the website from `main` and the release's `docs/releases/vX.Y.Z.md` (from `main`, so
    a correction made after the release shows; from the release's tag if `main` has none) into a
    new read-only folder, `releases/<commit>-v<version>`;
-2. builds `plenipo-website:<commit>-v<version>` with that version;
-3. swaps the container while holding `/srv/8west/port-allocations/allocations.lock`;
-4. checks health, the home page and its "What's new" for this version, `release.json`'s version,
-   source, and notes, a real 404, the image, the restart count, and the loopback-only port;
-5. if anything fails, puts the previous image back (with the Compose files it was started from)
+3. builds `plenipo-website:<commit>-v<version>` with that version;
+4. swaps the container while holding `/srv/8west/port-allocations/allocations.lock`;
+5. checks health, the home page and its "What's new" for this version, `release.json`'s version,
+   source, and notes, the terms and privacy pages when included in that source, a real 404,
+   the image, the restart count, and the loopback-only port;
+6. if anything fails, puts the previous image back (with the Compose files it was started from)
    and checks its health.
+
+The website comparison uses Git's content identifiers for `apps/website` and its workflow.
+An unrelated desktop or documentation commit does not rebuild an unchanged site. A website
+change keeps the latest published installer version; a desktop version bump on `main` does not
+publish an installer. Missing, pending, failed, cancelled, or mismatched check results leave the
+running site in place. GitHub API failures also prevent a build. `--force` does not skip checks.
+If `main` advances while checks are running, the timer waits for the newer commit's checks.
+These rules and their tests are recorded in
+[the decision to publish checked website changes](../adr/website-changes-follow-checks.md).
 
 It keeps `auto-release/current.env` (what runs now and what ran before), `auto-release/release.json`
 (the live answer after the last update), and `auto-release/history.jsonl` (one line per update,
-including roll-backs). It reads GitHub without a login, never prunes images, and never touches
+including roll-backs and the website fingerprint). It reads GitHub without a login, never prunes images, and never touches
 other services, the firewall, DNS, or the Tunnel. It needs `curl`, `jq`, `git`, `docker` with
 Compose, `flock`, and `sha256sum`, and says which is missing.
 
@@ -273,8 +287,11 @@ deploy_user="$(stat -c %U .)"                  # the account that owns the app f
 id -nG "$deploy_user" | grep -qw docker || echo "Add $deploy_user to the docker group first"
 raw=https://raw.githubusercontent.com/Seckcey/plenipo/main/apps/website/deploy
 sudo -u "$deploy_user" mkdir -p bin
-sudo -u "$deploy_user" curl -fsSL "$raw/auto-release.sh" -o bin/auto-release.sh
-sudo -u "$deploy_user" chmod 755 bin/auto-release.sh
+updater_tmp="$(sudo -u "$deploy_user" mktemp bin/.auto-release.XXXXXX)"
+sudo -u "$deploy_user" curl -fsSL "$raw/auto-release.sh" -o "$updater_tmp"
+sudo -u "$deploy_user" bash -n "$updater_tmp"
+sudo -u "$deploy_user" chmod 755 "$updater_tmp"
+sudo -u "$deploy_user" mv "$updater_tmp" bin/auto-release.sh
 sudo -u "$deploy_user" bin/auto-release.sh --check   # says what it would do; changes nothing
 sudo -u "$deploy_user" bin/auto-release.sh           # the first update, now
 curl -fsSL "$raw/plenipo-website-update.service" | sed "s/DEPLOY_USER/$deploy_user/" \
@@ -286,7 +303,40 @@ systemctl list-timers plenipo-website-update.timer
 ```
 
 The list should show a time under **NEXT**, about 15 minutes away. To change the script later,
-download it again the same way; a merge alone never changes what runs on Coastline.
+download it again the same way; a merge alone never changes the installed updater.
+
+### Upgrade an existing updater
+
+This one-time step installs the website-change detection on a server that already has
+the timer. Connect through the laptop's existing Coastline SSH connection. Run as the
+account that owns the app folder, with `sudo` available to enable the existing timer.
+Replace `REVIEWED_MAIN_COMMIT` with the full approved merge commit before running.
+The pinned URL makes the installed script reviewable; it does not follow moving `main`
+while downloading. No SSH key or Tailscale login is stored in GitHub.
+
+```sh
+ssh coastline
+cd /srv/8west/apps/plenipo-website
+revision="REVIEWED_MAIN_COMMIT"
+deploy_user="$(stat -c %U .)"
+updater_tmp="$(sudo -u "$deploy_user" mktemp bin/.auto-release.XXXXXX)"
+sudo -u "$deploy_user" curl -fsSL \
+  "https://raw.githubusercontent.com/Seckcey/plenipo/$revision/apps/website/deploy/auto-release.sh" \
+  -o "$updater_tmp"
+sudo -u "$deploy_user" bash -n "$updater_tmp"
+sudo -u "$deploy_user" chmod 755 "$updater_tmp"
+sudo -u "$deploy_user" mv "$updater_tmp" bin/auto-release.sh
+sudo -u "$deploy_user" bin/auto-release.sh --source-ref "$revision" --check
+sudo -u "$deploy_user" bin/auto-release.sh --source-ref "$revision"
+sudo systemctl enable --now plenipo-website-update.timer
+systemctl list-timers plenipo-website-update.timer
+```
+
+If a download or syntax check fails, stop before `mv`; the installed script stays intact.
+If the first run says **Waiting for passing checks**, it leaves the current website running.
+The timer will try again with checked `main`; wait for **Done**, then verify the public
+`release.json`, `/terms/`, and `/privacy/`. Installing the script or enabling a timer does
+not by itself prove that the public pages were published.
 
 If the first update was run as root by mistake, give the files back to the deploy account (the
 names are this app's own; nothing else is touched), then start one run to check:
