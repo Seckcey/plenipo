@@ -651,7 +651,7 @@ by a released copy.
       `cargo test --workspace --locked`, `pnpm bindings` with no diff (documentation-only pushes:
       `pnpm docs:check`).
 - [x] Every GitHub check green, Windows included (20A: pull request #96, 2026-09-28; 20B: pull
-      request #100, 2026-09-29).
+      request #100, 2026-09-30, as 1.14.1 after merging Phase 16's first wave).
 
 ## Left for the owner (on Windows and outside Plenipo)
 

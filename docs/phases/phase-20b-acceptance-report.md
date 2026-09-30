@@ -192,6 +192,6 @@ Locally on Linux, before pushing (last on 2026-09-30, after merging Phase 16's f
   18 tests (8 for part 20A, 10 for part 20B) pass; the part 20B group passed four more times in a
   row after the Linux Vault fix.
 
-On GitHub, pull request #100, 2026-09-29: every check green on its head — Rust (fmt, clippy,
+On GitHub, pull request #100, 2026-09-30, as 1.14.1 after merging Phase 16's first wave: every check green on its head — Rust (fmt, clippy,
 test, bindings), Frontend, Docs, the end-to-end tests in the real app on Linux, the website build,
 and Windows (test, build, installer, launch smoke, installer tests).
