@@ -205,4 +205,14 @@ password goes only to that host).
 
 ## 8. Test totals and CI
 
-(Filled in after the last local run and CI.)
+Locally on Linux, before pushing (2026-09-30, at 1.14.2):
+
+- **Rust:** `cargo test --workspace --locked --no-fail-fast`: 1,364 tests pass, 43 of them in
+  `crates/capabilities/tests/connections.rs` (the part 20C tests and the review's) and 131 in
+  Guard. `cargo fmt` and `cargo clippy -D warnings` are clean.
+- **Screens:** `pnpm check`: 437 desktop and 304 UI tests pass, with lint, types, and formatting;
+  `pnpm bindings` leaves no change.
+- **End to end:** `tests/e2e/specs/connections.e2e.mjs` on the 1.14.2 release build with the
+  stand-ins: all 27 tests pass (8 for part 20A, 10 for part 20B, 9 for part 20C).
+
+On GitHub: pull request #104. (Its checks are recorded here once they are green.)
