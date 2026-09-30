@@ -4100,6 +4100,63 @@ body {
   margin-bottom: 18px;
 }
 
+/* Settings → Spending caps (Phase 16 Wave 3, ADR-085). */
+.spending section {
+  margin-top: 18px;
+}
+
+.spending__month {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.spending__month dt {
+  color: var(--ui-text-muted);
+  font-size: 0.85em;
+}
+
+.spending__month dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
+
+.spending__list,
+.spending__tasks {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.spending__list > li,
+.spending__tasks > li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.spending__cap {
+  display: grid;
+  gap: 6px;
+}
+
+.spending__cap-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: flex-end;
+}
+
+.spending__tasks > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+}
+
+.spending__task-who {
+  font-weight: 600;
+}
+
 .toggle {
   display: flex;
   gap: 12px;

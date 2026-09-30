@@ -14,10 +14,23 @@ use serde_json::json;
 /// The settings a problem can be about.
 pub const GUARD: &str = plenipo_guard::SETTING;
 pub const ROUTING: &str = plenipo_router::SETTING;
+pub const SPENDING: &str = plenipo_ledger::spending::SETTING;
 
 /// The settings that cannot be read now.
 pub fn problems(guard: &Guard, router: &Router) -> Vec<SettingsProblem> {
     let mut out = Vec::new();
+    // The spending caps (Phase 16 Wave 3, ADR-085): unreadable, no paid task starts.
+    if let Err(e) = guard.ledger().has_business_cap() {
+        log::error!("the spending caps cannot be read: {e}");
+        out.push(SettingsProblem {
+            key: SPENDING.into(),
+            label: "Spending caps".into(),
+            message: "Plenipo could not read your spending caps, so no paid AI key can be used \
+                      until this is fixed. What was spent is kept either way. Restore a backup of \
+                      the Ledger from Diagnostics, or reset spending caps and set them again."
+                .into(),
+        });
+    }
     if let Err(e) = guard.config() {
         log::error!("the permission settings cannot be read: {e}");
         out.push(SettingsProblem {
@@ -49,6 +62,9 @@ pub fn reset(ledger: &Ledger, guard: &Guard, key: &str) -> Result<Option<String>
     let fresh = match key {
         GUARD => GuardConfig::with_defaults().to_value(),
         ROUTING => serde_json::to_value(RoutingConfig::default()).map_err(|e| e.to_string())?,
+        // No caps: every paid task is refused until the owner sets the business's cap again.
+        // What was spent stays in the spending records, which a reset never touches.
+        SPENDING => json!({}),
         _ => return Err("Those are not settings Plenipo can reset.".into()),
     };
     let backup = if ledger.path().is_some() {
@@ -64,10 +80,10 @@ pub fn reset(ledger: &Ledger, guard: &Guard, key: &str) -> Result<Option<String>
     } else {
         None
     };
-    let event = if key == GUARD {
-        "guard.settings_reset"
-    } else {
-        "routing.settings_reset"
+    let event = match key {
+        GUARD => "guard.settings_reset",
+        SPENDING => "spending.settings_reset",
+        _ => "routing.settings_reset",
     };
     ledger
         .update_setting(key, event, "owner", |_damaged| {
@@ -117,5 +133,42 @@ mod tests {
         assert_eq!(kept.setting(GUARD).unwrap().unwrap()["sets"], "not a list");
         // Unknown settings are refused.
         assert!(reset(&ledger, &guard, "organization").is_err());
+    }
+
+    #[test]
+    fn damaged_spending_caps_are_reported_and_reset_to_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = Arc::new(Ledger::open(&dir.path().join("ledger").join("plenipo.db")).unwrap());
+        let guard = Guard::new(ledger.clone());
+        let router = Router::with_tools(ledger.clone(), Arc::new(Vec::new));
+        let now = plenipo_ledger::now_ms();
+        ledger
+            .set_spending_cap(
+                &plenipo_ledger::CapCovers::Business,
+                50_000_000,
+                "owner",
+                now,
+            )
+            .unwrap();
+        // A later version's cap kind (a downgrade), or a damaged setting.
+        ledger
+            .put_setting(
+                SPENDING,
+                &json!({ "caps": [{ "covers": { "kind": "everyone" } }] }),
+                "test",
+            )
+            .unwrap();
+        let found = problems(&guard, &router);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].key, SPENDING);
+        assert!(found[0].message.contains("no paid AI key can be used"));
+        // Reset: no caps, so paid work waits until the owner sets the business's cap again.
+        reset(&ledger, &guard, SPENDING).unwrap();
+        assert!(problems(&guard, &router).is_empty());
+        assert!(!ledger.has_business_cap().unwrap());
+        assert!(!ledger
+            .events_of_types(&["spending.settings_reset"], 5)
+            .unwrap()
+            .is_empty());
     }
 }

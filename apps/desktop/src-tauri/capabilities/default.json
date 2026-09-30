@@ -176,6 +176,9 @@
     "allow-save-diagnostics-file",
     "allow-get-update-status",
     "allow-check-for-updates",
-    "allow-install-update"
+    "allow-install-update",
+    "allow-get-spending",
+    "allow-set-spending-cap",
+    "allow-remove-spending-cap"
   ]
 }

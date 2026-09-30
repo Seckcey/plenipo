@@ -77,6 +77,24 @@ describe("Settings → Switches", () => {
     );
   });
 
+  it("keeps paid AI keys off until you turn them on (Phase 16 Wave 3)", async () => {
+    const on = samplePermissions();
+    on.settings.switches.paidAiKeys = true;
+    api.setSwitches.mockResolvedValue(on);
+    render(<SwitchSettings />);
+    const paid = await screen.findByRole("switch", { name: "Let workers use paid AI keys" });
+    expect(paid).toHaveAttribute("aria-checked", "false");
+    expect(paid).toHaveAccessibleDescription(/only within your spending caps/);
+    await userEvent.setup().click(paid);
+    expect(api.setSwitches).toHaveBeenCalledWith({
+      ...samplePermissions().settings.switches,
+      paidAiKeys: true,
+    });
+    expect(
+      await screen.findByRole("switch", { name: "Let workers use paid AI keys" }),
+    ).toHaveAttribute("aria-checked", "true");
+  });
+
   it("turns on Update AI tools by themselves, the same setting as the AI tools page's (Phase 19)", async () => {
     api.setAiToolsAutoUpdate.mockResolvedValue(aiPage([aiTool("grok")], { autoUpdate: true }));
     render(<SwitchSettings />);

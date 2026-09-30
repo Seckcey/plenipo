@@ -42,6 +42,9 @@ pub enum NoticeKind {
     /// Plenipo itself: it recovered from closing unexpectedly, or a new version is ready
     /// (Phase 13).
     Plenipo,
+    /// Spending on paid AI keys (Phase 16 Wave 3, ADR-085): 80% of a spending cap is used, or a
+    /// cap stopped paid work.
+    Spending,
 }
 
 /// The owner's choices for pop-up notices (Settings → Notifications).
@@ -56,6 +59,8 @@ pub struct NoticeSettings {
     pub lessons: bool,
     /// Plenipo itself: it closed unexpectedly, or a new version is ready (Phase 13).
     pub plenipo: bool,
+    /// Spending caps: a warning at 80%, or paid work stopped (Phase 16 Wave 3).
+    pub spending: bool,
     /// Only while Plenipo's window is not in front.
     pub only_when_away: bool,
 }
@@ -69,6 +74,7 @@ impl Default for NoticeSettings {
             finished: true,
             lessons: true,
             plenipo: true,
+            spending: true,
             only_when_away: true,
         }
     }
@@ -84,6 +90,7 @@ impl NoticeSettings {
             NoticeKind::Finished => self.finished,
             NoticeKind::Lessons => self.lessons,
             NoticeKind::Plenipo => self.plenipo,
+            NoticeKind::Spending => self.spending,
         }
     }
 }
@@ -122,6 +129,8 @@ pub fn may_notify(event_type: &str) -> bool {
             | "ai_tool.updated"
             | "ai_tool.update_failed"
             | "ai_tool.update_by_hand"
+            | "spending.warning"
+            | "spending.stopped"
     )
 }
 
@@ -167,6 +176,41 @@ fn recovered_notice(p: &Value) -> Notice {
         }
     };
     Notice::new(NoticeKind::Plenipo, title, body)
+}
+
+/// 80% of a spending cap is used this month.
+fn spending_warning(p: &Value) -> Notice {
+    let label = text(p, "label").unwrap_or("A spending cap");
+    let spent = crate::spending::dollars(p["spentMicros"].as_u64().unwrap_or(0));
+    let cap = crate::spending::dollars(p["capMicros"].as_u64().unwrap_or(0));
+    Notice::new(
+        NoticeKind::Spending,
+        format!(
+            "{}% of a spending cap is used",
+            p["percent"].as_u64().unwrap_or(80)
+        ),
+        format!("{label}: {spent} of {cap} this month. Paid AI work stops at the cap."),
+    )
+}
+
+/// A spending cap stopped paid work this month.
+fn spending_stopped(p: &Value) -> Notice {
+    let label = text(p, "label").unwrap_or("A spending cap");
+    let why = if text(p, "why") == Some("full") {
+        format!(
+            "{label} used its whole cap ({}).",
+            crate::spending::dollars(p["capMicros"].as_u64().unwrap_or(0))
+        )
+    } else if p["covers"]["kind"] == "business" {
+        "A paid task did not fit under the business's cap.".to_owned()
+    } else {
+        format!("A paid task for {label} did not fit under its cap.")
+    };
+    Notice::new(
+        NoticeKind::Spending,
+        "Paid AI work stopped",
+        format!("{why} Raise the cap in Settings → Spending caps, or wait for the new month."),
+    )
 }
 
 /// "shop.example" from "https://shop.example/cart".
@@ -290,6 +334,9 @@ impl Ledger {
                     _ => None,
                 }
             }
+            // Phase 16 Wave 3 (ADR-085): once a month per cap, each.
+            "spending.warning" => Some(spending_warning(p)),
+            "spending.stopped" => Some(spending_stopped(p)),
             "lesson.added" if text(p, "state") == Some("waiting") => Some(Notice::new(
                 NoticeKind::Lessons,
                 format!(
@@ -438,6 +485,7 @@ pub fn combine(mut notices: Vec<Notice>) -> Option<Notice> {
             NoticeKind::Finished => format!("{n} objectives are finished"),
             NoticeKind::Lessons => format!("Workers learned {n} things"),
             NoticeKind::Plenipo => format!("{n} things about Plenipo itself"),
+            NoticeKind::Spending => format!("{n} things about paid AI spending"),
         }
     } else {
         format!("{n} things need you")
@@ -447,7 +495,12 @@ pub fn combine(mut notices: Vec<Notice>) -> Option<Notice> {
         .iter()
         .take(MAX_LISTED)
         .map(|x| {
-            if same && !matches!(kind, NoticeKind::Problems | NoticeKind::Plenipo) {
+            if same
+                && !matches!(
+                    kind,
+                    NoticeKind::Problems | NoticeKind::Plenipo | NoticeKind::Spending
+                )
+            {
                 line(x.body.lines().next().unwrap_or(""))
             } else {
                 line(&x.title)
@@ -875,5 +928,68 @@ mod tests {
         // Settings kept by 1.8.0 (without the new choice) read with it on.
         let old: NoticeSettings = serde_json::from_value(json!({ "approvals": false })).unwrap();
         assert!(old.plenipo && !old.approvals);
+    }
+
+    #[test]
+    fn a_spending_cap_warns_at_80_percent_and_says_when_paid_work_stopped() {
+        use crate::spending::{Bill, CapCovers, PaidTask, PricedBy, MICROS_PER_DOLLAR as D};
+        let l = ledger();
+        let now = crate::spending::month_start_ms(2026, 10) + 1;
+        l.set_spending_cap(&CapCovers::Business, 10 * D, "owner", now)
+            .unwrap();
+        let paid = |most: u64| PaidTask {
+            runtime: "openrouter".into(),
+            model: "moonshotai/kimi-k3".into(),
+            most_micros: most,
+            ..PaidTask::default()
+        };
+        let set = l.set_aside_spending(&paid(8 * D), now).unwrap().unwrap();
+        l.settle_spending(
+            &set.record_id,
+            &Bill::Spent {
+                micros: 8 * D,
+                priced_by: PricedBy::Service,
+            },
+            now,
+        )
+        .unwrap();
+        let find = |kind: &str| {
+            l.recent_events(100)
+                .unwrap()
+                .into_iter()
+                .find(|e| e.event_type == kind)
+                .unwrap()
+        };
+        let warning = find("spending.warning");
+        assert!(may_notify(&warning.event_type));
+        let n = l.notice_for(&warning, &tool).unwrap().unwrap();
+        assert_eq!(
+            n,
+            note(
+                NoticeKind::Spending,
+                "80% of a spending cap is used",
+                "The business: $8.00 of $10.00 this month. Paid AI work stops at the cap."
+            )
+        );
+        assert!(l.set_aside_spending(&paid(3 * D), now).unwrap().is_err());
+        let n = l
+            .notice_for(&find("spending.stopped"), &tool)
+            .unwrap()
+            .unwrap();
+        assert_eq!(n.kind, NoticeKind::Spending);
+        assert_eq!(n.title, "Paid AI work stopped");
+        assert!(
+            n.body
+                .starts_with("A paid task did not fit under the business's cap."),
+            "{}",
+            n.body
+        );
+        // The owner can turn these off like any other kind.
+        let off = NoticeSettings {
+            spending: false,
+            ..NoticeSettings::default()
+        };
+        assert!(!off.wants(NoticeKind::Spending));
+        assert!(NoticeSettings::default().wants(NoticeKind::Spending));
     }
 }

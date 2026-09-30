@@ -903,14 +903,15 @@ impl AiTools {
 
     // ---- How it is paid for (ADR-060 §4) -----------------------------------------------------------
 
-    /// Only a subscription until spending caps exist (Phase 16, ADR-036 §2.2).
+    /// Only a subscription until paid keys can be saved (Phase 16 Wave 3, ADR-036 §2.2): the
+    /// spending caps they need come first.
     pub fn set_payment(&self, runtime_id: &str, method: PaymentMethod) -> Result<AiToolsPage> {
         self.adapter(runtime_id)?;
         match method {
             PaymentMethod::Subscription => Ok(self.page()),
             PaymentMethod::PaidKey => Err(BrokerError::Invalid(
-                "Paying per use with a paid AI key comes with spending caps in a later version \
-                 of Plenipo. Until then, each AI tool uses your subscription."
+                "Paying per use with a paid AI key comes in a later update of Plenipo, within \
+                 your spending caps. Until then, each AI tool uses your subscription."
                     .into(),
             )),
         }

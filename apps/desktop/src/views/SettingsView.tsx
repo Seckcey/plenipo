@@ -19,6 +19,7 @@ import {
 } from "../settings/InfoSettings";
 import { ConnectionsSettings } from "../settings/connections/ConnectionsSettings";
 import { NotificationSettings } from "../settings/NotificationSettings";
+import { SpendingSettings } from "../spending/SpendingSettings";
 import {
   SETTINGS_SECTIONS,
   SETTINGS_SECTION_KEY,
@@ -103,6 +104,7 @@ export function SettingsView({
           <p className="view__lead">{meta.lead}</p>
           {current === "aiTools" && <AiToolsSettings go={go} />}
           {current === "aiModels" && <ModelSettings go={go} />}
+          {current === "spending" && <SpendingSettings go={go} />}
           {current === "permissions" && <PermissionSettings />}
           {current === "organization" && <OrganizationSettings go={go} />}
           {current === "servers" && <ServerSettings />}

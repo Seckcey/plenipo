@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-spending"
+description = "Enables the get_spending command without any pre-configured scope."
+commands.allow = ["get_spending"]
+
+[[permission]]
+identifier = "deny-get-spending"
+description = "Denies the get_spending command without any pre-configured scope."
+commands.deny = ["get_spending"]

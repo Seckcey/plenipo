@@ -241,6 +241,11 @@ pub struct Switches {
     /// Remote computers over SSH (Phase 11, ADR-025). Off (the default): no worker connects to
     /// any server, whatever its permissions and the server's own settings.
     pub servers: bool,
+    /// "Let workers use paid AI keys" (Phase 16 Wave 3, ADR-085). Off (the default): Plenipo
+    /// uses only the owner's subscriptions, exactly as before; no paid key can be saved and no
+    /// paid route is offered or run. On: workers may use the paid keys the owner saved, within
+    /// the owner's spending caps (the business cap is needed first).
+    pub paid_ai_keys: bool,
 }
 
 impl Default for Switches {
@@ -254,6 +259,7 @@ impl Default for Switches {
             captcha_to_owner: true,
             screenshots: true,
             servers: false,
+            paid_ai_keys: false,
         }
     }
 }
@@ -485,4 +491,23 @@ pub struct GuardSettings {
     pub websites: crate::websites::WebsiteRules,
     /// The owner's on/off switches (ADR-023).
     pub switches: Switches,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paid_ai_keys_start_off_and_older_settings_read_as_off() {
+        assert!(!Switches::default().paid_ai_keys);
+        // A setting saved before Phase 16 Wave 3 has no such switch: it reads as off.
+        let older: Switches =
+            serde_json::from_value(serde_json::json!({ "browser": true, "servers": true }))
+                .unwrap();
+        assert!(!older.paid_ai_keys);
+        assert!(older.servers);
+        let on: Switches =
+            serde_json::from_value(serde_json::json!({ "paidAiKeys": true })).unwrap();
+        assert!(on.paid_ai_keys);
+    }
 }

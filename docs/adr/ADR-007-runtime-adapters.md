@@ -2,6 +2,9 @@
 
 - **Status:** Accepted (owner, 2026-09-26). [ADR-015](ADR-015-acp-ai-tools.md) (running AI tools
   over ACP) adds a second way to run a task, for AI tools whose one-task mode cannot read stdin.
+- **Amended by:** [ADR-085 (paid AI keys with spending caps)](ADR-085-paid-ai-keys-with-spending-caps.md) (§4):
+  subscription AI tools unchanged; a paid helper gets the owner's saved key from the Vault on its
+  standard input, for its own task only.
 - **Date:** 2026-09-26
 - **Phase:** 3
 

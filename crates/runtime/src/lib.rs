@@ -17,6 +17,7 @@ pub mod error;
 mod output;
 pub mod pipes;
 pub mod policy;
+pub mod pricing;
 pub mod profile;
 pub mod store;
 mod supervisor;

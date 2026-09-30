@@ -335,3 +335,13 @@ export type { AddOnChange } from "./generated/AddOnChange";
 export type { AddOnInput } from "./generated/AddOnInput";
 export type { AddOnTool } from "./generated/AddOnTool";
 export type { ToolMark } from "./generated/ToolMark";
+// Phase 16 Wave 3 (ADR-085, paid AI keys with spending caps): spending caps and prices.
+export type { CapCovers } from "./generated/CapCovers";
+export type { CapState } from "./generated/CapState";
+export type { CapStatus } from "./generated/CapStatus";
+export type { Price } from "./generated/Price";
+export type { PricedBy } from "./generated/PricedBy";
+export type { SpendingCap } from "./generated/SpendingCap";
+export type { SpendingPage } from "./generated/SpendingPage";
+export type { SpendingRecord } from "./generated/SpendingRecord";
+export type { SpendingState } from "./generated/SpendingState";

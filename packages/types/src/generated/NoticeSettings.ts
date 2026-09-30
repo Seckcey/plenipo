@@ -9,6 +9,10 @@ export type NoticeSettings = { approvals: boolean, checks: boolean, problems: bo
  */
 plenipo: boolean, 
 /**
+ * Spending caps: a warning at 80%, or paid work stopped (Phase 16 Wave 3).
+ */
+spending: boolean, 
+/**
  * Only while Plenipo's window is not in front.
  */
 onlyWhenAway: boolean, };

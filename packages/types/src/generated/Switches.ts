@@ -44,4 +44,11 @@ screenshots: boolean,
  * Remote computers over SSH (Phase 11, ADR-025). Off (the default): no worker connects to
  * any server, whatever its permissions and the server's own settings.
  */
-servers: boolean, };
+servers: boolean, 
+/**
+ * "Let workers use paid AI keys" (Phase 16 Wave 3, ADR-085). Off (the default): Plenipo
+ * uses only the owner's subscriptions, exactly as before; no paid key can be saved and no
+ * paid route is offered or run. On: workers may use the paid keys the owner saved, within
+ * the owner's spending caps (the business cap is needed first).
+ */
+paidAiKeys: boolean, };
