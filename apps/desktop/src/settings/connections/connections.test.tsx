@@ -579,7 +579,9 @@ describe("Settings → Connections", () => {
     const user = userEvent.setup();
     await user.type(box, "plenipo-test-hubspot-typed-key");
     await user.click(save);
-    expect(api.saveConnectionKey).toHaveBeenCalledWith("hubspot", { key: "plenipo-test-hubspot-typed-key" });
+    expect(api.saveConnectionKey).toHaveBeenCalledWith("hubspot", {
+      key: "plenipo-test-hubspot-typed-key",
+    });
     expect(await within(hubspot).findByText(/Connected to/)).toHaveTextContent(
       "Connected to HubSpot account 24681357.",
     );
@@ -601,7 +603,10 @@ describe("Settings → Connections", () => {
     );
     render(<ConnectionsSettings go={go} />);
     const hubspot = await screen.findByRole("listitem", { name: "HubSpot" });
-    await user.type(within(hubspot).getByLabelText("Service key"), "plenipo-test-hubspot-typed-key");
+    await user.type(
+      within(hubspot).getByLabelText("Service key"),
+      "plenipo-test-hubspot-typed-key",
+    );
     expect(within(hubspot).getByRole("button", { name: "Save and check" })).toBeDisabled();
     cleanup();
     api.getConnections.mockResolvedValue(samplePage(sampleCard(), { vaultAvailable: false }));
