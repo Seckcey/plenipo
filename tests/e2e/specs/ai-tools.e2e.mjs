@@ -174,6 +174,8 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     const { browser } = app;
     await waitForShell(browser);
     await openAiTools(browser);
+    // A card's rows wait for the page's own part (updates, payment) before they say anything.
+    await waitForText(browser, card("Codex"), "Installed 0.99.0");
     const codex = await textOf(browser, card("Codex"));
     assert.match(codex, /Installed 0\.99\.0/);
     assert.match(codex, /Subscription/);
