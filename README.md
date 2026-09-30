@@ -165,6 +165,12 @@ project conventions, and licensing terms.
 
 ## Documentation
 
+Read the [terms of service](apps/website/legal/terms.md) and
+[privacy statement](apps/website/legal/privacy.md). The same statements are available on the
+website: [Terms](https://plenipo.8westit.com/terms/) ·
+[Privacy](https://plenipo.8westit.com/privacy/). For private privacy or legal requests, email
+[admin@8westventures.com](mailto:admin@8westventures.com).
+
 | For users                                       | For contributors                                        |
 | ----------------------------------------------- | ------------------------------------------------------- |
 | [FAQ](docs/faq.md)                              | [Architecture](docs/architecture/overview.md)           |

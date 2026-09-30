@@ -2,7 +2,8 @@
 // The notes are our own Markdown, but the page never trusts them as HTML: every character is
 // escaped, and only the few shapes release notes use are rendered — headings, paragraphs, lists
 // (one level deep), code blocks, **bold**, `code`, and links. A link that is not http(s) after
-// resolving against the release on GitHub is shown as plain text.
+// resolving against the release on GitHub is shown as plain text. The shared
+// document renderer also supports mailto links for legal contact addresses.
 
 const REPOSITORY = "https://github.com/Seckcey/plenipo";
 
@@ -15,17 +16,21 @@ export function escapeHtml(text) {
     .replaceAll("'", "&#39;");
 }
 
-function safeUrl(target, base) {
+function safeUrl(target, base, allowMailto = false) {
   try {
     const url = new URL(target, base);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+    return url.protocol === "https:" ||
+      url.protocol === "http:" ||
+      (allowMailto && url.protocol === "mailto:")
+      ? url.href
+      : null;
   } catch {
     return null;
   }
 }
 
 // `code`, **bold**, and [text](url); everything else is escaped text.
-function inline(text, base) {
+function inline(text, base, allowMailto = false) {
   const pattern = /`([^`]+)`|\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)\s]+)\)/g;
   let html = "";
   let last = 0;
@@ -33,10 +38,12 @@ function inline(text, base) {
     html += escapeHtml(text.slice(last, match.index));
     const [, code, bold, label, target] = match;
     if (code !== undefined) html += `<code>${escapeHtml(code)}</code>`;
-    else if (bold !== undefined) html += `<strong>${inline(bold, base)}</strong>`;
+    else if (bold !== undefined) html += `<strong>${inline(bold, base, allowMailto)}</strong>`;
     else {
-      const url = safeUrl(target, base);
-      html += url ? `<a href="${escapeHtml(url)}">${inline(label, base)}</a>` : inline(label, base);
+      const url = safeUrl(target, base, allowMailto);
+      html += url
+        ? `<a href="${escapeHtml(url)}">${inline(label, base, allowMailto)}</a>`
+        : inline(label, base, allowMailto);
     }
     last = match.index + match[0].length;
   }
@@ -100,14 +107,14 @@ function blocks(markdown) {
   return result;
 }
 
-function render(parts, base) {
+function render(parts, base, { headingOffset = 2, maxHeading = 5, allowMailto = false } = {}) {
   return parts
     .map((part) => {
       if (part.type === "heading") {
         // The section's own heading is an h2 and the release title an h3, so the notes' "##"
         // sections are h4 and anything deeper h5.
-        const level = Math.min(part.level + 2, 5);
-        return `<h${level}>${inline(part.text, base)}</h${level}>`;
+        const level = Math.min(part.level + headingOffset, maxHeading);
+        return `<h${level}>${inline(part.text, base, allowMailto)}</h${level}>`;
       }
       if (part.type === "code") return `<pre><code>${escapeHtml(part.text)}</code></pre>`;
       if (part.type === "list") {
@@ -115,16 +122,26 @@ function render(parts, base) {
         const items = part.items
           .map((entry) => {
             const children = entry.children.length
-              ? `<ul>${entry.children.map((child) => `<li>${inline(child, base)}</li>`).join("")}</ul>`
+              ? `<ul>${entry.children.map((child) => `<li>${inline(child, base, allowMailto)}</li>`).join("")}</ul>`
               : "";
-            return `<li>${inline(entry.text, base)}${children}</li>`;
+            return `<li>${inline(entry.text, base, allowMailto)}${children}</li>`;
           })
           .join("");
         return `<${tag}>${items}</${tag}>`;
       }
-      return `<p>${inline(part.text, base)}</p>`;
+      return `<p>${inline(part.text, base, allowMailto)}</p>`;
     })
     .join("\n");
+}
+
+// Complete documents retain their h1/h2 structure. Email links are allowed only
+// here; release notes keep their original http(s)-only link policy.
+export function renderDocument(markdown, base) {
+  return render(blocks(markdown), base, {
+    headingOffset: 0,
+    maxHeading: 6,
+    allowMailto: true,
+  });
 }
 
 // The notes' first line is "# vX.Y.Z — Title". The intro (everything before the first "##")

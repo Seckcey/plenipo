@@ -4,7 +4,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { buildWebsite, releaseNotes, rootPackage } from "./build.mjs";
-import { renderReleaseNotes } from "./release-notes.mjs";
+import { renderDocument, renderReleaseNotes } from "./release-notes.mjs";
+
+test("documents preserve heading structure and private email links while escaping unsafe content", () => {
+  const html = renderDocument(
+    "# Privacy statement\n\n## Contact\n\n[Email us](mailto:admin@8westventures.com)\n\n<script>alert(1)</script> [bad](javascript:alert(1))",
+    "https://github.com/Seckcey/plenipo/blob/main/apps/website/legal/privacy.md",
+  );
+  assert.ok(html.includes("<h1>Privacy statement</h1>") && html.includes("<h2>Contact</h2>"));
+  assert.ok(html.includes('<a href="mailto:admin@8westventures.com">Email us</a>'));
+  assert.ok(!html.includes("<script>") && !html.includes("javascript:"));
+  assert.ok(html.includes("&lt;script&gt;alert(1)&lt;/script&gt;"));
+  const notes = renderReleaseNotes(
+    "# v1.0.0\n\n[Email us](mailto:admin@8westventures.com)",
+    "1.0.0",
+  );
+  assert.ok(!notes.includes('href="mailto:'), "Release note link rules stay unchanged");
+});
 
 test("release notes render their title, intro, and the rest under Read the full release notes", () => {
   const html = renderReleaseNotes(

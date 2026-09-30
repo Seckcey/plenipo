@@ -13,6 +13,10 @@ providers process prompts and task context through their services. Local-first d
 offline inference or that no project content leaves the computer. Provider terms, subscriptions,
 availability, and usage limits still apply.
 
+See the [privacy statement](../apps/website/legal/privacy.md) for local data, provider requests,
+website logs and analytics, support information, and deletion choices. The
+[terms of service](../apps/website/legal/terms.md) explain responsibilities and the software license.
+
 The Ollama adapter currently uses **Ollama cloud models**, not local models. Its workers answer
 in text and cannot read files or run programs. See the [AI tool setup guide](development/setup.md#3-ai-tools-claude-code-codex-grok-kimi-ollama-antigravity-and-github-copilot-optional).
 

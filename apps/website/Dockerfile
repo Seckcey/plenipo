@@ -6,6 +6,7 @@ COPY index.html styles.css main.js ./
 COPY scripts ./scripts
 COPY src ./src
 COPY public ./public
+COPY legal ./legal
 # The shown release's notes, put here by the automatic update (deploy/auto-release.sh). Empty in
 # the repository (only its README); the build then shows a link to the notes on GitHub.
 COPY release-notes ./release-notes
