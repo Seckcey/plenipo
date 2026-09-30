@@ -209,6 +209,10 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
+      # The repository's own scripts and clippy on Windows too: a path written with "\" or code
+      # used only on Unix is caught here, not only on the owner's PC.
+      - run: node --test scripts/*.test.mjs
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       # Phase 13 (ADR-038): this run's copy trusts a throwaway updater key and looks for updates
       # only on this machine (127.0.0.1), so the installer tests can install an update the way

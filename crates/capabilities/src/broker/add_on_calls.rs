@@ -158,6 +158,9 @@ fn working_dir(add_on: &str) -> std::io::Result<PathBuf> {
         "plenipo-add-on-{add_on}-{}",
         uuid::Uuid::new_v4().simple()
     ));
+    // Only Unix sets the folder's permissions here; on Windows the folder takes the permissions
+    // of the user's own temporary folder, so the builder is never changed there.
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
