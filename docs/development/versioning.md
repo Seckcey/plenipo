@@ -69,6 +69,7 @@ After the MVP:
 | Phase 16 Wave 2 — GitHub Copilot; Cursor's finding (ADR-083, 084)                    | `1.15.0` |
 | Phase 21 — Panels, files, and more than one organization (ADR-091–094)               | `1.16.0` |
 | Phase 16 Wave 3 — Paid AI keys, spending caps, OpenRouter, direct keys (ADR-085–087) | `1.17.0` |
+| Phase 11A — Free and Pro editions and the license key (ADR-021, 022, 100–118)        | `1.18.0` |
 
 ## Releasing
 
