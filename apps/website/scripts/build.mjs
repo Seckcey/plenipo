@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { noReleaseNotes, renderReleaseNotes } from "./release-notes.mjs";
+import { buildLegalPages } from "./legal.mjs";
 
 export const websiteRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const rootPackage = resolve(websiteRoot, "..", "..", "package.json");
@@ -103,12 +104,15 @@ export async function buildWebsite(output = resolve(websiteRoot, "dist"), option
   html = html
     .replace("__DEMO_SCRIPT__", `/demo/${script.split(/[\\/]/).pop()}`)
     .replace("__DEMO_STYLE__", `/demo/${style.split(/[\\/]/).pop()}`);
+  let stylesheet;
   for (const file of ["styles.css", "main.js"]) {
     const content = await readFile(resolve(websiteRoot, file));
     const hash = createHash("sha256").update(content).digest("hex").slice(0, 12);
     await writeFile(resolve(output, file), content);
     html = html.replaceAll(`"/${file}"`, `"/${file}?v=${hash}"`);
+    if (file === "styles.css") stylesheet = `/${file}?v=${hash}`;
   }
+  await buildLegalPages(websiteRoot, output, stylesheet);
   await writeFile(resolve(output, "index.html"), html);
   const structuredData = JSON.parse(
     html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1],

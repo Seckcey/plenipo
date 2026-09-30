@@ -37,6 +37,33 @@ test("production build includes every local asset and valid internal destination
     for (const file of ["robots.txt", "sitemap.xml", "site.webmanifest", "main.js", "styles.css"]) {
       await access(join(output, file));
     }
+    // Policies must be complete static pages in every build, including a
+    // version override used by the standalone image; no JS or demo is needed.
+    for (const [slug, title] of [
+      ["terms", "Terms of service"],
+      ["privacy", "Privacy statement"],
+    ]) {
+      const page = await readFile(join(output, slug, "index.html"), "utf8");
+      assert.ok(html.includes(`href="/${slug}/"`), `Homepage is missing ${slug}`);
+      assert.ok(page.includes(`<h1>${title}</h1>`));
+      assert.equal([...page.matchAll(/<h1\b/g)].length, 1);
+      assert.ok(page.includes(`href="https://plenipo.8westit.com/${slug}/"`));
+      assert.ok(page.includes('href="mailto:admin@8westventures.com"'));
+      assert.ok(page.includes('href="/terms/"') && page.includes('href="/privacy/"'));
+      assert.ok(!page.includes("<script"), "Reading a policy must not require scripts");
+      for (const [, url] of page.matchAll(/(?:href|src)="([^"]+)"/g)) {
+        if (url.startsWith("/") && !url.startsWith("//")) {
+          await access(join(output, url.slice(1).split(/[?#]/)[0]));
+        }
+      }
+      const sitemap = await readFile(join(output, "sitemap.xml"), "utf8");
+      assert.ok(sitemap.includes(`https://plenipo.8westit.com/${slug}/`));
+      assert.equal(
+        page.match(/href="(\/styles\.css\?v=[^"]+)"/)?.[1],
+        html.match(/href="(\/styles\.css\?v=[^"]+)"/)?.[1],
+        "Policies share the current homepage stylesheet",
+      );
+    }
     const manifest = JSON.parse(await readFile(join(output, "site.webmanifest"), "utf8"));
     for (const icon of manifest.icons) {
       await access(join(output, icon.src.slice(1)));
@@ -123,6 +150,8 @@ test("a container build fills the page with the version it is given", async () =
     assert.equal([...html.matchAll(/data-version>v9\.8\.7</g)].length, 2);
     const release = JSON.parse(await readFile(join(output, "release.json"), "utf8"));
     assert.equal(release.version, "9.8.7");
+    await access(join(output, "terms", "index.html"));
+    await access(join(output, "privacy", "index.html"));
   } finally {
     await rm(output, { recursive: true, force: true });
   }
