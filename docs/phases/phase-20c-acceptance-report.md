@@ -189,8 +189,10 @@ password goes only to that host).
     of a test payment. Check the card shows the amount, the currency, the customer, and **Test
     mode**; approve it; then approve it again in Stripe's Dashboard if the key is tagged for an
     agent.
-  - Website: make a WordPress user for Plenipo (Editor, or Shop Manager), save the address, user,
-    and Application Password, and let a worker write a draft and publish it; approve it.
+  - Website: make a WordPress user for Plenipo (a Shop Manager if you want the store; an Editor
+    otherwise), save the address, user, and Application Password, and let a worker write a draft
+    and publish it; approve it. Then add a WooCommerce key made for that Shop Manager in **Add a
+    WooCommerce key** (v1.14.3).
   - Add-on tools: add a program from a publisher you trust, switch it on, mark one tool
     **Reading**, and let a worker use it.
   - Look in Activity: every call is there, with no copy of a contact, an order, or a payment.
@@ -202,6 +204,29 @@ password goes only to that host).
 - **Before workers read clients' CRM, payments, or orders:** check each AI tool's plan does not
   train on your data, and your agreements with clients.
 - **Before selling Pro with these connections:** a lawyer reads the services' terms.
+
+## After release: v1.14.3
+
+The owner tried the website on Windows with 1.14.2 and found two problems, fixed in v1.14.3:
+
+- **No way to add a WooCommerce key once the site was connected**, short of typing the Application
+  Password again under **Replace the key** (WordPress shows it only once). The connected card now
+  has its own **Add a WooCommerce key** section (**Replace the WooCommerce key** once one is kept):
+  only the key and its secret, checked with the Application Password already in the Vault.
+  `save_connection_key` takes just `storeKey` and `storeSecret` while the site is connected, and
+  refuses them before it is.
+- **Every refusal said "WooCommerce did not accept that key and secret"**, even for a good key.
+  The likely cause was the key steps: they allowed an **Editor**, and a WooCommerce key can do only
+  what its WordPress user may, so an Editor's key is accepted but may not see orders (WooCommerce
+  answers `woocommerce_rest_cannot_view`, 403). The card now names the reason: the key's user may
+  not see the store (make it a Shop Manager), a wrong secret, an unknown key, a Write-only key, a
+  key WooCommerce never saw, or a firewall. Part D of the key steps now says the store needs a
+  Shop Manager either way.
+
+Tests: the stand-in site now ties each WooCommerce key to its WordPress user (an Editor's key is
+refused as WooCommerce does); a new Rust test adds a key later and checks each refusal; two new
+screen tests; and the real-app test now connects the site first, sees an Editor's key refused, and
+then adds the right key in the new section (new screenshot `keys-woocommerce-refused.png`).
 
 ## 8. Test totals and CI
 

@@ -45,7 +45,7 @@ function whereWords(service: Service): string {
     case "stripe":
       return "Make a restricted key in Stripe (Developers → API keys → Create restricted key) with only the permissions below, and choose Authorizing agent access when Stripe asks what it is for. Start with a test-mode key (it starts rk_test_). A live key moves real money.";
     default:
-      return "Make a WordPress user just for Plenipo (Editor, or Shop Manager for the store), then an Application Password for it (Users → Profile → Application Passwords). It can do everything that user can. A WooCommerce key (WooCommerce → Settings → Advanced → REST API) is optional: a Read key keeps the store read-only.";
+      return "Make a WordPress user just for Plenipo (Editor for posts and pages; Shop Manager for the store too), then an Application Password for it (Users → Profile → Application Passwords). It can do everything that user can. A WooCommerce key (WooCommerce → Settings → Advanced → REST API) is optional: a Read key keeps the store read-only. A key can do only what its WordPress user may, so make it for a Shop Manager.";
   }
 }
 
@@ -53,7 +53,8 @@ function whereWords(service: Service): string {
  * **Save and check** a key (ADR-071 §1): HubSpot's service key, Stripe's restricted key, or the
  * website's address, user, and Application Password (and an optional WooCommerce key). Plenipo
  * checks it with one reading call and keeps it only in the Vault; it is never shown again. While
- * connected, **Replace the key** takes a new key for the same account.
+ * connected, **Replace the key** takes a new key for the same account, and the website's
+ * WooCommerce key is added or replaced on its own ({@link StoreKeyForm}).
  */
 export function KeyForm({
   card,
@@ -90,80 +91,154 @@ export function KeyForm({
         site: site.trim(),
         user: user.trim(),
         password,
-        ...(storeKey.trim() || storeSecret.trim()
+        ...(!connected && (storeKey.trim() || storeSecret.trim())
           ? { storeKey: storeKey.trim(), storeSecret: storeSecret.trim() }
           : {}),
       }
     : { key: key.trim() };
   return (
-    <section className="connection__section" aria-labelledby={`${c.id}-key`}>
-      <h4 id={`${c.id}-key`}>{connected ? "Replace the key" : "Its key"}</h4>
-      <p className="muted">
-        {whereWords(service)} The steps: {KEY_STEPS}. What you type goes only to {page.vaultLabel},
-        and is never shown again. Never paste a key into a chat.
-      </p>
-      {card.keyNeeds.length > 0 && (
+    <>
+      <section className="connection__section" aria-labelledby={`${c.id}-key`}>
+        <h4 id={`${c.id}-key`}>{connected ? "Replace the key" : "Its key"}</h4>
         <p className="muted">
-          Give the key these permissions in {service === "hubspot" ? "HubSpot" : "Stripe"}, for the
-          parts you turned on: <span className="path">{card.keyNeeds.join(", ")}</span>
-          {service === "hubspot" && " (a note on any record needs crm.objects.contacts.write)"}.
+          {whereWords(service)} The steps: {KEY_STEPS}. What you type goes only to {page.vaultLabel}
+          , and is never shown again. Never paste a key into a chat.
         </p>
-      )}
+        {card.keyNeeds.length > 0 && (
+          <p className="muted">
+            Give the key these permissions in {service === "hubspot" ? "HubSpot" : "Stripe"}, for
+            the parts you turned on: <span className="path">{card.keyNeeds.join(", ")}</span>
+            {service === "hubspot" && " (a note on any record needs crm.objects.contacts.write)"}.
+          </p>
+        )}
+        <form
+          onSubmit={(ev) => {
+            ev.preventDefault();
+            void run(() => saveConnectionKey(c.id, input)).then((ok) => {
+              if (ok) clear();
+            });
+          }}
+        >
+          {website ? (
+            <>
+              {connected ? (
+                <p>
+                  Your site: <span className="path">{c.site}</span>. To change it, disconnect first.
+                </p>
+              ) : (
+                <TextField
+                  label="Your site's address"
+                  value={site}
+                  placeholder="https://example.com"
+                  hint="As your browser shows it once the site has loaded, with https://."
+                  onChange={setSite}
+                />
+              )}
+              <TextField label="WordPress user name" value={user} onChange={setUser} />
+              <SecretBox label="Application Password" value={password} onChange={setPassword} />
+              {connected ? (
+                card.storeKeyKept && (
+                  <p className="muted">Your WooCommerce key is kept. Disconnect removes it.</p>
+                )
+              ) : (
+                <details className="connection__advanced">
+                  <summary>WooCommerce key (optional)</summary>
+                  <p className="muted">{STORE_KEY_USER}</p>
+                  <SecretBox label="Consumer key (ck_…)" value={storeKey} onChange={setStoreKey} />
+                  <SecretBox
+                    label="Consumer secret (cs_…)"
+                    value={storeSecret}
+                    onChange={setStoreSecret}
+                  />
+                </details>
+              )}
+            </>
+          ) : (
+            <SecretBox
+              label={service === "hubspot" ? "Service key" : "Restricted key"}
+              value={key}
+              onChange={setKey}
+            />
+          )}
+          <div className="actions">
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              disabled={pending || !typed || !page.vaultAvailable || !partsOn}
+            >
+              {pending ? "Checking…" : connected ? "Replace the key" : "Save and check"}
+            </Button>
+          </div>
+        </form>
+        <Refusal error={error} />
+      </section>
+      {website && connected && <StoreKeyForm card={card} page={page} onApply={onApply} />}
+    </>
+  );
+}
+
+/** Who a WooCommerce key must belong to: it can do only what its WordPress user may. */
+const STORE_KEY_USER =
+  "Make the key for a Shop Manager (the key can do only what its WordPress user may; an Editor's key cannot see orders).";
+
+/**
+ * The website's WooCommerce key on its own, while the site is connected: only its two boxes. Plenipo
+ * checks it with the Application Password it already keeps, so that is never typed again.
+ */
+function StoreKeyForm({
+  card,
+  page,
+  onApply,
+}: {
+  card: Card;
+  page: ConnectionsPage;
+  onApply: (page: ConnectionsPage) => void;
+}) {
+  const c = card.connection;
+  const kept = card.storeKeyKept;
+  const [storeKey, setStoreKey] = useState("");
+  const [storeSecret, setStoreSecret] = useState("");
+  const { pending, error, run } = useRun(onApply);
+  const typed = storeKey.trim() !== "" && storeSecret.trim() !== "";
+  const title = kept ? "Replace the WooCommerce key" : "Add a WooCommerce key";
+  return (
+    <section className="connection__section" aria-labelledby={`${c.id}-store-key`}>
+      <h4 id={`${c.id}-store-key`}>{title}</h4>
+      <p className="muted">
+        {kept
+          ? "The store's tools use your WooCommerce key. To change it, type the new key and secret."
+          : "Optional. With a WooCommerce key, the store's tools use it instead of the Application Password, within the key's own limits: a Read key keeps the store read-only."}{" "}
+        Make it in WooCommerce → Settings → Advanced → REST API. {STORE_KEY_USER} Your Application
+        Password is not needed again.
+      </p>
       <form
+        aria-label={title}
         onSubmit={(ev) => {
           ev.preventDefault();
-          void run(() => saveConnectionKey(c.id, input)).then((ok) => {
-            if (ok) clear();
+          void run(() =>
+            saveConnectionKey(c.id, {
+              storeKey: storeKey.trim(),
+              storeSecret: storeSecret.trim(),
+            }),
+          ).then((ok) => {
+            if (ok) {
+              setStoreKey("");
+              setStoreSecret("");
+            }
           });
         }}
       >
-        {website ? (
-          <>
-            {connected ? (
-              <p>
-                Your site: <span className="path">{c.site}</span>. To change it, disconnect first.
-              </p>
-            ) : (
-              <TextField
-                label="Your site's address"
-                value={site}
-                placeholder="https://example.com"
-                hint="As your browser shows it once the site has loaded, with https://."
-                onChange={setSite}
-              />
-            )}
-            <TextField label="WordPress user name" value={user} onChange={setUser} />
-            <SecretBox label="Application Password" value={password} onChange={setPassword} />
-            {connected && card.storeKeyKept && (
-              <p className="muted">
-                A WooCommerce key is kept. Leave its boxes empty to keep it; Disconnect removes it.
-              </p>
-            )}
-            <details className="connection__advanced">
-              <summary>WooCommerce key (optional)</summary>
-              <SecretBox label="Consumer key (ck_…)" value={storeKey} onChange={setStoreKey} />
-              <SecretBox
-                label="Consumer secret (cs_…)"
-                value={storeSecret}
-                onChange={setStoreSecret}
-              />
-            </details>
-          </>
-        ) : (
-          <SecretBox
-            label={service === "hubspot" ? "Service key" : "Restricted key"}
-            value={key}
-            onChange={setKey}
-          />
-        )}
+        <SecretBox label="Consumer key (ck_…)" value={storeKey} onChange={setStoreKey} />
+        <SecretBox label="Consumer secret (cs_…)" value={storeSecret} onChange={setStoreSecret} />
         <div className="actions">
           <Button
             type="submit"
             variant="primary"
             size="sm"
-            disabled={pending || !typed || !page.vaultAvailable || !partsOn}
+            disabled={pending || !typed || !page.vaultAvailable}
           >
-            {pending ? "Checking…" : connected ? "Replace the key" : "Save and check"}
+            {pending ? "Checking…" : title}
           </Button>
         </div>
       </form>

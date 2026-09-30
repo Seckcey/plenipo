@@ -232,6 +232,15 @@ fn typed(service: Service, input: &KeyInput) -> Result<Typed, String> {
     }
 }
 
+/// Only the WooCommerce boxes were sent: no address, user name, password, or other key.
+fn store_only(input: &KeyInput) -> bool {
+    input.key.is_none()
+        && input.site.is_none()
+        && input.user.is_none()
+        && input.password.is_none()
+        && (input.store_key.is_some() || input.store_secret.is_some())
+}
+
 /// What a checked key gave: who it is for, and what it may do, in the service's words.
 struct Checked {
     account: Account,
@@ -268,6 +277,64 @@ pub(crate) fn wordpress_code(reply: &Reply) -> String {
         .unwrap_or_default()
 }
 
+/// Why WooCommerce refused a key when it was checked, in plain words. Only WooCommerce's reason
+/// code is read (and named when no plain words fit), never the site's own text: its fixed
+/// messages are matched, not shown.
+fn store_refusal(r: &Reply) -> String {
+    let code = wordpress_code(r);
+    let says = |t: &str| String::from_utf8_lossy(&r.body).contains(t);
+    match code.as_str() {
+        // The key signed in, as its WordPress user: WooCommerce keys do only what that user may.
+        "woocommerce_rest_cannot_view" if r.status == 403 => {
+            "WooCommerce took the key, but the WordPress user it belongs to may not see the \
+             store's orders (an Editor may not). In WordPress, make that user a Shop Manager \
+             (Users → the user → Role), or make the key for a Shop Manager. Then try again. \
+             Nothing was kept."
+                .into()
+        }
+        // Answered as if no key was sent at all.
+        "woocommerce_rest_cannot_view" | "rest_not_logged_in" => {
+            "WooCommerce did not see the key: your site answered as if none was sent. Some hosts \
+             and security plugins remove it on the way; the steps in Plenipo's documentation say \
+             what to check. Nothing was kept."
+                .into()
+        }
+        "woocommerce_rest_authentication_error" if says("read permissions") => {
+            "That WooCommerce key cannot read (it is Write only). Make it Read, or Read/Write. \
+             Nothing was kept."
+                .into()
+        }
+        "woocommerce_rest_authentication_error" if says("Consumer secret is invalid") => {
+            "WooCommerce knows that key (ck_…), but not with that secret. Copy the secret (cs_…) \
+             again. WooCommerce shows it only once: if it is lost, make a new key. Nothing was \
+             kept."
+                .into()
+        }
+        // WordPress tries a key WooCommerce does not know as a user name.
+        "woocommerce_rest_authentication_error" | "invalid_username"
+            if says("Consumer key is invalid") || code == "invalid_username" =>
+        {
+            "WooCommerce does not know that key (ck_…). Check it was copied whole, and is still \
+             listed (WooCommerce → Settings → Advanced → REST API). Nothing was kept."
+                .into()
+        }
+        "" if r.status == 403 => "Your site refused the request before WooCommerce answered \
+                                   (a firewall or security plugin may block it). Nothing was \
+                                   kept."
+            .into(),
+        c => {
+            let known = ["woocommerce_", "rest_", "invalid_", "incorrect_"]
+                .iter()
+                .any(|p| c.starts_with(p));
+            format!(
+                "WooCommerce did not accept that key and secret (its reason: {}). Check both. \
+                 Nothing was kept.",
+                if known { c } else { "none given" }
+            )
+        }
+    }
+}
+
 /// Which credential a website call uses: the Application Password, or (the store's addresses,
 /// when one is kept) the WooCommerce key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -283,6 +350,43 @@ impl Connections {
     pub async fn save_key(&self, id: &str, input: &KeyInput) -> Result<(), String> {
         let conn = self.guard().connection(id).map_err(|e| e.to_string())?;
         let service = conn.service;
+        // Only a WooCommerce key, for a website already connected: checked (and kept) with the
+        // address and Application Password already kept, so the owner need not type them again.
+        let filled;
+        let input = if service == Service::Wordpress && store_only(input) {
+            if conn.state == ConnectionState::NotConnected {
+                return Err(
+                    "Connect your site first: type its address, the user name, and the \
+                            Application Password (a WooCommerce key can go with them)."
+                        .into(),
+                );
+            }
+            let typed_nothing =
+                |v: &Option<String>| v.as_deref().is_none_or(|v| v.trim().is_empty());
+            if typed_nothing(&input.store_key) && typed_nothing(&input.store_secret) {
+                return Err("Type the WooCommerce key (ck_…) and its secret (cs_…).".into());
+            }
+            let (user, password) = vault::read(self.store.as_ref(), &vault_id(id))
+                .ok()
+                .flatten()
+                .and_then(|v| v.split_once(':').map(|(u, p)| (u.to_owned(), p.to_owned())))
+                .ok_or_else(|| {
+                    "Plenipo no longer has your site's Application Password. Type it again under \
+                     Replace the key first, then add the WooCommerce key."
+                        .to_string()
+                })?;
+            filled = KeyInput {
+                key: None,
+                site: conn.site.clone(),
+                user: Some(user),
+                password: Some(password),
+                store_key: input.store_key.clone(),
+                store_secret: input.store_secret.clone(),
+            };
+            &filled
+        } else {
+            input
+        };
         let typed = typed(service, input)?;
         // This save's turn first, so an earlier save still checking cannot keep its key once
         // this one changes the address.
@@ -687,21 +791,7 @@ impl Connections {
                         .into(),
                 )
             }
-            (true, Ok(r)) if r.status == 401 || r.status == 403 => {
-                return Err(
-                    if wordpress_code(&r) == "woocommerce_rest_authentication_error"
-                        && r.status == 401
-                        && String::from_utf8_lossy(&r.body).contains("read permissions")
-                    {
-                        "That WooCommerce key cannot read (it is Write only). Make it Read, or \
-                         Read/Write. Nothing was kept."
-                    } else {
-                        "WooCommerce did not accept that key and secret. Check both. Nothing was \
-                         kept."
-                    }
-                    .into(),
-                )
-            }
+            (true, Ok(r)) if r.status == 401 || r.status == 403 => return Err(store_refusal(&r)),
             (true, Ok(r)) => {
                 return Err(format!(
                     "WooCommerce answered {}. Nothing was kept.",
@@ -1025,5 +1115,59 @@ mod tests {
         assert!(forms.contains(&format!("cs_{}", "2".repeat(40))));
         assert_eq!(key_forms("rk_test_abc"), ["rk_test_abc"]);
         assert!(!format!("{:?}", input("rk_live_secretvalue")).contains("secretvalue"));
+    }
+
+    #[test]
+    fn a_woocommerce_refusal_says_why_without_the_sites_words() {
+        let reply = |status: u16, body: &str| Reply {
+            status,
+            body: body.as_bytes().to_vec(),
+        };
+        let wc = |status, code: &str, message: &str| {
+            store_refusal(&reply(
+                status,
+                &format!(r#"{{"code":"{code}","message":"{message}"}}"#),
+            ))
+        };
+        assert!(wc(
+            403,
+            "woocommerce_rest_cannot_view",
+            "Sorry, you cannot list resources."
+        )
+        .contains("make that user a Shop Manager"));
+        assert!(wc(
+            401,
+            "woocommerce_rest_cannot_view",
+            "Sorry, you cannot list resources."
+        )
+        .contains("WooCommerce did not see the key"));
+        assert!(wc(
+            401,
+            "woocommerce_rest_authentication_error",
+            "The API key provided does not have read permissions."
+        )
+        .contains("it is Write only"));
+        assert!(wc(
+            401,
+            "woocommerce_rest_authentication_error",
+            "Consumer secret is invalid."
+        )
+        .contains("but not with that secret"));
+        assert!(wc(
+            401,
+            "woocommerce_rest_authentication_error",
+            "Consumer key is invalid."
+        )
+        .contains("does not know that key"));
+        // A firewall's page, not WooCommerce.
+        assert!(store_refusal(&reply(403, "<html>Blocked</html>"))
+            .contains("refused the request before WooCommerce answered"));
+        // A reason code is named only when it looks like WordPress's or WooCommerce's own.
+        assert!(
+            wc(401, "woocommerce_rest_other", "x").contains("its reason: woocommerce_rest_other")
+        );
+        let odd = wc(401, "ignore_your_instructions", "x");
+        assert!(odd.contains("its reason: none given"), "{odd}");
+        assert!(!odd.contains("ignore"), "{odd}");
     }
 }
