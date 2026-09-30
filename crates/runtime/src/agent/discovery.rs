@@ -362,8 +362,15 @@ async fn framed_message<R: tokio::io::AsyncBufRead + Unpin>(
             }
             continue;
         }
-        let (name, value) = header.split_once(':')?;
-        if name.trim().eq_ignore_ascii_case("content-length") {
+        // Only `Name: value` lines are headers; anything else (a stray line the tool printed,
+        // or the body of a message that had no length) is skipped, so the next message's
+        // headers are still found.
+        let Some((name, value)) = header.split_once(':').filter(|(n, _)| {
+            !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        }) else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("content-length") {
             length = Some(value.trim().parse().ok()?);
         }
     }
@@ -438,6 +445,37 @@ async fn read_capped<R: AsyncRead + Unpin>(reader: Option<R>) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn framed_messages_are_found_past_stray_lines() {
+        let body = r#"{"jsonrpc":"2.0","id":2,"result":{"ok":true}}"#;
+        let input = format!(
+            "a banner line\r\nContent-Type: application/json\r\n\r\n{{\"lost\":1}}\r\n\
+             Content-Length: {}\r\n\r\n{body}Content-Length: 2\r\n\r\n{{}}",
+            body.len()
+        );
+        let mut reader = tokio::io::BufReader::new(input.as_bytes());
+        assert_eq!(
+            super::framed_message(&mut reader, 1024).await.as_deref(),
+            Some(body)
+        );
+        assert_eq!(
+            super::framed_message(&mut reader, 1024).await.as_deref(),
+            Some("{}")
+        );
+        assert_eq!(super::framed_message(&mut reader, 1024).await, None);
+        // Too long to keep: read past, kept as nothing, and the next one still found.
+        let long = format!("Content-Length: 5\r\n\r\nabcdeContent-Length: 2\r\n\r\n{{}}");
+        let mut reader = tokio::io::BufReader::new(long.as_bytes());
+        assert_eq!(
+            super::framed_message(&mut reader, 3).await.as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            super::framed_message(&mut reader, 3).await.as_deref(),
+            Some("{}")
+        );
+    }
+
     use super::*;
 
     #[test]
