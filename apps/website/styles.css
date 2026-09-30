@@ -6,6 +6,64 @@
   src: url("/fonts/InterVariable.woff2") format("woff2");
 }
 
+.hiring-example {
+  max-width: 820px;
+  margin: 56px auto 0;
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  scroll-margin-top: 100px;
+}
+.hiring-example h3,
+.workspace-grid h3 {
+  font-size: 22px;
+  font-weight: 550;
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+  margin-bottom: 14px;
+}
+.hiring-example > p:not(.demo-kicker),
+.workspace-grid p {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.65;
+}
+.hiring-example > p + p {
+  margin-top: 14px;
+}
+.hiring-example > .fine-print {
+  font-size: 12px;
+}
+.workspace-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 28px;
+  margin-top: 44px;
+}
+.workspace-grid article {
+  border-top: 1px solid var(--line);
+  padding-top: 24px;
+}
+.workspace-grid .step-number {
+  display: inline-block;
+  margin-bottom: 18px;
+}
+@media (max-width: 1000px) {
+  .workspace-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .hiring-example {
+    padding: 24px;
+  }
+  .workspace-grid {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+}
+
 .demo-showcase[data-demo-open] {
   min-height: 1060px;
 }
