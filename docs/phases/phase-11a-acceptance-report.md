@@ -8,8 +8,15 @@
 | **Date**     | 2026-09-30 (Pacific time)                                                                                                                                                                                                       |
 | **Result**   | Every deliverable built, as **v1.18.0**. Every test in the plan's list passes. The owner's checks are in section 6. Plenipo by 8 West Ventures, LLC.                                                                            |
 
-Screenshots come from the real-app tests on GitHub's Linux machine, and are saved in
-`docs/phases/evidence/phase-11a/` once those tests pass.
+Screenshots, from the real-app tests on GitHub's Linux machine (a copy built for the tests, so it
+says it also accepts 8 West's test keys):
+
+- **Free:** [Settings → License on Free](evidence/phase-11a/license-free.png) ·
+  [a second organization is part of Pro](evidence/phase-11a/license-free-organizations.png) ·
+  [Connections on Free](evidence/phase-11a/license-free-connections.png) ·
+  [the whole Development flow, finished on Free](evidence/phase-11a/development-on-free-result.png)
+- **Pro:** [a key entered, checked with 8 West's stand-in](evidence/phase-11a/license-pro.png) ·
+  [the subscription ended: back to Free, nothing taken away](evidence/phase-11a/license-ended.png)
 
 ## 1. Deliverables → result
 
