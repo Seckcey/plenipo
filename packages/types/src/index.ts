@@ -352,3 +352,6 @@ export type { FolderWriter } from "./generated/FolderWriter";
 export type { LineEnding } from "./generated/LineEnding";
 export type { ReadOnlyWhy } from "./generated/ReadOnlyWhy";
 export type { SaveOutcome } from "./generated/SaveOutcome";
+export type { DroppedFile } from "./generated/DroppedFile";
+export type { DroppedFiles } from "./generated/DroppedFiles";
+export type { ObjectiveFile } from "./generated/ObjectiveFile";

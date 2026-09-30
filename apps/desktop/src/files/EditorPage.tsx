@@ -495,10 +495,14 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
       )}
       {live && (
         <div className="file-editor__live" role="status">
-          <StatusDot status={live.state === "writing" ? "pending" : "ok"} label={live.state} />
-          {live.state === "writing"
-            ? `${live.worker}: being written — not saved yet`
-            : `${live.worker} saved a change: new and changed lines are marked`}
+          <StatusDot
+            status={live.state === "writing" ? "pending" : "ok"}
+            label={
+              live.state === "writing"
+                ? `${live.worker}: being written — not saved yet`
+                : `${live.worker} saved a change: new and changed lines are marked`
+            }
+          />
         </div>
       )}
       <div className="file-editor__body">

@@ -711,3 +711,38 @@ pub struct ChangingFile {
     #[ts(optional)]
     pub position_id: Option<String>,
 }
+
+/// A file the owner puts on an objective (Phase 21, ADR-093 §19–§21).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[ts(export)]
+pub enum ObjectiveFile {
+    /// From the Files panel: a known top folder and the path inside it.
+    File { root: String, path: String },
+    /// Dropped from File Explorer: Plenipo's ticket for that drop, and which of its files.
+    Dropped { drop: String, index: u32 },
+}
+
+/// Files dropped on Plenipo's window from File Explorer: Plenipo keeps where they are, and the
+/// page gets only this (the `plenipo://drop` event).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DroppedFiles {
+    /// Plenipo's ticket for the drop.
+    pub drop: String,
+    pub files: Vec<DroppedFile>,
+    /// Where they were dropped, in the page's own pixels.
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DroppedFile {
+    pub name: String,
+    pub folder: bool,
+    #[ts(type = "number | null")]
+    pub size: Option<u64>,
+}

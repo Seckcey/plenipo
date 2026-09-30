@@ -90,12 +90,12 @@ function useTabDrag(
   const cancel = (el: Element, pointerId: number) => {
     start.current = null;
     ws.setDrag(null);
-    if (el.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId);
+    if (el.hasPointerCapture?.(pointerId)) el.releasePointerCapture(pointerId);
   };
   return {
     onPointerDown: (e: ReactPointerEvent<HTMLElement>) => {
       if (e.button !== 0) return;
-      e.currentTarget.setPointerCapture(e.pointerId);
+      e.currentTarget.setPointerCapture?.(e.pointerId);
       start.current = { x: e.clientX, y: e.clientY, dragging: false };
     },
     onPointerMove: (e: ReactPointerEvent<HTMLElement>) => {

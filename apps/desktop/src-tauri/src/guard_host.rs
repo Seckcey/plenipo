@@ -122,6 +122,8 @@ pub fn create<R: Runtime>(
     let mut config = BrokerConfig::new(relay, tickets);
     // Each objective's branch and working copy (Phase 8, ADR-016).
     config.workspaces_dir = data.join("working-copies");
+    // Copies of the files the owner put on objectives (Phase 21, ADR-093 §21).
+    config.attachments_dir = data.join("attachments");
     // Plenipo's browser's own profile, and the screenshots kept as evidence (Phase 10).
     config.browser = BrowserConfig::new(data.join("browser-profile"));
     config.screenshots_dir = data.join("screenshots");

@@ -4,6 +4,7 @@
 import { listen } from "@tauri-apps/api/event";
 import type {
   AgentUpdate,
+  DroppedFiles,
   ControlStatus,
   LedgerEvent,
   PopOutNotice,
@@ -18,6 +19,7 @@ export const LEDGER_EVENT = "plenipo://ledger";
 export const AGENT_EVENT = "plenipo://agents";
 export const CONTROL_EVENT = "plenipo://control";
 export const WINDOWS_EVENT = "plenipo://windows";
+export const DROP_EVENT = "plenipo://drop";
 
 /** Subscribe to runtime events. Resolves with an unsubscribe function. */
 export async function subscribeRuntimeEvents(
@@ -63,4 +65,14 @@ export async function subscribePopOuts(
   handler: (notice: PopOutNotice) => void,
 ): Promise<() => void> {
   return listen<PopOutNotice>(WINDOWS_EVENT, (event) => handler(event.payload));
+}
+
+/**
+ * Subscribe to files dropped on this window from File Explorer (Phase 21, ADR-093 §20): their
+ * names, where they landed, and Plenipo's ticket for them (never where they are on the PC).
+ */
+export async function subscribeDrops(
+  handler: (dropped: DroppedFiles) => void,
+): Promise<() => void> {
+  return listen<DroppedFiles>(DROP_EVENT, (event) => handler(event.payload));
 }

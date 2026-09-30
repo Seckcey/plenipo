@@ -255,6 +255,8 @@ pub fn configure<R: Runtime>(
             ));
             let supervisor =
                 runtime_host::create_supervisor(app.handle(), options.persistence, ledger.clone());
+            // Files dropped on a window from File Explorer, by ticket (Phase 21).
+            app.manage(files_commands::Drops::default());
             // Opening the owner's files in another program, or in File Explorer (Phase 21).
             app.manage(files_commands::Outside(Arc::new(
                 files_commands::SystemFileOpener::new(supervisor.clone()),
@@ -384,6 +386,12 @@ pub fn configure<R: Runtime>(
                     }
                     _ => {}
                 }
+                return;
+            }
+            // Files dropped from File Explorer (Phase 21, ADR-093 §20): Plenipo keeps where they
+            // are and gives the page a ticket.
+            if let WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) = event {
+                files_commands::dropped(window, paths.clone(), *position);
                 return;
             }
             // Closing the window never stops approved work unless the owner chose that
@@ -857,6 +865,11 @@ mod ipc_boundary_tests {
             update_host::Updates::new("1.9.0", update_host::built_source()),
             false,
         );
+        // Phase 21: pop-out places (kept in memory), drop tickets, and an opener that opens
+        // nothing.
+        app.manage(workspace_windows::PopOuts::new(None));
+        app.manage(files_commands::Drops::default());
+        app.manage(files_commands::Outside(Arc::new(NoOpener)));
         app.manage(guard);
         app.manage(broker);
         app.manage(supervisor);
@@ -865,6 +878,20 @@ mod ipc_boundary_tests {
         app.manage(router);
         app.manage(workforce);
         app
+    }
+
+    /// Opens no file (tests never start a program).
+    struct NoOpener;
+
+    impl files_commands::FileOpener for NoOpener {
+        fn open(
+            &self,
+            _: std::path::PathBuf,
+            _: bool,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>
+        {
+            Box::pin(async { Ok(()) })
+        }
     }
 
     /// A browser that opens nothing.
@@ -4879,6 +4906,7 @@ mod ipc_boundary_tests {
             position_id: None,
             worker: "Senior Developer".into(),
             objective_task_id: SESSION.into(),
+            root: None,
         };
         let write = |call: &str| {
             broker
@@ -4906,5 +4934,185 @@ mod ipc_boundary_tests {
             subscribers.add(tauri::ipc::Channel::new(|_| Ok(())));
         }
         assert_eq!(subscribers.len(), guard_host::MAX_WATCH_SUBSCRIBERS);
+    }
+
+    // ---- Phase 21: the workspace (ADR-092, ADR-093) --------------------------------------------
+
+    const PHASE_21: [&str; 10] = [
+        "prepare_pop_out",
+        "focus_pop_out",
+        "reset_pop_outs",
+        "get_file_roots",
+        "list_folder",
+        "read_file",
+        "save_file",
+        "open_file_outside",
+        "show_in_folder",
+        "get_changing_files",
+    ];
+
+    /// Arguments that fit every Phase 21 command (each takes the ones it names).
+    fn phase_21_args() -> serde_json::Value {
+        serde_json::json!({
+            "panel": "terminal", "place": null, "root": "project:nope", "path": "README.md",
+            "text": "x", "bom": false, "lineEnding": "lf", "base": null,
+        })
+    }
+
+    fn refused(
+        cmd: &str,
+        answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
+        from: &str,
+    ) {
+        let err = answer.expect_err(&format!("{cmd} from {from}"));
+        assert!(
+            err.to_string().contains("not allowed"),
+            "{cmd} from {from}: {err}"
+        );
+    }
+
+    #[test]
+    fn the_workspace_commands_are_an_organization_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let popout = window(&app, "popout-terminal--main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for cmd in PHASE_21 {
+            let args = phase_21_args();
+            refused(cmd, invoke_json(&popout, cmd, args.clone()), "a pop-out");
+            refused(cmd, invoke_json(&other, cmd, args.clone()), "another window");
+            refused(cmd, invoke_json(&sign, cmd, args.clone()), "the sign");
+            refused(
+                cmd,
+                invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                "a web page",
+            );
+            if let Err(err) = invoke_json(&main, cmd, args) {
+                assert!(err["kind"].is_string(), "{cmd} from the main window: {err}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_popped_out_panel_can_call_nothing_itself() {
+        let app = app();
+        let popout = window(&app, "popout-files--main");
+        // Its organization's window draws it and makes every call: the pop-out's own permission
+        // file lists no command, Plenipo's or Tauri's.
+        for cmd in [
+            "get_app_info",
+            "get_home",
+            "get_organization",
+            "get_control_status",
+            "stop_all_control",
+            "open_terminal",
+            "write_terminal",
+            "close_terminal",
+            "get_watch",
+            "subscribe_watch",
+            "cancel_agent_turn",
+            "give_objective",
+            "get_approvals",
+            "resolve_approval",
+            "save_secret",
+            "plugin:event|listen",
+            "plugin:window|create",
+            "plugin:webview|create_webview_window",
+        ] {
+            refused(cmd, invoke_json(&popout, cmd, serde_json::json!({})), "a pop-out");
+        }
+        // A label that only looks like an organization's window gets nothing either.
+        let look_alike = window(&app, "mainly");
+        refused(
+            "get_app_info",
+            invoke_json(&look_alike, "get_app_info", serde_json::json!({})),
+            "a look-alike window",
+        );
+    }
+
+    #[test]
+    fn the_file_commands_check_what_they_are_given() {
+        let app = app();
+        let main = window(&app, "main");
+        for (cmd, args, why) in [
+            (
+                "read_file",
+                serde_json::json!({ "root": "", "path": "README.md" }),
+                "not a folder Plenipo knows",
+            ),
+            (
+                "read_file",
+                serde_json::json!({ "root": "project:nope", "path": "a\u{7}b" }),
+                "not a file name",
+            ),
+            (
+                "list_folder",
+                serde_json::json!({ "root": "folder:x", "path": "" }),
+                "not a folder Plenipo knows",
+            ),
+            (
+                "save_file",
+                serde_json::json!({ "root": "project:nope", "path": "a.txt", "text": "x",
+                    "bom": false, "lineEnding": "lf", "base": "not-a-hash" }),
+                "not a file's fingerprint",
+            ),
+            (
+                "save_file",
+                serde_json::json!({ "root": "project:nope", "path": "a.txt", "text": "x",
+                    "bom": false, "lineEnding": "cr", "base": null }),
+                "unknown variant",
+            ),
+            (
+                "prepare_pop_out",
+                serde_json::json!({ "panel": "details", "place": null }),
+                "unknown variant",
+            ),
+            (
+                "prepare_pop_out",
+                serde_json::json!({ "panel": "files",
+                    "place": { "x": 0.0, "y": 0.0, "width": 0.0, "height": 10.0 } }),
+                "not a place on the screen",
+            ),
+        ] {
+            let err = invoke_json(&main, cmd, args).expect_err(cmd);
+            assert!(err.to_string().contains(why), "{cmd}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_dropped_file_reaches_an_objective_only_through_a_drop_on_the_same_window() {
+        let app = app();
+        let main = window(&app, "main");
+        let drops = app.state::<files_commands::Drops>();
+        let elsewhere = drops.add("org-other", vec![std::path::PathBuf::from("/etc/hosts")]);
+        let args = |drop: &str| {
+            serde_json::json!({
+                "positionId": "0f8fad5b-d9cb-469f-a165-70867728950e",
+                "objective": "Use the file",
+                "projectId": "0f8fad5b-d9cb-469f-a165-70867728950f",
+                "files": [{ "kind": "dropped", "drop": drop, "index": 0 }],
+            })
+        };
+        // A ticket from another window, or a made-up one, names no file.
+        for drop in [elsewhere.as_str(), "made-up"] {
+            let err = invoke_json(&main, "give_objective", args(drop)).expect_err(drop);
+            assert!(
+                err.to_string().contains("Drop that file on the objective again"),
+                "{err}"
+            );
+        }
+        // Files need a project (its workers' folder).
+        let mine = drops.add("main", vec![std::path::PathBuf::from("/etc/hosts")]);
+        let mut no_project = args(&mine);
+        no_project["projectId"] = serde_json::Value::Null;
+        let err = invoke_json(&main, "give_objective", no_project).expect_err("no project");
+        assert!(err.to_string().contains("objective for a project"), "{err}");
+        // A page cannot name a path on the PC: only a known folder and a path inside it.
+        let mut named = args(&mine);
+        named["files"] = serde_json::json!([{ "kind": "file", "root": "project:nope",
+            "path": "/etc/hosts" }]);
+        let err = invoke_json(&main, "give_objective", named).expect_err("a named path");
+        assert!(err.to_string().contains("not a folder Plenipo knows"), "{err}");
     }
 }

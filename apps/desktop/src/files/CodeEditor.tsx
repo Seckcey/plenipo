@@ -107,6 +107,16 @@ function marksExtension(marks: readonly LineMark[]): Extension {
   return [lineDecorations, words];
 }
 
+/**
+ * Read-only: nothing can be typed or pasted, and a screen reader is told so. The text can still
+ * be chosen, copied, and searched with the keyboard.
+ */
+function readOnlyExtension(readOnly: boolean): Extension {
+  return readOnly
+    ? [EditorState.readOnly.of(true), EditorView.contentAttributes.of({ "aria-readonly": "true" })]
+    : [];
+}
+
 /** A new editor's contents: its text, and everything the editor does. */
 export function editorState(text: string, readOnly: boolean): EditorState {
   return EditorState.create({
@@ -126,7 +136,7 @@ export function editorState(text: string, readOnly: boolean): EditorState {
       ]),
       syntaxHighlighting(highlight),
       look,
-      readOnlyPart.of(EditorState.readOnly.of(readOnly)),
+      readOnlyPart.of(readOnlyExtension(readOnly)),
       languagePart.of([]),
       marksPart.of([]),
     ],
@@ -233,7 +243,7 @@ export function CodeEditor({
 
   useEffect(() => {
     view.current?.dispatch({
-      effects: readOnlyPart.reconfigure(EditorState.readOnly.of(readOnly || shown !== null)),
+      effects: readOnlyPart.reconfigure(readOnlyExtension(readOnly || shown !== null)),
     });
   }, [readOnly, shown, state]);
 

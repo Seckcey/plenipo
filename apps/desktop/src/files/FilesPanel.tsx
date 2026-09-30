@@ -434,7 +434,7 @@ export function FilesPanel({ go }: { go: Go }) {
                   y: e.clientY,
                   moved: false,
                 };
-                e.currentTarget.setPointerCapture(e.pointerId);
+                e.currentTarget.setPointerCapture?.(e.pointerId);
               }}
               onPointerMove={(e) => {
                 const d = drag.current;
@@ -446,7 +446,7 @@ export function FilesPanel({ go }: { go: Go }) {
                 const d = drag.current;
                 drag.current = null;
                 setDragging(null);
-                if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
                   e.currentTarget.releasePointerCapture(e.pointerId);
                 }
                 if (!d?.moved) return;
@@ -478,16 +478,18 @@ export function FilesPanel({ go }: { go: Go }) {
               />
               <span className="files-tree__name">{row.label}</span>
               {row.writer && (
-                <span className="files-tree__mark">
-                  <StatusDot status="pending" label={`${row.writer} is writing here`} />
-                  {row.writer} is writing here
-                </span>
+                <StatusDot
+                  className="files-tree__mark"
+                  status="pending"
+                  label={`${row.writer} is writing here`}
+                />
               )}
               {row.changing && (
-                <span className="files-tree__mark">
-                  <StatusDot status="pending" label={`${row.changing.worker} is changing this`} />
-                  {row.changing.worker} is changing this
-                </span>
+                <StatusDot
+                  className="files-tree__mark"
+                  status="pending"
+                  label={`${row.changing.worker} is changing this`}
+                />
               )}
               {row.blocked && (
                 <span

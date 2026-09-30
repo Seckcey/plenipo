@@ -19,6 +19,7 @@ import {
   type PlenipoCommandError,
 } from "./api/commands";
 import { AgentsProvider } from "./agents/AgentsProvider";
+import { subscribeDrops } from "./api/events";
 import { isRunning } from "./agents/store";
 import { useAgents } from "./agents/useAgents";
 import { ControlBanner } from "./components/ControlBanner";
@@ -52,6 +53,7 @@ import { TaskPage } from "./pages/TaskPage";
 import { WorkerPage } from "./pages/WorkerPage";
 import { EditorPage } from "./files/EditorPage";
 import { FilesButton } from "./files/FilesButton";
+import { useFileExplorerDrops } from "./files/ObjectiveFiles";
 import { nameOf, parseFileKey } from "./files/refs";
 import { FilesPanel } from "./files/FilesPanel";
 import { TerminalButton, TerminalPanel } from "./terminal/TerminalPanel";
@@ -203,6 +205,8 @@ function Shell({ core }: { core: CoreState }) {
   const workspace = useWorkspace();
   // Plenipo brings the window back if its page stops answering (Phase 13).
   useWindowHeartbeat();
+  // Files dropped from File Explorer go to the objective box they land on (Phase 21).
+  useFileExplorerDrops(subscribeDrops);
 
   // Every view shares one scroll area: open each page at its top, not where the last one was.
   useLayoutEffect(() => {

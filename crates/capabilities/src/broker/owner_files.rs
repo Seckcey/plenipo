@@ -785,4 +785,192 @@ mod tests {
         assert_eq!(counts("a\nb\nc\n", "a\nB\nc\nd\n"), (2, 1));
         assert_eq!(counts("", "x\n"), (1, 0));
     }
+
+    // ---- The owner's files, through a broker on a project folder ------------------------------
+
+    use std::sync::Arc;
+
+    use plenipo_ledger::Ledger;
+    use plenipo_runtime::{
+        EventSink, ExecutablePolicy, ProfileRegistry, RuntimeEvent, Supervisor, SupervisorConfig,
+    };
+
+    use crate::control::ControlKind;
+    use crate::{BrokerConfig, MemorySecretStore};
+
+    struct NoOutput;
+    impl EventSink for NoOutput {
+        fn emit(&self, _: RuntimeEvent) {}
+    }
+
+    struct Project {
+        broker: Broker,
+        ledger: Arc<Ledger>,
+        root: String,
+        folder: PathBuf,
+        _dir: tempfile::TempDir,
+    }
+
+    /// A broker, and a project whose folder holds README.md, src/app.txt, a blocked `.env`, and
+    /// git's own folder.
+    fn project() -> Project {
+        let dir = tempfile::tempdir().expect("a folder");
+        let folder = dir.path().join("website");
+        std::fs::create_dir_all(folder.join("src")).unwrap();
+        std::fs::create_dir_all(folder.join(".git")).unwrap();
+        std::fs::write(folder.join("README.md"), "# Website\r\n\r\nHello.\r\n").unwrap();
+        std::fs::write(folder.join("src").join("app.txt"), "a\nb\n").unwrap();
+        std::fs::write(folder.join(".env"), "KEY=secret\n").unwrap();
+        std::fs::write(folder.join(".git").join("config"), "[core]\n").unwrap();
+        let ledger = Arc::new(Ledger::open_in_memory().unwrap());
+        let guard = plenipo_guard::Guard::new(Arc::clone(&ledger));
+        let sup = Supervisor::new(
+            SupervisorConfig::default(),
+            ExecutablePolicy::default(),
+            ProfileRegistry::default(),
+            Arc::new(plenipo_liaison::store::LedgerExecutionStore(Arc::clone(&ledger))),
+            Arc::new(NoOutput),
+            vec![],
+        );
+        let config = BrokerConfig::new(PathBuf::from("relay"), dir.path().join("tickets"));
+        let broker = Broker::new(guard, sup, Arc::new(MemorySecretStore::default()), config);
+        let p = ledger
+            .create_project("Website", Some(&folder.display().to_string()), None, None, "test")
+            .unwrap();
+        Project {
+            broker,
+            ledger,
+            root: format!("project:{}", p.id),
+            folder,
+            _dir: dir,
+        }
+    }
+
+    #[tokio::test]
+    async fn the_owner_sees_only_the_folders_plenipo_knows_and_never_gits_own() {
+        let p = project();
+        let roots = p.broker.file_roots().unwrap();
+        assert_eq!(roots.roots.len(), 1);
+        assert_eq!(roots.roots[0].id, p.root);
+        assert_eq!(roots.roots[0].kind, FileRootKind::ProjectFolder);
+        assert!(roots.roots[0].exists && roots.roots[0].writer.is_none());
+        let top = p.broker.list_folder(&p.root, "").unwrap();
+        let names: Vec<&str> = top.entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["src", ".env", "README.md"], "folders first; no .git");
+        assert!(top.entries.iter().find(|e| e.name == ".env").unwrap().blocked);
+        assert!(!top.entries.iter().find(|e| e.name == "README.md").unwrap().blocked);
+        for path in ["../outside.txt", "/etc/passwd", ".git/config", ".GIT", "src/../../x"] {
+            assert!(p.broker.read_file(&p.root, path).is_err(), "{path} is refused");
+            assert!(p.broker.save_file(&p.root, path, "x", false, LineEnding::Lf, None).is_err());
+        }
+        assert!(p.broker.read_file("project:nope", "README.md").is_err());
+        assert!(p.broker.read_file("folder:x", "README.md").is_err());
+        #[cfg(unix)]
+        {
+            let outside = p._dir.path().join("secret.txt");
+            std::fs::write(&outside, "not yours to read here").unwrap();
+            std::os::unix::fs::symlink(&outside, p.folder.join("link.txt")).unwrap();
+            assert!(p.broker.read_file(&p.root, "link.txt").is_err(), "a link out is refused");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_save_keeps_the_files_own_endings_and_is_recorded_as_the_owners() {
+        let p = project();
+        let view = p.broker.read_file(&p.root, "README.md").unwrap();
+        let FileContent::Text { text, bom, line_ending } = &view.content else {
+            panic!("text: {view:?}");
+        };
+        assert_eq!(text, "# Website\n\nHello.\n");
+        assert_eq!(*line_ending, LineEnding::Crlf);
+        assert!(!bom);
+        assert!(view.read_only.is_none() && !view.runs && !view.blocked);
+        let saved = p
+            .broker
+            .save_file(
+                &p.root,
+                "README.md",
+                "# Website\n\nHello, world.\n",
+                *bom,
+                *line_ending,
+                view.hash.as_deref(),
+            )
+            .unwrap();
+        let SaveOutcome::Saved { added, removed, .. } = saved else {
+            panic!("saved: {saved:?}");
+        };
+        assert_eq!((added, removed), (1, 1));
+        assert_eq!(
+            std::fs::read_to_string(p.folder.join("README.md")).unwrap(),
+            "# Website\r\n\r\nHello, world.\r\n"
+        );
+        // In the Activity trail as the owner's, with no contents.
+        let events = p.ledger.recent_events(20).unwrap();
+        let e = events.iter().find(|e| e.event_type == "file.saved").expect("recorded");
+        assert_eq!(e.source, "owner");
+        assert_eq!(e.payload["path"], "README.md");
+        assert_eq!(e.payload["added"], 1);
+        assert!(!e.payload.to_string().contains("Hello"), "{}", e.payload);
+    }
+
+    #[tokio::test]
+    async fn a_file_changed_on_disk_is_not_saved_over_unless_the_owner_says_so() {
+        let p = project();
+        let view = p.broker.read_file(&p.root, "src/app.txt").unwrap();
+        std::fs::write(p.folder.join("src").join("app.txt"), "changed by someone\n").unwrap();
+        let outcome = p
+            .broker
+            .save_file(&p.root, "src/app.txt", "mine\n", false, LineEnding::Lf, view.hash.as_deref())
+            .unwrap();
+        assert_eq!(outcome, SaveOutcome::ChangedOnDisk);
+        assert_eq!(
+            std::fs::read_to_string(p.folder.join("src").join("app.txt")).unwrap(),
+            "changed by someone\n"
+        );
+        // Save anyway.
+        let outcome = p
+            .broker
+            .save_file(&p.root, "src/app.txt", "mine\n", false, LineEnding::Lf, None)
+            .unwrap();
+        assert!(matches!(outcome, SaveOutcome::Saved { .. }));
+        assert_eq!(std::fs::read_to_string(p.folder.join("src").join("app.txt")).unwrap(), "mine\n");
+    }
+
+    #[tokio::test]
+    async fn while_a_worker_uses_the_keyboard_nothing_is_saved_and_blocked_files_are_hidden() {
+        let p = project();
+        assert!(p.broker.read_file(&p.root, ".env").is_ok(), "blocked files are the owner's");
+        p.broker.inner.control.begin(ControlKind::Desktop, "g1", "t1", "Operator", None);
+        assert!(p.broker.file_roots().unwrap().desktop_in_use);
+        assert!(p.broker.read_file(&p.root, ".env").is_err(), "hidden now");
+        let view = p.broker.read_file(&p.root, "README.md").unwrap();
+        assert_eq!(view.read_only, Some(ReadOnlyWhy::Desktop));
+        let refused = p
+            .broker
+            .save_file(&p.root, "README.md", "typed by a worker", false, LineEnding::Lf, None)
+            .unwrap_err();
+        assert!(refused.to_string().contains("Take over"), "{refused}");
+        assert!(p.broker.owner_file_path(&p.root, ".env", true).is_err());
+        // The owner takes over: it is theirs again.
+        p.broker.inner.control.take_over(&crate::control::session_id(ControlKind::Desktop, "g1"));
+        assert!(p.broker.read_file(&p.root, ".env").is_ok());
+    }
+
+    #[tokio::test]
+    async fn programs_are_never_opened_elsewhere_and_other_files_are_described() {
+        let p = project();
+        std::fs::write(p.folder.join("setup.ps1"), "Write-Host hi\n").unwrap();
+        std::fs::write(p.folder.join("tool.exe"), b"MZ\x00\x00binary").unwrap();
+        std::fs::write(p.folder.join("logo.png"), b"\x89PNG\r\n").unwrap();
+        let script = p.broker.read_file(&p.root, "setup.ps1").unwrap();
+        assert!(script.runs && matches!(script.content, FileContent::Text { .. }));
+        let program = p.broker.read_file(&p.root, "tool.exe").unwrap();
+        assert!(program.runs);
+        assert!(matches!(&program.content, FileContent::Other { what } if what.contains("never starts")));
+        assert!(p.broker.owner_file_path(&p.root, "tool.exe", true).is_err());
+        assert!(p.broker.owner_file_path(&p.root, "setup.ps1", true).is_err());
+        assert!(p.broker.owner_file_path(&p.root, "tool.exe", false).is_ok(), "shown in its folder");
+        let picture = p.broker.read_file(&p.root, "logo.png").unwrap();
+        assert!(matches!(&picture.content, FileContent::Picture { mime, .. } if mime == "image/png"));
+    }
 }

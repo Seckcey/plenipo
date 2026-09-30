@@ -49,6 +49,7 @@ use crate::vault::{self, SecretStore};
 use crate::worktrees::{self, Git};
 
 mod add_on_calls;
+pub mod attachments;
 pub(crate) mod connecting;
 mod git_tools;
 pub mod live;
@@ -99,6 +100,9 @@ pub struct BrokerConfig {
     pub tickets_dir: PathBuf,
     /// Where objectives' working copies are made (Phase 8, ADR-016).
     pub workspaces_dir: PathBuf,
+    /// Where copies of the files the owner put on objectives wait for their workers (Phase 21,
+    /// ADR-093 §21).
+    pub attachments_dir: PathBuf,
     /// Folders searched for programs (such as GitHub's `gh`) before Plenipo's own PATH (tests
     /// put stand-ins there).
     pub search_path: Option<std::ffi::OsString>,
@@ -129,6 +133,7 @@ impl BrokerConfig {
             relay_command,
             relay_args: Vec::new(),
             workspaces_dir: tickets_dir.with_file_name("workspaces"),
+            attachments_dir: tickets_dir.with_file_name("attachments"),
             browser: BrowserConfig::new(tickets_dir.with_file_name("browser-profile")),
             screenshots_dir: tickets_dir.with_file_name("screenshots"),
             search_path: None,
@@ -958,6 +963,10 @@ impl Broker {
             }
             (workspace, _) => (workspace, None, problem),
         };
+        // The files the owner put on the objective go where its workers work (Phase 21).
+        if let Some(folder) = &workspace {
+            self.deliver_files(step.task_id, folder.root());
+        }
         let mut offered: Vec<&'static str> = TOOLS
             .iter()
             .filter(|t| {

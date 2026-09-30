@@ -4904,3 +4904,25 @@ body.popout {
 .code-editor {
   height: 100%;
 }
+
+/* The files on an objective (Phase 21, ADR-093 §19). */
+.objective-files__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.objective-files__list li {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  font-size: var(--ui-font-sm);
+}
+
+.objective-files__hint {
+  margin: 0;
+  font-size: var(--ui-font-xs);
+}

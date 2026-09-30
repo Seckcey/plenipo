@@ -72,6 +72,7 @@ vi.mock("./api/events", () => ({
     return Promise.resolve(() => undefined);
   }),
   subscribePopOuts: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeDrops: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeWatch: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 

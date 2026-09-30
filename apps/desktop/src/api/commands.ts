@@ -113,6 +113,7 @@ import type {
   FileView,
   FolderListing,
   LineEnding,
+  ObjectiveFile,
   SaveOutcome,
 } from "@plenipo/types";
 
@@ -592,11 +593,13 @@ export function giveObjective(
   positionId: string,
   objective: string,
   projectId?: string,
+  files?: readonly ObjectiveFile[],
 ): Promise<AgentSessionDetail> {
   return call<AgentSessionDetail>("give_objective", {
     positionId,
     objective,
     ...(projectId ? { projectId } : {}),
+    ...(files && files.length > 0 ? { files } : {}),
   });
 }
 

@@ -357,7 +357,8 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
               />
             </div>
           ) : (
-            <span className="terminal-panel__title">Terminal</span>
+            // In a dock, the dock's tab already names it.
+            <span className="terminal-panel__title">{workspace ? "" : "Terminal"}</span>
           )}
           <div className="terminal-panel__actions">
             <MenuButton

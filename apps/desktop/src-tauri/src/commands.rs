@@ -1099,19 +1099,78 @@ pub async fn end_oversight(
 /// chooses its session; the UI names only the position and, optionally, the project the
 /// objective is about (one its team runs, Phase 8).
 #[tauri::command]
-pub async fn give_objective(
+#[allow(clippy::too_many_arguments)]
+pub async fn give_objective<R: Runtime>(
+    window: tauri::WebviewWindow<R>,
     workforce: State<'_, Workforce>,
+    broker: State<'_, Broker>,
+    drops: State<'_, crate::files_commands::Drops>,
     position_id: String,
     objective: String,
     project_id: Option<String>,
+    files: Option<Vec<plenipo_capabilities::dto::ObjectiveFile>>,
 ) -> Result<AgentSessionDetail, CommandError> {
+    use plenipo_capabilities::dto::ObjectiveFile;
     validate_id("position", &position_id)?;
     validate_optional_id("project", project_id.as_deref())?;
     validate_objective(&objective)?;
-    workforce
-        .give_objective(&position_id, &objective, project_id.as_deref())
+    // The files the owner put on it (Phase 21, ADR-093 §19–§22): named or copied first, so its
+    // first worker finds them.
+    let files = files.unwrap_or_default();
+    let staged = if files.is_empty() {
+        None
+    } else {
+        let Some(project) = project_id.clone() else {
+            return Err(CommandError::invalid_input(
+                "Files can go only on an objective for a project: its workers need a folder.",
+            ));
+        };
+        if files.len() > plenipo_capabilities::broker::attachments::MAX_FILES {
+            return Err(CommandError::invalid_input(
+                "An objective can have up to 20 files.",
+            ));
+        }
+        let mut sources = Vec::with_capacity(files.len());
+        for file in files {
+            sources.push(match file {
+                ObjectiveFile::File { root, path } => {
+                    let b = broker.inner().clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        b.owner_file_path(&root, &path, false)
+                    })
+                    .await
+                    .map_err(|e| CommandError::internal(e.to_string()))?
+                    .map_err(broker_error)?
+                }
+                ObjectiveFile::Dropped { drop, index } => {
+                    drops.path(window.label(), &drop, index)?
+                }
+            });
+        }
+        let b = broker.inner().clone();
+        let staged = tauri::async_runtime::spawn_blocking(move || b.stage_files(&project, &sources))
+            .await
+            .map_err(|e| CommandError::internal(e.to_string()))?
+            .map_err(broker_error)?;
+        Some(staged)
+    };
+    let text = staged
+        .as_ref()
+        .map_or_else(|| objective.clone(), |s| s.objective(&objective));
+    let given = workforce
+        .give_objective(&position_id, &text, project_id.as_deref())
         .await
-        .map_err(workforce_error)
+        .map_err(workforce_error);
+    match (&given, &staged) {
+        (Ok(detail), Some(staged)) => {
+            if let Some(turn) = detail.turns.last() {
+                broker.record_files(&turn.task_id, staged);
+            }
+        }
+        (Err(_), Some(staged)) => broker.discard_files(staged),
+        _ => {}
+    }
+    given
 }
 
 // ---- Model policy and routing (Phase 6) --------------------------------------------------------

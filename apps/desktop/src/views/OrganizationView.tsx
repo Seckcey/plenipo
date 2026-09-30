@@ -465,9 +465,9 @@ export function OrganizationView({
     () => ({
       run,
       change,
-      giveObjective: async (positionId, objective) => {
+      giveObjective: async (positionId, objective, files) => {
         try {
-          await giveObjective(positionId, objective);
+          await giveObjective(positionId, objective, files?.projectId, files?.files);
           void reload();
           return null;
         } catch (reason) {

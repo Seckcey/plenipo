@@ -235,3 +235,101 @@ pub async fn show_in_folder(
 pub fn get_changing_files(broker: State<'_, Broker>) -> Result<Vec<ChangingFile>, CommandError> {
     Ok(broker.changing_files())
 }
+
+// ---- Files dropped from File Explorer (ADR-093 §20) --------------------------------------------
+
+/// The event an organization's window hears when files are dropped on it.
+pub const DROP_EVENT: &str = "plenipo://drop";
+/// A drop's ticket lasts this long (the owner may take a while to give the objective).
+const DROP_LIFETIME: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+/// Drops kept at once.
+const MAX_DROPS: usize = 64;
+
+struct Dropped {
+    window: String,
+    paths: Vec<PathBuf>,
+    at: std::time::Instant,
+}
+
+/// Files dropped on Plenipo's windows from File Explorer, by ticket. The page never sees where
+/// they are on the PC, only their names and the ticket; a file reaches an objective only through
+/// a real drop on that same window.
+#[derive(Default)]
+pub struct Drops(std::sync::Mutex<std::collections::HashMap<String, Dropped>>);
+
+impl Drops {
+    /// Keep a drop on `window`; its ticket.
+    pub fn add(&self, window: &str, paths: Vec<PathBuf>) -> String {
+        let mut all = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        all.retain(|_, d| d.at.elapsed() < DROP_LIFETIME);
+        while all.len() >= MAX_DROPS {
+            let Some(oldest) = all.iter().min_by_key(|(_, d)| d.at).map(|(k, _)| k.clone()) else {
+                break;
+            };
+            all.remove(&oldest);
+        }
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        all.insert(
+            id.clone(),
+            Dropped {
+                window: window.to_owned(),
+                paths,
+                at: std::time::Instant::now(),
+            },
+        );
+        id
+    }
+
+    /// One dropped file, for the window it was dropped on.
+    pub fn path(&self, window: &str, drop: &str, index: u32) -> Result<PathBuf, CommandError> {
+        let all = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        all.get(drop)
+            .filter(|d| d.window == window && d.at.elapsed() < DROP_LIFETIME)
+            .and_then(|d| d.paths.get(index as usize).cloned())
+            .ok_or_else(|| {
+                CommandError::invalid_input("Drop that file on the objective again.")
+            })
+    }
+}
+
+/// Files were dropped on an organization's window: keep them, and tell its page their names and
+/// where they landed.
+pub fn dropped<R: tauri::Runtime>(
+    window: &tauri::Window<R>,
+    paths: Vec<PathBuf>,
+    position: tauri::PhysicalPosition<f64>,
+) {
+    use tauri::{Emitter as _, Manager as _};
+    if !crate::workspace_windows::is_org_window(window.label()) || paths.is_empty() {
+        return;
+    }
+    let Some(drops) = window.try_state::<Drops>() else {
+        return;
+    };
+    let files = paths
+        .iter()
+        .map(|p| {
+            let meta = std::fs::metadata(p).ok();
+            plenipo_capabilities::dto::DroppedFile {
+                name: p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                folder: meta.as_ref().is_some_and(std::fs::Metadata::is_dir),
+                size: meta.filter(std::fs::Metadata::is_file).map(|m| m.len()),
+            }
+        })
+        .collect();
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let at = position.to_logical::<f64>(scale);
+    let drop = drops.add(window.label(), paths);
+    let payload = plenipo_capabilities::dto::DroppedFiles {
+        drop,
+        files,
+        x: at.x,
+        y: at.y,
+    };
+    if let Err(e) = window.emit_to(window.label(), DROP_EVENT, &payload) {
+        log::warn!("could not tell the window about the dropped files: {e}");
+    }
+}
