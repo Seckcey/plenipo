@@ -9,7 +9,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use plenipo_ledger::workforce::Providers;
 use plenipo_ledger::{
     Deleted, Ledger, LoanUntil, NewPosition, OversightKind, PositionPatch, ProjectSettings,
-    RoleType, RuntimeSessionState, SaveAgent, SpecialtyFields, Task, TaskState, TilePlace,
+    RoleType, RuntimeSessionState, SaveAgent, SavedAgent, SpecialtyFields, Task, TaskState,
+    TilePlace,
 };
 use plenipo_liaison::Liaison;
 use plenipo_router::{ModelRule, RouteRequest, Router, RoutingSnapshot, RuleTarget};
@@ -78,6 +79,9 @@ fn invalid(message: impl Into<String>) -> WorkforceError {
 
 struct Inner {
     ledger: Arc<Ledger>,
+    /// Where your Workforce and your tile are kept for every organization (Phase 21, ADR-094):
+    /// the first organization's Ledger. `None`: this organization's own (it is the first).
+    shared: std::sync::RwLock<Option<Arc<Ledger>>>,
     runtime: AgentRuntime,
     liaison: Liaison,
     router: Router,
@@ -146,6 +150,7 @@ impl Workforce {
         let this = Self {
             inner: Arc::new(Inner {
                 ledger: Arc::clone(&ledger),
+                shared: std::sync::RwLock::new(None),
                 runtime,
                 liaison: liaison.clone(),
                 router: router.clone(),
@@ -238,6 +243,210 @@ impl Workforce {
         &self.inner.ledger
     }
 
+    // ---- Your Workforce and your tile, shared by every organization (Phase 21, ADR-094) ------
+
+    /// Keep your Workforce and your tile in `home` (the first organization's Ledger), shared by
+    /// every organization, instead of this organization's own Ledger.
+    pub fn share_with(&self, home: Arc<Ledger>) {
+        if Arc::ptr_eq(&home, &self.inner.ledger) {
+            return;
+        }
+        *self
+            .inner
+            .shared
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(home);
+    }
+
+    /// The shared Ledger, when it is not this organization's own.
+    fn shared(&self) -> Option<Arc<Ledger>> {
+        self.inner
+            .shared
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// The Ledger your Workforce and your tile are kept in.
+    fn workforce_ledger(&self) -> Arc<Ledger> {
+        self.shared()
+            .unwrap_or_else(|| Arc::clone(&self.inner.ledger))
+    }
+
+    /// A saved agent as this organization knows it: its role and specialty found by name (each
+    /// organization has its own), when the ones it names are not here.
+    fn localize(&self, from: &Ledger, mut saved: SavedAgent) -> Result<SavedAgent> {
+        let own = self.ledger();
+        if own.role(&saved.role_id)?.is_none() {
+            let name = match saved.settings["roleName"].as_str() {
+                Some(n) => Some(n.to_owned()),
+                None => from.role(&saved.role_id)?.map(|r| r.name),
+            };
+            if let Some(role) = name
+                .as_deref()
+                .and_then(|n| own.list_roles().ok()?.into_iter().find(|r| r.name == n))
+            {
+                saved.role_id = role.id;
+            }
+        }
+        if let Some(id) = saved.specialty_id.clone() {
+            if own.specialty(&id)?.is_none() {
+                let name = match saved.settings["specialtyName"].as_str() {
+                    Some(n) => Some(n.to_owned()),
+                    None => from.specialty(&id)?.map(|s| s.name),
+                };
+                saved.specialty_id = name.and_then(|n| {
+                    own.list_specialties()
+                        .ok()?
+                        .into_iter()
+                        .find(|s| {
+                            s.name == n && s.role_id == saved.role_id && s.removed_at.is_none()
+                        })
+                        .map(|s| s.id)
+                });
+            }
+        }
+        Ok(saved)
+    }
+
+    /// The agents in your Workforce, as this organization knows them: the shared ones, and any
+    /// this organization keeps itself (one whose role the first organization does not have).
+    fn workforce_agents(&self) -> Result<Vec<SavedAgent>> {
+        let mut agents = self.ledger().saved_agents()?;
+        let Some(shared) = self.shared() else {
+            return Ok(agents);
+        };
+        for s in shared.saved_agents()? {
+            if !agents.iter().any(|a| a.id == s.id) {
+                agents.push(self.localize(&shared, s)?);
+            }
+        }
+        agents.sort_by_key(|a| std::cmp::Reverse(a.saved_at));
+        Ok(agents)
+    }
+
+    /// Run `hire` with saved agent `saved_id` brought into this organization from the shared
+    /// Workforce first: on success it leaves the shared Workforce; on failure it goes back.
+    fn with_saved<T>(&self, saved_id: Option<&str>, hire: impl FnOnce() -> Result<T>) -> Result<T> {
+        let (Some(id), Some(shared)) = (saved_id, self.shared()) else {
+            return hire();
+        };
+        if self.ledger().saved_agent(id)?.is_some() {
+            return hire();
+        }
+        let saved = shared
+            .saved_agent(id)?
+            .ok_or_else(|| invalid("that agent is no longer in your Workforce"))?;
+        let local = self.localize(&shared, saved)?;
+        if self.ledger().role(&local.role_id)?.is_none() {
+            let role = local.settings["roleName"]
+                .as_str()
+                .unwrap_or("its role")
+                .to_owned();
+            return Err(invalid(format!(
+                "{} is a {role}, and this organization has no such role; add it first",
+                local.title
+            )));
+        }
+        self.ledger().put_saved_agent(&local)?;
+        match hire() {
+            Ok(v) => {
+                if let Err(e) = shared.take_saved_agent(id) {
+                    self.notice(format!(
+                        "{} was hired, but could not leave your Workforce: {e}",
+                        local.title
+                    ));
+                }
+                Ok(v)
+            }
+            Err(e) => {
+                let _ = self.ledger().take_saved_agent(id);
+                Err(e)
+            }
+        }
+    }
+
+    /// Agents this organization just saved go to the shared Workforce, with their role's and
+    /// specialty's names, so any organization can hire them again. One whose role the first
+    /// organization does not have stays in this organization's own Workforce.
+    fn send_saved_home(&self) {
+        let Some(shared) = self.shared() else { return };
+        let own = self.ledger();
+        let Ok(saved) = own.saved_agents() else {
+            return;
+        };
+        for mut s in saved {
+            if !s.settings.is_object() {
+                s.settings = json!({});
+            }
+            if let Ok(Some(role)) = own.role(&s.role_id) {
+                s.settings["roleName"] = role.name.into();
+            }
+            if let Some(Ok(Some(sp))) = s.specialty_id.as_deref().map(|id| own.specialty(id)) {
+                s.settings["specialtyName"] = sp.name.into();
+            }
+            if let Ok(home) = self.localize_into(&shared, s.clone()) {
+                if shared.put_saved_agent(&home).is_ok() {
+                    let _ = own.take_saved_agent(&s.id);
+                }
+            }
+        }
+    }
+
+    /// Save position `position_id` of this organization, about to be deleted for good, to your
+    /// Workforce in `to` (the first organization's Ledger) without changing this one (Phase 21,
+    /// ADR-094 §18). `None`: `to` has no role of its role's name, so it could not be hired there.
+    pub fn save_copy_to(&self, position_id: &str, to: &Ledger) -> Result<Option<SavedAgent>> {
+        let own = self.ledger();
+        let settings = self.saved_settings(position_id)?;
+        let mut saved = own.saved_copy(position_id, &settings)?;
+        if !saved.settings.is_object() {
+            saved.settings = json!({});
+        }
+        if let Some(role) = own.role(&saved.role_id)? {
+            saved.settings["roleName"] = role.name.into();
+        }
+        if let Some(id) = saved.specialty_id.clone() {
+            if let Some(sp) = own.specialty(&id)? {
+                saved.settings["specialtyName"] = sp.name.into();
+            }
+        }
+        let Some(role) = saved.settings["roleName"]
+            .as_str()
+            .and_then(|n| to.list_roles().ok()?.into_iter().find(|r| r.name == n))
+        else {
+            return Ok(None);
+        };
+        saved.role_id = role.id;
+        saved.specialty_id = saved.settings["specialtyName"].as_str().and_then(|n| {
+            to.list_specialties()
+                .ok()?
+                .into_iter()
+                .find(|s| s.name == n && s.role_id == saved.role_id && s.removed_at.is_none())
+                .map(|s| s.id)
+        });
+        to.put_saved_agent(&saved)?;
+        Ok(Some(saved))
+    }
+
+    /// A saved agent as the shared Ledger knows it: its role and specialty by name, when that
+    /// Ledger has them (a specialty it does not have is left out).
+    fn localize_into(&self, home: &Ledger, mut saved: SavedAgent) -> Result<SavedAgent> {
+        if let Some(name) = saved.settings["roleName"].as_str() {
+            if let Some(role) = home.list_roles()?.into_iter().find(|r| r.name == name) {
+                saved.role_id = role.id;
+            }
+        }
+        if let Some(name) = saved.settings["specialtyName"].as_str() {
+            saved.specialty_id = home
+                .list_specialties()?
+                .into_iter()
+                .find(|s| s.name == name && s.role_id == saved.role_id && s.removed_at.is_none())
+                .map(|s| s.id);
+        }
+        Ok(saved)
+    }
+
     fn runtimes(&self) -> Vec<AgentRuntimeInfo> {
         self.inner.runtime.runtimes()
     }
@@ -257,7 +466,11 @@ impl Workforce {
     pub fn snapshot(&self) -> Result<OrgSnapshot> {
         let l = self.ledger();
         let now = plenipo_ledger::now_ms();
-        let records = l.org_records()?;
+        let mut records = l.org_records()?;
+        // Your Workforce, shared by every organization (Phase 21).
+        if self.shared().is_some() {
+            records.saved_agents = self.workforce_agents()?;
+        }
         let open_tasks = l.open_workforce_tasks()?;
         let finished_recent = l.finished_workforce_tasks(now.saturating_sub(DAY_MS), 1000)?;
         let sessions = l.open_workforce_sessions()?;
@@ -695,6 +908,16 @@ impl Workforce {
             .head
             .as_ref()
             .ok_or_else(|| invalid("a new department needs a head position"))?;
+        self.with_saved(head.from_workforce.as_deref(), || {
+            self.create_department_now(input, head)
+        })
+    }
+
+    fn create_department_now(
+        &self,
+        input: &DepartmentInput,
+        head: &LeadInput,
+    ) -> Result<OrgSnapshot> {
         let saved = self.saved_for(head.from_workforce.as_deref())?;
         let head = self.lead(head, input.reports_to.clone())?;
         self.refuse_never_used(&head, Seat::NewDepartment)?;
@@ -766,6 +989,17 @@ impl Workforce {
             .coordinator
             .as_ref()
             .ok_or_else(|| invalid("a new project needs a supervisor position"))?;
+        self.with_saved(coordinator.from_workforce.as_deref(), || {
+            self.create_project_now(input, department_id, coordinator)
+        })
+    }
+
+    fn create_project_now(
+        &self,
+        input: &ProjectInput,
+        department_id: &str,
+        coordinator: &LeadInput,
+    ) -> Result<OrgSnapshot> {
         let settings = self.settings(input)?;
         let saved = self.saved_for(coordinator.from_workforce.as_deref())?;
         let coordinator = self.lead(coordinator, None)?;
@@ -927,6 +1161,17 @@ impl Workforce {
         reports_to: Option<&str>,
         title: Option<&str>,
     ) -> Result<OrgSnapshot> {
+        self.with_saved(Some(saved_id), || {
+            self.hire_from_workforce_now(saved_id, reports_to, title)
+        })
+    }
+
+    fn hire_from_workforce_now(
+        &self,
+        saved_id: &str,
+        reports_to: Option<&str>,
+        title: Option<&str>,
+    ) -> Result<OrgSnapshot> {
         let saved = self
             .ledger()
             .saved_agent(saved_id)?
@@ -954,12 +1199,14 @@ impl Workforce {
             OWNER,
         )?;
         self.forget_settings(&[position_id.to_owned()], &[]);
+        self.send_saved_home();
         self.snapshot()
     }
 
     /// Delete an agent in the Workforce for good.
     pub fn delete_saved_agent(&self, saved_id: &str) -> Result<OrgSnapshot> {
-        self.ledger().delete_saved_agent(saved_id, OWNER)?;
+        self.workforce_ledger()
+            .delete_saved_agent(saved_id, OWNER)?;
         self.snapshot()
     }
 
@@ -1137,6 +1384,7 @@ impl Workforce {
         let mut positions = deleted.positions.clone();
         positions.extend(deleted.saved.iter().map(|(p, _)| p.clone()));
         self.forget_settings(&positions, &deleted.departments);
+        self.send_saved_home();
         Ok((self.snapshot()?, deleted))
     }
 
@@ -1373,14 +1621,14 @@ impl Workforce {
     // ---- The owner's tile (ADR-056) -------------------------------------------------------
 
     pub fn owner_profile(&self) -> Result<crate::owner::OwnerProfile> {
-        crate::owner::profile(self.ledger())
+        crate::owner::profile(&self.workforce_ledger())
     }
 
     pub fn set_owner_profile(
         &self,
         input: &crate::owner::OwnerProfileInput,
     ) -> Result<crate::owner::OwnerProfile> {
-        crate::owner::set_profile(self.ledger(), input)
+        crate::owner::set_profile(&self.workforce_ledger(), input)
     }
 
     // ---- The canvas (ADR-053) -------------------------------------------------------------

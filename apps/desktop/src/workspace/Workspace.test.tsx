@@ -5,9 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../api/commands";
 import * as events from "../api/events";
-import { useWorkspace } from "./context";
+import { useWorkspace, useWorkspaceArea } from "./context";
 import { Dock, PanelPortals } from "./Dock";
-import { LAYOUT_KEY } from "./layout";
+import { LAYOUT_KEY, type Layout } from "./layout";
 import { WorkspaceProvider } from "./WorkspaceProvider";
 
 vi.mock("../api/commands", async (importOriginal) => {
@@ -17,6 +17,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     preparePopOut: vi.fn(),
     focusPopOut: vi.fn(),
     resetPopOuts: vi.fn(),
+    closePopOut: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -63,9 +64,9 @@ function Buttons() {
 }
 
 function WorkArea() {
-  const ws = useWorkspace();
+  const area = useWorkspaceArea();
   return (
-    <div ref={ws.measure} className="shell__work">
+    <div ref={area} className="shell__work">
       <Dock side="left" />
       <Dock side="right" />
       <Dock side="bottom" />
@@ -89,7 +90,7 @@ function Harness() {
   );
 }
 
-const kept = () => JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "null");
+const kept = () => JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? "null") as Layout;
 
 beforeEach(() => {
   cleanup();
@@ -98,6 +99,7 @@ beforeEach(() => {
   api.preparePopOut.mockResolvedValue();
   api.focusPopOut.mockResolvedValue(true);
   api.resetPopOuts.mockResolvedValue();
+  api.closePopOut.mockResolvedValue(true);
   vi.mocked(events.subscribePopOuts).mockImplementation((handler) => {
     notify = handler;
     return Promise.resolve(() => undefined);

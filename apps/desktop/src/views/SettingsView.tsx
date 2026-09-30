@@ -28,6 +28,7 @@ import {
 import { TerminalSettings } from "../settings/TerminalSettings";
 import { StartAndCloseSettings } from "../upkeep/StartAndCloseSettings";
 import { UpdateSettings } from "../upkeep/UpdateSettings";
+import { LayoutSetting } from "../workspace/LayoutSetting";
 
 /**
  * Settings in one place (Phase 12): a list of sections on the left, one section at a time, and
@@ -116,6 +117,7 @@ export function SettingsView({
           {current === "personalization" && (
             <>
               <TitlesSetting />
+              <LayoutSetting />
               <p className="muted">
                 Light or dark: use the button at the top right. Plenipo remembers your choice.
               </p>

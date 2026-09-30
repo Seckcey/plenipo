@@ -2016,7 +2016,10 @@ async fn a_working_copy_a_worker_is_writing_is_read_only_for_the_owner_until_it_
             view.hash.as_deref(),
         )
         .unwrap();
-    assert!(matches!(saved, plenipo_capabilities::SaveOutcome::Saved { .. }));
+    assert!(matches!(
+        saved,
+        plenipo_capabilities::SaveOutcome::Saved { .. }
+    ));
     assert_eq!(
         std::fs::read_to_string(Path::new(&copy.path).join("src").join("app.txt")).unwrap(),
         "the owner's\n"
@@ -2063,7 +2066,10 @@ async fn a_workers_change_says_which_working_copy_and_the_file_view_marks_it() {
         used.iter().any(|u| u["change"]["root"] == copy.id.as_str()),
         "{used:#?}"
     );
-    assert!(h.broker.changing_files().is_empty(), "nothing is being changed now");
+    assert!(
+        h.broker.changing_files().is_empty(),
+        "nothing is being changed now"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2089,16 +2095,29 @@ async fn files_on_an_objective_are_named_or_copied_and_reach_its_working_copy_on
     assert_eq!(staged.named, vec!["README.md".to_owned()]);
     assert_eq!(staged.copied, vec![("brief.txt".to_owned(), 22)]);
     let text = staged.objective("Use the attached files");
-    assert!(text.contains("Look at these files in the project: README.md."), "{text}");
+    assert!(
+        text.contains("Look at these files in the project: README.md."),
+        "{text}"
+    );
     let root = h.objective(&h.team.supervisor, &text).await;
     h.broker.record_files(&root, &staged);
     assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
     // The worker read the copy in its working copy; the original is untouched.
     let dev = &h.tasks_of(&root, "Senior Developer")[0];
-    assert!(h.text(&dev.id).contains("Make the logo bigger."), "{}", h.text(&dev.id));
-    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "Make the logo bigger.\n");
+    assert!(
+        h.text(&dev.id).contains("Make the logo bigger."),
+        "{}",
+        h.text(&dev.id)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&outside).unwrap(),
+        "Make the logo bigger.\n"
+    );
     let copy = working_copy_root(&h).await;
-    assert!(Path::new(&copy.path).join("attachments").join("brief.txt").is_file());
+    assert!(Path::new(&copy.path)
+        .join("attachments")
+        .join("brief.txt")
+        .is_file());
     // The owner's checkout gets nothing.
     assert!(!h.folder.join("attachments").exists());
     // Recorded: the files by name, never their contents; delivered once.
@@ -2109,5 +2128,8 @@ async fn files_on_an_objective_are_named_or_copied_and_reach_its_working_copy_on
     // Too many or too large files are refused before anything is given.
     let many: Vec<PathBuf> = (0..21).map(|_| outside.clone()).collect();
     assert!(h.broker.stage_files(&h.project, &many).is_err());
-    assert!(h.broker.stage_files(&h.project, &[h.folder.join("src")]).is_err());
+    assert!(h
+        .broker
+        .stage_files(&h.project, &[h.folder.join("src")])
+        .is_err());
 }

@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: core defaults plus Plenipo's typed commands. No OS plugins (fs, shell, http, process) are granted.",
-  "windows": ["main"],
+  "description": "Every organization's window (the first window, main, and org-<id>, Phase 21, ADR-094): core defaults plus Plenipo's typed commands. No OS plugins (fs, shell, http, process) are granted.",
+  "windows": ["main", "org-*"],
   "permissions": [
     "core:default",
     "allow-get-app-info",
@@ -186,6 +186,15 @@
     "allow-save-file",
     "allow-open-file-outside",
     "allow-show-in-folder",
-    "allow-get-changing-files"
+    "allow-get-changing-files",
+    "allow-close-pop-out",
+    "allow-get-organizations",
+    "allow-create-organization",
+    "allow-switch-organization",
+    "allow-open-organization-window",
+    "allow-archive-organization",
+    "allow-bring-back-organization",
+    "allow-preview-delete-organization",
+    "allow-delete-organization-for-good"
   ]
 }

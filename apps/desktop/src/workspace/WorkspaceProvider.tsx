@@ -8,17 +8,29 @@ import {
   type ReactNode,
 } from "react";
 import type { WindowPlace } from "@plenipo/types";
-import { useElementSize } from "@plenipo/ui";
+import { storedKey, useElementSize } from "@plenipo/ui";
 
-import { focusPopOut, preparePopOut, resetPopOuts, toCommandError } from "../api/commands";
+import {
+  closePopOut,
+  focusPopOut,
+  preparePopOut,
+  resetPopOuts,
+  toCommandError,
+} from "../api/commands";
 import { subscribePopOuts } from "../api/events";
-import { WorkspaceContext, type PanelDrag, type PopUp, type WorkspaceApi } from "./context";
+import {
+  WorkspaceAreaContext,
+  WorkspaceContext,
+  type PanelDrag,
+  type PopUp,
+  type WorkspaceApi,
+} from "./context";
 import * as L from "./layout";
 import { dressWindow, whenReady } from "./popout";
 
 function readJson(key: string): unknown {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(storedKey(key));
     return raw === null ? null : (JSON.parse(raw) as unknown);
   } catch {
     return null;
@@ -27,7 +39,7 @@ function readJson(key: string): unknown {
 
 function writeJson(key: string, value: unknown) {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(storedKey(key), JSON.stringify(value));
   } catch {
     // Storage unavailable: the layout lasts until the window closes.
   }
@@ -90,7 +102,7 @@ export function WorkspaceProvider({
       ),
     [],
   );
-  const parking = useMemo(makeParking, []);
+  const parking = useMemo(() => makeParking(), []);
   useEffect(() => {
     document.body.appendChild(parking);
     return () => parking.remove();
@@ -118,16 +130,16 @@ export function WorkspaceProvider({
   /** Panels whose window Plenipo is closing itself (their "closed" notice changes nothing). */
   const closing = useRef(new Set<L.PanelId>());
 
-  const [hosts, setHosts] = useState<Record<L.PanelId, Window>>(() => ({
-    terminal: window,
-    files: window,
-  }));
+  /** The window each panel is drawn in: its pop-out's while it is popped out, else this one. */
+  const hosts = useMemo(() => {
+    const shownIn = (panel: L.PanelId): Window =>
+      (layout.panels[panel].popped && popUps.find((u) => u.panel === panel)?.win) || window;
+    return { terminal: shownIn("terminal"), files: shownIn("files") };
+  }, [layout, popUps]);
 
   // Put each panel's element where the layout says: its pop-out, its dock (shown and showing
   // it), or the hidden place.
   useLayoutEffect(() => {
-    const next = { ...hosts };
-    let changed = false;
     for (const panel of L.PANELS) {
       const el = containerOf(panel);
       const place = layout.panels[panel];
@@ -144,14 +156,8 @@ export function WorkspaceProvider({
         target = slot;
       }
       if (el.parentNode !== target) target.appendChild(el);
-      const win = target.ownerDocument.defaultView ?? window;
-      if (next[panel] !== win) {
-        next[panel] = win;
-        changed = true;
-      }
     }
-    if (changed) setHosts(next);
-  }, [layout, slotCount, popUps, containerOf, parking, hosts]);
+  }, [layout, slotCount, popUps, containerOf, parking]);
 
   /** A pop-out window is gone: its panel's element comes home, and (unless Plenipo closed it
    * on purpose) the panel goes back to its dock. */
@@ -235,6 +241,8 @@ export function WorkspaceProvider({
       } catch {
         // Already gone.
       }
+      // Plenipo closes the window too: a window its page closed may stay behind unseen.
+      void closePopOut(panel).catch(() => undefined);
       syncPopUps();
     },
     [containerOf, parking],
@@ -346,7 +354,7 @@ export function WorkspaceProvider({
     popOutProblem: problem,
     windowOf: (panel) => hosts[panel],
     registerSlot,
-    measure: setArea,
+
     drag,
     setDrag,
     dockAt,
@@ -354,5 +362,9 @@ export function WorkspaceProvider({
     popUps,
   };
 
-  return <WorkspaceContext.Provider value={api}>{children}</WorkspaceContext.Provider>;
+  return (
+    <WorkspaceContext.Provider value={api}>
+      <WorkspaceAreaContext.Provider value={setArea}>{children}</WorkspaceAreaContext.Provider>
+    </WorkspaceContext.Provider>
+  );
 }

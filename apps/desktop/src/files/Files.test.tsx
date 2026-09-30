@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ControlStatus, FileRoots, FileView, LedgerEvent, WatchUpdate } from "@plenipo/types";
+import type { FileRoots, FileView, LedgerEvent, WatchUpdate } from "@plenipo/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../api/commands";
@@ -8,13 +8,16 @@ import * as events from "../api/events";
 import { EditorPage } from "./EditorPage";
 import { editorStore } from "./editorStore";
 import { FilesPanel } from "./FilesPanel";
-import { useObjectiveFiles, ObjectiveFilesList } from "./ObjectiveFiles";
+import { ObjectiveFilesList } from "./ObjectiveFiles";
+import { useObjectiveFiles } from "./useObjectiveFiles";
 import { ATTACH_EVENT } from "./refs";
 
 // The editor draws with CodeMirror, which needs a real screen: a stand-in keeps the text.
-vi.mock("./CodeEditor", () => ({
+vi.mock("./editorSetup", () => ({
   SAVE_EVENT: "plenipo:save",
   editorState: (text: string) => ({ doc: { toString: () => text } }),
+}));
+vi.mock("./CodeEditor", () => ({
   CodeEditor: ({
     state,
     readOnly,
@@ -156,7 +159,7 @@ beforeEach(() => {
     stopped: false,
     sessions: [],
     revision: 1,
-  } as ControlStatus);
+  });
   api.getFileRoots.mockResolvedValue(roots());
   api.getChangingFiles.mockResolvedValue([]);
   api.listFolder.mockImplementation((root, path) =>
@@ -289,16 +292,14 @@ describe("the editor (Phase 21, ADR-093)", () => {
   it("does not save over a file that changed on the disk unless the owner says so", async () => {
     const user = userEvent.setup();
     api.readFile.mockResolvedValue(text(ROOT, "README.md", "x\n"));
-    api.saveFile
-      .mockResolvedValueOnce({ kind: "changedOnDisk" })
-      .mockResolvedValueOnce({
-        kind: "saved",
-        hash: "c".repeat(64),
-        size: 3,
-        modified: 3,
-        added: 1,
-        removed: 1,
-      });
+    api.saveFile.mockResolvedValueOnce({ kind: "changedOnDisk" }).mockResolvedValueOnce({
+      kind: "saved",
+      hash: "c".repeat(64),
+      size: 3,
+      modified: 3,
+      added: 1,
+      removed: 1,
+    });
     render(<EditorPage id={`${ROOT}/README.md`} go={vi.fn()} />);
     await user.type(await screen.findByRole("textbox"), "y");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -378,9 +379,9 @@ describe("the editor (Phase 21, ADR-093)", () => {
 
 describe("files on an objective (Phase 21, ADR-093 §19)", () => {
   function Form({ allowed }: { allowed: boolean }) {
-    const files = useObjectiveFiles(allowed);
+    const [files, dropTarget] = useObjectiveFiles(allowed);
     return (
-      <form ref={files.dropRef} {...files.dropProps} aria-label="Give an objective">
+      <form ref={dropTarget} {...files.dropProps} aria-label="Give an objective">
         <ObjectiveFilesList state={files} />
         <output data-testid="sent">{JSON.stringify(files.toSend())}</output>
       </form>

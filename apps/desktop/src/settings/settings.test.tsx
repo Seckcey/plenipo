@@ -46,12 +46,14 @@ vi.mock("../api/commands", async (importOriginal) => {
     saveDiagnosticsFile: vi.fn(),
     getAiTools: vi.fn(),
     setAiToolsAutoUpdate: vi.fn(),
+    getOrganizations: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
   subscribeRuntimeEvents: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeLedgerEvents: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeAgentUpdates: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeOrganizations: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 const api = vi.mocked(commands);
@@ -97,6 +99,22 @@ function show(section: string | null = null) {
 beforeEach(() => {
   localStorage.clear();
   go.mockReset();
+  api.getOrganizations.mockResolvedValue({
+    current: "first",
+    organizations: [
+      {
+        id: "first",
+        name: "8 West Ventures",
+        first: true,
+        archived: false,
+        here: true,
+        inWindow: true,
+        working: 0,
+        createdAt: 0,
+      },
+    ],
+    templates: [],
+  });
   api.getRuntimeOverview.mockResolvedValue({
     profiles: [],
     executions: [],

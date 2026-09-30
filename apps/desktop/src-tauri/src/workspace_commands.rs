@@ -6,7 +6,7 @@
 use plenipo_core::{CommandError, PanelId, WindowPlace};
 use tauri::{Manager as _, Runtime, State, WebviewWindow};
 
-use crate::workspace_windows::{is_org_window, popout_label, PopOuts};
+use crate::workspace_windows::{is_org_window, parse_popout, popouts_of, PopOuts};
 
 /// The window asking must be an organization's window (its permission file already makes sure;
 /// this is the second lock).
@@ -51,7 +51,9 @@ pub fn focus_pop_out<R: Runtime>(
     panel: PanelId,
 ) -> Result<bool, CommandError> {
     let parent = org_window(&window)?;
-    let Some(popout) = window.app_handle().get_webview_window(&popout_label(&parent, panel))
+    let Some(popout) = popouts_of(window.app_handle(), &parent)
+        .into_iter()
+        .find(|w| parse_popout(w.label()).is_some_and(|(p, _)| p == panel))
     else {
         return Ok(false);
     };
@@ -71,4 +73,18 @@ pub fn reset_pop_outs<R: Runtime>(
     crate::workspace_windows::close_popouts(window.app_handle(), &parent);
     popouts.forget(&parent);
     Ok(())
+}
+
+/// Put back: close this window's pop-out of `panel`. `false` when none was open.
+#[tauri::command]
+pub fn close_pop_out<R: Runtime>(
+    window: WebviewWindow<R>,
+    panel: PanelId,
+) -> Result<bool, CommandError> {
+    let parent = org_window(&window)?;
+    Ok(crate::workspace_windows::close_popout(
+        window.app_handle(),
+        &parent,
+        panel,
+    ))
 }

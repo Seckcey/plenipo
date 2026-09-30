@@ -102,6 +102,48 @@ pub(super) fn save(
     settings: &Value,
     actor: &str,
 ) -> Result<SavedAgent> {
+    let (experience, lessons, specialty) = kept(tx, p)?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let at = now();
+    tx.execute(
+        "INSERT INTO saved_agents (id, title, role_id, specialty_id, from_position, settings,
+             experience, lessons, saved_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            id,
+            p.title,
+            p.role_id,
+            specialty,
+            p.id,
+            settings.to_string(),
+            experience.to_string(),
+            serde_json::to_string(&lessons).unwrap_or_else(|_| "[]".into()),
+            at
+        ],
+    )?;
+    tombstone_position(
+        tx,
+        p,
+        &json!({ "by": actor, "at": at, "movedTo": "workforce", "savedId": id }),
+    )?;
+    org_event(
+        out,
+        tx,
+        actor,
+        "agent_saved",
+        json!({
+            "savedId": id,
+            "positionId": p.id,
+            "title": p.title,
+            "roleId": p.role_id,
+            "experience": experience,
+        }),
+    )?;
+    get(tx, &id)?.ok_or_else(|| LedgerError::NotFound(format!("saved agent {id}")))
+}
+
+/// What saving `p` keeps: its experience, the lessons it wrote that are kept, and its specialty.
+fn kept(tx: &Connection, p: &Position) -> Result<(Value, Vec<String>, Option<String>)> {
     let counts = experience::counts_for(tx, &p.id)?;
     let before = &p.metadata["experience"];
     let mut lessons: Vec<String> =
@@ -143,43 +185,7 @@ pub(super) fn save(
         "unreviewed": unreviewed,
     });
     let specialty = super::specialties::current(tx, p.specialty_id.as_deref())?;
-    let id = uuid::Uuid::new_v4().to_string();
-    let at = now();
-    tx.execute(
-        "INSERT INTO saved_agents (id, title, role_id, specialty_id, from_position, settings,
-             experience, lessons, saved_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![
-            id,
-            p.title,
-            p.role_id,
-            specialty.as_ref().map(|s| &s.id),
-            p.id,
-            settings.to_string(),
-            experience.to_string(),
-            serde_json::to_string(&lessons).unwrap_or_else(|_| "[]".into()),
-            at
-        ],
-    )?;
-    tombstone_position(
-        tx,
-        p,
-        &json!({ "by": actor, "at": at, "movedTo": "workforce", "savedId": id }),
-    )?;
-    org_event(
-        out,
-        tx,
-        actor,
-        "agent_saved",
-        json!({
-            "savedId": id,
-            "positionId": p.id,
-            "title": p.title,
-            "roleId": p.role_id,
-            "experience": experience,
-        }),
-    )?;
-    get(tx, &id)?.ok_or_else(|| LedgerError::NotFound(format!("saved agent {id}")))
+    Ok((experience, lessons, specialty.map(|s| s.id)))
 }
 
 /// Who a lesson kept on its own was kept by: anyone but the owner reads as "kept on its own, not
@@ -340,6 +346,66 @@ impl Ledger {
             }
             refuse_if_busy(tx, &p, "saving it to your Workforce")?;
             save(tx, out, &p, &save_agent.settings, actor)
+        })
+    }
+
+    /// What saving position `position_id` would keep, without changing anything here (Phase
+    /// 21, ADR-094 §18): its organization is about to be deleted for good, and the agent moves
+    /// to your Workforce in the first organization's Ledger.
+    pub fn saved_copy(&self, position_id: &str, settings: &Value) -> Result<SavedAgent> {
+        self.read(|c| {
+            let p = get_position(c, position_id)?;
+            let (experience, lessons, specialty_id) = kept(c, &p)?;
+            Ok(SavedAgent {
+                id: uuid::Uuid::new_v4().to_string(),
+                title: p.title,
+                role_id: p.role_id,
+                specialty_id,
+                from_position: None,
+                settings: settings.clone(),
+                experience,
+                lessons,
+                saved_at: crate::now_ms(),
+            })
+        })
+    }
+
+    /// Put a saved agent in this Ledger's Workforce as it is (Phase 21, ADR-094): an agent
+    /// moving between the Workforce every organization shares and one organization. Its role
+    /// must be here; a specialty or first position this Ledger does not have is left empty.
+    /// Nothing is recorded here; the move is recorded where it is hired or saved.
+    pub fn put_saved_agent(&self, s: &SavedAgent) -> Result<()> {
+        self.write(|tx, _out| {
+            tx.execute(
+                "INSERT OR REPLACE INTO saved_agents (id, title, role_id, specialty_id,
+                     from_position, settings, experience, lessons, saved_at)
+                 VALUES (?1, ?2, ?3, (SELECT id FROM specialties WHERE id = ?4),
+                         (SELECT id FROM positions WHERE id = ?5), ?6, ?7, ?8, ?9)",
+                params![
+                    s.id,
+                    s.title,
+                    s.role_id,
+                    s.specialty_id,
+                    s.from_position,
+                    s.settings.to_string(),
+                    s.experience.to_string(),
+                    serde_json::to_string(&s.lessons).unwrap_or_else(|_| "[]".into()),
+                    s.saved_at as i64
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Take a saved agent out of this Ledger's Workforce as it is (it moved to another one;
+    /// Phase 21, ADR-094). `None` when it is not here.
+    pub fn take_saved_agent(&self, id: &str) -> Result<Option<SavedAgent>> {
+        self.write(|tx, _out| {
+            let s = get(tx, id)?;
+            if s.is_some() {
+                tx.execute("DELETE FROM saved_agents WHERE id = ?1", [id])?;
+            }
+            Ok(s)
         })
     }
 

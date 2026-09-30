@@ -355,3 +355,11 @@ export type { SaveOutcome } from "./generated/SaveOutcome";
 export type { DroppedFile } from "./generated/DroppedFile";
 export type { DroppedFiles } from "./generated/DroppedFiles";
 export type { ObjectiveFile } from "./generated/ObjectiveFile";
+// Phase 21 (ADR-094): your organizations.
+export type { OrgDeletePreview } from "./generated/OrgDeletePreview";
+export type { OrgListing } from "./generated/OrgListing";
+export type { OrgOpened } from "./generated/OrgOpened";
+export type { OrgStart } from "./generated/OrgStart";
+export type { OrgSummary } from "./generated/OrgSummary";
+export type { OrgTemplate } from "./generated/OrgTemplate";
+export type { OrgWorker } from "./generated/OrgWorker";

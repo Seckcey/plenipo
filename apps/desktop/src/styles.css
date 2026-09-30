@@ -1384,6 +1384,26 @@ body.popout {
   font-weight: 600;
 }
 
+/* Choices one under another, each with a line saying what it means (New organization). */
+.choices--stack {
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.choices--stack .choice {
+  align-items: flex-start;
+}
+
+.choice__text {
+  display: grid;
+  gap: 2px;
+}
+
+.choice--disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 .field {
   display: grid;
   gap: 4px;
@@ -4925,4 +4945,55 @@ body.popout {
 .objective-files__hint {
   margin: 0;
   font-size: var(--ui-font-xs);
+}
+
+/* Settings → Organization: your organizations (Phase 21, ADR-094). */
+.organizations-setting {
+  display: grid;
+  gap: var(--ui-space-3);
+  margin-top: var(--ui-space-5);
+}
+
+.organizations-setting__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--ui-space-3);
+}
+
+.organizations-setting__name .field {
+  flex: 1 1 260px;
+  margin-bottom: 0;
+}
+
+.organizations-setting__list {
+  display: grid;
+  gap: var(--ui-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.organizations-setting__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-3);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+}
+
+.organizations-setting__who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-2);
+}
+
+.organizations-setting__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2);
 }

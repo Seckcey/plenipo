@@ -78,24 +78,38 @@ async function panelMenu(browser, panel, choice) {
 }
 /** Call one of Plenipo's commands from the page, as a page could: its answer or its refusal. */
 const invoke = (browser, cmd, args) =>
-  browser.execute(
-    async (c, a) => {
-      try {
-        return { ok: await window.__TAURI_INTERNALS__.invoke(c, a) };
-      } catch (e) {
-        return { error: typeof e === "string" ? e : JSON.stringify(e) };
-      }
+  browser.executeAsync(
+    (c, a, done) => {
+      window.__TAURI_INTERNALS__.invoke(c, a).then(
+        (ok) => done({ ok }),
+        // Not `error`: WebDriver takes an answer with an `error` field for its own error.
+        (e) => done({ refused: typeof e === "string" ? e : JSON.stringify(e) }),
+      );
     },
     cmd,
     args,
   );
+/** In the pop-out window of `panel`, do `inside`, then come back to the organization's window. */
+async function inPopOut(browser, inside) {
+  const main = await browser.getWindowHandle();
+  const handles = await browser.getWindowHandles();
+  const other = handles.find((h) => h !== main);
+  assert.ok(other, "the pop-out is a window of its own");
+  await browser.switchToWindow(other);
+  try {
+    await inside();
+  } finally {
+    await browser.switchToWindow(main);
+  }
+}
 /** Give a resize edge the keyboard and press keys on it. */
 async function resizeWith(browser, label, keys) {
   await browser.execute(
     (l) => document.querySelector(`[role="separator"][aria-label="${l}"]`)?.focus(),
     label,
   );
-  await browser.keys(keys);
+  // One key at a time (a list is pressed together).
+  for (const key of keys) await browser.keys(key);
 }
 /** A row of the Files panel, by its name. */
 const row = (browser, name) =>
@@ -185,8 +199,15 @@ describe("Phase 21 the workspace: panels, windows, files, and the editor (real a
       await browser.switchToWindow(main);
     }
     await screenshot(browser, "workspace-main-while-popped-out");
-    // Put back: the same panel, in its dock again.
-    await panelMenu(browser, "Terminal", "Put back");
+    // Put back, in the pop-out's own header: the same panel, in its dock again.
+    await inPopOut(browser, async () => {
+      try {
+        await clickButton(browser, "Put back");
+      } catch (e) {
+        // The window closes under the click: that is Put back working.
+        if (!/no such window/i.test(String(e))) throw e;
+      }
+    });
     await waitUntil(
       () => exists(browser, 'section[data-dock="right"] .panel-host--terminal'),
       "the terminal back on the right",
@@ -209,6 +230,8 @@ describe("Phase 21 the workspace: panels, windows, files, and the editor (real a
       () => app.browser.execute(() => document.querySelector(".panel-host--terminal") === null),
       "popped out",
     );
+    // The page's storage reaches the disk a moment after it changes (WebKit writes it later).
+    await app.browser.pause(2000);
     await app.close();
     app = await launch(home, env);
     await app.browser.setWindowSize(1600, 1000);
@@ -281,7 +304,8 @@ describe("Phase 21 the workspace: panels, windows, files, and the editor (real a
     await waitForText(browser, ".file-editor__state", "Saved");
     assert.match(readFileSync(join(folder, "README.md"), "utf8"), /Edited in Plenipo\./);
     await nav(browser, "Activity");
-    await waitForText(browser, "main", "README.md", 20_000);
+    await clickButton(browser, "All events");
+    await waitForText(browser, "main", "You saved README.md", 20_000);
     await screenshot(browser, "workspace-saved-in-activity");
   });
 
@@ -291,10 +315,10 @@ describe("Phase 21 the workspace: panels, windows, files, and the editor (real a
     const root = roots.ok.roots.find((r) => r.kind === "projectFolder").id;
     for (const path of ["../../etc/passwd", "/etc/passwd", ".git/config"]) {
       const answer = await invoke(browser, "read_file", { root, path });
-      assert.ok(answer.error, `${path} is refused`);
+      assert.ok(answer.refused, `${path} is refused`);
     }
     const unknown = await invoke(browser, "read_file", { root: "project:nope", path: "README.md" });
-    assert.ok(unknown.error);
+    assert.ok(unknown.refused);
   });
 
   it("a working copy a worker is writing opens read-only, shows its change as it lands, and Stop the worker makes it writable", async () => {

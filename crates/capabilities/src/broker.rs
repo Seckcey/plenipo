@@ -716,6 +716,19 @@ impl Broker {
         store: Arc<dyn SecretStore>,
         config: BrokerConfig,
     ) -> Self {
+        Self::sharing_control(guard, supervisor, store, config, ControlCenter::default())
+    }
+
+    /// The broker of one organization among several (Phase 21, ADR-094 §7): who uses the
+    /// browser, the screen, and servers is one record for the whole PC, `control`, shared by every
+    /// organization's broker.
+    pub fn sharing_control(
+        guard: Guard,
+        supervisor: Supervisor,
+        store: Arc<dyn SecretStore>,
+        config: BrokerConfig,
+        control: ControlCenter,
+    ) -> Self {
         let supervisor_for_browser = supervisor.clone();
         let opener: Arc<dyn crate::connections::Opener> = if config.connections.stand_in.is_some() {
             Arc::new(crate::connections::FollowOpener)
@@ -743,7 +756,7 @@ impl Broker {
                 browser: Browser::new(config.browser.clone(), supervisor_for_browser),
                 watch: crate::watch::WatchHub::default(),
                 desktop: RwLock::new(Arc::new(SystemDesktop)),
-                control: ControlCenter::default(),
+                control,
                 evidence: Evidence::new(config.screenshots_dir.clone()),
                 terminals: terminals::Terminals::default(),
                 connections,

@@ -118,11 +118,18 @@ pub fn exists<R: Runtime>(app: &AppHandle<R>) -> bool {
 
 /// Update the tray's count of running programs.
 pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
-    let (Some(tray), Some(sup)) = (app.try_state::<Tray<R>>(), app.try_state::<Supervisor>())
-    else {
+    let Some(tray) = app.try_state::<Tray<R>>() else {
         return;
     };
-    let text = match sup.active_count() {
+    // Every organization's programs (Phase 21, ADR-094).
+    let stacks = crate::orgs::all_stacks(app);
+    let running = if stacks.is_empty() {
+        app.try_state::<Supervisor>()
+            .map_or(0, |s| s.active_count())
+    } else {
+        stacks.iter().map(|s| s.working()).sum()
+    };
+    let text = match running {
         0 => "No programs running".to_owned(),
         1 => "1 program running".to_owned(),
         n => format!("{n} programs running"),

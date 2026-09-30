@@ -5,9 +5,25 @@ export function cx(...names: (string | false | null | undefined)[]): string {
   return names.filter(Boolean).join(" ");
 }
 
+/** How a remembered key is named for this window (none: as it is). */
+let storageScope: ((key: string) => string) | null = null;
+
+/**
+ * Name remembered keys for this window's organization (Phase 21, ADR-094): each organization
+ * remembers its own page, map, and panels. Set once, before the first render.
+ */
+export function setStorageScope(scope: ((key: string) => string) | null): void {
+  storageScope = scope;
+}
+
+/** The name `key` is remembered under in this window. */
+export function storedKey(key: string): string {
+  return storageScope ? storageScope(key) : key;
+}
+
 function readStored<T>(key: string, fallback: T, valid: (v: unknown) => v is T): T {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(storedKey(key));
     if (raw === null) return fallback;
     const value: unknown = JSON.parse(raw);
     return valid(value) ? value : fallback;
@@ -31,7 +47,7 @@ export function useStoredState<T>(
       setValue(next);
       if (!key) return;
       try {
-        localStorage.setItem(key, JSON.stringify(next));
+        localStorage.setItem(storedKey(key), JSON.stringify(next));
       } catch {
         // Storage unavailable: the choice lasts until the window closes.
       }

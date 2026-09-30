@@ -189,6 +189,15 @@ const COMMANDS: &[&str] = &[
     "open_file_outside",
     "show_in_folder",
     "get_changing_files",
+    "close_pop_out",
+    "get_organizations",
+    "create_organization",
+    "switch_organization",
+    "open_organization_window",
+    "archive_organization",
+    "bring_back_organization",
+    "preview_delete_organization",
+    "delete_organization_for_good",
 ];
 
 fn main() {

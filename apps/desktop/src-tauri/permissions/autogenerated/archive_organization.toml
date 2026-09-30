@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-archive-organization"
+description = "Enables the archive_organization command without any pre-configured scope."
+commands.allow = ["archive_organization"]
+
+[[permission]]
+identifier = "deny-archive-organization"
+description = "Denies the archive_organization command without any pre-configured scope."
+commands.deny = ["archive_organization"]

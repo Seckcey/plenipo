@@ -47,19 +47,152 @@ const GIT_DIR: &str = ".git";
 /// them, and never opens them in another program (ADR-091 §7). Windows' own list of files that
 /// run, and the scripts and installers people send.
 const RUNS: &[&str] = &[
-    "ade", "adp", "app", "appcontent-ms", "application", "appref-ms", "appx", "appxbundle",
-    "asp", "aspx", "asx", "bas", "bash", "bat", "bgi", "cab", "chm", "cmd", "cnt", "com",
-    "command", "cpl", "csh", "diagcab", "dll", "docm", "dotm", "drv", "exe", "fxp", "gadget",
-    "grp", "hlp", "hpj", "hta", "htc", "img", "inf", "ins", "iso", "isp", "its", "jar", "jnlp",
-    "js", "jse", "ksh", "library-ms", "lnk", "mad", "maf", "mag", "mam", "maq", "mar", "mas",
-    "mat", "mau", "mav", "maw", "mcf", "mda", "mdb", "mde", "mdt", "mdw", "mdz", "msc", "msh",
-    "msh1", "msh1xml", "msh2", "msh2xml", "mshxml", "msi", "msix", "msixbundle", "msp", "mst",
-    "msu", "ocx", "ops", "osd", "pcd", "pif", "pl", "plg", "potm", "ppam", "ppsm", "pptm",
-    "prf", "prg", "printerexport", "ps1", "ps1xml", "ps2", "ps2xml", "psc1", "psc2", "psd1",
-    "psdm1", "psm1", "pssc", "py", "pyc", "pyo", "pyw", "pyz", "pyzw", "rdp", "reg", "scf",
-    "scr", "sct", "search-ms", "settingcontent-ms", "sh", "shb", "shs", "sldm", "sys", "theme",
-    "url", "vb", "vbe", "vbp", "vbs", "vhd", "vhdx", "vsmacros", "vsw", "webpnp", "website",
-    "ws", "wsb", "wsc", "wsf", "wsh", "xbap", "xlam", "xll", "xlsm", "xltm", "xnk", "zsh",
+    "ade",
+    "adp",
+    "app",
+    "appcontent-ms",
+    "application",
+    "appref-ms",
+    "appx",
+    "appxbundle",
+    "asp",
+    "aspx",
+    "asx",
+    "bas",
+    "bash",
+    "bat",
+    "bgi",
+    "cab",
+    "chm",
+    "cmd",
+    "cnt",
+    "com",
+    "command",
+    "cpl",
+    "csh",
+    "diagcab",
+    "dll",
+    "docm",
+    "dotm",
+    "drv",
+    "exe",
+    "fxp",
+    "gadget",
+    "grp",
+    "hlp",
+    "hpj",
+    "hta",
+    "htc",
+    "img",
+    "inf",
+    "ins",
+    "iso",
+    "isp",
+    "its",
+    "jar",
+    "jnlp",
+    "js",
+    "jse",
+    "ksh",
+    "library-ms",
+    "lnk",
+    "mad",
+    "maf",
+    "mag",
+    "mam",
+    "maq",
+    "mar",
+    "mas",
+    "mat",
+    "mau",
+    "mav",
+    "maw",
+    "mcf",
+    "mda",
+    "mdb",
+    "mde",
+    "mdt",
+    "mdw",
+    "mdz",
+    "msc",
+    "msh",
+    "msh1",
+    "msh1xml",
+    "msh2",
+    "msh2xml",
+    "mshxml",
+    "msi",
+    "msix",
+    "msixbundle",
+    "msp",
+    "mst",
+    "msu",
+    "ocx",
+    "ops",
+    "osd",
+    "pcd",
+    "pif",
+    "pl",
+    "plg",
+    "potm",
+    "ppam",
+    "ppsm",
+    "pptm",
+    "prf",
+    "prg",
+    "printerexport",
+    "ps1",
+    "ps1xml",
+    "ps2",
+    "ps2xml",
+    "psc1",
+    "psc2",
+    "psd1",
+    "psdm1",
+    "psm1",
+    "pssc",
+    "py",
+    "pyc",
+    "pyo",
+    "pyw",
+    "pyz",
+    "pyzw",
+    "rdp",
+    "reg",
+    "scf",
+    "scr",
+    "sct",
+    "search-ms",
+    "settingcontent-ms",
+    "sh",
+    "shb",
+    "shs",
+    "sldm",
+    "sys",
+    "theme",
+    "url",
+    "vb",
+    "vbe",
+    "vbp",
+    "vbs",
+    "vhd",
+    "vhdx",
+    "vsmacros",
+    "vsw",
+    "webpnp",
+    "website",
+    "ws",
+    "wsb",
+    "wsc",
+    "wsf",
+    "wsh",
+    "xbap",
+    "xlam",
+    "xll",
+    "xlsm",
+    "xltm",
+    "xnk",
+    "zsh",
 ];
 
 /// A file that runs when opened (a program or a script), by the end of its name.
@@ -103,7 +236,9 @@ fn what_it_is(name: &str, runs: bool) -> String {
         "mp3" | "wav" | "flac" | "ogg" | "m4a" => "A sound file.".into(),
         "mp4" | "mov" | "avi" | "mkv" | "webm" => "A video.".into(),
         "ttf" | "otf" | "woff" | "woff2" => "A font.".into(),
-        "psd" | "ai" | "indd" | "tif" | "tiff" | "heic" | "raw" => "A picture Plenipo cannot show.".into(),
+        "psd" | "ai" | "indd" | "tif" | "tiff" | "heic" | "raw" => {
+            "A picture Plenipo cannot show.".into()
+        }
         _ => "Not a text file Plenipo can show.".into(),
     }
 }
@@ -252,7 +387,10 @@ fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let temp = dir.join(format!(".{name}.plenipo-{}.tmp", uuid::Uuid::new_v4().simple()));
+    let temp = dir.join(format!(
+        ".{name}.plenipo-{}.tmp",
+        uuid::Uuid::new_v4().simple()
+    ));
     let result = (|| {
         let mut file = std::fs::OpenOptions::new()
             .write(true)
@@ -283,7 +421,7 @@ impl Broker {
         let mut roots = Vec::new();
         let mut projects = self.ledger().list_projects()?;
         projects.retain(|p| p.status == "active" && p.deleted_at.is_none());
-        projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        projects.sort_by_key(|p| p.name.to_lowercase());
         for p in projects {
             if let Some(path) = p.local_path.clone() {
                 let id = format!("project:{}", p.id);
@@ -438,7 +576,10 @@ impl Broker {
             let meta = std::fs::metadata(entry.path()).ok();
             let folder = meta.as_ref().is_some_and(std::fs::Metadata::is_dir);
             out.push(FolderEntry {
-                size: meta.as_ref().filter(|m| m.is_file()).map(std::fs::Metadata::len),
+                size: meta
+                    .as_ref()
+                    .filter(|m| m.is_file())
+                    .map(std::fs::Metadata::len),
                 modified: meta.as_ref().and_then(modified_ms),
                 blocked: blocked_by(&blocked, &rel).is_some(),
                 name,
@@ -470,7 +611,10 @@ impl Broker {
             BrokerError::Invalid(format!("{} is not there any more.", resolved.rel))
         })?;
         if meta.is_dir() {
-            return Err(BrokerError::Invalid(format!("{} is a folder.", resolved.rel)));
+            return Err(BrokerError::Invalid(format!(
+                "{} is a folder.",
+                resolved.rel
+            )));
         }
         let name = resolved
             .abs
@@ -489,7 +633,12 @@ impl Broker {
         let size = meta.len();
         let (content, hash) = if let Some(mime) = picture_type(&name) {
             if size > MAX_PICTURE_BYTES {
-                (FileContent::Other { what: format!("A large picture ({}).", words_size(size)) }, None)
+                (
+                    FileContent::Other {
+                        what: format!("A large picture ({}).", words_size(size)),
+                    },
+                    None,
+                )
             } else {
                 let bytes = std::fs::read(&resolved.abs).map_err(read_error)?;
                 let hash = sha256_hex(&bytes);
@@ -527,7 +676,12 @@ impl Broker {
                     },
                     Some(hash),
                 ),
-                _ => (FileContent::Other { what: what_it_is(&name, runs) }, Some(hash)),
+                _ => (
+                    FileContent::Other {
+                        what: what_it_is(&name, runs),
+                    },
+                    Some(hash),
+                ),
             }
         };
         let read_only = if matches!(content, FileContent::Text { .. }) {
@@ -592,9 +746,12 @@ impl Broker {
             )));
         }
         let current = std::fs::read(&resolved.abs).ok();
-        if let Some(meta) = std::fs::metadata(&resolved.abs).ok() {
+        if let Ok(meta) = std::fs::metadata(&resolved.abs) {
             if meta.is_dir() {
-                return Err(BrokerError::Invalid(format!("{} is a folder.", resolved.rel)));
+                return Err(BrokerError::Invalid(format!(
+                    "{} is a folder.",
+                    resolved.rel
+                )));
             }
             if meta.permissions().readonly() {
                 return Err(BrokerError::Invalid(format!(
@@ -650,7 +807,10 @@ impl Broker {
         let known = self.known_root(root)?;
         let (_, resolved) = self.resolve_owner(&known, path)?;
         if !resolved.exists {
-            return Err(BrokerError::Invalid(format!("{} is not there any more.", resolved.rel)));
+            return Err(BrokerError::Invalid(format!(
+                "{} is not there any more.",
+                resolved.rel
+            )));
         }
         let name = resolved
             .abs
@@ -665,7 +825,10 @@ impl Broker {
             ));
         }
         if to_open && resolved.abs.is_dir() {
-            return Err(BrokerError::Invalid(format!("{} is a folder.", resolved.rel)));
+            return Err(BrokerError::Invalid(format!(
+                "{} is a folder.",
+                resolved.rel
+            )));
         }
         if to_open
             && self.desktop_in_use()
@@ -734,16 +897,33 @@ mod tests {
         ] {
             assert!(runs(name), "{name} runs");
         }
-        for name in ["README.md", "report.pdf", "logo.png", "notes.txt", "exe", "Makefile"] {
+        for name in [
+            "README.md",
+            "report.pdf",
+            "logo.png",
+            "notes.txt",
+            "exe",
+            "Makefile",
+        ] {
             assert!(!runs(name), "{name} does not run");
         }
     }
 
     #[test]
     fn roots_are_named_by_kind_and_an_id() {
-        assert!(matches!(parse_root("project:abc-123"), Ok(RootRef::Project("abc-123"))));
+        assert!(matches!(
+            parse_root("project:abc-123"),
+            Ok(RootRef::Project("abc-123"))
+        ));
         assert!(matches!(parse_root("copy:w1"), Ok(RootRef::Copy("w1"))));
-        for bad in ["", "project:", "folder:x", "copy:../x", "project:a/b", "copy:a b"] {
+        for bad in [
+            "",
+            "project:",
+            "folder:x",
+            "copy:../x",
+            "project:a/b",
+            "copy:a b",
+        ] {
             assert!(parse_root(bad).is_err(), "{bad} is refused");
         }
     }
@@ -828,14 +1008,22 @@ mod tests {
             SupervisorConfig::default(),
             ExecutablePolicy::default(),
             ProfileRegistry::default(),
-            Arc::new(plenipo_liaison::store::LedgerExecutionStore(Arc::clone(&ledger))),
+            Arc::new(plenipo_liaison::store::LedgerExecutionStore(Arc::clone(
+                &ledger,
+            ))),
             Arc::new(NoOutput),
             vec![],
         );
         let config = BrokerConfig::new(PathBuf::from("relay"), dir.path().join("tickets"));
         let broker = Broker::new(guard, sup, Arc::new(MemorySecretStore::default()), config);
         let p = ledger
-            .create_project("Website", Some(&folder.display().to_string()), None, None, "test")
+            .create_project(
+                "Website",
+                Some(&folder.display().to_string()),
+                None,
+                None,
+                "test",
+            )
             .unwrap();
         Project {
             broker,
@@ -856,12 +1044,40 @@ mod tests {
         assert!(roots.roots[0].exists && roots.roots[0].writer.is_none());
         let top = p.broker.list_folder(&p.root, "").unwrap();
         let names: Vec<&str> = top.entries.iter().map(|e| e.name.as_str()).collect();
-        assert_eq!(names, vec!["src", ".env", "README.md"], "folders first; no .git");
-        assert!(top.entries.iter().find(|e| e.name == ".env").unwrap().blocked);
-        assert!(!top.entries.iter().find(|e| e.name == "README.md").unwrap().blocked);
-        for path in ["../outside.txt", "/etc/passwd", ".git/config", ".GIT", "src/../../x"] {
-            assert!(p.broker.read_file(&p.root, path).is_err(), "{path} is refused");
-            assert!(p.broker.save_file(&p.root, path, "x", false, LineEnding::Lf, None).is_err());
+        assert_eq!(
+            names,
+            vec!["src", ".env", "README.md"],
+            "folders first; no .git"
+        );
+        assert!(
+            top.entries
+                .iter()
+                .find(|e| e.name == ".env")
+                .unwrap()
+                .blocked
+        );
+        assert!(
+            !top.entries
+                .iter()
+                .find(|e| e.name == "README.md")
+                .unwrap()
+                .blocked
+        );
+        for path in [
+            "../outside.txt",
+            "/etc/passwd",
+            ".git/config",
+            ".GIT",
+            "src/../../x",
+        ] {
+            assert!(
+                p.broker.read_file(&p.root, path).is_err(),
+                "{path} is refused"
+            );
+            assert!(p
+                .broker
+                .save_file(&p.root, path, "x", false, LineEnding::Lf, None)
+                .is_err());
         }
         assert!(p.broker.read_file("project:nope", "README.md").is_err());
         assert!(p.broker.read_file("folder:x", "README.md").is_err());
@@ -870,7 +1086,10 @@ mod tests {
             let outside = p._dir.path().join("secret.txt");
             std::fs::write(&outside, "not yours to read here").unwrap();
             std::os::unix::fs::symlink(&outside, p.folder.join("link.txt")).unwrap();
-            assert!(p.broker.read_file(&p.root, "link.txt").is_err(), "a link out is refused");
+            assert!(
+                p.broker.read_file(&p.root, "link.txt").is_err(),
+                "a link out is refused"
+            );
         }
     }
 
@@ -878,7 +1097,12 @@ mod tests {
     async fn a_save_keeps_the_files_own_endings_and_is_recorded_as_the_owners() {
         let p = project();
         let view = p.broker.read_file(&p.root, "README.md").unwrap();
-        let FileContent::Text { text, bom, line_ending } = &view.content else {
+        let FileContent::Text {
+            text,
+            bom,
+            line_ending,
+        } = &view.content
+        else {
             panic!("text: {view:?}");
         };
         assert_eq!(text, "# Website\n\nHello.\n");
@@ -906,7 +1130,10 @@ mod tests {
         );
         // In the Activity trail as the owner's, with no contents.
         let events = p.ledger.recent_events(20).unwrap();
-        let e = events.iter().find(|e| e.event_type == "file.saved").expect("recorded");
+        let e = events
+            .iter()
+            .find(|e| e.event_type == "file.saved")
+            .expect("recorded");
         assert_eq!(e.source, "owner");
         assert_eq!(e.payload["path"], "README.md");
         assert_eq!(e.payload["added"], 1);
@@ -920,7 +1147,14 @@ mod tests {
         std::fs::write(p.folder.join("src").join("app.txt"), "changed by someone\n").unwrap();
         let outcome = p
             .broker
-            .save_file(&p.root, "src/app.txt", "mine\n", false, LineEnding::Lf, view.hash.as_deref())
+            .save_file(
+                &p.root,
+                "src/app.txt",
+                "mine\n",
+                false,
+                LineEnding::Lf,
+                view.hash.as_deref(),
+            )
             .unwrap();
         assert_eq!(outcome, SaveOutcome::ChangedOnDisk);
         assert_eq!(
@@ -930,29 +1164,55 @@ mod tests {
         // Save anyway.
         let outcome = p
             .broker
-            .save_file(&p.root, "src/app.txt", "mine\n", false, LineEnding::Lf, None)
+            .save_file(
+                &p.root,
+                "src/app.txt",
+                "mine\n",
+                false,
+                LineEnding::Lf,
+                None,
+            )
             .unwrap();
         assert!(matches!(outcome, SaveOutcome::Saved { .. }));
-        assert_eq!(std::fs::read_to_string(p.folder.join("src").join("app.txt")).unwrap(), "mine\n");
+        assert_eq!(
+            std::fs::read_to_string(p.folder.join("src").join("app.txt")).unwrap(),
+            "mine\n"
+        );
     }
 
     #[tokio::test]
     async fn while_a_worker_uses_the_keyboard_nothing_is_saved_and_blocked_files_are_hidden() {
         let p = project();
-        assert!(p.broker.read_file(&p.root, ".env").is_ok(), "blocked files are the owner's");
-        p.broker.inner.control.begin(ControlKind::Desktop, "g1", "t1", "Operator", None);
+        assert!(
+            p.broker.read_file(&p.root, ".env").is_ok(),
+            "blocked files are the owner's"
+        );
+        p.broker
+            .inner
+            .control
+            .begin(ControlKind::Desktop, "g1", "t1", "Operator", None);
         assert!(p.broker.file_roots().unwrap().desktop_in_use);
         assert!(p.broker.read_file(&p.root, ".env").is_err(), "hidden now");
         let view = p.broker.read_file(&p.root, "README.md").unwrap();
         assert_eq!(view.read_only, Some(ReadOnlyWhy::Desktop));
         let refused = p
             .broker
-            .save_file(&p.root, "README.md", "typed by a worker", false, LineEnding::Lf, None)
+            .save_file(
+                &p.root,
+                "README.md",
+                "typed by a worker",
+                false,
+                LineEnding::Lf,
+                None,
+            )
             .unwrap_err();
         assert!(refused.to_string().contains("Take over"), "{refused}");
         assert!(p.broker.owner_file_path(&p.root, ".env", true).is_err());
         // The owner takes over: it is theirs again.
-        p.broker.inner.control.take_over(&crate::control::session_id(ControlKind::Desktop, "g1"));
+        p.broker
+            .inner
+            .control
+            .take_over(&crate::control::session_id(ControlKind::Desktop, "g1"));
         assert!(p.broker.read_file(&p.root, ".env").is_ok());
     }
 
@@ -966,11 +1226,21 @@ mod tests {
         assert!(script.runs && matches!(script.content, FileContent::Text { .. }));
         let program = p.broker.read_file(&p.root, "tool.exe").unwrap();
         assert!(program.runs);
-        assert!(matches!(&program.content, FileContent::Other { what } if what.contains("never starts")));
+        assert!(
+            matches!(&program.content, FileContent::Other { what } if what.contains("never starts"))
+        );
         assert!(p.broker.owner_file_path(&p.root, "tool.exe", true).is_err());
-        assert!(p.broker.owner_file_path(&p.root, "setup.ps1", true).is_err());
-        assert!(p.broker.owner_file_path(&p.root, "tool.exe", false).is_ok(), "shown in its folder");
+        assert!(p
+            .broker
+            .owner_file_path(&p.root, "setup.ps1", true)
+            .is_err());
+        assert!(
+            p.broker.owner_file_path(&p.root, "tool.exe", false).is_ok(),
+            "shown in its folder"
+        );
         let picture = p.broker.read_file(&p.root, "logo.png").unwrap();
-        assert!(matches!(&picture.content, FileContent::Picture { mime, .. } if mime == "image/png"));
+        assert!(
+            matches!(&picture.content, FileContent::Picture { mime, .. } if mime == "image/png")
+        );
     }
 }

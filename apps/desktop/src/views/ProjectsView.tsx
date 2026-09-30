@@ -3,7 +3,8 @@ import type { OrgSnapshot, PositionInfo, ProjectInfo, Workspace } from "@plenipo
 import { Button, StatusPill } from "@plenipo/ui";
 
 import { giveObjective, removeWorkspace, setUpDevelopment, toCommandError } from "../api/commands";
-import { ObjectiveFilesList, useObjectiveFiles } from "../files/ObjectiveFiles";
+import { ObjectiveFilesList } from "../files/ObjectiveFiles";
+import { useObjectiveFiles } from "../files/useObjectiveFiles";
 import { ObjectiveResult } from "../components/ObjectiveResult";
 import { ConfirmDialog } from "../components/org/Modal";
 import { SetUpDevelopmentDialog } from "../components/org/OrgDialogs";
@@ -53,7 +54,7 @@ function ObjectiveForm({
   const [sent, setSent] = useState<string | null>(null);
   const taker = takers.find((p) => p.id === takerId) ?? null;
   // Files dropped on the form go on the objective (Phase 21, ADR-093 §19).
-  const files = useObjectiveFiles(true);
+  const [files, dropTarget] = useObjectiveFiles(true);
 
   if (takers.length === 0) {
     return (
@@ -72,7 +73,10 @@ function ObjectiveForm({
     setError(null);
     setSent(null);
     try {
-      const detail = await giveObjective(taker.id, objective, project.id, files.toSend());
+      const toSend = files.toSend();
+      const detail = await (toSend.length > 0
+        ? giveObjective(taker.id, objective, project.id, toSend)
+        : giveObjective(taker.id, objective, project.id));
       const turn = [...detail.turns].sort((a, b) => b.number - a.number)[0];
       setObjective("");
       files.clear();
@@ -87,7 +91,7 @@ function ObjectiveForm({
 
   return (
     <form
-      ref={files.dropRef}
+      ref={dropTarget}
       {...files.dropProps}
       className="objective-form"
       aria-label="Give an objective"

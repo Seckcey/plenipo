@@ -206,12 +206,9 @@ impl Broker {
             .iter()
             .map(|path| json!({ "name": self.redact(path), "copied": false }))
             .collect();
-        files.extend(
-            staged
-                .copied
-                .iter()
-                .map(|(name, size)| json!({ "name": self.redact(name), "size": size, "copied": true })),
-        );
+        files.extend(staged.copied.iter().map(
+            |(name, size)| json!({ "name": self.redact(name), "size": size, "copied": true }),
+        ));
         self.event(
             Some(task_id),
             OWNER,
@@ -309,7 +306,10 @@ mod tests {
         assert!(text.contains("folder `attachments`"));
         assert_eq!(mark_of(&text), Some(id));
         assert_eq!(mark_of("[plenipo-files:0123]"), None);
-        assert_eq!(mark_of("[plenipo-files:0123456789abcdef0123456789abcdeg]"), None);
+        assert_eq!(
+            mark_of("[plenipo-files:0123456789abcdef0123456789abcdeg]"),
+            None
+        );
         assert_eq!(mark_of("nothing"), None);
     }
 

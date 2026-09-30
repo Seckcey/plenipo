@@ -19,6 +19,7 @@ use plenipo_runtime::Supervisor;
 use tauri::State;
 
 use crate::commands::broker_error;
+use crate::orgs::Org;
 
 /// The most text Save takes (the broker checks the file's own limit too).
 const MAX_SAVE_CHARS: usize = 6 * 1024 * 1024;
@@ -136,14 +137,14 @@ async fn blocking<T: Send + 'static>(
 /// The folders Plenipo knows: each project's folder and its working copies, and who writes in
 /// each now.
 #[tauri::command]
-pub async fn get_file_roots(broker: State<'_, Broker>) -> Result<FileRoots, CommandError> {
+pub async fn get_file_roots(broker: Org<'_, Broker>) -> Result<FileRoots, CommandError> {
     blocking(&broker, Broker::file_roots).await
 }
 
 /// One folder's files and folders.
 #[tauri::command]
 pub async fn list_folder(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     root: String,
     path: String,
 ) -> Result<FolderListing, CommandError> {
@@ -155,7 +156,7 @@ pub async fn list_folder(
 /// Open a file in Plenipo.
 #[tauri::command]
 pub async fn read_file(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     root: String,
     path: String,
 ) -> Result<FileView, CommandError> {
@@ -168,7 +169,7 @@ pub async fn read_file(
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn save_file(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     root: String,
     path: String,
     text: String,
@@ -183,10 +184,13 @@ pub async fn save_file(
             "Plenipo saves text files up to 5 MB.",
         ));
     }
-    if base.as_ref().is_some_and(|b| {
-        b.len() != 64 || !b.chars().all(|c| c.is_ascii_hexdigit())
-    }) {
-        return Err(CommandError::invalid_input("That is not a file's fingerprint."));
+    if base
+        .as_ref()
+        .is_some_and(|b| b.len() != 64 || !b.chars().all(|c| c.is_ascii_hexdigit()))
+    {
+        return Err(CommandError::invalid_input(
+            "That is not a file's fingerprint.",
+        ));
     }
     blocking(&broker, move |b| {
         b.save_file(&root, &path, &text, bom, line_ending, base.as_deref())
@@ -197,7 +201,7 @@ pub async fn save_file(
 /// Open a file with the program Windows uses for it (never a program or a script).
 #[tauri::command]
 pub async fn open_file_outside(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     outside: State<'_, Outside>,
     root: String,
     path: String,
@@ -215,7 +219,7 @@ pub async fn open_file_outside(
 /// Show a file in File Explorer, picked.
 #[tauri::command]
 pub async fn show_in_folder(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     outside: State<'_, Outside>,
     root: String,
     path: String,
@@ -232,7 +236,7 @@ pub async fn show_in_folder(
 
 /// The files workers are changing now.
 #[tauri::command]
-pub fn get_changing_files(broker: State<'_, Broker>) -> Result<Vec<ChangingFile>, CommandError> {
+pub fn get_changing_files(broker: Org<'_, Broker>) -> Result<Vec<ChangingFile>, CommandError> {
     Ok(broker.changing_files())
 }
 
@@ -260,7 +264,10 @@ pub struct Drops(std::sync::Mutex<std::collections::HashMap<String, Dropped>>);
 impl Drops {
     /// Keep a drop on `window`; its ticket.
     pub fn add(&self, window: &str, paths: Vec<PathBuf>) -> String {
-        let mut all = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut all = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         all.retain(|_, d| d.at.elapsed() < DROP_LIFETIME);
         while all.len() >= MAX_DROPS {
             let Some(oldest) = all.iter().min_by_key(|(_, d)| d.at).map(|(k, _)| k.clone()) else {
@@ -282,13 +289,14 @@ impl Drops {
 
     /// One dropped file, for the window it was dropped on.
     pub fn path(&self, window: &str, drop: &str, index: u32) -> Result<PathBuf, CommandError> {
-        let all = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let all = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         all.get(drop)
             .filter(|d| d.window == window && d.at.elapsed() < DROP_LIFETIME)
             .and_then(|d| d.paths.get(index as usize).cloned())
-            .ok_or_else(|| {
-                CommandError::invalid_input("Drop that file on the objective again.")
-            })
+            .ok_or_else(|| CommandError::invalid_input("Drop that file on the objective again."))
     }
 }
 

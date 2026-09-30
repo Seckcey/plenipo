@@ -27,6 +27,7 @@ import { POSITION_STATUS } from "../org/cards";
 import { STATUS_LABEL } from "../org/format";
 import { rankName, titlesOf } from "../org/titles";
 import { useOrganization } from "../org/useOrganization";
+import { OrganizationsSetting } from "../orgs/OrganizationsSetting";
 import { useLive } from "../pages/useLive";
 import { count, when } from "../pages/words";
 import { isActive } from "../runtime/store";
@@ -217,10 +218,7 @@ export function OrganizationSettings({ go }: { go: Go }) {
         </Button>
       </div>
       <PropertyList
-        items={[
-          { label: "Name", value: snapshot.name },
-          { label: "Positions", value: count(snapshot.stats.positions, "position") },
-        ]}
+        items={[{ label: "Positions", value: count(snapshot.stats.positions, "position") }]}
       />
       <h3>Departments</h3>
       <RowList
@@ -234,6 +232,7 @@ export function OrganizationSettings({ go }: { go: Go }) {
         items={projects}
         empty={<EmptyState compact title="No projects yet" />}
       />
+      <OrganizationsSetting />
     </div>
   );
 }

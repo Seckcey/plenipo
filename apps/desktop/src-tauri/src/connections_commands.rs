@@ -22,9 +22,9 @@ use plenipo_guard::connections::{service_of, MAX_ACCESS, MAX_SEND_LIST};
 use plenipo_guard::{
     Access, AccountKind, AddOnChange, AddOnInput, OwnApp, Part, PartLevel, Service, ToolMark, Who,
 };
-use tauri::State;
 
 use crate::commands::{bounded, bounded_optional, validate_id, with_broker};
+use crate::orgs::Org;
 
 /// The longest connection ID (`microsoft365`, `slack-12`).
 const MAX_CONNECTION_ID: usize = 40;
@@ -45,7 +45,7 @@ fn validate_connection_id(id: &str) -> Result<(), CommandError> {
 /// Everything Settings → Connections shows: each service, its connection's state, parts, who
 /// may use it, and its list — never a sign-in.
 #[tauri::command]
-pub async fn get_connections(broker: State<'_, Broker>) -> Result<ConnectionsPage, CommandError> {
+pub async fn get_connections(broker: Org<'_, Broker>) -> Result<ConnectionsPage, CommandError> {
     with_broker(&broker, Broker::connections_page).await
 }
 
@@ -53,7 +53,7 @@ pub async fn get_connections(broker: State<'_, Broker>) -> Result<ConnectionsPag
 /// it in the background (the page shows it waiting).
 #[tauri::command]
 pub async fn connect_connection(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     connection_id: String,
     kind: AccountKind,
 ) -> Result<ConnectionsPage, CommandError> {
@@ -68,7 +68,7 @@ pub async fn connect_connection(
 /// Stop a sign-in still waiting in the owner's browser.
 #[tauri::command]
 pub async fn cancel_connection_sign_in(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     connection_id: String,
 ) -> Result<ConnectionsPage, CommandError> {
     validate_connection_id(&connection_id)?;
@@ -82,7 +82,7 @@ pub async fn cancel_connection_sign_in(
 /// where it can (Slack, Google). Always allowed.
 #[tauri::command]
 pub async fn disconnect_connection(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     connection_id: String,
 ) -> Result<ConnectionsPage, CommandError> {
     validate_connection_id(&connection_id)?;
@@ -96,7 +96,7 @@ pub async fn disconnect_connection(
 /// Each part: Off, Read only, or Full access.
 #[tauri::command]
 pub async fn set_connection_parts(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     connection_id: String,
     parts: BTreeMap<Part, PartLevel>,
 ) -> Result<ConnectionsPage, CommandError> {
@@ -110,7 +110,7 @@ pub async fn set_connection_parts(
 /// **Who may use it**: roles and agents, each at Read only or Read and write.
 #[tauri::command]
 pub async fn set_connection_access(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     connection_id: String,
     access: Vec<Access>,
 ) -> Result<ConnectionsPage, CommandError> {
@@ -136,7 +136,7 @@ pub async fn set_connection_access(
 /// "Sending forms and messages (without asking)" is on).
 #[tauri::command]
 pub async fn set_connection_send_list(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     connection_id: String,
     list: Vec<String>,
 ) -> Result<ConnectionsPage, CommandError> {
@@ -157,7 +157,7 @@ pub async fn set_connection_send_list(
 /// secret), or with 8 West's (`None`). Only while not connected.
 #[tauri::command]
 pub async fn set_connection_own_app(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     connection_id: String,
     app: Option<OwnApp>,
 ) -> Result<ConnectionsPage, CommandError> {
@@ -178,7 +178,7 @@ pub async fn set_connection_own_app(
 /// (`null`). A Google app's secret goes straight to the Vault; nothing returns it.
 #[tauri::command]
 pub async fn save_connection_app(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     connection_id: String,
     app: Option<AppInput>,
 ) -> Result<ConnectionsPage, CommandError> {
@@ -198,7 +198,7 @@ pub async fn save_connection_app(
 /// Add another account of a service that may have more than one (a Slack workspace).
 #[tauri::command]
 pub async fn add_connection(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     service: Service,
 ) -> Result<ConnectionsPage, CommandError> {
     with_broker(&broker, move |b| b.add_connection(service)).await
@@ -207,7 +207,7 @@ pub async fn add_connection(
 /// Remove a card that is not connected (a Slack workspace).
 #[tauri::command]
 pub async fn remove_connection(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     connection_id: String,
 ) -> Result<ConnectionsPage, CommandError> {
     validate_connection_id(&connection_id)?;
@@ -218,7 +218,7 @@ pub async fn remove_connection(
 /// reading call, kept only in the Vault if the service accepts it, and never returned.
 #[tauri::command]
 pub async fn save_connection_key(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     connection_id: String,
     key: serde_json::Value,
 ) -> Result<ConnectionsPage, CommandError> {
@@ -294,7 +294,7 @@ fn check_program_fields(
 /// Shells and programs that download code each time they start are refused.
 #[tauri::command]
 pub async fn add_add_on(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     add_on: AddOnInput,
 ) -> Result<ConnectionsPage, CommandError> {
     bounded("the name", &add_on.name)?;
@@ -310,7 +310,7 @@ pub async fn add_add_on(
 /// its tools first), or who may use it.
 #[tauri::command]
 pub async fn change_add_on(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     add_on_id: String,
     change: AddOnChange,
 ) -> Result<ConnectionsPage, CommandError> {
@@ -344,7 +344,7 @@ pub async fn change_add_on(
 /// Remove an add-on.
 #[tauri::command]
 pub async fn remove_add_on(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     add_on_id: String,
 ) -> Result<ConnectionsPage, CommandError> {
     validate_add_on_id(&add_on_id)?;
@@ -355,7 +355,7 @@ pub async fn remove_add_on(
 /// Off.
 #[tauri::command]
 pub async fn check_add_on_tools(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     add_on_id: String,
 ) -> Result<ConnectionsPage, CommandError> {
     validate_add_on_id(&add_on_id)?;
@@ -369,7 +369,7 @@ pub async fn check_add_on_tools(
 /// Mark an add-on's tools Off, Reading (goes ahead), or Changing (asks every time).
 #[tauri::command]
 pub async fn set_add_on_tools(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     add_on_id: String,
     marks: BTreeMap<String, ToolMark>,
 ) -> Result<ConnectionsPage, CommandError> {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorState } from "@codemirror/state";
-import type { FileView, LineEnding, WatchChange } from "@plenipo/types";
+import type { FileView, WatchChange } from "@plenipo/types";
 import {
   Banner,
   Button,
@@ -25,7 +25,8 @@ import {
 import { subscribeLedgerEvents, subscribeWatch } from "../api/events";
 import { useControl } from "../control/useControl";
 import type { Go } from "../components/views";
-import { CodeEditor, editorState, SAVE_EVENT, type LineMark } from "./CodeEditor";
+import { CodeEditor } from "./CodeEditor";
+import { editorState, SAVE_EVENT, type LineMark } from "./editorSetup";
 import { editorStore, useEditorFiles } from "./editorStore";
 import { folderOf, nameOf, parseFileKey, sizeWords } from "./refs";
 
@@ -282,7 +283,7 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
         path,
         body,
         v.content.bom,
-        v.content.lineEnding as LineEnding,
+        v.content.lineEnding,
         anyway ? null : (v.hash ?? null),
       )
         .then((outcome) => {

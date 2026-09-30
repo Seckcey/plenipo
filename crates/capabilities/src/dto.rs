@@ -629,7 +629,11 @@ pub enum LineEnding {
 
 /// What Plenipo shows of a file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "kind")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
 #[ts(export)]
 pub enum FileContent {
     /// Text, with `\n` between lines (the file's own line ending is kept when saving).
@@ -647,7 +651,11 @@ pub enum FileContent {
 
 /// Why a file opens read-only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "kind")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
 #[ts(export)]
 pub enum ReadOnlyWhy {
     /// A worker is writing in this working copy (or project folder) now.
@@ -684,7 +692,11 @@ pub struct FileView {
 
 /// What a save did.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "kind")]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
 #[ts(export)]
 pub enum SaveOutcome {
     Saved {
@@ -714,7 +726,11 @@ pub struct ChangingFile {
 
 /// A file the owner puts on an objective (Phase 21, ADR-093 §19–§21).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 #[ts(export)]
 pub enum ObjectiveFile {
     /// From the Files panel: a known top folder and the path inside it.

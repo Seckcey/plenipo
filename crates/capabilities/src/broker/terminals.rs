@@ -562,6 +562,21 @@ impl Broker {
         self.close_terminals_where(why, |_| true);
     }
 
+    /// Close every terminal but those `keep` names by ID (Phase 21, ADR-094: the first
+    /// organization's window loaded again, while another organization's window shows an AI
+    /// tool's sign-in, which the first organization's broker runs).
+    pub fn close_terminals_but(&self, why: &str, keep: impl Fn(&str) -> bool) {
+        self.terminals().closed_all.fetch_add(1, Ordering::SeqCst);
+        let ids: Vec<String> = lock(&self.terminals().open)
+            .values()
+            .filter(|o| !keep(&o.info.id))
+            .map(|o| o.info.id.clone())
+            .collect();
+        for id in ids {
+            let _ = self.close_terminal(&id, why);
+        }
+    }
+
     /// Close every terminal on a server (Remote computers (SSH) was switched off).
     pub fn close_server_terminals(&self, why: &str) {
         self.close_terminals_where(why, |place| matches!(place, TerminalPlace::Server { .. }));

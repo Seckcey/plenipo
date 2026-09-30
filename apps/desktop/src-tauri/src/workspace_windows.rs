@@ -45,12 +45,28 @@ pub fn popout_label(parent: &str, panel: PanelId) -> String {
     format!("{POPOUT_PREFIX}{}--{parent}", panel.key())
 }
 
+/// A pop-out window's own label: its panel and window, and a number of its own, so a new one
+/// never waits for an old one's label to be free (a window closes a moment after it is told).
+fn numbered_label(parent: &str, panel: PanelId, n: u32) -> String {
+    format!("{}--{n}", popout_label(parent, panel))
+}
+
 /// A pop-out's panel and the organization's window that owns it.
 pub fn parse_popout(label: &str) -> Option<(PanelId, &str)> {
     let rest = label.strip_prefix(POPOUT_PREFIX)?;
     let (key, parent) = rest.split_once("--")?;
     let panel = PanelId::from_key(key)?;
+    // Its own number, when it has one.
+    let parent = match parent.rsplit_once("--") {
+        Some((p, n)) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => p,
+        _ => parent,
+    };
     is_org_window(parent).then_some((panel, parent))
+}
+
+/// Where a pop-out's place is kept: by its panel and window, whatever its number.
+fn place_key(label: &str) -> Option<String> {
+    parse_popout(label).map(|(panel, parent)| popout_label(parent, panel))
 }
 
 struct Request {
@@ -68,6 +84,7 @@ struct PlacesFile {
 /// The pop-outs Plenipo was asked for, and where each pop-out was last.
 pub struct PopOuts {
     requests: Mutex<HashMap<String, Request>>,
+    next: std::sync::atomic::AtomicU32,
     places: Mutex<PlacesFile>,
     file: Option<PathBuf>,
 }
@@ -80,14 +97,14 @@ impl PopOuts {
             .and_then(|f| std::fs::read(f).ok())
             .and_then(|bytes| serde_json::from_slice::<PlacesFile>(&bytes).ok())
             .map(|mut p| {
-                p.places.retain(|label, place| {
-                    parse_popout(label).is_some() && place.is_sane()
-                });
+                p.places
+                    .retain(|label, place| parse_popout(label).is_some() && place.is_sane());
                 p
             })
             .unwrap_or_default();
         Self {
             requests: Mutex::new(HashMap::new()),
+            next: std::sync::atomic::AtomicU32::new(1),
             places: Mutex::new(places),
             file,
         }
@@ -116,19 +133,19 @@ impl PopOuts {
 
     /// Where the pop-out was last.
     pub fn place(&self, label: &str) -> Option<WindowPlace> {
-        lock(&self.places).places.get(label).copied()
+        lock(&self.places).places.get(&place_key(label)?).copied()
     }
 
     /// Keep where a pop-out is now.
     pub fn remember(&self, label: &str, place: WindowPlace) {
-        if parse_popout(label).is_none() || !place.is_sane() {
+        let Some(key) = place_key(label).filter(|_| place.is_sane()) else {
             return;
-        }
+        };
         let mut places = lock(&self.places);
-        if places.places.get(label) == Some(&place) {
+        if places.places.get(&key) == Some(&place) {
             return;
         }
-        places.places.insert(label.to_owned(), place);
+        places.places.insert(key, place);
         self.save(&places);
     }
 
@@ -184,11 +201,16 @@ pub fn on_new_window<R: Runtime>(
         log::info!("refused a new window {parent}'s page did not ask Plenipo for");
         return NewWindowResponse::Deny;
     };
-    let label = popout_label(parent, panel);
     // One window per panel: an old one (its page reloaded) goes first.
-    if let Some(old) = app.get_webview_window(&label) {
-        let _ = old.destroy();
+    for old in popouts_of(app, parent) {
+        if parse_popout(old.label()).is_some_and(|(p, _)| p == panel) {
+            let _ = old.destroy();
+        }
     }
+    let n = popouts
+        .next
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let label = numbered_label(parent, panel, n);
     let place = dropped
         .or_else(|| popouts.place(&label))
         .or_else(|| beside(app, parent));
@@ -290,13 +312,23 @@ pub fn remember_place<R: Runtime>(window: &tauri::Window<R>) {
     }
 }
 
-/// A pop-out's window closed: its organization's window puts the panel back in a dock.
+/// The owner closed a pop-out's window: its organization's window puts the panel back in a dock.
 pub fn closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     let Some((panel, parent)) = parse_popout(label) else {
         return;
     };
+    // An old window the panel already left for a new one: nothing comes back.
+    let newer = popouts_of(app, parent)
+        .iter()
+        .any(|w| w.label() != label && parse_popout(w.label()).is_some_and(|(p, _)| p == panel));
+    if newer {
+        return;
+    }
     if let Err(e) = app.emit_to(parent, WINDOWS_EVENT, &PopOutNotice::Closed { panel }) {
-        log::warn!("could not tell the window its {} panel came back: {e}", panel.key());
+        log::warn!(
+            "could not tell the window its {} panel came back: {e}",
+            panel.key()
+        );
     }
 }
 
@@ -328,6 +360,17 @@ pub fn close_popouts<R: Runtime>(app: &AppHandle<R>, parent: &str) {
     for w in popouts_of(app, parent) {
         let _ = w.destroy();
     }
+}
+
+/// Put back: the panel's pop-out window closes (a page closing it itself may leave it behind).
+pub fn close_popout<R: Runtime>(app: &AppHandle<R>, parent: &str, panel: PanelId) -> bool {
+    let mut closed = false;
+    for w in popouts_of(app, parent) {
+        if parse_popout(w.label()).is_some_and(|(p, _)| p == panel) {
+            closed |= w.destroy().is_ok();
+        }
+    }
+    closed
 }
 
 /// Build an organization's window from the app's configuration of `main`, under `label`.
@@ -376,10 +419,26 @@ mod tests {
 
     #[test]
     fn labels_name_the_panel_and_its_window() {
-        assert_eq!(popout_label(MAIN, PanelId::Terminal), "popout-terminal--main");
+        assert_eq!(
+            popout_label(MAIN, PanelId::Terminal),
+            "popout-terminal--main"
+        );
         assert_eq!(
             parse_popout("popout-files--org-ab12"),
             Some((PanelId::Files, "org-ab12"))
+        );
+        assert_eq!(
+            parse_popout("popout-terminal--main--12"),
+            Some((PanelId::Terminal, "main"))
+        );
+        assert_eq!(
+            parse_popout(&numbered_label("org-ab12", PanelId::Files, 3)),
+            Some((PanelId::Files, "org-ab12"))
+        );
+        assert_eq!(parse_popout("popout-terminal--main--x"), None);
+        assert_eq!(
+            place_key("popout-terminal--main--7").as_deref(),
+            Some("popout-terminal--main")
         );
         assert_eq!(parse_popout("popout-details--main"), None);
         assert_eq!(parse_popout("popout-files--control-indicator"), None);
@@ -396,7 +455,10 @@ mod tests {
         let popouts = PopOuts::new(None);
         assert!(popouts.take(MAIN).is_none(), "nothing was asked");
         popouts.request(MAIN, PanelId::Terminal, None);
-        assert!(popouts.take("org-ab12").is_none(), "another window's page did not ask");
+        assert!(
+            popouts.take("org-ab12").is_none(),
+            "another window's page did not ask"
+        );
         assert_eq!(popouts.take(MAIN), Some((PanelId::Terminal, None)));
         assert!(popouts.take(MAIN).is_none(), "a request is used once");
         // A stale request is refused.
@@ -439,7 +501,10 @@ mod tests {
         assert_eq!(after.place("popout-files--org-ab12"), Some(place));
         // A damaged file is ignored.
         std::fs::write(&file, b"{ not json").expect("written");
-        assert_eq!(PopOuts::new(Some(file)).place("popout-files--org-ab12"), None);
+        assert_eq!(
+            PopOuts::new(Some(file)).place("popout-files--org-ab12"),
+            None
+        );
     }
 
     #[test]

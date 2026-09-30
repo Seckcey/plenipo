@@ -62,6 +62,7 @@ use plenipo_workforce::{
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Runtime, State};
 
+use crate::orgs::Org;
 use crate::runtime_host::Persistence;
 use crate::smoke::SmokeTest;
 
@@ -87,7 +88,7 @@ pub fn frontend_ready<R: Runtime>(
 /// Profiles, execution history (newest first), active count, and notices.
 #[tauri::command]
 pub fn get_runtime_overview(
-    supervisor: State<'_, Supervisor>,
+    supervisor: Org<'_, Supervisor>,
 ) -> Result<RuntimeOverview, CommandError> {
     Ok(supervisor.overview())
 }
@@ -95,7 +96,7 @@ pub fn get_runtime_overview(
 /// Launch an approved profile by ID.
 #[tauri::command]
 pub async fn start_execution(
-    supervisor: State<'_, Supervisor>,
+    supervisor: Org<'_, Supervisor>,
     profile_id: String,
 ) -> Result<ExecutionRecord, CommandError> {
     validate_profile_id(&profile_id)?;
@@ -108,7 +109,7 @@ pub async fn start_execution(
 /// Terminate an execution's process tree and return its final record.
 #[tauri::command]
 pub async fn cancel_execution(
-    supervisor: State<'_, Supervisor>,
+    supervisor: Org<'_, Supervisor>,
     execution_id: String,
 ) -> Result<ExecutionRecord, CommandError> {
     validate_execution_id(&execution_id)?;
@@ -121,7 +122,7 @@ pub async fn cancel_execution(
 /// Buffered output for an execution (used to rebuild the view after a reload).
 #[tauri::command]
 pub fn get_execution_output(
-    supervisor: State<'_, Supervisor>,
+    supervisor: Org<'_, Supervisor>,
     execution_id: String,
 ) -> Result<ExecutionOutput, CommandError> {
     validate_execution_id(&execution_id)?;
@@ -158,22 +159,20 @@ pub(crate) fn validate_task_id(id: &str) -> Result<(), CommandError> {
 }
 
 #[tauri::command]
-pub async fn get_ledger_status(
-    ledger: State<'_, Arc<Ledger>>,
-) -> Result<LedgerStatus, CommandError> {
+pub async fn get_ledger_status(ledger: Org<'_, Arc<Ledger>>) -> Result<LedgerStatus, CommandError> {
     with_ledger(&ledger, Ledger::status).await
 }
 
 /// Tasks, newest first (at most 500).
 #[tauri::command]
-pub async fn list_tasks(ledger: State<'_, Arc<Ledger>>) -> Result<Vec<Task>, CommandError> {
+pub async fn list_tasks(ledger: Org<'_, Arc<Ledger>>) -> Result<Vec<Task>, CommandError> {
     with_ledger(&ledger, |l| l.list_tasks(500)).await
 }
 
 /// A task's complete ordered activity trail and its direct children.
 #[tauri::command]
 pub async fn get_task_timeline(
-    ledger: State<'_, Arc<Ledger>>,
+    ledger: Org<'_, Arc<Ledger>>,
     task_id: String,
 ) -> Result<TaskTimeline, CommandError> {
     validate_task_id(&task_id)?;
@@ -183,7 +182,7 @@ pub async fn get_task_timeline(
 /// Most recent events across the ledger, newest first (at most 200).
 #[tauri::command]
 pub async fn list_recent_events(
-    ledger: State<'_, Arc<Ledger>>,
+    ledger: Org<'_, Arc<Ledger>>,
 ) -> Result<Vec<LedgerEvent>, CommandError> {
     with_ledger(&ledger, |l| l.recent_events(200)).await
 }
@@ -207,7 +206,7 @@ fn validate_scope(scope: &ActivityScope) -> Result<(), CommandError> {
 /// its team's tasks and its projects' tasks, newest first, before event `before`.
 #[tauri::command]
 pub async fn get_scope_events(
-    ledger: State<'_, Arc<Ledger>>,
+    ledger: Org<'_, Arc<Ledger>>,
     scope: ActivityScope,
     before: Option<u64>,
     limit: u32,
@@ -220,7 +219,7 @@ pub async fn get_scope_events(
 /// before event `before`.
 #[tauri::command]
 pub async fn get_task_events(
-    ledger: State<'_, Arc<Ledger>>,
+    ledger: Org<'_, Arc<Ledger>>,
     task_id: String,
     before: Option<u64>,
     limit: u32,
@@ -232,7 +231,7 @@ pub async fn get_task_events(
 /// A project's page (Phase 12): its pull requests, artifacts, and recent decisions.
 #[tauri::command]
 pub async fn get_project_record(
-    ledger: State<'_, Arc<Ledger>>,
+    ledger: Org<'_, Arc<Ledger>>,
     project_id: String,
 ) -> Result<WorkRecord, CommandError> {
     validate_id("project", &project_id)?;
@@ -246,7 +245,7 @@ pub async fn get_project_record(
 /// the activity strips). The Ledger checks the range, the bucket count, and each scope.
 #[tauri::command]
 pub async fn get_activity(
-    ledger: State<'_, Arc<Ledger>>,
+    ledger: Org<'_, Arc<Ledger>>,
     scopes: Vec<ActivityScope>,
     from: u64,
     to: u64,
@@ -258,7 +257,7 @@ pub async fn get_activity(
 
 /// Diagnostics: create a synthetic task to exercise the ledger end to end.
 #[tauri::command]
-pub async fn create_synthetic_task(ledger: State<'_, Arc<Ledger>>) -> Result<Task, CommandError> {
+pub async fn create_synthetic_task(ledger: Org<'_, Arc<Ledger>>) -> Result<Task, CommandError> {
     with_ledger(&ledger, |l| {
         let n = l.list_tasks(1000)?.len() + 1;
         l.create_task(
@@ -273,7 +272,7 @@ pub async fn create_synthetic_task(ledger: State<'_, Arc<Ledger>>) -> Result<Tas
 /// changed this way; the ledger's state machine still decides what is allowed.
 #[tauri::command]
 pub async fn advance_synthetic_task(
-    ledger: State<'_, Arc<Ledger>>,
+    ledger: Org<'_, Arc<Ledger>>,
     task_id: String,
     action: SyntheticTaskAction,
 ) -> Result<Task, CommandError> {
@@ -325,7 +324,7 @@ fn synthetic(parent: Option<String>, objective: String) -> NewTask {
 /// Full integrity check (can take a moment on large ledgers).
 #[tauri::command]
 pub async fn run_integrity_check(
-    ledger: State<'_, Arc<Ledger>>,
+    ledger: Org<'_, Arc<Ledger>>,
 ) -> Result<IntegrityReport, CommandError> {
     with_ledger(&ledger, Ledger::integrity_check).await
 }
@@ -333,7 +332,7 @@ pub async fn run_integrity_check(
 /// Verified backup into the ledger's backups folder (location chosen by Core, not the UI).
 #[tauri::command]
 pub async fn create_ledger_backup(
-    ledger: State<'_, Arc<Ledger>>,
+    ledger: Org<'_, Arc<Ledger>>,
 ) -> Result<BackupInfo, CommandError> {
     with_ledger(&ledger, |l| {
         let info = l.backup(None)?;
@@ -345,7 +344,7 @@ pub async fn create_ledger_backup(
 
 /// JSON export into the ledger's backups folder (location chosen by Core, not the UI).
 #[tauri::command]
-pub async fn export_ledger(ledger: State<'_, Arc<Ledger>>) -> Result<ExportInfo, CommandError> {
+pub async fn export_ledger(ledger: Org<'_, Arc<Ledger>>) -> Result<ExportInfo, CommandError> {
     with_ledger(&ledger, |l| l.export_json(None)).await
 }
 
@@ -380,7 +379,7 @@ fn validate_objective(objective: &str) -> Result<(), CommandError> {
 /// Runtimes (installation, sign-in, capabilities), sessions (newest first), and notices.
 #[tauri::command]
 pub async fn get_agent_overview(
-    agents: State<'_, AgentRuntime>,
+    agents: Org<'_, AgentRuntime>,
 ) -> Result<AgentOverview, CommandError> {
     agents.overview().await.map_err(to_command_error)
 }
@@ -388,7 +387,7 @@ pub async fn get_agent_overview(
 /// Re-detect every runtime's installation and sign-in.
 #[tauri::command]
 pub async fn refresh_agent_runtimes(
-    agents: State<'_, AgentRuntime>,
+    agents: Org<'_, AgentRuntime>,
 ) -> Result<Vec<AgentRuntimeInfo>, CommandError> {
     Ok(agents.refresh().await)
 }
@@ -396,7 +395,7 @@ pub async fn refresh_agent_runtimes(
 /// A session with its turns and recent live activity.
 #[tauri::command]
 pub async fn get_agent_session(
-    agents: State<'_, AgentRuntime>,
+    agents: Org<'_, AgentRuntime>,
     session_id: String,
 ) -> Result<AgentSessionDetail, CommandError> {
     validate_session_id(&session_id)?;
@@ -407,7 +406,7 @@ pub async fn get_agent_session(
 /// With `handoffs`, the worker may ask other workers for help through Liaison (Phase 4).
 #[tauri::command]
 pub async fn start_agent_session(
-    liaison: State<'_, Liaison>,
+    liaison: Org<'_, Liaison>,
     runtime_id: String,
     objective: String,
     model: Option<String>,
@@ -430,7 +429,7 @@ pub async fn start_agent_session(
 /// worker's session takes work only through Liaison.
 #[tauri::command]
 pub async fn resume_agent_session(
-    liaison: State<'_, Liaison>,
+    liaison: Org<'_, Liaison>,
     session_id: String,
     objective: String,
 ) -> Result<AgentSessionDetail, CommandError> {
@@ -446,7 +445,7 @@ pub async fn resume_agent_session(
 /// once the turn is recorded. Liaison then stops the handoffs it was waiting for.
 #[tauri::command]
 pub async fn cancel_agent_turn(
-    agents: State<'_, AgentRuntime>,
+    agents: Org<'_, AgentRuntime>,
     session_id: String,
 ) -> Result<AgentSessionDetail, CommandError> {
     validate_session_id(&session_id)?;
@@ -459,7 +458,7 @@ pub async fn cancel_agent_turn(
 /// Close a session (no further turns).
 #[tauri::command]
 pub async fn close_agent_session(
-    agents: State<'_, AgentRuntime>,
+    agents: Org<'_, AgentRuntime>,
     session_id: String,
 ) -> Result<AgentSession, CommandError> {
     validate_session_id(&session_id)?;
@@ -492,7 +491,7 @@ async fn with_liaison<T: Send + 'static>(
 /// The handoff that created a task (if any) and the handoffs it made, with their replies.
 #[tauri::command]
 pub async fn get_task_handoffs(
-    liaison: State<'_, Liaison>,
+    liaison: Org<'_, Liaison>,
     task_id: String,
 ) -> Result<TaskHandoffs, CommandError> {
     validate_task_id(&task_id)?;
@@ -502,7 +501,7 @@ pub async fn get_task_handoffs(
 /// A task's whole delegation tree, from its root task, depth-first.
 #[tauri::command]
 pub async fn get_task_tree(
-    liaison: State<'_, Liaison>,
+    liaison: Org<'_, Liaison>,
     task_id: String,
 ) -> Result<TaskTree, CommandError> {
     validate_task_id(&task_id)?;
@@ -512,7 +511,7 @@ pub async fn get_task_tree(
 /// Liaison's protocol, limits, destinations, open handoffs, and notices.
 #[tauri::command]
 pub async fn get_liaison_overview(
-    liaison: State<'_, Liaison>,
+    liaison: Org<'_, Liaison>,
 ) -> Result<LiaisonOverview, CommandError> {
     with_liaison(&liaison, Liaison::overview).await
 }
@@ -603,9 +602,7 @@ fn validate_project(input: &ProjectInput) -> Result<(), CommandError> {
 
 /// The organization: departments, projects, positions with live status, oversight, and stats.
 #[tauri::command]
-pub async fn get_organization(
-    workforce: State<'_, Workforce>,
-) -> Result<OrgSnapshot, CommandError> {
+pub async fn get_organization(workforce: Org<'_, Workforce>) -> Result<OrgSnapshot, CommandError> {
     with_workforce(&workforce, Workforce::snapshot).await
 }
 
@@ -613,7 +610,7 @@ pub async fn get_organization(
 /// organization's).
 #[tauri::command]
 pub async fn get_work(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     position_id: Option<String>,
 ) -> Result<WorkView, CommandError> {
     validate_optional_id("position", position_id.as_deref())?;
@@ -623,7 +620,7 @@ pub async fn get_work(
 /// Home (Phase 12): objectives still going, those finished in the last week with their
 /// answers, and what is stuck.
 #[tauri::command]
-pub async fn get_home(workforce: State<'_, Workforce>) -> Result<HomeView, CommandError> {
+pub async fn get_home(workforce: Org<'_, Workforce>) -> Result<HomeView, CommandError> {
     with_workforce(&workforce, Workforce::home).await
 }
 
@@ -631,7 +628,7 @@ pub async fn get_home(workforce: State<'_, Workforce>) -> Result<HomeView, Comma
 /// task and every task under it.
 #[tauri::command]
 pub async fn get_task_record(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     task_id: String,
 ) -> Result<TaskRecord, CommandError> {
     validate_id("task", &task_id)?;
@@ -645,7 +642,7 @@ pub async fn get_task_record(
 #[tauri::command]
 pub async fn get_local_paths<R: Runtime>(
     app: AppHandle<R>,
-    ledger: State<'_, Arc<Ledger>>,
+    ledger: Org<'_, Arc<Ledger>>,
     persistence: State<'_, Persistence>,
 ) -> Result<Vec<LocalPath>, CommandError> {
     use tauri::Manager as _;
@@ -734,11 +731,15 @@ pub async fn get_notice_settings(
 
 /// Keep your choices for pop-up notices.
 #[tauri::command]
-pub async fn set_notice_settings(
+pub async fn set_notice_settings<R: Runtime>(
+    app: AppHandle<R>,
     ledger: State<'_, Arc<Ledger>>,
     settings: NoticeSettings,
 ) -> Result<NoticeSettings, CommandError> {
-    with_ledger(&ledger, move |l| l.set_notice_settings(&settings, OWNER)).await
+    let saved = with_ledger(&ledger, move |l| l.set_notice_settings(&settings, OWNER)).await?;
+    // Your choices for the PC: every organization follows (Phase 21, ADR-094 §6).
+    crate::org_host::preferences_changed(&crate::orgs::all_stacks(&app));
+    Ok(saved)
 }
 
 /// Show a notice now, to check that the system shows Plenipo's notices. Its words are
@@ -756,7 +757,7 @@ pub async fn send_test_notice(
 
 #[tauri::command]
 pub async fn rename_organization(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     name: String,
 ) -> Result<OrgSnapshot, CommandError> {
     bounded("the name", &name)?;
@@ -766,7 +767,7 @@ pub async fn rename_organization(
 /// What the app calls the ranks (display only; agents keep the plain titles).
 #[tauri::command]
 pub async fn set_organization_titles(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     titles: TitleTheme,
 ) -> Result<OrgSnapshot, CommandError> {
     with_workforce(&workforce, move |w| w.set_titles(titles)).await
@@ -774,7 +775,7 @@ pub async fn set_organization_titles(
 
 #[tauri::command]
 pub async fn create_role(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     input: RoleInput,
 ) -> Result<OrgSnapshot, CommandError> {
     bounded("the name", &input.name)?;
@@ -788,7 +789,7 @@ pub async fn create_role(
 /// Change a role the owner created: its name, description, and working instructions.
 #[tauri::command]
 pub async fn update_role(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     role_id: String,
     input: RoleUpdate,
 ) -> Result<OrgSnapshot, CommandError> {
@@ -803,16 +804,14 @@ pub async fn update_role(
 
 /// Learning's settings, and the lessons waiting for you and kept.
 #[tauri::command]
-pub async fn get_learning(
-    workforce: State<'_, Workforce>,
-) -> Result<LearningSnapshot, CommandError> {
+pub async fn get_learning(workforce: Org<'_, Workforce>) -> Result<LearningSnapshot, CommandError> {
     with_workforce(&workforce, |w| w.learning()).await
 }
 
 /// Worker learning on or off (Settings → Switches).
 #[tauri::command]
 pub async fn set_learning(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     enabled: bool,
 ) -> Result<LearningSnapshot, CommandError> {
     with_workforce(&workforce, move |w| w.set_learning(enabled)).await
@@ -821,7 +820,7 @@ pub async fn set_learning(
 /// Whether a role learns on its own (its lessons kept without asking you).
 #[tauri::command]
 pub async fn set_role_learning(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     role_id: String,
     auto: bool,
 ) -> Result<LearningSnapshot, CommandError> {
@@ -832,7 +831,7 @@ pub async fn set_role_learning(
 /// Keep a waiting lesson (in your own words, when `text` is given) or discard it.
 #[tauri::command]
 pub async fn decide_lesson(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     lesson_id: String,
     keep: bool,
     text: Option<String>,
@@ -848,7 +847,7 @@ pub async fn decide_lesson(
 /// Remove a kept lesson: the role's later workers no longer get it.
 #[tauri::command]
 pub async fn remove_lesson(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     lesson_id: String,
 ) -> Result<LearningSnapshot, CommandError> {
     validate_id("lesson", &lesson_id)?;
@@ -877,7 +876,7 @@ pub(crate) fn validate_job(job: &RoleJob) -> Result<(), CommandError> {
 /// Create a department with its head position.
 #[tauri::command]
 pub async fn create_department(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     input: DepartmentInput,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_department(&input)?;
@@ -886,7 +885,7 @@ pub async fn create_department(
 
 #[tauri::command]
 pub async fn update_department(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     department_id: String,
     input: DepartmentInput,
 ) -> Result<OrgSnapshot, CommandError> {
@@ -901,8 +900,8 @@ pub async fn update_department(
 /// Create a project with its coordinator position. The local folder is recorded, never opened.
 #[tauri::command]
 pub async fn create_project(
-    workforce: State<'_, Workforce>,
-    guard: State<'_, Guard>,
+    workforce: Org<'_, Workforce>,
+    guard: Org<'_, Guard>,
     input: ProjectInput,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_project(&input)?;
@@ -914,8 +913,8 @@ pub async fn create_project(
 /// department and its VP when missing, the project with its supervisor, and the standard team.
 #[tauri::command]
 pub async fn set_up_development(
-    workforce: State<'_, Workforce>,
-    guard: State<'_, Guard>,
+    workforce: Org<'_, Workforce>,
+    guard: Org<'_, Guard>,
     input: DevelopmentInput,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_project(&input.project)?;
@@ -935,7 +934,7 @@ pub async fn set_up_development(
 /// files, tests, branches, pull requests, findings, and approvals.
 #[tauri::command]
 pub async fn get_objective_report(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     task_id: String,
 ) -> Result<ObjectiveReport, CommandError> {
     validate_id("task", &task_id)?;
@@ -945,7 +944,7 @@ pub async fn get_objective_report(
 /// A project's recent objectives and working copies (Phase 8: the Projects page).
 #[tauri::command]
 pub async fn get_project_work(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     project_id: String,
 ) -> Result<ProjectWork, CommandError> {
     validate_id("project", &project_id)?;
@@ -955,8 +954,8 @@ pub async fn get_project_work(
 /// Remove a finished objective's working copy (its branch stays); returns its project's work.
 #[tauri::command]
 pub async fn remove_workspace(
-    workforce: State<'_, Workforce>,
-    broker: State<'_, Broker>,
+    workforce: Org<'_, Workforce>,
+    broker: Org<'_, Broker>,
     workspace_id: String,
 ) -> Result<ProjectWork, CommandError> {
     validate_id("working copy", &workspace_id)?;
@@ -966,8 +965,8 @@ pub async fn remove_workspace(
 
 #[tauri::command]
 pub async fn update_project(
-    workforce: State<'_, Workforce>,
-    guard: State<'_, Guard>,
+    workforce: Org<'_, Workforce>,
+    guard: Org<'_, Guard>,
     project_id: String,
     input: ProjectInput,
 ) -> Result<OrgSnapshot, CommandError> {
@@ -980,7 +979,7 @@ pub async fn update_project(
 /// Archive a project and its whole team once none of it has unfinished work.
 #[tauri::command]
 pub async fn archive_project(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     project_id: String,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("project", &project_id)?;
@@ -990,7 +989,7 @@ pub async fn archive_project(
 /// Hire into a team: a new position (and, for a persistent one, its agent).
 #[tauri::command]
 pub async fn hire_position(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     input: HireInput,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("role", &input.role_id)?;
@@ -1008,7 +1007,7 @@ pub async fn hire_position(
 /// Hire an agent into a vacant persistent position.
 #[tauri::command]
 pub async fn fill_position(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     position_id: String,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("position", &position_id)?;
@@ -1018,7 +1017,7 @@ pub async fn fill_position(
 /// Let a persistent position's agent go (the position stays, vacant).
 #[tauri::command]
 pub async fn vacate_position(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     position_id: String,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("position", &position_id)?;
@@ -1027,7 +1026,7 @@ pub async fn vacate_position(
 
 #[tauri::command]
 pub async fn update_position(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     position_id: String,
     input: PositionPatchInput,
 ) -> Result<OrgSnapshot, CommandError> {
@@ -1049,7 +1048,7 @@ pub async fn update_position(
 /// Make a position report to another (`reportsTo` null: the owner).
 #[tauri::command]
 pub async fn move_position(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     position_id: String,
     reports_to: Option<String>,
 ) -> Result<OrgSnapshot, CommandError> {
@@ -1063,7 +1062,7 @@ pub async fn move_position(
 
 #[tauri::command]
 pub async fn archive_position(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     position_id: String,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("position", &position_id)?;
@@ -1073,7 +1072,7 @@ pub async fn archive_position(
 /// Assign an on-demand position to review, QA, or security-audit a team.
 #[tauri::command]
 pub async fn assign_oversight(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     overseer_id: String,
     target_id: String,
     role: OversightRole,
@@ -1088,7 +1087,7 @@ pub async fn assign_oversight(
 
 #[tauri::command]
 pub async fn end_oversight(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     oversight_id: String,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("oversight assignment", &oversight_id)?;
@@ -1102,8 +1101,8 @@ pub async fn end_oversight(
 #[allow(clippy::too_many_arguments)]
 pub async fn give_objective<R: Runtime>(
     window: tauri::WebviewWindow<R>,
-    workforce: State<'_, Workforce>,
-    broker: State<'_, Broker>,
+    workforce: Org<'_, Workforce>,
+    broker: Org<'_, Broker>,
     drops: State<'_, crate::files_commands::Drops>,
     position_id: String,
     objective: String,
@@ -1148,10 +1147,11 @@ pub async fn give_objective<R: Runtime>(
             });
         }
         let b = broker.inner().clone();
-        let staged = tauri::async_runtime::spawn_blocking(move || b.stage_files(&project, &sources))
-            .await
-            .map_err(|e| CommandError::internal(e.to_string()))?
-            .map_err(broker_error)?;
+        let staged =
+            tauri::async_runtime::spawn_blocking(move || b.stage_files(&project, &sources))
+                .await
+                .map_err(|e| CommandError::internal(e.to_string()))?
+                .map_err(broker_error)?;
         Some(staged)
     };
     let text = staged
@@ -1198,15 +1198,15 @@ async fn with_router<T: Send + 'static>(
 /// Models, AI tools (with usage limits), every role's model choices with the model its next
 /// worker would get, models seen in use, and options.
 #[tauri::command]
-pub async fn get_routing(router: State<'_, Router>) -> Result<RoutingSnapshot, CommandError> {
+pub async fn get_routing(router: Org<'_, Router>) -> Result<RoutingSnapshot, CommandError> {
     with_router(&router, Router::snapshot).await
 }
 
 /// Add a model to the registry (no `id`) or change one.
 #[tauri::command]
 pub async fn save_model(
-    router: State<'_, Router>,
-    workforce: State<'_, Workforce>,
+    router: Org<'_, Router>,
+    workforce: Org<'_, Workforce>,
     input: ModelInput,
 ) -> Result<RoutingSnapshot, CommandError> {
     validate_optional_id("model", input.id.as_deref())?;
@@ -1228,8 +1228,8 @@ pub(crate) async fn refresh_efforts(workforce: &Workforce) {
 /// Remove a model the owner added; it leaves every role's list.
 #[tauri::command]
 pub async fn remove_model(
-    router: State<'_, Router>,
-    workforce: State<'_, Workforce>,
+    router: Org<'_, Router>,
+    workforce: Org<'_, Workforce>,
     model_id: String,
 ) -> Result<RoutingSnapshot, CommandError> {
     validate_id("model", &model_id)?;
@@ -1241,8 +1241,8 @@ pub async fn remove_model(
 /// Replace a role's model policy.
 #[tauri::command]
 pub async fn set_role_policy(
-    router: State<'_, Router>,
-    workforce: State<'_, Workforce>,
+    router: Org<'_, Router>,
+    workforce: Org<'_, Workforce>,
     role_id: String,
     policy: RolePolicy,
 ) -> Result<RoutingSnapshot, CommandError> {
@@ -1259,7 +1259,7 @@ pub async fn set_role_policy(
 /// Choices for every role (what a usage limit does).
 #[tauri::command]
 pub async fn set_routing_options(
-    router: State<'_, Router>,
+    router: Org<'_, Router>,
     options: RoutingOptions,
 ) -> Result<RoutingSnapshot, CommandError> {
     with_router(&router, move |r| r.set_options(options)).await
@@ -1268,7 +1268,7 @@ pub async fn set_routing_options(
 /// Try an AI tool again now, although it reported a usage limit.
 #[tauri::command]
 pub async fn clear_usage_limit(
-    router: State<'_, Router>,
+    router: Org<'_, Router>,
     runtime_id: String,
 ) -> Result<RoutingSnapshot, CommandError> {
     validate_runtime_id(&runtime_id)?;
@@ -1357,16 +1357,14 @@ fn validate_rules(what: &str, list: &[String]) -> Result<(), CommandError> {
 /// Everything Settings → Permissions shows: permission sets, who has which, the rules, the
 /// Vault's secret references (never values), workers using permissions now, and recent blocks.
 #[tauri::command]
-pub async fn get_permissions(
-    broker: State<'_, Broker>,
-) -> Result<PermissionsSnapshot, CommandError> {
+pub async fn get_permissions(broker: Org<'_, Broker>) -> Result<PermissionsSnapshot, CommandError> {
     with_broker(&broker, Broker::snapshot).await
 }
 
 /// Add a permission set (no `id`) or change one.
 #[tauri::command]
 pub async fn save_permission_set(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     input: PermissionSetInput,
 ) -> Result<PermissionsSnapshot, CommandError> {
     if let Some(id) = &input.id {
@@ -1380,7 +1378,7 @@ pub async fn save_permission_set(
 /// Remove a permission set nothing uses (built-in sets stay).
 #[tauri::command]
 pub async fn remove_permission_set(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     set_id: String,
 ) -> Result<PermissionsSnapshot, CommandError> {
     validate_set_id(&set_id)?;
@@ -1401,7 +1399,7 @@ pub enum AssignTarget {
 /// limit). A project's limit is part of the project's settings.
 #[tauri::command]
 pub async fn assign_permissions(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     target: AssignTarget,
     id: String,
     set_id: Option<String>,
@@ -1426,7 +1424,7 @@ pub async fn assign_permissions(
 /// Replace the approved, always-ask, and blocked command lists.
 #[tauri::command]
 pub async fn set_command_rules(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     rules: CommandRules,
 ) -> Result<PermissionsSnapshot, CommandError> {
     validate_rules("approved commands", &rules.approved)?;
@@ -1438,7 +1436,7 @@ pub async fn set_command_rules(
 /// Replace the blocked-file patterns.
 #[tauri::command]
 pub async fn set_blocked_files(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     patterns: Vec<String>,
 ) -> Result<PermissionsSnapshot, CommandError> {
     validate_rules("file patterns", &patterns)?;
@@ -1449,7 +1447,7 @@ pub async fn set_blocked_files(
 /// allowed without asking.
 #[tauri::command]
 pub async fn set_sensitive_rule(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     kind: SensitiveKind,
     rule: SensitiveRule,
 ) -> Result<PermissionsSnapshot, CommandError> {
@@ -1459,7 +1457,7 @@ pub async fn set_sensitive_rule(
 /// How long an approval waits for an answer.
 #[tauri::command]
 pub async fn set_guard_options(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     options: GuardOptions,
 ) -> Result<PermissionsSnapshot, CommandError> {
     with_guard(&broker, move |g| g.set_options(&options)).await
@@ -1469,7 +1467,7 @@ pub async fn set_guard_options(
 /// keyboard, or remote computers (SSH, Phase 11) off also stops any worker using it now.
 #[tauri::command]
 pub async fn set_switches(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     switches: Switches,
 ) -> Result<PermissionsSnapshot, CommandError> {
     let was = broker
@@ -1506,7 +1504,7 @@ pub async fn set_switches(
 /// reference to Plenipo. The value is never returned.
 #[tauri::command]
 pub async fn save_secret(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     input: SecretInput,
 ) -> Result<PermissionsSnapshot, CommandError> {
     validate_optional_id("secret", input.id.as_deref())?;
@@ -1530,7 +1528,7 @@ pub async fn save_secret(
 /// Remove a secret's value and its reference.
 #[tauri::command]
 pub async fn remove_secret(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     secret_id: String,
 ) -> Result<PermissionsSnapshot, CommandError> {
     validate_id("secret", &secret_id)?;
@@ -1543,14 +1541,14 @@ pub async fn remove_secret(
 
 /// Approvals waiting for an answer (oldest first) and recent outcomes.
 #[tauri::command]
-pub async fn get_approvals(broker: State<'_, Broker>) -> Result<ApprovalQueue, CommandError> {
+pub async fn get_approvals(broker: Org<'_, Broker>) -> Result<ApprovalQueue, CommandError> {
     with_broker(&broker, Broker::approvals).await
 }
 
 /// Approve or refuse one waiting request; returns the queue as it is afterwards.
 #[tauri::command]
 pub async fn resolve_approval(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     approval_id: String,
     approve: bool,
 ) -> Result<ApprovalQueue, CommandError> {
@@ -1566,7 +1564,7 @@ pub async fn resolve_approval(
 /// refused, and it can use no more tools in this step.
 #[tauri::command]
 pub async fn revoke_grant(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     grant_id: String,
 ) -> Result<PermissionsSnapshot, CommandError> {
     validate_id("permission grant", &grant_id)?;
@@ -1586,17 +1584,35 @@ pub fn get_control_status(broker: State<'_, Broker>) -> Result<ControlStatus, Co
 }
 
 /// The emergency stop: all browser, desktop, and server work halts at once, and stays stopped
-/// until you allow it again.
+/// until you allow it again. The PC's: the first organization's broker keeps the one record every
+/// organization shares, and the sign (which shows no organization) may press it too.
 #[tauri::command]
-pub async fn stop_all_control(broker: State<'_, Broker>) -> Result<ControlStatus, CommandError> {
+pub async fn stop_all_control<R: Runtime>(
+    app: AppHandle<R>,
+    broker: State<'_, Broker>,
+) -> Result<ControlStatus, CommandError> {
     let broker = broker.inner().clone();
-    broker.stop_all_control(OWNER).await.map_err(broker_error)
+    // Every organization's workers (Phase 21, ADR-094 §7): the PC's one record stops them all,
+    // and each organization's Ledger records its own part.
+    let others: Vec<Broker> = crate::orgs::all_stacks(&app)
+        .iter()
+        .map(|s| s.broker.clone())
+        .collect();
+    if others.len() <= 1 {
+        return broker.stop_all_control(OWNER).await.map_err(broker_error);
+    }
+    let stopped = broker.control_center().stop_all();
+    for b in &others {
+        b.stopped_all(&stopped, OWNER).await.map_err(broker_error)?;
+    }
+    Ok(broker.control_status())
 }
 
 /// Take over a worker's use of the browser or the mouse and keyboard, or disconnect it from its
 /// servers: that worker stops.
 #[tauri::command]
-pub async fn take_over_control(
+pub async fn take_over_control<R: Runtime>(
+    app: AppHandle<R>,
     broker: State<'_, Broker>,
     session_id: String,
 ) -> Result<ControlStatus, CommandError> {
@@ -1606,7 +1622,13 @@ pub async fn take_over_control(
     if !valid {
         return Err(CommandError::invalid_input("invalid control session id"));
     }
-    let broker = broker.inner().clone();
+    // The organization whose worker it is (Phase 21): any window may take over any worker
+    // using the PC's screen, mouse, and keyboard.
+    let broker = crate::orgs::all_stacks(&app)
+        .iter()
+        .map(|s| s.broker.clone())
+        .find(|b| b.owns_control_session(&session_id))
+        .unwrap_or_else(|| broker.inner().clone());
     broker
         .take_over(&session_id, "you pressed Take over in Plenipo")
         .await
@@ -1615,14 +1637,25 @@ pub async fn take_over_control(
 
 /// Let workers use the browser and the desktop again after a stop.
 #[tauri::command]
-pub async fn allow_control(broker: State<'_, Broker>) -> Result<ControlStatus, CommandError> {
-    with_broker(&broker, |b| b.allow_control(OWNER)).await
+pub async fn allow_control<R: Runtime>(
+    app: AppHandle<R>,
+    broker: State<'_, Broker>,
+) -> Result<ControlStatus, CommandError> {
+    // Allowed again in every organization, each recording it (Phase 21).
+    let stacks = crate::orgs::all_stacks(&app);
+    if stacks.len() <= 1 {
+        return with_broker(&broker, |b| b.allow_control(OWNER)).await;
+    }
+    for s in &stacks {
+        s.broker.allow_control(OWNER).map_err(broker_error)?;
+    }
+    Ok(broker.control_status())
 }
 
 /// The website lists: allowed, blocked, and what other websites do.
 #[tauri::command]
 pub async fn set_website_rules(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     rules: WebsiteRules,
 ) -> Result<PermissionsSnapshot, CommandError> {
     validate_rules("allowed websites", &rules.allowed)?;
@@ -1632,7 +1665,7 @@ pub async fn set_website_rules(
 
 /// Plenipo's browser: which one, whether it runs, and its own profile folder.
 #[tauri::command]
-pub async fn get_browser_status(broker: State<'_, Broker>) -> Result<BrowserStatus, CommandError> {
+pub async fn get_browser_status(broker: Org<'_, Broker>) -> Result<BrowserStatus, CommandError> {
     Ok(broker.browser_status().await)
 }
 
@@ -1640,7 +1673,7 @@ pub async fn get_browser_status(broker: State<'_, Broker>) -> Result<BrowserStat
 /// An open browser stays open; the choice is used from its next start.
 #[tauri::command]
 pub async fn set_browser_choice(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     choice: BrowserChoice,
 ) -> Result<BrowserStatus, CommandError> {
     with_guard(&broker, move |g| g.set_browser_choice(choice)).await?;
@@ -1650,7 +1683,7 @@ pub async fn set_browser_choice(
 /// Open Plenipo's browser for you (for example to sign in to a website workers will use).
 #[tauri::command]
 pub async fn open_browser(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     url: Option<String>,
 ) -> Result<BrowserStatus, CommandError> {
     bounded_optional("the address", url.as_deref())?;
@@ -1665,7 +1698,7 @@ pub async fn open_browser(
 /// A kept screenshot, by its ID (Plenipo chooses the file; the UI never names a path).
 #[tauri::command]
 pub async fn get_screenshot(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     artifact_id: String,
 ) -> Result<Screenshot, CommandError> {
     validate_id("screenshot", &artifact_id)?;
@@ -1677,7 +1710,7 @@ pub async fn get_screenshot(
 /// Everything Settings → Servers shows: the servers (never their keys or passwords), the roles
 /// that may be allowed to use them, the kinds of commands, and where sign-ins are kept.
 #[tauri::command]
-pub async fn get_servers(broker: State<'_, Broker>) -> Result<ServersSnapshot, CommandError> {
+pub async fn get_servers(broker: Org<'_, Broker>) -> Result<ServersSnapshot, CommandError> {
     with_broker(&broker, Broker::servers).await
 }
 
@@ -1685,7 +1718,7 @@ pub async fn get_servers(broker: State<'_, Broker>) -> Result<ServersSnapshot, C
 /// only in the operating system's protected storage.
 #[tauri::command]
 pub async fn save_server(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     input: ServerInput,
 ) -> Result<ServersSnapshot, CommandError> {
     validate_optional_id("server", input.id.as_deref())?;
@@ -1720,7 +1753,7 @@ pub async fn save_server(
 /// the operating system's protected storage.
 #[tauri::command]
 pub async fn remove_server(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     server_id: String,
 ) -> Result<ServersSnapshot, CommandError> {
     validate_id("server", &server_id)?;
@@ -1731,7 +1764,7 @@ pub async fn remove_server(
 /// in.
 #[tauri::command]
 pub async fn check_server_identity(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     host: String,
     port: u16,
 ) -> Result<ServerIdentity, CommandError> {
@@ -1746,7 +1779,7 @@ pub async fn check_server_identity(
 /// Test a server's connection: connect with its pinned identity, sign in, and leave.
 #[tauri::command]
 pub async fn test_server(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     server_id: String,
 ) -> Result<ServerTest, CommandError> {
     validate_id("server", &server_id)?;
@@ -1758,7 +1791,7 @@ pub async fn test_server(
 /// TERM, then KILL. The worker's step goes on (Disconnect ends it: `take_over_control`).
 #[tauri::command]
 pub fn stop_server_command(
-    broker: State<'_, Broker>,
+    broker: Org<'_, Broker>,
     command_id: String,
 ) -> Result<(), CommandError> {
     validate_id("command", &command_id)?;
@@ -1782,11 +1815,15 @@ pub async fn get_terminal_settings(
 
 /// Choose the shell a new terminal on this PC starts. A choice, never a path.
 #[tauri::command]
-pub async fn set_terminal_shell(
+pub async fn set_terminal_shell<R: Runtime>(
+    app: AppHandle<R>,
     broker: State<'_, Broker>,
     shell: TerminalShell,
 ) -> Result<TerminalSettings, CommandError> {
-    with_broker(&broker, move |b| b.set_terminal_shell(shell)).await
+    let saved = with_broker(&broker, move |b| b.set_terminal_shell(shell)).await?;
+    // Your choices for the PC: every organization's terminals follow (Phase 21, ADR-094 §6).
+    crate::org_host::preferences_changed(&crate::orgs::all_stacks(&app));
+    Ok(saved)
 }
 
 /// Open a terminal for you, on this PC or on a server from Settings → Servers. What it shows
@@ -1796,8 +1833,11 @@ pub async fn set_terminal_shell(
 /// sign-out program, from its fixed list, through the AI tools service: Guard decides first, and
 /// the tool is checked again when the program ends. You sign in; Plenipo never types into it.
 #[tauri::command]
-pub async fn open_terminal(
-    broker: State<'_, Broker>,
+#[allow(clippy::too_many_arguments)]
+pub async fn open_terminal<R: Runtime>(
+    window: tauri::WebviewWindow<R>,
+    orgs: State<'_, Arc<crate::orgs::Orgs>>,
+    broker: Org<'_, Broker>,
     ai_tools: State<'_, plenipo_capabilities::ai_tools::AiTools>,
     place: TerminalPlace,
     cols: u16,
@@ -1814,10 +1854,13 @@ pub async fn open_terminal(
     if let TerminalPlace::AiTool { runtime_id, action } = &place {
         validate_runtime_id(runtime_id)?;
         let ai_tools = ai_tools.inner().clone();
-        return ai_tools
+        let info = ai_tools
             .open_account(runtime_id, *action, cols, rows, sink)
             .await
-            .map_err(broker_error);
+            .map_err(broker_error)?;
+        // The PC's (the first organization's broker runs it), shown in this window (Phase 21).
+        orgs.own_ai_terminal(&info.id, window.label());
+        return Ok(info);
     }
     let broker = broker.inner().clone();
     broker
@@ -1828,8 +1871,10 @@ pub async fn open_terminal(
 
 /// What you type (or paste) into a terminal.
 #[tauri::command]
-pub fn write_terminal(
-    broker: State<'_, Broker>,
+pub fn write_terminal<R: Runtime>(
+    window: tauri::WebviewWindow<R>,
+    orgs: State<'_, Arc<crate::orgs::Orgs>>,
+    broker: Org<'_, Broker>,
     terminal_id: String,
     data: String,
 ) -> Result<(), CommandError> {
@@ -1839,32 +1884,58 @@ pub fn write_terminal(
             "that is too much to paste at once",
         ));
     }
-    broker
+    terminal_broker(&window, &orgs, &broker, &terminal_id)
         .write_terminal(&terminal_id, data.as_bytes())
         .map_err(broker_error)
 }
 
+/// The broker running terminal `id` for this window: its organization's, or, for an AI tool's
+/// sign-in this window opened, the first organization's (the PC's AI tools, Phase 21). Never
+/// another window's.
+fn terminal_broker<R: Runtime>(
+    window: &tauri::WebviewWindow<R>,
+    orgs: &crate::orgs::Orgs,
+    broker: &Broker,
+    id: &str,
+) -> Broker {
+    match orgs.ai_terminal_window(id) {
+        Some(label) if label == window.label() => orgs
+            .first()
+            .map_or_else(|| broker.clone(), |f| f.broker.clone()),
+        _ => broker.clone(),
+    }
+}
+
 /// The terminal's panel changed size (in characters).
 #[tauri::command]
-pub fn resize_terminal(
-    broker: State<'_, Broker>,
+pub fn resize_terminal<R: Runtime>(
+    window: tauri::WebviewWindow<R>,
+    orgs: State<'_, Arc<crate::orgs::Orgs>>,
+    broker: Org<'_, Broker>,
     terminal_id: String,
     cols: u16,
     rows: u16,
 ) -> Result<(), CommandError> {
     validate_id("terminal", &terminal_id)?;
-    broker
+    terminal_broker(&window, &orgs, &broker, &terminal_id)
         .resize_terminal(&terminal_id, cols, rows)
         .map_err(broker_error)
 }
 
 /// Close a terminal: its shell, and the programs it started, end.
 #[tauri::command]
-pub fn close_terminal(broker: State<'_, Broker>, terminal_id: String) -> Result<(), CommandError> {
+pub fn close_terminal<R: Runtime>(
+    window: tauri::WebviewWindow<R>,
+    orgs: State<'_, Arc<crate::orgs::Orgs>>,
+    broker: Org<'_, Broker>,
+    terminal_id: String,
+) -> Result<(), CommandError> {
     validate_id("terminal", &terminal_id)?;
-    broker
+    let result = terminal_broker(&window, &orgs, &broker, &terminal_id)
         .close_terminal(&terminal_id, "you closed it")
-        .map_err(broker_error)
+        .map_err(broker_error);
+    orgs.forget_ai_terminal(&terminal_id);
+    result
 }
 
 pub(crate) fn app_info_for(version: &str) -> AppInfo {

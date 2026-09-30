@@ -48,8 +48,6 @@ export interface WorkspaceApi {
   windowOf: (panel: PanelId) => Window;
   /** The dock places a panel is drawn into (the docks give theirs). */
   registerSlot: (dock: DockSide, el: HTMLElement | null) => void;
-  /** Measure the work area (the page and its docks) through this ref. */
-  measure: (el: HTMLElement | null) => void;
   /** A panel's tab being dragged now. */
   drag: PanelDrag | null;
   setDrag: (drag: PanelDrag | null) => void;
@@ -68,6 +66,18 @@ export function useWorkspace(): WorkspaceApi {
   const api = useContext(WorkspaceContext);
   if (!api) throw new Error("useWorkspace needs a WorkspaceProvider");
   return api;
+}
+
+/**
+ * The work area (the page and its docks), measured through this callback ref: the docks' sizes
+ * keep within it. On its own, apart from the rest, so the ref is only ever a ref.
+ */
+export const WorkspaceAreaContext = createContext<((el: HTMLElement | null) => void) | null>(null);
+
+export function useWorkspaceArea(): (el: HTMLElement | null) => void {
+  const measure = useContext(WorkspaceAreaContext);
+  if (!measure) throw new Error("useWorkspaceArea needs a WorkspaceProvider");
+  return measure;
 }
 
 /** The workspace, or `null` where there is none (a part shown on its own, as in tests). */

@@ -13,12 +13,12 @@ use plenipo_workforce::{
     DeletionPreview, LearningSnapshot, OrgSnapshot, SpecialtyInput, Workforce,
 };
 use serde::Deserialize;
-use tauri::State;
 
 use crate::commands::{
     bounded, bounded_optional, validate_id, validate_job, validate_runtimes, with_workforce,
     workforce_error,
 };
+use crate::orgs::Org;
 
 /// What can be deleted for good.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -56,7 +56,7 @@ fn validate_rule(rule: &ModelRule) -> Result<(), CommandError> {
 /// task; no agent is hired for it.
 #[tauri::command]
 pub async fn set_model_rule(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     target: RuleTarget,
     rule: ModelRule,
 ) -> Result<RoutingSnapshot, CommandError> {
@@ -76,7 +76,7 @@ pub async fn set_model_rule(
 /// Learning on or off for a role (on unless turned off).
 #[tauri::command]
 pub async fn set_role_learns(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     role_id: String,
     learns: bool,
 ) -> Result<LearningSnapshot, CommandError> {
@@ -87,7 +87,7 @@ pub async fn set_role_learns(
 /// Learning on or off for one agent; `learns` null: it follows its role.
 #[tauri::command]
 pub async fn set_agent_learning(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     position_id: String,
     learns: Option<bool>,
 ) -> Result<LearningSnapshot, CommandError> {
@@ -125,7 +125,7 @@ fn validate_specialty(input: &SpecialtyInput) -> Result<(), CommandError> {
 /// Add one of your own specialties to a role (a built-in role or one of yours).
 #[tauri::command]
 pub async fn create_specialty(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     input: SpecialtyInput,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_specialty(&input)?;
@@ -135,7 +135,7 @@ pub async fn create_specialty(
 /// Change one of your own specialties (built-in ones keep their lines).
 #[tauri::command]
 pub async fn update_specialty(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     specialty_id: String,
     input: SpecialtyInput,
 ) -> Result<OrgSnapshot, CommandError> {
@@ -150,7 +150,7 @@ pub async fn update_specialty(
 /// Remove one of your own specialties (refused while an agent on the chart has it).
 #[tauri::command]
 pub async fn remove_specialty(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     specialty_id: String,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("specialty", &specialty_id)?;
@@ -162,7 +162,7 @@ pub async fn remove_specialty(
 /// Archive a department with everything in it, once nothing in it has unfinished work.
 #[tauri::command]
 pub async fn archive_department(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     department_id: String,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("department", &department_id)?;
@@ -172,7 +172,7 @@ pub async fn archive_department(
 /// Bring an archived agent back as it was.
 #[tauri::command]
 pub async fn bring_back_position(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     position_id: String,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("position", &position_id)?;
@@ -182,7 +182,7 @@ pub async fn bring_back_position(
 /// Bring an archived project back with its team.
 #[tauri::command]
 pub async fn bring_back_project(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     project_id: String,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("project", &project_id)?;
@@ -192,7 +192,7 @@ pub async fn bring_back_project(
 /// Bring an archived department back with everything archived with it.
 #[tauri::command]
 pub async fn bring_back_department(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     department_id: String,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("department", &department_id)?;
@@ -203,7 +203,7 @@ pub async fn bring_back_department(
 /// organization's average (for the confirmation, which asks first).
 #[tauri::command]
 pub async fn preview_delete_for_good(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     kind: DeleteKind,
     id: String,
 ) -> Result<DeletionPreview, CommandError> {
@@ -216,8 +216,8 @@ pub async fn preview_delete_for_good(
 /// short record stays in the Ledger; nothing on disk is touched.
 #[tauri::command]
 pub async fn delete_for_good(
-    workforce: State<'_, Workforce>,
-    guard: State<'_, Guard>,
+    workforce: Org<'_, Workforce>,
+    guard: Org<'_, Guard>,
     kind: DeleteKind,
     id: String,
     save: Vec<String>,
@@ -259,7 +259,7 @@ pub async fn delete_for_good(
 /// Save an archived agent to your Workforce.
 #[tauri::command]
 pub async fn save_to_workforce(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     position_id: String,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("position", &position_id)?;
@@ -270,7 +270,7 @@ pub async fn save_to_workforce(
 /// experience, and lessons.
 #[tauri::command]
 pub async fn hire_from_workforce(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     saved_id: String,
     reports_to: Option<String>,
     title: Option<String>,
@@ -289,7 +289,7 @@ pub async fn hire_from_workforce(
 /// Delete an agent in your Workforce for good.
 #[tauri::command]
 pub async fn delete_saved_agent(
-    workforce: State<'_, Workforce>,
+    workforce: Org<'_, Workforce>,
     saved_id: String,
 ) -> Result<OrgSnapshot, CommandError> {
     validate_id("saved agent", &saved_id)?;

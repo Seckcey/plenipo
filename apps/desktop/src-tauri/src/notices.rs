@@ -38,6 +38,25 @@ pub enum Output {
     Kept,
 }
 
+/// Whose notices these are (Phase 21, ADR-094): one organization's.
+#[derive(Clone)]
+pub struct NoticeOrg {
+    /// Its ID. Another organization's notices start with its name.
+    pub id: String,
+    /// Where your tile is kept (the first organization's Ledger), when it is not this one's.
+    pub home: Option<Arc<Ledger>>,
+}
+
+impl NoticeOrg {
+    /// The first organization's.
+    pub fn first() -> Self {
+        Self {
+            id: crate::orgs::FIRST.into(),
+            home: None,
+        }
+    }
+}
+
 /// Plenipo's notices (app state): the test notice, and what tests kept.
 pub struct Notices {
     show: Show,
@@ -81,6 +100,7 @@ pub fn start<R: Runtime>(
     agents: Option<AgentRuntime>,
     output: Output,
     gather: Duration,
+    org: NoticeOrg,
 ) -> Notices {
     let kept: Arc<Mutex<Vec<Notice>>> = Arc::default();
     let show: Show = match output {
@@ -113,16 +133,50 @@ pub fn start<R: Runtime>(
             })
         }
     };
+    // In front: the window showing this organization (Phase 21).
     let handle = app.clone();
+    let id = org.id.clone();
     let in_front: InFront = Arc::new(move || {
-        handle.get_webview_window("main").is_some_and(|w| {
-            w.is_visible().unwrap_or(false)
-                && w.is_focused().unwrap_or(false)
-                && !w.is_minimized().unwrap_or(false)
-        })
+        let label = handle
+            .try_state::<Arc<crate::orgs::Orgs>>()
+            .map_or_else(|| Some("main".to_owned()), |orgs| orgs.window_of(&id));
+        label
+            .and_then(|l| handle.get_webview_window(&l))
+            .is_some_and(|w| {
+                w.is_visible().unwrap_or(false)
+                    && w.is_focused().unwrap_or(false)
+                    && !w.is_minimized().unwrap_or(false)
+            })
     });
+    // Another organization's notices say which organization they are from.
+    let handle = app.clone();
+    let id = org.id.clone();
+    let named = move |mut n: Notice| -> Notice {
+        if id == crate::orgs::FIRST {
+            return n;
+        }
+        if let Some(entry) = handle
+            .try_state::<Arc<crate::orgs::Orgs>>()
+            .and_then(|orgs| orgs.entry(&id))
+            .filter(|e| !e.name.is_empty())
+        {
+            n.title = format!("{}: {}", entry.name, n.title);
+        }
+        n
+    };
 
     let (tx, rx) = mpsc::channel::<LedgerEvent>();
+    // Your status (Do not disturb) is kept with your tile: in the first organization's Ledger.
+    let home = org.home.clone();
+    if let Some(home) = &home {
+        let tx = tx.clone();
+        home.add_listener(Arc::new(move |event: &LedgerEvent| {
+            if event.event_type == OWNER_CHANGED {
+                let _ = tx.send(event.clone());
+            }
+        }));
+    }
+    let home = home.map(|h| Arc::downgrade(&h));
     ledger.add_listener(Arc::new(move |event: &LedgerEvent| {
         if may_notify(&event.event_type) || event.event_type == OWNER_CHANGED {
             let _ = tx.send(event.clone());
@@ -173,7 +227,8 @@ pub fn start<R: Runtime>(
                     .collect();
                 // Do not disturb (ADR-056): Windows' pop-ups wait, and come as one when it ends;
                 // the bell still counts them.
-                let quiet = plenipo_workforce::owner::profile(&ledger)
+                let tile = home.as_ref().and_then(std::sync::Weak::upgrade);
+                let quiet = plenipo_workforce::owner::profile(tile.as_deref().unwrap_or(&ledger))
                     .is_ok_and(|p| p.status == plenipo_workforce::OwnerStatus::DoNotDisturb);
                 if quiet {
                     held.append(&mut notices);
@@ -189,7 +244,7 @@ pub fn start<R: Runtime>(
                     continue;
                 }
                 if let Some(notice) = gate.pass(notices, plenipo_ledger::now_ms()) {
-                    let _ = show_loop(&notice);
+                    let _ = show_loop(&named(notice));
                 }
             }
         });
@@ -226,6 +281,7 @@ mod tests {
             None,
             Output::Kept,
             Duration::from_millis(200),
+            NoticeOrg::first(),
         );
         let task = ledger
             .create_task(
@@ -303,6 +359,7 @@ mod tests {
             None,
             Output::Kept,
             Duration::from_millis(100),
+            NoticeOrg::first(),
         );
         let status = |status| {
             plenipo_workforce::owner::set_profile(
@@ -388,6 +445,7 @@ mod tests {
             None,
             Output::Kept,
             GATHER,
+            NoticeOrg::first(),
         );
         // Only this test holds the Ledger: when it goes, so do its listener and the channel,
         // and the thread ends.
@@ -401,7 +459,14 @@ mod tests {
     fn the_test_notice_is_shown_whatever_the_choices() {
         let app = tauri::test::mock_app();
         let ledger = Arc::new(Ledger::open_in_memory().unwrap());
-        let notices = start(app.handle(), ledger, None, Output::Kept, GATHER);
+        let notices = start(
+            app.handle(),
+            ledger,
+            None,
+            Output::Kept,
+            GATHER,
+            NoticeOrg::first(),
+        );
         notices.show_now(test_notice()).unwrap();
         assert_eq!(notices.kept(), vec![test_notice()]);
     }

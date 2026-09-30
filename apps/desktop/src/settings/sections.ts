@@ -47,7 +47,7 @@ export const SETTINGS_SECTIONS: readonly {
     id: "organization",
     label: "Organization",
     icon: "organization",
-    lead: "Your departments and projects. Add or change them on the Organization map.",
+    lead: "This organization's name, departments, and projects, and your other organizations.",
   },
   {
     id: "servers",
@@ -89,7 +89,7 @@ export const SETTINGS_SECTIONS: readonly {
     id: "personalization",
     label: "Personalization",
     icon: "user",
-    lead: "What the app calls the ranks, and how it looks.",
+    lead: "What the app calls the ranks, where the panels sit, and how it looks.",
   },
   {
     id: "localPaths",

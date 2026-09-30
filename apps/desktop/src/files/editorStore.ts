@@ -7,6 +7,7 @@
 
 import { useSyncExternalStore } from "react";
 import type { EditorState } from "@codemirror/state";
+import { storedKey } from "@plenipo/ui";
 
 import { parseFileKey } from "./refs";
 
@@ -23,7 +24,7 @@ export interface EditorFiles {
 
 function readKeys(): string[] {
   try {
-    const raw = localStorage.getItem(OPEN_KEY);
+    const raw = localStorage.getItem(storedKey(OPEN_KEY));
     const value: unknown = raw === null ? [] : JSON.parse(raw);
     return Array.isArray(value)
       ? value
@@ -41,8 +42,19 @@ export class EditorStore {
   private states = new Map<string, EditorState>();
   private listeners = new Set<() => void>();
 
+  /** Read the kept list the first time it is asked for (after the window knows its organization). */
+  private read = false;
+
   constructor(private readonly storageKey: string = OPEN_KEY) {
-    this.files = { keys: storageKey === OPEN_KEY ? readKeys() : [], unsaved: new Set() };
+    this.files = { keys: [], unsaved: new Set() };
+  }
+
+  private get current(): EditorFiles {
+    if (!this.read) {
+      this.read = true;
+      if (this.storageKey === OPEN_KEY) this.files = { ...this.files, keys: readKeys() };
+    }
+    return this.files;
   }
 
   subscribe = (listener: () => void) => {
@@ -50,12 +62,12 @@ export class EditorStore {
     return () => this.listeners.delete(listener);
   };
 
-  snapshot = () => this.files;
+  snapshot = () => this.current;
 
   private set(next: EditorFiles) {
     this.files = next;
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify(next.keys));
+      localStorage.setItem(storedKey(this.storageKey), JSON.stringify(next.keys));
     } catch {
       // Storage unavailable: the list lasts until the window closes.
     }
@@ -64,34 +76,34 @@ export class EditorStore {
 
   /** Open a file (a tab for it, if it has none). */
   open(key: string) {
-    if (this.files.keys.includes(key) || parseFileKey(key) === null) return;
-    const keys = [...this.files.keys, key];
+    if (this.current.keys.includes(key) || parseFileKey(key) === null) return;
+    const keys = [...this.current.keys, key];
     // Too many: the oldest file with nothing unsaved closes.
     while (keys.length > MAX_OPEN) {
-      const drop = keys.find((k) => k !== key && !this.files.unsaved.has(k));
+      const drop = keys.find((k) => k !== key && !this.current.unsaved.has(k));
       if (!drop) break;
       keys.splice(keys.indexOf(drop), 1);
       this.states.delete(drop);
     }
-    this.set({ ...this.files, keys });
+    this.set({ ...this.current, keys });
   }
 
   /** Close a file (its changes not saved are dropped). */
   close(key: string) {
     this.states.delete(key);
-    const unsaved = new Set(this.files.unsaved);
+    const unsaved = new Set(this.current.unsaved);
     unsaved.delete(key);
-    this.set({ keys: this.files.keys.filter((k) => k !== key), unsaved });
+    this.set({ keys: this.current.keys.filter((k) => k !== key), unsaved });
   }
 
   /** Keep a file's editor as it is now. */
   keep(key: string, state: EditorState, unsaved: boolean) {
     this.states.set(key, state);
-    if (this.files.unsaved.has(key) === unsaved) return;
-    const next = new Set(this.files.unsaved);
+    if (this.current.unsaved.has(key) === unsaved) return;
+    const next = new Set(this.current.unsaved);
     if (unsaved) next.add(key);
     else next.delete(key);
-    this.set({ ...this.files, unsaved: next });
+    this.set({ ...this.current, unsaved: next });
   }
 
   /** A file's editor as it was left (`undefined`: none kept). */
@@ -102,10 +114,10 @@ export class EditorStore {
   /** Forget a file's editor (it is read again from the disk). */
   forget(key: string) {
     this.states.delete(key);
-    if (!this.files.unsaved.has(key)) return;
-    const next = new Set(this.files.unsaved);
+    if (!this.current.unsaved.has(key)) return;
+    const next = new Set(this.current.unsaved);
     next.delete(key);
-    this.set({ ...this.files, unsaved: next });
+    this.set({ ...this.current, unsaved: next });
   }
 }
 

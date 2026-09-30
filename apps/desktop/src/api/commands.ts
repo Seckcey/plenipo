@@ -115,6 +115,11 @@ import type {
   LineEnding,
   ObjectiveFile,
   SaveOutcome,
+  OrgDeletePreview,
+  OrgListing,
+  OrgOpened,
+  OrgStart,
+  OrgSummary,
 } from "@plenipo/types";
 
 /** Error thrown by every command wrapper. Mirrors the Rust `CommandError` DTO. */
@@ -1222,6 +1227,11 @@ export function focusPopOut(panel: PanelId): Promise<boolean> {
   return call<boolean>("focus_pop_out", { panel });
 }
 
+/** Put back: close this window's pop-out of `panel`. `false` when none was open. */
+export function closePopOut(panel: PanelId): Promise<boolean> {
+  return call<boolean>("close_pop_out", { panel });
+}
+
 /** Reset layout: close this window's pop-outs and forget where they were. */
 export function resetPopOuts(): Promise<void> {
   return call<void>("reset_pop_outs");
@@ -1272,4 +1282,45 @@ export function showInFolder(root: string, path: string): Promise<void> {
 /** The files workers are changing now. */
 export function getChangingFiles(): Promise<ChangingFile[]> {
   return call<ChangingFile[]>("get_changing_files");
+}
+
+// ---- More than one organization (Phase 21, ADR-094) ----------------------------------------
+
+/** Your organizations, and which one this window shows. */
+export function getOrganizations(): Promise<OrgListing> {
+  return call<OrgListing>("get_organizations");
+}
+
+/** Make an organization: a template, a copy of another one's setup, or from scratch. */
+export function createOrganization(name: string, start: OrgStart): Promise<OrgSummary> {
+  return call<OrgSummary>("create_organization", { name, start });
+}
+
+/** Show another organization in this window (the page loads again). */
+export function switchOrganization(id: string): Promise<OrgOpened> {
+  return call<OrgOpened>("switch_organization", { id });
+}
+
+/** Open an organization in a window of its own (or bring its window to the front). */
+export function openOrganizationWindow(id: string): Promise<OrgOpened> {
+  return call<OrgOpened>("open_organization_window", { id });
+}
+
+/** Stop an organization's work and hide it from the list; Bring back opens it again. */
+export function archiveOrganization(id: string): Promise<OrgListing> {
+  return call<OrgListing>("archive_organization", { id });
+}
+
+export function bringBackOrganization(id: string): Promise<OrgListing> {
+  return call<OrgListing>("bring_back_organization", { id });
+}
+
+/** What deleting an archived organization for good removes, and whom it can save. */
+export function previewDeleteOrganization(id: string): Promise<OrgDeletePreview> {
+  return call<OrgDeletePreview>("preview_delete_organization", { id });
+}
+
+/** Delete an archived organization for good, saving the workers in `save` to your Workforce. */
+export function deleteOrganizationForGood(id: string, save: string[]): Promise<OrgListing> {
+  return call<OrgListing>("delete_organization_for_good", { id, save });
 }

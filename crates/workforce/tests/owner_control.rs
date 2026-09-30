@@ -1041,3 +1041,144 @@ async fn archive_bring_back_delete_and_the_workforce() {
     assert!(old.deleted);
     assert_eq!(old.name, "Cloudline (deleted)");
 }
+
+/// Phase 21 (ADR-094 §5): your Workforce and your tile are the first organization's, shared by
+/// every organization. An agent saved in a client's organization shows in both, and hiring it in
+/// the first one takes it out of the Workforce for every organization.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn your_workforce_and_tile_are_shared_by_every_organization() {
+    let first = harness().await;
+    let client = harness().await;
+    client.workforce.share_with(Arc::clone(&first.ledger));
+
+    // Your tile, set from the client's window, is the one every organization shows.
+    client
+        .workforce
+        .set_owner_profile(&plenipo_workforce::owner::OwnerProfileInput {
+            status: plenipo_workforce::OwnerStatus::DoNotDisturb,
+            mood: None,
+            message: "At the client".into(),
+            picture: plenipo_workforce::owner::PictureChange::Keep,
+        })
+        .unwrap();
+    assert_eq!(
+        first.workforce.owner_profile().unwrap().message,
+        "At the client"
+    );
+    assert!(plenipo_workforce::owner::profile(&client.ledger)
+        .unwrap()
+        .message
+        .is_empty());
+
+    // The client's supervisor works, then its project is deleted and the supervisor saved.
+    let org = client.development();
+    client.done(&org.coordinator, "Plan the launch.").await;
+    client.workforce.archive_project(&org.project).unwrap();
+    let (s, deleted) = client
+        .workforce
+        .delete_for_good(
+            "project",
+            &org.project,
+            std::slice::from_ref(&org.coordinator),
+        )
+        .unwrap();
+    assert_eq!(deleted.saved.len(), 1);
+    // Kept in the shared record, not the client's own, with its role's name.
+    assert!(client.ledger.saved_agents().unwrap().is_empty());
+    let shared = first.ledger.saved_agents().unwrap();
+    assert_eq!(shared.len(), 1);
+    assert_eq!(shared[0].settings["roleName"], "Supervisor");
+    assert_eq!(shared[0].role_id, first.role("Supervisor"));
+    // Both organizations show it.
+    assert_eq!(s.workforce.len(), 1);
+    assert_eq!(first.snapshot().workforce.len(), 1);
+    let saved = s.workforce[0].id.clone();
+
+    // The first organization hires it for a project of its own.
+    let mine = first.development();
+    let s = first
+        .workforce
+        .create_project(&ProjectInput {
+            department_id: Some(mine.department.clone()),
+            coordinator: Some(LeadInput {
+                from_workforce: Some(saved),
+                ..lead(
+                    &first.role("Supervisor"),
+                    "Mobile Supervisor",
+                    "claude-code",
+                )
+            }),
+            ..project_input("Mobile")
+        })
+        .unwrap();
+    assert!(s.workforce.is_empty());
+    assert!(client.snapshot().workforce.is_empty());
+    let back = s
+        .positions
+        .iter()
+        .find(|p| p.title == "Mobile Supervisor" && p.active)
+        .unwrap();
+    assert_eq!(back.experience.tasks_done, 1);
+}
+
+/// Phase 21 (ADR-094 §15): a new organization copied from another has its setup — the
+/// department and its manager's position, with no one hired, the roles and specialties, the
+/// permission sets and switches, and the AI model choices — and none of its projects, their
+/// staff, its work, its servers, its connections, or its secrets.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_copy_of_an_organization_is_its_setup_without_work_projects_or_secrets() {
+    let h = harness().await;
+    let org = h.development();
+    h.done(&org.head, "Plan the quarter.").await;
+    // A permission setting, a server, a secret's name, and a connection, in Guard's settings.
+    let mut guard = h
+        .ledger
+        .setting("guard")
+        .unwrap()
+        .unwrap_or_else(|| json!({}));
+    guard["blockedFiles"] = json!(["*.pem"]);
+    guard["servers"] = json!([{ "id": "s1", "name": "web01" }]);
+    guard["secrets"] = json!([{ "id": "k1", "name": "GitHub token" }]);
+    guard["connections"] = json!([{ "id": "microsoft365" }]);
+    h.ledger.put_setting("guard", &guard, "owner").unwrap();
+    h.ledger
+        .merge_setting("organization", &json!({ "titles": "military" }), "owner")
+        .unwrap();
+
+    let copy = Ledger::open_in_memory().unwrap();
+    let copied = copy.copy_setup_from(&h.ledger, "8 West", "owner").unwrap();
+    assert_eq!(copied.departments, 1);
+    // The manager's position came; the project's supervisor and developer did not.
+    assert_eq!(copied.positions, 1);
+    let records = copy.org_records().unwrap();
+    assert_eq!(
+        records.roles.len(),
+        h.ledger.org_records().unwrap().roles.len()
+    );
+    assert!(records.projects.is_empty());
+    let d = &records.departments[0];
+    assert_eq!(d.name, "Development");
+    assert_eq!(d.head_position_id.as_deref(), Some(org.head.as_str()));
+    let head = records.positions.iter().find(|p| p.id == org.head).unwrap();
+    assert_eq!(head.title, "Development Manager");
+    assert!(records
+        .positions
+        .iter()
+        .all(|p| p.id != org.coordinator && p.id != org.developer));
+    // No one is hired, and there is no work.
+    assert!(copy.position_agents(&org.head, 10).unwrap().is_empty());
+    assert!(copy.list_tasks(10).unwrap().is_empty());
+    assert!(copy.experience_counts().unwrap().is_empty());
+    // Permissions came; servers, secrets, and connections did not.
+    let kept = copy.setting("guard").unwrap().unwrap();
+    assert_eq!(kept["blockedFiles"], json!(["*.pem"]));
+    for gone in ["servers", "secrets", "connections", "addOns"] {
+        assert!(kept.get(gone).is_none(), "{gone} must not be copied");
+    }
+    assert_eq!(
+        copy.setting("organization").unwrap().unwrap(),
+        json!({ "titles": "military" })
+    );
+    // Copied only into a new organization.
+    assert!(copy.copy_setup_from(&h.ledger, "8 West", "owner").is_err());
+}

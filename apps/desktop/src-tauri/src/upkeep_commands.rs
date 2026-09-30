@@ -24,6 +24,7 @@ use tauri::{AppHandle, Manager as _, Runtime, State};
 use crate::commands::{
     ledger_error, to_command_error, validate_task_id, with_ledger, workforce_error,
 };
+use crate::orgs::Org;
 use crate::recovery::{self, RecoveryState, RunAgain};
 use crate::runtime_host::Persistence;
 use crate::smoke::{Scenario, SmokeTest, EXIT_READY};
@@ -44,8 +45,16 @@ fn tool_names(agents: Option<&AgentRuntime>) -> impl Fn(&str) -> String {
     }
 }
 
-fn recovery_status<R: Runtime>(app: &AppHandle<R>) -> Result<RecoveryStatus, CommandError> {
-    let ledger = app.state::<Arc<Ledger>>();
+/// What recovery has to tell window `label` (its organization's; none: the first one's).
+fn recovery_status<R: Runtime>(
+    app: &AppHandle<R>,
+    label: Option<&str>,
+) -> Result<RecoveryStatus, CommandError> {
+    let stack = label.and_then(|l| crate::orgs::stack_of(app, l));
+    let ledger = stack.as_ref().map_or_else(
+        || app.state::<Arc<Ledger>>().inner().clone(),
+        |s| s.ledger.clone(),
+    );
     let state = app.state::<Arc<RecoveryState>>();
     let problems = app
         .state::<SettingsProblems>()
@@ -53,16 +62,20 @@ fn recovery_status<R: Runtime>(app: &AppHandle<R>) -> Result<RecoveryStatus, Com
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .clone();
-    let agents = app.try_state::<AgentRuntime>();
-    let tool = tool_names(agents.as_deref());
+    let agents = stack
+        .as_ref()
+        .map(|s| s.agents.clone())
+        .or_else(|| app.try_state::<AgentRuntime>().map(|a| a.inner().clone()));
+    let tool = tool_names(agents.as_ref());
     recovery::status(&ledger, &state, problems, &tool).map_err(ledger_error)
 }
 
 async fn recovery_status_off_thread<R: Runtime>(
     app: &AppHandle<R>,
+    label: Option<String>,
 ) -> Result<RecoveryStatus, CommandError> {
     let app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || recovery_status(&app))
+    tauri::async_runtime::spawn_blocking(move || recovery_status(&app, label.as_deref()))
         .await
         .map_err(|e| CommandError::internal(e.to_string()))?
 }
@@ -74,8 +87,9 @@ async fn recovery_status_off_thread<R: Runtime>(
 #[tauri::command]
 pub async fn get_recovery_status<R: Runtime>(
     app: AppHandle<R>,
+    window: tauri::WebviewWindow<R>,
 ) -> Result<RecoveryStatus, CommandError> {
-    recovery_status_off_thread(&app).await
+    recovery_status_off_thread(&app, Some(window.label().to_owned())).await
 }
 
 /// Run a stopped objective again: the same objective to the same worker, through the normal
@@ -83,9 +97,10 @@ pub async fn get_recovery_status<R: Runtime>(
 #[tauri::command]
 pub async fn run_again<R: Runtime>(
     app: AppHandle<R>,
-    ledger: State<'_, Arc<Ledger>>,
-    workforce: State<'_, Workforce>,
-    liaison: State<'_, Liaison>,
+    window: tauri::WebviewWindow<R>,
+    ledger: Org<'_, Arc<Ledger>>,
+    workforce: Org<'_, Workforce>,
+    liaison: Org<'_, Liaison>,
     task_id: String,
 ) -> Result<RecoveryStatus, CommandError> {
     validate_task_id(&task_id)?;
@@ -120,29 +135,31 @@ pub async fn run_again<R: Runtime>(
     })
     .await
     .map_err(|e| CommandError::internal(e.to_string()))?;
-    recovery_status_off_thread(&app).await
+    recovery_status_off_thread(&app, Some(window.label().to_owned())).await
 }
 
 /// Leave the stopped tasks stopped: the notice about the last run goes away.
 #[tauri::command]
 pub async fn dismiss_recovery<R: Runtime>(
     app: AppHandle<R>,
-    ledger: State<'_, Arc<Ledger>>,
+    window: tauri::WebviewWindow<R>,
+    ledger: Org<'_, Arc<Ledger>>,
     id: String,
 ) -> Result<RecoveryStatus, CommandError> {
     crate::commands::validate_id("recovery", &id)?;
     with_ledger(&ledger, move |l| recovery::dismiss(l, &id)).await?;
-    recovery_status_off_thread(&app).await
+    recovery_status_off_thread(&app, Some(window.label().to_owned())).await
 }
 
 /// The owner read that the window was brought back.
 #[tauri::command]
 pub async fn dismiss_window_recovery<R: Runtime>(
     app: AppHandle<R>,
+    window: tauri::WebviewWindow<R>,
     state: State<'_, Arc<RecoveryState>>,
 ) -> Result<RecoveryStatus, CommandError> {
     state.dismiss_window();
-    recovery_status_off_thread(&app).await
+    recovery_status_off_thread(&app, Some(window.label().to_owned())).await
 }
 
 /// The window's page is alive (every few seconds; ADR-037 item 3). `visible`: the page can be
@@ -168,8 +185,9 @@ pub async fn window_alive(
 #[tauri::command]
 pub async fn reset_settings<R: Runtime>(
     app: AppHandle<R>,
-    ledger: State<'_, Arc<Ledger>>,
-    guard: State<'_, Guard>,
+    window: tauri::WebviewWindow<R>,
+    ledger: Org<'_, Arc<Ledger>>,
+    guard: Org<'_, Guard>,
     key: String,
 ) -> Result<RecoveryStatus, CommandError> {
     if key.len() > 64 {
@@ -185,7 +203,7 @@ pub async fn reset_settings<R: Runtime>(
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .retain(|p| p.key != key);
-    recovery_status_off_thread(&app).await
+    recovery_status_off_thread(&app, Some(window.label().to_owned())).await
 }
 
 // ---- Start and close (ADR-037) ---------------------------------------------------------------
@@ -263,7 +281,7 @@ fn overview(file: Option<&std::path::Path>) -> Result<LedgerBackups, plenipo_led
 #[tauri::command]
 pub async fn list_ledger_backups<R: Runtime>(
     app: AppHandle<R>,
-    ledger: State<'_, Arc<Ledger>>,
+    ledger: Org<'_, Arc<Ledger>>,
 ) -> Result<LedgerBackups, CommandError> {
     let file = ledger_file(&app, &ledger);
     with_ledger(&ledger, move |_| overview(file.as_deref())).await
@@ -275,7 +293,7 @@ pub async fn list_ledger_backups<R: Runtime>(
 #[tauri::command]
 pub async fn restore_ledger_backup<R: Runtime>(
     app: AppHandle<R>,
-    ledger: State<'_, Arc<Ledger>>,
+    ledger: Org<'_, Arc<Ledger>>,
     name: String,
 ) -> Result<LedgerBackups, CommandError> {
     if name.len() > 200 {
@@ -309,7 +327,7 @@ pub async fn restore_ledger_backup<R: Runtime>(
 #[tauri::command]
 pub async fn cancel_ledger_restore<R: Runtime>(
     app: AppHandle<R>,
-    ledger: State<'_, Arc<Ledger>>,
+    ledger: Org<'_, Arc<Ledger>>,
 ) -> Result<LedgerBackups, CommandError> {
     let file = ledger_file(&app, &ledger);
     with_ledger(&ledger, move |_| {
@@ -446,7 +464,7 @@ async fn about<R: Runtime>(app: &AppHandle<R>) -> Value {
             "name": b.name, "kind": b.kind, "createdAt": b.created_at,
             "sizeBytes": b.size_bytes, "restorable": b.restorable,
         })).collect::<Vec<_>>(),
-        "lastRun": recovery_status_off_thread(app).await.ok().map(|s| last_run(&s)),
+        "lastRun": recovery_status_off_thread(app, None).await.ok().map(|s| last_run(&s)),
         "startAndClose": start_close::settings(app, &ledger),
         "updates": app.state::<Arc<Updates>>().status(),
         "aiTools": tools,
@@ -624,7 +642,7 @@ fn smoke_report<R: Runtime>(app: &AppHandle<R>, extra: Value) -> Value {
         "schemaVersion": status.as_ref().map(|s| s.schema_version),
         "ledgerNotices": status.as_ref().map(|s| s.notices.clone()),
         "lastVersion": crate::backup_host::last_version(&ledger),
-        "recovery": recovery_status(app).ok(),
+        "recovery": recovery_status(app, None).ok(),
         "backups": backups.iter().map(|b| json!({ "name": b.name, "kind": b.kind })).collect::<Vec<_>>(),
         "updates": app.state::<Arc<Updates>>().status(),
         "logFiles": crate::logs::installed().map_or(0, |l| l.files().len()),

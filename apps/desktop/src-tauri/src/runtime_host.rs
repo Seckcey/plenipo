@@ -11,9 +11,9 @@ use plenipo_runtime::{
 
 use crate::ledger_host;
 use plenipo_liaison::store::LedgerExecutionStore;
-use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
+use tauri::{AppHandle, Runtime};
 
-/// Tauri event name carrying [`RuntimeEvent`] payloads to the main window.
+/// Tauri event name carrying [`RuntimeEvent`] payloads to their organization's window.
 pub const RUNTIME_EVENT: &str = "plenipo://runtime";
 
 /// Where runtime state lives.
@@ -27,14 +27,14 @@ pub enum Persistence {
 
 struct TauriSink<R: Runtime> {
     app: AppHandle<R>,
+    /// The organization whose programs these are (Phase 21).
+    org: String,
 }
 
 impl<R: Runtime> EventSink for TauriSink<R> {
     fn emit(&self, event: RuntimeEvent) {
         let lifecycle = matches!(event, RuntimeEvent::Lifecycle(_));
-        if let Err(e) = self.app.emit_to("main", RUNTIME_EVENT, &event) {
-            log::warn!("failed to emit runtime event: {e}");
-        }
+        crate::orgs::emit_to_org(&self.app, &self.org, RUNTIME_EVENT, &event);
         if lifecycle {
             crate::tray::refresh(&self.app);
         }
@@ -46,14 +46,18 @@ impl<R: Runtime> EventSink for TauriSink<R> {
 /// to start.
 pub fn create_supervisor<R: Runtime>(
     app: &AppHandle<R>,
+    org: &crate::orgs::OrgPlace,
     persistence: Persistence,
     ledger: Arc<Ledger>,
 ) -> Supervisor {
     let mut notices = Vec::new();
     let work_dir = match persistence {
-        Persistence::AppData => match prepare_dirs(app) {
+        Persistence::AppData => match prepare_dirs(org.folder.as_deref()) {
             Ok((legacy_history, work_dir)) => {
-                ledger_host::import_phase1_history(&ledger, &legacy_history);
+                // Phase 1's history was the first organization's.
+                if org.is_first() {
+                    ledger_host::import_phase1_history(&ledger, &legacy_history);
+                }
                 work_dir
             }
             Err(e) => {
@@ -92,16 +96,17 @@ pub fn create_supervisor<R: Runtime>(
         policy,
         profiles,
         store,
-        Arc::new(TauriSink { app: app.clone() }),
+        Arc::new(TauriSink {
+            app: app.clone(),
+            org: org.id.clone(),
+        }),
         notices,
     )
 }
 
-fn prepare_dirs<R: Runtime>(app: &AppHandle<R>) -> Result<(PathBuf, PathBuf), String> {
-    let base = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| e.to_string())?
+fn prepare_dirs(folder: Option<&std::path::Path>) -> Result<(PathBuf, PathBuf), String> {
+    let base = folder
+        .ok_or_else(|| "no data folder".to_owned())?
         .join("runtime");
     let work_dir = base.join("diagnostics-workspace");
     std::fs::create_dir_all(&work_dir).map_err(|e| e.to_string())?;

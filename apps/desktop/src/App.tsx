@@ -44,6 +44,7 @@ import { useApprovals } from "./guard/usePermissions";
 import { useLearning } from "./learning/useLearning";
 import { rankName, titlesOf } from "./org/titles";
 import { useOrganizationNames } from "./org/useOrganizationNames";
+import { OrganizationMenu } from "./orgs/OrganizationMenu";
 import { OwnerButton } from "./owner/OwnerButton";
 import { OwnerProvider } from "./owner/OwnerProvider";
 import { DepartmentPage } from "./pages/DepartmentPage";
@@ -53,12 +54,12 @@ import { TaskPage } from "./pages/TaskPage";
 import { WorkerPage } from "./pages/WorkerPage";
 import { EditorPage } from "./files/EditorPage";
 import { FilesButton } from "./files/FilesButton";
-import { useFileExplorerDrops } from "./files/ObjectiveFiles";
+import { useFileExplorerDrops } from "./files/useObjectiveFiles";
 import { nameOf, parseFileKey } from "./files/refs";
 import { FilesPanel } from "./files/FilesPanel";
 import { TerminalButton, TerminalPanel } from "./terminal/TerminalPanel";
 import { TerminalProvider } from "./terminal/TerminalProvider";
-import { useWorkspace } from "./workspace/context";
+import { useWorkspace, useWorkspaceArea } from "./workspace/context";
 import { Dock, DropMarks, PanelPortals } from "./workspace/Dock";
 import { WorkspaceProvider } from "./workspace/WorkspaceProvider";
 import { ActivityView } from "./views/ActivityView";
@@ -203,6 +204,7 @@ function Shell({ core }: { core: CoreState }) {
   const [noticesDismissed, setNoticesDismissed] = useState(false);
   const main = useRef<HTMLElement>(null);
   const workspace = useWorkspace();
+  const workArea = useWorkspaceArea();
   // Plenipo brings the window back if its page stops answering (Phase 13).
   useWindowHeartbeat();
   // Files dropped from File Explorer go to the objective box they land on (Phase 21).
@@ -310,7 +312,12 @@ function Shell({ core }: { core: CoreState }) {
       }
       topBar={
         <TopBar
-          start={<ScopePicker org={organization.snapshot} value={scope} onChange={chooseScope} />}
+          start={
+            <>
+              <OrganizationMenu go={go} />
+              <ScopePicker org={organization.snapshot} value={scope} onChange={chooseScope} />
+            </>
+          }
           title={placeTitle(place, organization.snapshot)}
           end={
             <>
@@ -349,7 +356,7 @@ function Shell({ core }: { core: CoreState }) {
         </footer>
       }
     >
-      <div ref={workspace.measure} className="shell__work">
+      <div ref={workArea} className="shell__work">
         <Dock side="left" />
         <main
           className={`shell__main${view === "organization" ? " shell__main--flush" : ""}`}
