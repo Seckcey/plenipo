@@ -1,0 +1,9 @@
+{
+  "status": null,
+  "isAuthenticated": null,
+  "hasAccessToken": null,
+  "hasRefreshToken": null,
+  "message": null,
+  "fields": "",
+  "userInfoFields": ""
+}

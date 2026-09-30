@@ -227,6 +227,14 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
 
     fn auth_args(&self) -> Vec<String>;
     fn parse_auth(&self, out: &ProbeOutput) -> AuthStatus;
+    /// The sign-in check as a short talk instead of a command (ADR-083, GitHub Copilot): the
+    /// requests are written to the tool's standard input, which stays open until each has an
+    /// answer or the time runs out; [`Self::parse_auth`] then reads the answers, one per line
+    /// of [`ProbeOutput::stdout`] ([`talk_answer`]). `None` (the default): the check is the
+    /// command [`Self::auth_args`].
+    fn auth_talk(&self) -> Option<Talk> {
+        None
+    }
 
     // ---- environment --------------------------------------------------------------------
 
@@ -245,6 +253,14 @@ pub trait RuntimeAdapter: Send + Sync + 'static {
     /// settings for the tool apply. Never credentials.
     fn own_home(&self) -> Vec<(&'static str, String)> {
         Vec::new()
+    }
+    /// The tool's own variable for its settings folder (ADR-083: Copilot's `COPILOT_HOME`).
+    /// `Some`: the tool gets a folder of its own, kept by Plenipo (with [`Self::own_home`]'s
+    /// files in it, if any), named by this variable for every process of the tool; the home
+    /// folder itself stays the owner's, so sign-ins kept there (the GitHub CLI's) still work.
+    /// `None` (the default): a folder of its own replaces the home folder, as above.
+    fn home_variable(&self) -> Option<&'static str> {
+        None
     }
 
     // ---- start/resume session + submit task, stream, normalize --------------------------
@@ -435,13 +451,35 @@ pub enum StatusCheck {
     Command(Vec<String>),
     /// Run Plenipo's bridge with these arguments (Ollama, ADR-017).
     Bridge(Vec<String>),
-    /// Talk to the tool over standard input and output (JSON-RPC, one message per line):
+    /// Talk to the tool over standard input and output (JSON-RPC, framed as `framing` says):
     /// write `lines`, then wait for the answers to the requests numbered `answers`.
     Talk {
         args: Vec<String>,
         lines: Vec<String>,
         answers: Vec<u64>,
+        framing: Framing,
     },
+}
+
+/// How the messages of a talk are marked off from each other.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Framing {
+    /// One message per line (ACP, Codex's app server).
+    #[default]
+    Lines,
+    /// Each message after a `Content-Length: N` header and a blank line (Copilot's
+    /// `--headless --stdio`, ADR-083).
+    Headers,
+}
+
+/// A short talk with the tool: its arguments, the messages to write (each one JSON-RPC
+/// message, without framing), and the requests whose answers are waited for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Talk {
+    pub args: Vec<String>,
+    pub lines: Vec<String>,
+    pub answers: Vec<u64>,
+    pub framing: Framing,
 }
 
 /// Proxy and certificate settings every runtime may need on managed networks.

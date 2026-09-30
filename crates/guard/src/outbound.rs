@@ -89,12 +89,13 @@ fn connection_host(service: Service, host: &str, site: Option<&str>) -> bool {
         })
 }
 
-/// The only addresses Plenipo reads the AI tools' newest versions from (ADR-059 §2): Anthropic's
-/// and OpenAI's packages on npm, and Ollama's releases on GitHub. Each answers with a version
-/// number; nothing about the owner is sent.
-pub const AI_TOOL_RELEASE_LISTS: [&str; 3] = [
+/// The only addresses Plenipo reads the AI tools' newest versions from (ADR-059 §2): Anthropic's,
+/// OpenAI's, and GitHub's (Copilot, ADR-083) packages on npm, and Ollama's releases on GitHub.
+/// Each answers with a version number; nothing about the owner is sent.
+pub const AI_TOOL_RELEASE_LISTS: [&str; 4] = [
     "https://registry.npmjs.org/@anthropic-ai/claude-code/latest",
     "https://registry.npmjs.org/@openai/codex/latest",
+    "https://registry.npmjs.org/@github/copilot/latest",
     "https://api.github.com/repos/ollama/ollama/releases/latest",
 ];
 

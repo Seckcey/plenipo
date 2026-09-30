@@ -30,7 +30,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 3 | 18 | The organization canvas, and watching workers write code as it happens | Delivered (v1.11.0) |
 | 4 | 19 | The AI tools page: sign-in, usage, and updates | Delivered (v1.12.0) |
 | 5 | 20 | Connections: Microsoft 365, Slack, Google, and more | Delivered: part 20A (Microsoft 365) in v1.13.0, part 20B (Slack, Google) in v1.14.1, part 20C (HubSpot, Stripe, WordPress and WooCommerce, add-on tools) in v1.14.2 (ADR-067, ADR-071) |
-| 6 | 16 | Every AI model worth having | In progress: Wave 1 delivered in v1.14.0 (ADR-080, ADR-081, ADR-082), more Ollama models when the paid plan starts; Wave 2 in progress; Waves 3 and 4 after (ADR-036, ADR-061) |
+| 6 | 16 | Every AI model worth having | In progress: Wave 1 delivered in v1.14.0 (ADR-080, ADR-081, ADR-082), more Ollama models when the paid plan starts; Wave 2 delivered in v1.15.0 (ADR-083, GitHub Copilot; ADR-084, Cursor's agent waits); Waves 3 and 4 next (ADR-036, ADR-061) |
 | 7 | 21 | Workspace: panels, windows, files, and more than one organization | In progress beside Phase 16's Wave 2 (ADR-090): panels, windows, files, and the editor first; more than one organization last |
 | 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | Planned: selling starts once the app is finished |
 | 9 | 14 | Plenipo on your phone: a web interface built from scratch | Planned |
@@ -39,7 +39,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 12 | 23 | Mac and Linux | Planned |
 | 13 | 24 | Community | Planned |
 
-Phases 0–8, 10, 11, 12A, 12, 13, 17, 18, 19, and 20 are delivered. In progress: Phase 16's Wave 2, and Phase 21 beside it (ADR-090).
+Phases 0–8, 10, 11, 12A, 12, 13, 17, 18, 19, and 20 are delivered. In progress: Phase 16 (Wave 2 delivered in v1.15.0; Waves 3 and 4 next), and Phase 21 beside it (ADR-090).
 
 ---
 
@@ -1703,7 +1703,7 @@ Stable production architecture. Windows servers build on Phase 11. The Milepost 
 
 # Phase 16 — Every AI Model Worth Having
 
-**Added at the owner's direction (2026-09-27), after reading how Paperclip connects its models.** Decision: ADR-036 (every AI model worth having: API keys with spending caps, models by maker and by app, and more than one route to a model). It was added last; **since 2026-09-28 (ADR-039) it runs after Phase 19**, whose AI tools page gives each AI tool the payment-method switch this phase fills in, **and since ADR-061 (doing Connections before new AI models, 2026-09-28) after Phase 20**. **Since 2026-09-29, Wave 1 is built beside Phase 20** at the owner's direction (ADR-080, building Phase 16's first wave alongside Phase 20); Waves 2 to 4 waited for Phase 20, which was delivered in v1.14.2: **they are next**. **Wave 1 delivered in v1.14.0** (ADR-081, who made each model; ADR-082, Antigravity as an AI tool), except more Ollama cloud models, which wait for the owner's paid plan.
+**Added at the owner's direction (2026-09-27), after reading how Paperclip connects its models.** Decision: ADR-036 (every AI model worth having: API keys with spending caps, models by maker and by app, and more than one route to a model). It was added last; **since 2026-09-28 (ADR-039) it runs after Phase 19**, whose AI tools page gives each AI tool the payment-method switch this phase fills in, **and since ADR-061 (doing Connections before new AI models, 2026-09-28) after Phase 20**. **Since 2026-09-29, Wave 1 is built beside Phase 20** at the owner's direction (ADR-080, building Phase 16's first wave alongside Phase 20); Waves 2 to 4 waited for Phase 20, which was delivered in v1.14.2: **they are next**. **Wave 1 delivered in v1.14.0** (ADR-081, who made each model; ADR-082, Antigravity as an AI tool), except more Ollama cloud models, which wait for the owner's paid plan. **Wave 2 delivered in v1.15.0** (checklist and acceptance report in `docs/phases/phase-16-wave-2-*`): GitHub Copilot joined, checked before every task over its two-way link, with either the owner's Copilot sign-in or the GitHub CLI's and paid extra use off, text answers only (ADR-083, GitHub Copilot as an AI tool); Cursor's agent got a written finding, because nothing a program can run says whether Cursor may charge for on-demand use (ADR-084, Cursor's agent waits). Waves 3 and 4 are next.
 
 ## Goal
 
@@ -1729,8 +1729,8 @@ Four waves, in order. Nothing in Wave 3 starts before the spending caps work.
 
 **Wave 2 — one AI tool, one decision record each**
 
-- Cursor's agent (its own models plus Anthropic's, OpenAI's, Google's, xAI's, Moonshot's)
-- GitHub Copilot, second try, through its `--headless --stdio` mode
+- Cursor's agent (its own models plus Anthropic's, OpenAI's, Google's, xAI's, Moonshot's) (a finding: nothing a program can run says whether Cursor may charge for on-demand use; ADR-084, Cursor's agent waits)
+- GitHub Copilot, second try, through its `--headless --stdio` mode (delivered in v1.15.0; ADR-083, GitHub Copilot as an AI tool)
 
 **Wave 3 — spending caps first, then paid routes**
 

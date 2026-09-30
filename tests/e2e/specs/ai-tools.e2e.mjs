@@ -31,6 +31,7 @@ const RELEASES_PORT = 8766;
 const PUBLISHED = {
   "/registry.npmjs.org/@anthropic-ai/claude-code/latest": { version: "2.2.0" },
   "/registry.npmjs.org/@openai/codex/latest": { version: "0.99.0" },
+  "/registry.npmjs.org/@github/copilot/latest": { version: "1.0.99" },
   "/api.github.com/repos/ollama/ollama/releases/latest": { tag_name: "v0.35.0" },
 };
 
@@ -234,6 +235,50 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     assert.equal(existsSync(join(home, ".gemini")), false, "the owner's own settings untouched");
   });
 
+  it("shows GitHub Copilot checked before every task, and why paid extra use stops it (ADR-083)", async () => {
+    const { browser } = app;
+    await openAiTools(browser);
+    const copilot = card("GitHub Copilot");
+    await waitForText(browser, copilot, "Signed in (subscription) · Copilot sign-in");
+    await waitForText(browser, copilot, "runs copilot login");
+    await waitForText(browser, copilot, "GitHub Copilot has no sign-out command");
+    // Its models, from its own check: Auto, whose maker is not known.
+    await cardTab(browser, "GitHub Copilot", "Models");
+    // No model is listed ahead (only Auto was checked); Check again asks Copilot for its own.
+    await waitForText(browser, copilot, "Plenipo hasn't asked GitHub Copilot for its models yet");
+    await pressOnCard(browser, "GitHub Copilot", "Check GitHub Copilot again");
+    await waitForText(browser, copilot, "Auto auto · who made it is not known");
+    await showCard(browser, "GitHub Copilot");
+    await screenshot(browser, "ai-tools-copilot-models");
+    await cardTab(browser, "GitHub Copilot", "Overview");
+    // Its settings folder is Plenipo's own, in Plenipo's app data; the owner's is never used.
+    const own = join(
+      home,
+      ".local",
+      "share",
+      "com.eightwest.plenipo",
+      "runtime",
+      "ai-tool-homes",
+      "copilot",
+    );
+    assert.ok(existsSync(own), "Plenipo's settings folder for Copilot");
+    assert.equal(existsSync(join(home, ".copilot")), false, "the owner's own folder untouched");
+    // The GitHub CLI's sign-in counts too (the owner's choice).
+    setState("auth", "subscription,gh-cli");
+    await clickButton(browser, "Check again");
+    await waitForText(browser, copilot, "Signed in (subscription) · GitHub CLI sign-in");
+    // GitHub may charge for extra use: not ready, and the card says what to do.
+    setState("auth", "subscription,paid-extra");
+    await clickButton(browser, "Check again");
+    await waitForText(browser, copilot, "Signed in (billing unverified)");
+    await waitForText(browser, copilot, "set the budget for AI Credits to $0 with Stop usage on");
+    await showCard(browser, "GitHub Copilot");
+    await screenshot(browser, "ai-tools-copilot-paid-extra-use");
+    setState("auth", "subscription");
+    await clickButton(browser, "Check again");
+    await waitForText(browser, copilot, "Signed in (subscription) · Copilot sign-in");
+  });
+
   it("signs Codex out and back in from its card, in a tab that runs only Codex's own command", async () => {
     const { browser } = app;
     await openAiTools(browser);
@@ -334,6 +379,7 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
       await waitForText(browser, card("Claude Code"), "Newest version: 2.2.0");
       await waitForText(browser, card("Ollama"), "0.35.0");
       await waitForText(browser, card("Codex"), "Up to date");
+      await waitForText(browser, card("GitHub Copilot"), "Up to date");
     }
     await showCard(browser, "Grok");
     await screenshot(browser, "ai-tools-update-ready");

@@ -333,9 +333,9 @@ export function DiagnosticsSummary({ go, info }: { go: Go; info: AppInfo | null 
         </li>
         <li>
           <strong>Only these:</strong> Plenipo itself (built-in checks and its Ollama connection),
-          the AI tools it finds (Claude Code, Codex, Grok, Kimi, Ollama, Antigravity), and programs
-          a worker runs with your permission (Settings → Permissions). Nothing on screen can supply
-          a command, path, or argument.
+          the AI tools it finds (Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, GitHub
+          Copilot), and programs a worker runs with your permission (Settings → Permissions).
+          Nothing on screen can supply a command, path, or argument.
         </li>
         <li>
           <strong>Environment:</strong> programs get the operating system&apos;s basics plus

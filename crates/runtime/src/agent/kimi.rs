@@ -28,8 +28,8 @@ use serde_json::{json, Value};
 
 use crate::agent::acp::{AcpTask, AcpTurn};
 use crate::agent::adapter::{
-    first_line, model_name, plain_name, talk_answer, ProbeOutput, RuntimeAdapter, StatusCheck,
-    Stop, TurnParser, TurnRequest, NETWORK_ENV,
+    first_line, model_name, plain_name, talk_answer, Framing, ProbeOutput, RuntimeAdapter,
+    StatusCheck, Stop, TurnParser, TurnRequest, NETWORK_ENV,
 };
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
@@ -192,6 +192,7 @@ impl RuntimeAdapter for Kimi {
             args: vec!["acp".into()],
             lines: vec![initialize.to_string(), open.to_string()],
             answers: vec![1, 2],
+            framing: Framing::Lines,
         }
     }
 
@@ -992,6 +993,7 @@ mod ai_tools_page_tests {
             args,
             lines,
             answers,
+            ..
         } = Kimi.status_check(Path::new("/checks"))
         else {
             panic!("Kimi talks ACP");

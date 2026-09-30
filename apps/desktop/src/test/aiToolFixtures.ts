@@ -1,4 +1,4 @@
-// AI tools page fixtures (Phase 19): the six AI tools, as their checks and the page report them.
+// AI tools page fixtures (Phase 19): the seven AI tools, as their checks and the page report them.
 import type {
   AgentRuntimeInfo,
   AiToolsPage,
@@ -34,6 +34,8 @@ const MODELS: Record<string, KnownModel[]> = {
       maker: { id: "google", label: "Google" },
     },
   ],
+  // Only Auto on the owner's plan, Copilot's default: no model is listed (ADR-083 §5).
+  copilot: [],
 };
 
 const FACTS: Record<
@@ -82,6 +84,13 @@ const FACTS: Record<
     signIn: "agy",
     signOut: null,
   },
+  copilot: {
+    label: "GitHub Copilot",
+    provider: "github",
+    providerLabel: "GitHub",
+    signIn: "copilot login",
+    signOut: null,
+  },
 };
 
 export const AI_TOOL_IDS = [
@@ -91,7 +100,11 @@ export const AI_TOOL_IDS = [
   "kimi",
   "ollama",
   "antigravity",
+  "copilot",
 ] as const;
+
+/** The AI tools that run other companies' models (ADR-081). */
+const OTHER_MAKERS = new Set(["ollama", "antigravity", "copilot"]);
 
 /** An AI tool's check: installed at `version`, signed in with a subscription. */
 export function aiRuntime(
@@ -112,11 +125,11 @@ export function aiRuntime(
       resume: true,
       cancel: true,
       structuredResults: true,
-      billingCheckedPerTurn: true,
+      billingCheckedPerTurn: id !== "copilot",
       toolPosture: "Conversation only",
       effortLevels: [],
       knownModels: MODELS[id] ?? [],
-      runsOtherMakers: id === "ollama" || id === "antigravity",
+      runsOtherMakers: OTHER_MAKERS.has(id),
     },
     installHint: `Install ${f.label}.`,
     loginHint: `Open a terminal, run: ${f.signIn}`,
@@ -156,7 +169,7 @@ export function aiTool(id: string, patch: Partial<AiToolState> = {}): AiToolStat
     update: idle(),
     updateByHand: null,
     outOfService: null,
-    reportsPlanLeft: id === "claude-code" || id === "codex",
+    reportsPlanLeft: id === "claude-code" || id === "codex" || id === "copilot",
     plan: null,
     payment: "subscription",
     hasModelList: id !== "claude-code",
@@ -178,7 +191,7 @@ export function route(id: string, patch: Partial<ToolInfo> = {}): ToolInfo {
     company: f.provider,
     companyLabel: f.providerLabel,
     knownModels: MODELS[id] ?? [],
-    runsOtherMakers: id === "ollama" || id === "antigravity",
+    runsOtherMakers: OTHER_MAKERS.has(id),
     ...patch,
   });
 }

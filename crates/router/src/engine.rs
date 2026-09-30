@@ -1488,6 +1488,54 @@ mod tests {
         }
     }
 
+    /// GitHub Copilot as it ships (ADR-083): its default (Auto, which picks the model itself)
+    /// says nobody made it, and the model Auto picked is not on its checked list, so its work
+    /// plays safe in cross-company review (ADR-081 §7).
+    #[test]
+    fn copilots_work_counts_by_who_made_it_and_auto_plays_safe() {
+        use plenipo_runtime::agent::{copilot::Copilot, RuntimeAdapter as _};
+        let mut w = makers_world();
+        let mut copilot = tool("copilot", "github");
+        copilot.info.provider_label = "GitHub".into();
+        copilot.info.capabilities = Copilot.capabilities();
+        w.tools.push(copilot);
+        let mut auto = model("copilot-auto", "copilot", "GitHub Copilot (its default)");
+        auto.name = None;
+        w.models.push(auto);
+        // Reviewing Moonshot AI's work: Copilot's default could be anyone's, so a review that
+        // must come from another company never picks it.
+        let kimi_work = [WorkDoneBy::new("kimi", Some("kimi-code/k3"))];
+        let d = review(&w, &requiring(&["copilot-auto", "glm"]), &kimi_work);
+        assert_eq!(chosen(&d), Some("glm"));
+        assert!(d.candidates[0]
+            .note
+            .contains("who made this model is not known"));
+        // Work done on Copilot, by the model Auto picked or with no model read: never counted
+        // as another company's, so nobody reviews it where a different company is required.
+        for done in [
+            WorkDoneBy::new("copilot", Some("mai-code-1.1-flash")),
+            WorkDoneBy::unread("copilot"),
+        ] {
+            let d = review(&w, &requiring(&["glm"]), std::slice::from_ref(&done));
+            assert_eq!(chosen(&d), None, "{done:?}");
+        }
+        // Preferring another company: Copilot's default comes last.
+        let preferring = RolePolicy {
+            cross_company: CrossCompany::Prefer,
+            ..prefer(&["copilot-auto", "glm"])
+        };
+        assert_eq!(chosen(&review(&w, &preferring, &kimi_work)), Some("glm"));
+        // A company never to use: its default could be that company's, so it is skipped; GitHub,
+        // its own company, counts too.
+        for never in ["anthropic", "github"] {
+            let policy = RolePolicy {
+                never_companies: vec![never.into()],
+                ..prefer(&["copilot-auto", "glm"])
+            };
+            assert_eq!(chosen(&review(&w, &policy, &[])), Some("glm"), "{never}");
+        }
+    }
+
     #[test]
     fn a_company_never_to_use_is_skipped_as_the_maker_too() {
         let w = makers_world();

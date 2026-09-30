@@ -56,7 +56,7 @@ release may look a little different. [Screenshot provenance](docs/discovery/READ
 download its `Plenipo_<version>_x64-setup.exe` asset, and run the per-user installer.
 Read that release's notes for changes, known limits, and installation details.
 
-1. Install and sign in to at least one [supported AI tool](docs/development/setup.md#3-ai-tools-claude-code-codex-grok-kimi-ollama-and-antigravity-optional).
+1. Install and sign in to at least one [supported AI tool](docs/development/setup.md#3-ai-tools-claude-code-codex-grok-kimi-ollama-antigravity-and-github-copilot-optional).
 2. In Plenipo, open **AI tools** and choose **Re-check**. Confirm the tool is **Ready**.
 3. Create a department and project in **Organization**, add roles, and review their permissions.
 4. Give a Supervisor a small objective, then follow its work and review approval requests.
@@ -87,17 +87,18 @@ before granting access.
 
 ## Your tools, your sign-ins
 
-| AI tool     | Current integration                                                           |
-| ----------- | ----------------------------------------------------------------------------- |
-| Claude Code | Native Windows tool, signed in with your Claude account                       |
-| Codex       | Native tool from the Codex package, signed in with ChatGPT                    |
-| Grok        | Grok Build, signed in with its supported subscription                         |
-| Kimi        | Kimi Code, signed in with its subscription; file access goes through Plenipo  |
-| Ollama      | Signed-in **cloud models**, text conversations only; no file or command tools |
-| Antigravity | Google's Antigravity CLI, signed in with Google; text conversations only      |
+| AI tool        | Current integration                                                                |
+| -------------- | ---------------------------------------------------------------------------------- |
+| Claude Code    | Native Windows tool, signed in with your Claude account                            |
+| Codex          | Native tool from the Codex package, signed in with ChatGPT                         |
+| Grok           | Grok Build, signed in with its supported subscription                              |
+| Kimi           | Kimi Code, signed in with its subscription; file access goes through Plenipo       |
+| Ollama         | Signed-in **cloud models**, text conversations only; no file or command tools      |
+| Antigravity    | Google's Antigravity CLI, signed in with Google; text conversations only           |
+| GitHub Copilot | GitHub's Copilot CLI, signed in with GitHub; paid extra use must be off; text only |
 
 Plenipo uses account sign-ins and rejects API-key authentication. Provider plans, usage limits,
-and availability still apply. [Installation and adapter details](docs/development/setup.md#3-ai-tools-claude-code-codex-grok-kimi-ollama-and-antigravity-optional).
+and availability still apply. [Installation and adapter details](docs/development/setup.md#3-ai-tools-claude-code-codex-grok-kimi-ollama-antigravity-and-github-copilot-optional).
 
 **Local-first means local control and records.** AI requests and task context still go to the
 connected providers. This is not an offline-inference app. [Data and privacy FAQ](docs/faq.md#is-it-offline-does-my-work-stay-on-my-pc).
@@ -214,7 +215,7 @@ crates/liaison/          Plenipo Liaison: handoff protocol, context packets, rep
                          workers
 crates/runtime/          Plenipo Runtime: process supervisor, launch profiles, policy,
                          agent runtime adapters (Claude Code, Codex, Grok and Kimi over ACP,
-                         Ollama, Antigravity) and sessions
+                         Ollama, Antigravity, GitHub Copilot) and sessions
 crates/workforce/        Plenipo Workforce: organization engine (positions, teams, oversight,
                          role templates), live snapshot, role routing for Liaison
 crates/router/           Plenipo Router: model registry, role model policies, explained

@@ -708,6 +708,111 @@ async fn run_antigravity(fakes: &Fakes, objective: &str) -> (Option<String>, Tur
     }
 }
 
+/// GitHub Copilot (ADR-083): a settings folder of its own named by `COPILOT_HOME` (the home
+/// folder stays, so the GitHub CLI's sign-in still works), the check before every task over its
+/// framed two-way link, and its own tools, or a model billed per use, stop a task.
+#[tokio::test]
+async fn copilot_is_checked_before_every_task_with_a_settings_folder_of_its_own() {
+    let fakes = Fakes::new("subscription");
+    let own = fakes.dir.path().join("ai-tool-homes").join("copilot");
+    let home = fakes.dir.path().join("home");
+    let state = home.join(".plenipo-fake-agent");
+    let program = fakes.rt.tool_program("copilot").unwrap();
+    let var = |name: &str| {
+        program
+            .env
+            .iter()
+            .filter(|(k, _)| k == name)
+            .map(|(_, v)| v.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(var("COPILOT_HOME"), [own.display().to_string()]);
+    assert_eq!(var(HOME_VAR), [home.display().to_string()]);
+    assert!(own.is_dir());
+
+    // Its own sign-in, or the GitHub CLI's (the owner's choice): ready.
+    for (auth, method) in [
+        ("subscription", "Copilot sign-in"),
+        ("gh-cli", "GitHub CLI sign-in"),
+    ] {
+        std::fs::write(state.join("auth"), auth).unwrap();
+        let (_, info) = fakes.rt.recheck("copilot").await.unwrap();
+        assert_eq!(
+            info.auth.state,
+            AuthState::Subscription,
+            "{auth}: {info:#?}"
+        );
+        assert_eq!(info.auth.method.as_deref(), Some(method));
+        assert!(info.ready, "{auth}");
+        // The account name the link reports is never kept.
+        assert!(!format!("{info:?}").contains("octo-owner"));
+    }
+    // The check talked over the link, and never ran a task.
+    let args: Vec<String> =
+        serde_json::from_str(&std::fs::read_to_string(state.join("last-args.json")).unwrap())
+            .unwrap();
+    assert_eq!(args[..2], ["--headless", "--stdio"]);
+
+    // A task: its words on stdin, in Plenipo's settings folder for it.
+    std::fs::write(state.join("auth"), "subscription").unwrap();
+    let (turn, args) = fakes.run("copilot", "Hello [settings]").await;
+    let result = turn.result.unwrap();
+    assert_eq!(result.outcome, TurnOutcome::Completed, "{result:#?}");
+    let text = result.text.unwrap();
+    assert!(text.contains(&own.display().to_string()), "{text}");
+    assert!(!args.iter().any(|a| a.contains("Hello")), "{args:?}");
+    assert_eq!(result.model.as_deref(), Some("mai-code-1.1-flash"));
+    let env = std::fs::read_to_string(state.join("last-env.txt")).unwrap();
+    assert!(env.lines().any(|n| n == "COPILOT_AUTO_UPDATE"), "{env}");
+    assert!(
+        !env.lines()
+            .any(|n| n.contains("TOKEN") || n.contains("KEY")),
+        "{env}"
+    );
+    // The owner's own Copilot folder is never used.
+    assert!(!home.join(".copilot").exists());
+
+    // Its own tool refused: the task goes on. One that ran, or a model billed per use: stopped.
+    for (marker, outcome, why) in [
+        ("[refused-tool]", TurnOutcome::Completed, "Look"),
+        ("[own-tool]", TurnOutcome::Failed, "used its own tool view"),
+        ("[byok]", TurnOutcome::BillingNotAllowed, "billed per use"),
+    ] {
+        let (turn, _) = fakes.run("copilot", &format!("Look {marker}")).await;
+        let result = turn.result.unwrap();
+        assert_eq!(result.outcome, outcome, "{marker}");
+        assert!(result.summary.contains(why), "{marker}: {}", result.summary);
+    }
+
+    // GitHub may charge for extra use, turned on after the last check: the check before the
+    // next task finds it, and the task does not start.
+    std::fs::write(state.join("auth"), "subscription,paid-extra").unwrap();
+    let refused = fakes
+        .rt
+        .start_session("copilot", "Hello", None)
+        .await
+        .unwrap_err();
+    assert!(
+        refused.to_string().contains("charge for extra use"),
+        "{refused}"
+    );
+    let (_, info) = fakes.rt.recheck("copilot").await.unwrap();
+    assert_eq!(info.auth.state, AuthState::Unverified, "{info:#?}");
+    assert!(!info.ready);
+    let detail = info.auth.detail.unwrap_or_default();
+    assert!(detail.contains("charge for extra use"), "{detail}");
+    assert!(fakes
+        .rt
+        .start_session("copilot", "Hello", None)
+        .await
+        .is_err());
+    // A check that ends without answering: not known, never ready.
+    std::fs::write(state.join("auth"), "unknown-status").unwrap();
+    let (_, info) = fakes.rt.recheck("copilot").await.unwrap();
+    assert_eq!(info.auth.state, AuthState::Unknown, "{info:#?}");
+    assert!(!info.ready);
+}
+
 // ---- The AI tools page (Phase 19, ADR-058 to ADR-060) ------------------------------------------
 
 /// Flags that would sign in, or update, for pay-per-use billing or with a secret.

@@ -21,8 +21,8 @@ use serde_json::{json, Value};
 
 use crate::agent::acp::{AcpTask, AcpTurn};
 use crate::agent::adapter::{
-    find_version, first_line, model_name, plain_name, talk_answer, NewestVersion, ProbeOutput,
-    RuntimeAdapter, StatusCheck, TurnParser, TurnRequest, NETWORK_ENV,
+    find_version, first_line, model_name, plain_name, talk_answer, Framing, NewestVersion,
+    ProbeOutput, RuntimeAdapter, StatusCheck, TurnParser, TurnRequest, NETWORK_ENV,
 };
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
@@ -245,6 +245,7 @@ impl RuntimeAdapter for Grok {
             args: vec!["agent".into(), "--no-leader".into(), "stdio".into()],
             lines: vec![initialize.to_string()],
             answers: vec![1],
+            framing: Framing::Lines,
         }
     }
 

@@ -292,11 +292,10 @@ fn outcome(turn: &AgentTurn) -> TurnOutcome {
 async fn installation_detection() {
     let h = harness();
     let runtimes = h.rt.refresh().await;
-    assert_eq!(runtimes.len(), 6);
-    for (info, version) in runtimes
-        .iter()
-        .zip(["2.1.999", "0.99.0", "1.0.99", "0.34.99", "0.34.4", "1.2.99"])
-    {
+    assert_eq!(runtimes.len(), 7);
+    for (info, version) in runtimes.iter().zip([
+        "2.1.999", "0.99.0", "1.0.99", "0.34.99", "0.34.4", "1.2.99", "1.0.99",
+    ]) {
         assert_eq!(
             info.installation.state,
             InstallState::Installed,
@@ -324,8 +323,10 @@ async fn installation_detection() {
         Some("Ollama sign-in (free plan)")
     );
     assert_eq!(runtimes[5].auth.method.as_deref(), Some("Google sign-in"));
+    assert_eq!(runtimes[6].auth.method.as_deref(), Some("Copilot sign-in"));
     // No account identifier from the status output is kept.
     assert!(!format!("{runtimes:?}").contains("owner@example.com"));
+    assert!(!format!("{runtimes:?}").contains("octo-owner"));
     // The UI was told.
     assert!(h
         .updates
@@ -438,6 +439,8 @@ async fn api_key_and_cloud_sign_ins_are_refused() {
     for (mode, runtime, state) in [
         ("api-key", "claude-code", AuthState::ApiKey),
         ("api-key", "codex", AuthState::ApiKey),
+        // GitHub Copilot signed in with a token in a variable (ADR-083).
+        ("api-key", "copilot", AuthState::ApiKey),
         ("cloud", "claude-code", AuthState::ThirdPartyCloud),
     ] {
         let h = harness_with(personas(), Some(mode));

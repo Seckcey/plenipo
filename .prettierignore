@@ -16,3 +16,6 @@ assets/manifest.json
 assets/validation.json
 # The owner's approved brand kit, kept exactly as delivered (its manifest has checksums).
 docs/brand/pip-brand-kit/
+
+# Output recorded on the owner's PC, kept as it came.
+docs/phases/evidence/phase-16-wave-2/owner-check/

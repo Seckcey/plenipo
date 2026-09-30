@@ -871,8 +871,27 @@ impl AgentRuntime {
         } else {
             (executable, Vec::new())
         };
-        let auth_args = [args_prefix.clone(), adapter.auth_args()].concat();
-        let out = run_probe(&executable, &auth_args, &env, &workdir, timeout).await;
+        // Most AI tools answer a status command; Copilot answers a short talk (ADR-083).
+        let out = match adapter.auth_talk() {
+            Some(talk) => {
+                let args = [args_prefix.clone(), talk.args].concat();
+                run_talk(
+                    &executable,
+                    &args,
+                    &env,
+                    &workdir,
+                    &talk.lines,
+                    &talk.answers,
+                    talk.framing,
+                    timeout,
+                )
+                .await
+            }
+            None => {
+                let auth_args = [args_prefix.clone(), adapter.auth_args()].concat();
+                run_probe(&executable, &auth_args, &env, &workdir, timeout).await
+            }
+        };
         info.auth = adapter.parse_auth(&out);
         info.ready = auth_allowed(adapter, info.auth.state);
         if let Some(why) = self.lock().out_of_service.get(adapter.id()) {
@@ -894,7 +913,11 @@ impl AgentRuntime {
     /// extras.
     fn tool_env(&self, adapter: &dyn RuntimeAdapter) -> Result<Vec<(String, String)>, String> {
         let mut env = runtime_env(adapter, &self.inner.host);
-        let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        // The tool's own variable for its settings folder (ADR-083), or its home folder.
+        let var =
+            adapter
+                .home_variable()
+                .unwrap_or(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
         let extra = &self.inner.config.extra_env;
         // A home folder the extras choose (tests) is where the tool's own settings go too.
         let chosen = extra
@@ -920,7 +943,7 @@ impl AgentRuntime {
         chosen: Option<PathBuf>,
     ) -> Result<Option<PathBuf>, String> {
         let files = adapter.own_home();
-        if files.is_empty() {
+        if files.is_empty() && adapter.home_variable().is_none() {
             return Ok(None);
         }
         let home = chosen.unwrap_or_else(|| self.inner.config.tool_homes.join(adapter.id()));
@@ -932,6 +955,10 @@ impl AgentRuntime {
             )
         };
         static DRAFTS: AtomicU64 = AtomicU64::new(0);
+        // A folder named by the tool's own variable exists even with no file of Plenipo's in it.
+        if adapter.home_variable().is_some() {
+            std::fs::create_dir_all(&home).map_err(failed)?;
+        }
         for (place, contents) in files {
             let file = home.join(place);
             // Already so (the usual case): nothing to replace, so a run that has the file open
@@ -1245,6 +1272,7 @@ impl AgentRuntime {
                 args,
                 lines,
                 answers,
+                framing,
             } => {
                 run_talk(
                     &program.executable,
@@ -1253,6 +1281,7 @@ impl AgentRuntime {
                     &program.dir,
                     &lines,
                     &answers,
+                    framing,
                     timeout,
                 )
                 .await
@@ -3054,6 +3083,13 @@ fn not_ready_reason(adapter: &dyn RuntimeAdapter, info: &AgentRuntimeInfo) -> St
             "{label} is configured for a third-party cloud provider, which Plenipo does not use. {}",
             adapter.login_hint()
         ),
+        // The check said why (GitHub Copilot's paid extra use, ADR-083): its reason first, then
+        // how to sign in, for the tools whose fix that is.
+        AuthState::Unverified if info.auth.detail.is_some() => format!(
+            "{label} cannot take work now. {} {}",
+            info.auth.detail.clone().unwrap_or_default(),
+            adapter.login_hint()
+        ),
         _ => format!(
             "Plenipo could not confirm that {label} is signed in with a subscription. {}",
             adapter.login_hint()
@@ -3354,6 +3390,34 @@ mod tests {
         ] {
             assert!(validate_model(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_refusal_says_the_checks_own_reason_when_it_gave_one() {
+        let mut info = checking(&crate::agent::copilot::Copilot);
+        info.installation.state = InstallState::Installed;
+        info.auth.state = AuthState::Unverified;
+        info.auth.detail = Some("GitHub may charge for extra use.".into());
+        let why = not_ready_reason(&crate::agent::copilot::Copilot, &info);
+        assert!(
+            why.starts_with(
+                "GitHub Copilot cannot take work now. GitHub may charge for extra use."
+            ),
+            "{why}"
+        );
+        // The way to sign in follows, for a tool whose fix that is.
+        let mut codex = checking(&crate::agent::codex::Codex);
+        codex.installation.state = InstallState::Installed;
+        codex.auth.state = AuthState::Unverified;
+        codex.auth.detail = Some("Signed in, but the billing method was not recognized.".into());
+        let why = not_ready_reason(&crate::agent::codex::Codex, &codex);
+        assert!(
+            why.ends_with(crate::agent::codex::Codex.login_hint()),
+            "{why}"
+        );
+        info.auth.detail = None;
+        let why = not_ready_reason(&crate::agent::copilot::Copilot, &info);
+        assert!(why.starts_with("Plenipo could not confirm"), "{why}");
     }
 
     #[test]
