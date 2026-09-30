@@ -65,6 +65,7 @@ After the MVP:
 | Phase 16 Wave 1 — Who made each model; Antigravity (ADR-080–082)     | `1.14.0` |
 | Phase 20B — Connections: Slack and Google (ADR-070)                  | `1.14.1` |
 | Phase 20C — Connections: HubSpot, Stripe, website, add-ons (ADR-071) | `1.14.2` |
+| Fix — WooCommerce keys: add one later, and why one is refused        | `1.14.3` |
 
 ## Releasing
 

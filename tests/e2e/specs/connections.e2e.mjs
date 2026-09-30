@@ -785,6 +785,9 @@ const STRIPE_KEY = "rk_test_PLENIPO-TEST-alex-rivera-full-access";
 const SITE_PASSWORD = "abcd EFGH 1234 ijkl MNOP 5678";
 const RW_CK = "ck_3333333333333333333333333333333333333333";
 const RW_CS = "cs_4444444444444444444444444444444444444444";
+// A key made for the stand-in site's Editor: WooCommerce takes it, but it may not see the store.
+const EDITOR_CK = "ck_5555555555555555555555555555555555555555";
+const EDITOR_CS = "cs_6666666666666666666666666666666666666666";
 
 const cardOf = (id) => `li[aria-labelledby="connection-${id}"]`;
 
@@ -874,7 +877,7 @@ describe(
       await screenshot(browser, "keys-hubspot-connected", cardOf("hubspot"));
     });
 
-    it("connects Stripe with a restricted test-mode key, and the website with its password", async () => {
+    it("connects Stripe with a restricted test-mode key, and the website with its password, then adds its WooCommerce key", async () => {
       const { browser } = app;
       await typeInto(browser, "stripe", "Restricted key", STRIPE_KEY);
       await onCardOf(browser, "stripe", "Save and check");
@@ -884,13 +887,7 @@ describe(
       await typeInto(browser, "wordpress", "Your site's address", "https://shop.example.com");
       await typeInto(browser, "wordpress", "WordPress user name", "plenipo");
       await typeInto(browser, "wordpress", "Application Password", SITE_PASSWORD);
-      await (
-        await browser.$(
-          `//li[@aria-labelledby="connection-wordpress"]//summary[normalize-space()="WooCommerce key (optional)"]`,
-        )
-      ).click();
-      await typeInto(browser, "wordpress", "Consumer key (ck_…)", RW_CK);
-      await typeInto(browser, "wordpress", "Consumer secret (cs_…)", RW_CS);
+      // The site first, alone, as an owner who makes the WooCommerce key later.
       await onCardOf(browser, "wordpress", "Save and check");
       await waitForText(
         browser,
@@ -899,6 +896,29 @@ describe(
         30_000,
       );
       await waitForText(browser, cardOf("wordpress"), "WordPress role: Shop Manager");
+      // The WooCommerce key on its own: only its two boxes, never the password again. A key
+      // made for an Editor is refused, and the card says why.
+      await waitForText(
+        browser,
+        cardOf("wordpress"),
+        "Your Application Password is not needed again.",
+      );
+      await typeInto(browser, "wordpress", "Consumer key (ck_…)", EDITOR_CK);
+      await typeInto(browser, "wordpress", "Consumer secret (cs_…)", EDITOR_CS);
+      await onCardOf(browser, "wordpress", "Add a WooCommerce key");
+      await waitForText(
+        browser,
+        cardOf("wordpress"),
+        "the WordPress user it belongs to may not see the store's orders",
+        30_000,
+      );
+      await screenshot(browser, "keys-woocommerce-refused", cardOf("wordpress"));
+      await typeInto(browser, "wordpress", "Consumer key (ck_…)", RW_CK);
+      await typeInto(browser, "wordpress", "Consumer secret (cs_…)", RW_CS);
+      await onCardOf(browser, "wordpress", "Add a WooCommerce key");
+      await waitForText(browser, cardOf("wordpress"), "Your WooCommerce key is kept.", 30_000);
+      await waitForText(browser, cardOf("wordpress"), "Replace the WooCommerce key");
+      assert.ok(!(await textOf(browser, ".connections")).includes(RW_CS));
       await screenshot(browser, "keys-website-connected", cardOf("wordpress"));
     });
 

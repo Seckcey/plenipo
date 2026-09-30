@@ -106,6 +106,7 @@ user **just for Plenipo**, with the smallest role that works:
 
 - **Editor**: reads, drafts, and publishes posts and pages, and reads comments. No store.
 - **Shop Manager** (with WooCommerce): all that, and the store's orders, notes, and refunds.
+  **Choose this if you want the store at all**, with or without a WooCommerce key (Part D).
 - Never **Administrator**.
 
 Your site must use **https**.
@@ -140,18 +141,44 @@ is gone under **Users →** `plenipo` **→ Application Passwords**.
 
 ## Part D — Optional: a WooCommerce key (about 5 minutes)
 
-Without it, the store's tools use the Application Password (the user must be a **Shop Manager**).
+The store needs a **Shop Manager** either way:
+
+- **Without a key**, the store's tools use the Application Password, so `plenipo` must be a Shop
+  Manager.
+- **With a key**, WooCommerce lets the key do **only what its WordPress user may**. A key made for
+  an Editor is accepted but cannot see a single order. So make the key for a Shop Manager.
+
 With a **Read** key, the store stays read-only at WooCommerce itself, whatever Plenipo's parts say.
 
-1. In your WordPress admin, open **WooCommerce → Settings → Advanced → REST API**, and click **Add
+1. If `plenipo` is an **Editor**, make it a Shop Manager first: **Users →** `plenipo` **→ Edit →
+   Role: Shop Manager → Update User**.
+2. In your WordPress admin, open **WooCommerce → Settings → Advanced → REST API**, and click **Add
    key** (or **Create an API key**).
-2. **Description:** **Plenipo**. **User:** `plenipo`. **Permissions:** **Read** (read-only), or
+3. **Description:** **Plenipo**. **User:** `plenipo`. **Permissions:** **Read** (read-only), or
    **Read/Write** (to let workers add notes, change an order's status, or refund, each as the card
    allows). Never **Write** alone: it cannot read.
-3. Click **Generate API key**. Copy the **Consumer key** (`ck_…`) and the **Consumer secret**
+4. Click **Generate API key**. Copy the **Consumer key** (`ck_…`) and the **Consumer secret**
    (`cs_…`). The secret is shown **once**.
-4. In Plenipo, on the WordPress and WooCommerce card, open **WooCommerce key (optional)** and paste
-   both, with the site's address, user name, and Application Password. Click **Save and check**.
+5. In Plenipo, on the **WordPress and WooCommerce** card:
+   - **Site already connected:** in **Add a WooCommerce key**, paste both and click **Add a
+     WooCommerce key**. Your Application Password is not needed again.
+   - **Not connected yet:** open **WooCommerce key (optional)** under the password, paste both, and
+     click **Save and check**.
+
+**If the key is refused**, the card says why:
+
+- "the WordPress user it belongs to may not see the store's orders": make that user a Shop Manager
+  (step 1), or make the key for a Shop Manager, then try again.
+- "WooCommerce knows that key, but not with that secret": copy the secret again. If it is lost,
+  revoke the key and make a new one (the secret is shown once).
+- "WooCommerce does not know that key": check you copied the whole key, and that it is still
+  listed under **REST API** (not revoked).
+- "It is Write only": edit the key's **Permissions** to **Read** or **Read/Write**.
+- "WooCommerce did not see the key", or "refused the request before WooCommerce answered": a host or
+  security plugin is in the way. Ask your host to let the `Authorization` header through to
+  WordPress.
+
+**To replace the key later:** use **Replace the WooCommerce key** on the card, the same way.
 
 **When you disconnect:** Plenipo removes the key from the Vault. Revoke it in WooCommerce too
 (**WooCommerce → Settings → Advanced → REST API →** the key **→ Revoke**).
