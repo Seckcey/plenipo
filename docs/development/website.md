@@ -8,12 +8,13 @@ Plenipo's desktop app and its release workflow are unchanged.
 
 ## Interactive sample
 
-The interactive homepage automatically opens its sample from approved source
-`0a018ad3bb61b461de76928e1aef377dc98839a7`, deployed September 28, 2026. See the
-[automatic-entry release receipt](website-releases/2026-09-28-autostart.md) for exact source/image
-identity, public acceptance, and cleanup. The previous [click-entry release](website-releases/2026-09-28-interactive.md)
-remains the immediate rollback. Installer metadata stays v1.6.0 through an explicit build argument;
-this correction does not update the advertised installer.
+The current homepage explains hiring a coordinated team across AI providers, while preserving
+the automatically opening sample. Source `ae7356061eadc9ea498f1e3b88ff87541f37d75d` was deployed
+September 30, 2026 UTC with published installer v1.11.0. See the
+[team-positioning release receipt](website-releases/2026-09-30-team-positioning.md) for source/image
+identity, public acceptance, rollback, and cleanup. Immediate rollback is `9d8a137` with its
+original image and configuration retained. The [automatic-entry release](website-releases/2026-09-28-autostart.md)
+and earlier [click-entry release](website-releases/2026-09-28-interactive.md) document the demo's history.
 
 The hero and download links render without JavaScript. A small loader in
 `main.js` starts the React/React Flow island immediately on page entry, without a click, scroll,

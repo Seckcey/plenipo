@@ -86,3 +86,8 @@ metadata, and a verified rollback.
 At this receipt, production still serves `1c5bc2b`, installer v1.11.0. Its installed updater
 also matches `1c5bc2b`; a GitHub merge alone does not update that script. Production acceptance,
 the final release identity, rollback retention, and preview cleanup must be recorded at release.
+
+Production acceptance is now recorded in the
+[team-positioning release receipt](website-releases/2026-09-30-team-positioning.md).
+The staging observations above retain their original source and time; the release receipt
+records the later production baseline, exact merged deployment, and completed preview cleanup.
