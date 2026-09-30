@@ -3083,6 +3083,12 @@ fn not_ready_reason(adapter: &dyn RuntimeAdapter, info: &AgentRuntimeInfo) -> St
             "{label} is configured for a third-party cloud provider, which Plenipo does not use. {}",
             adapter.login_hint()
         ),
+        // The check said why, with what to do (GitHub Copilot's paid extra use, ADR-083): that,
+        // not a sign-in, is the fix.
+        AuthState::Unverified if info.auth.detail.is_some() => format!(
+            "{label} cannot take work now. {}",
+            info.auth.detail.clone().unwrap_or_default()
+        ),
         _ => format!(
             "Plenipo could not confirm that {label} is signed in with a subscription. {}",
             adapter.login_hint()
@@ -3383,6 +3389,22 @@ mod tests {
         ] {
             assert!(validate_model(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_refusal_says_the_checks_own_reason_when_it_gave_one() {
+        let mut info = checking(&crate::agent::copilot::Copilot);
+        info.installation.state = InstallState::Installed;
+        info.auth.state = AuthState::Unverified;
+        info.auth.detail = Some("GitHub may charge for extra use.".into());
+        let why = not_ready_reason(&crate::agent::copilot::Copilot, &info);
+        assert_eq!(
+            why,
+            "GitHub Copilot cannot take work now. GitHub may charge for extra use."
+        );
+        info.auth.detail = None;
+        let why = not_ready_reason(&crate::agent::copilot::Copilot, &info);
+        assert!(why.starts_with("Plenipo could not confirm"), "{why}");
     }
 
     #[test]

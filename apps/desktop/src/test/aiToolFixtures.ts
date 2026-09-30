@@ -125,7 +125,7 @@ export function aiRuntime(
       resume: true,
       cancel: true,
       structuredResults: true,
-      billingCheckedPerTurn: true,
+      billingCheckedPerTurn: id !== "copilot",
       toolPosture: "Conversation only",
       effortLevels: [],
       knownModels: MODELS[id] ?? [],

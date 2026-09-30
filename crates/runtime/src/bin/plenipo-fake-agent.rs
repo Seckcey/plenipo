@@ -3524,29 +3524,27 @@ fn copilot_turn(args: &[String]) -> i32 {
         eprintln!("Error: unexpected failure (fake crash)");
         return 3;
     }
-    let failed = |kind: &str, message: &str| {
+    let failed = |kind: &str, message: &str, status: Option<u64>| {
         event(
             "session.error",
-            json!({ "errorType": kind, "message": message }),
+            json!({ "errorType": kind, "message": message, "statusCode": status }),
         );
         result(1);
         1
     };
+    // Past the allowance with paid extra use off: a 402, as 1.0.88 recorded it (`query`).
     if own.contains("[usage-limit]") {
-        return failed(
-            "quota",
-            "You have exceeded your premium request allowance. Please wait for your allowance \
-             to reset.",
-        );
+        return failed("query", "402 quota_exceeded", Some(402));
     }
     if own.contains("[auth-expired]") {
         return failed(
             "authentication",
             "Your GitHub token has expired. Please sign in again.",
+            Some(401),
         );
     }
     if own.contains("[offline]") {
-        return failed("query", "Failed to connect: connection refused");
+        return failed("query", "Failed to connect: connection refused", None);
     }
     if own.contains("[byok]") {
         event(
@@ -3616,10 +3614,6 @@ fn copilot_turn(args: &[String]) -> i32 {
         "assistant.message",
         json!({ "messageId": "m", "model": ran, "content": text, "toolRequests": [],
                 "phase": "final_answer" }),
-    );
-    event(
-        "assistant.usage",
-        json!({ "model": ran, "inputTokens": 20, "outputTokens": 9, "cacheReadTokens": 4 }),
     );
     event(
         "session.usage_checkpoint",

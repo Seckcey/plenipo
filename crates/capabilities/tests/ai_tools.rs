@@ -947,6 +947,25 @@ async fn the_payment_switch_cannot_be_turned_to_a_paid_key_and_plans_come_only_a
     let grok = page.tools.iter().find(|t| t.runtime_id == "grok").unwrap();
     assert!(!grok.reports_plan_left && grok.plan.is_none());
     assert!(codex.reports_plan_left);
+    // GitHub Copilot (ADR-083): no paid key either, and its plan left comes from its own check
+    // (chat and code suggestions; nothing included in premium requests, so that one is left out).
+    let err = h
+        .tools
+        .set_payment("copilot", PaymentMethod::PaidKey)
+        .unwrap_err();
+    assert!(err.to_string().contains("spending caps"), "{err}");
+    h.tools.check("copilot").await.unwrap();
+    let page = h.tools.page();
+    let copilot = page
+        .tools
+        .iter()
+        .find(|t| t.runtime_id == "copilot")
+        .unwrap();
+    assert_eq!(copilot.payment, PaymentMethod::Subscription);
+    assert!(copilot.reports_plan_left);
+    let plan = copilot.plan.as_ref().unwrap();
+    assert_eq!(plan.windows.len(), 2);
+    assert_eq!(plan.windows[0].used_percent, Some(25));
 }
 
 #[tokio::test]

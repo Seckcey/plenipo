@@ -773,17 +773,29 @@ async fn copilot_is_checked_before_every_task_with_a_settings_folder_of_its_own(
     assert!(!home.join(".copilot").exists());
 
     // Its own tool refused: the task goes on. One that ran, or a model billed per use: stopped.
-    for (marker, outcome) in [
-        ("[refused-tool]", TurnOutcome::Completed),
-        ("[own-tool]", TurnOutcome::Failed),
-        ("[byok]", TurnOutcome::BillingNotAllowed),
+    for (marker, outcome, why) in [
+        ("[refused-tool]", TurnOutcome::Completed, "Look"),
+        ("[own-tool]", TurnOutcome::Failed, "used its own tool view"),
+        ("[byok]", TurnOutcome::BillingNotAllowed, "billed per use"),
     ] {
         let (turn, _) = fakes.run("copilot", &format!("Look {marker}")).await;
-        assert_eq!(turn.result.unwrap().outcome, outcome, "{marker}");
+        let result = turn.result.unwrap();
+        assert_eq!(result.outcome, outcome, "{marker}");
+        assert!(result.summary.contains(why), "{marker}: {}", result.summary);
     }
 
-    // GitHub may charge for extra use: never ready, and no task starts.
+    // GitHub may charge for extra use, turned on after the last check: the check before the
+    // next task finds it, and the task does not start.
     std::fs::write(state.join("auth"), "subscription,paid-extra").unwrap();
+    let refused = fakes
+        .rt
+        .start_session("copilot", "Hello", None)
+        .await
+        .unwrap_err();
+    assert!(
+        refused.to_string().contains("charge for extra use"),
+        "{refused}"
+    );
     let (_, info) = fakes.rt.recheck("copilot").await.unwrap();
     assert_eq!(info.auth.state, AuthState::Unverified, "{info:#?}");
     assert!(!info.ready);

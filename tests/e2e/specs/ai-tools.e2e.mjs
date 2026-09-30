@@ -239,7 +239,7 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     const { browser } = app;
     await openAiTools(browser);
     const copilot = card("GitHub Copilot");
-    await waitForText(browser, copilot, "Subscription (Copilot sign-in)");
+    await waitForText(browser, copilot, "Signed in (subscription) · Copilot sign-in");
     await waitForText(browser, copilot, "runs copilot login");
     await waitForText(browser, copilot, "GitHub Copilot has no sign-out command");
     // Its models, from its own check: Auto, whose maker is not known.
@@ -263,7 +263,7 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     // The GitHub CLI's sign-in counts too (the owner's choice).
     setState("auth", "subscription,gh-cli");
     await clickButton(browser, "Check again");
-    await waitForText(browser, copilot, "Subscription (GitHub CLI sign-in)");
+    await waitForText(browser, copilot, "Signed in (subscription) · GitHub CLI sign-in");
     // GitHub may charge for extra use: not ready, and the card says what to do.
     setState("auth", "subscription,paid-extra");
     await clickButton(browser, "Check again");
@@ -273,7 +273,7 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     await screenshot(browser, "ai-tools-copilot-paid-extra-use");
     setState("auth", "subscription");
     await clickButton(browser, "Check again");
-    await waitForText(browser, copilot, "Subscription (Copilot sign-in)");
+    await waitForText(browser, copilot, "Signed in (subscription) · Copilot sign-in");
   });
 
   it("signs Codex out and back in from its card, in a tab that runs only Codex's own command", async () => {

@@ -1173,7 +1173,7 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
 describe("the AI tools page: GitHub Copilot (ADR-083)", () => {
   it("signs in with copilot login, has no sign-out, and says why paid extra use stops it", async () => {
     const why =
-      "GitHub may charge for extra use once your Copilot allowance runs out (chat). Plenipo never lets a task cost money, so no task runs. On github.com, open Settings → Billing and licensing → Budgets and alerts, set the budget for AI Credits to $0 with Stop usage on, then choose Check again.";
+      "GitHub may charge for extra use once your Copilot allowance runs out. Plenipo never lets a task cost money, so no task runs. On github.com, open Settings → Billing and licensing → Budgets and alerts, set the budget for AI Credits to $0 with Stop usage on, then check GitHub Copilot again in Plenipo.";
     api.getAgentOverview.mockResolvedValue({
       runtimes: runtimes({
         copilot: {
@@ -1195,8 +1195,46 @@ describe("the AI tools page: GitHub Copilot (ADR-083)", () => {
     expect(
       within(copilot).queryByRole("button", { name: "Sign out of GitHub Copilot" }),
     ).toBeNull();
-    // A tool that is ready shows no reason.
-    expect(card("Codex").querySelector(".ai-tool__why")).toBeNull();
+  });
+
+  it("shows the check's reason only when the sign-in check is why the tool can't take work", async () => {
+    const why = (text: string) => ({
+      auth: { state: "unverified" as const, method: null, detail: text },
+    });
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: runtimes({
+        // Ready (checked per task): its reason is not why it can't work, so it isn't shown.
+        "claude-code": { ...why("Each turn is checked before it runs."), ready: true },
+        // Given no tasks for now: the reason is its version's, shown under Version.
+        codex: {
+          ...why("Codex did not report its sign-in status."),
+          ready: false,
+          installation: {
+            state: "installed",
+            executable: "/bin/codex",
+            version: "0.50.0",
+            detail: "Its update left it not answering.",
+          },
+        },
+        // Not installed: nothing to sign in to.
+        grok: {
+          ...why("The sign-in check timed out."),
+          ready: false,
+          installation: { state: "notInstalled", executable: null, version: null, detail: null },
+        },
+        // Not ready because of its sign-in check: shown.
+        kimi: { ...why("Kimi's plan does not say it is yours."), ready: false },
+      }),
+      sessions: [],
+      notices: [],
+    });
+    await show();
+    for (const label of ["Claude Code", "Codex", "Grok"]) {
+      expect(card(label).querySelector(".ai-tool__why"), label).toBeNull();
+    }
+    expect(card("Kimi").querySelector(".ai-tool__why")).toHaveTextContent(
+      "Kimi's plan does not say it is yours.",
+    );
   });
 
   it("with its paid-key switch locked like every tool's, and plan left from its own check", async () => {

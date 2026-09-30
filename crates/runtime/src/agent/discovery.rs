@@ -464,7 +464,7 @@ mod tests {
         );
         assert_eq!(super::framed_message(&mut reader, 1024).await, None);
         // Too long to keep: read past, kept as nothing, and the next one still found.
-        let long = format!("Content-Length: 5\r\n\r\nabcdeContent-Length: 2\r\n\r\n{{}}");
+        let long = "Content-Length: 5\r\n\r\nabcdeContent-Length: 2\r\n\r\n{}";
         let mut reader = tokio::io::BufReader::new(long.as_bytes());
         assert_eq!(
             super::framed_message(&mut reader, 3).await.as_deref(),

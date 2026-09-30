@@ -439,6 +439,8 @@ async fn api_key_and_cloud_sign_ins_are_refused() {
     for (mode, runtime, state) in [
         ("api-key", "claude-code", AuthState::ApiKey),
         ("api-key", "codex", AuthState::ApiKey),
+        // GitHub Copilot signed in with a token in a variable (ADR-083).
+        ("api-key", "copilot", AuthState::ApiKey),
         ("cloud", "claude-code", AuthState::ThirdPartyCloud),
     ] {
         let h = harness_with(personas(), Some(mode));

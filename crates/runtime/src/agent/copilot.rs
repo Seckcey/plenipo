@@ -153,14 +153,14 @@ impl RuntimeAdapter for Copilot {
 
     fn install_hint(&self) -> &'static str {
         "Install GitHub Copilot's command-line tool. Windows: winget install GitHub.Copilot — or, \
-         with Node.js: npm install -g @github/copilot. Then choose Check again."
+         with Node.js: npm install -g @github/copilot. Then check it again in Plenipo."
     }
 
     fn login_hint(&self) -> &'static str {
         "Choose Sign in: Copilot's own sign-in opens in a terminal tab and then in your browser. \
          Sign in with the GitHub account that has your Copilot plan. (If the GitHub CLI is \
          signed in, Copilot can use that sign-in too.) Plenipo never asks for your password or \
-         a token. Then choose Check again."
+         a token. Then check it again in Plenipo."
     }
 
     fn executable_name(&self) -> &'static str {
@@ -399,10 +399,11 @@ impl RuntimeAdapter for Copilot {
 fn allowances(out: &ProbeOutput) -> Option<Vec<(String, Value)>> {
     let snapshots = talk_answer(out, QUOTA)?;
     let snapshots = snapshots.get("quotaSnapshots")?.as_object()?;
+    // Every allowance is kept, even one that is not an object (it then does not say that paid
+    // extra use is off, so it counts as on).
     Some(
         snapshots
             .iter()
-            .filter(|(_, v)| v.is_object())
             .map(|(k, v)| (cap(k, 64), v.clone()))
             .collect(),
     )
@@ -483,37 +484,29 @@ fn parse_auth(out: &ProbeOutput) -> AuthStatus {
             Some(method),
             Some(
                 "Copilot did not say whether GitHub may charge for extra use once your \
-                 allowance runs out, so no task runs. Choose Check again to ask again."
+                 allowance runs out, so no task runs. Check it again in Plenipo to ask again."
                     .into(),
             ),
         );
     };
     // Paid extra use must be off on every allowance: then GitHub refuses a request past the
     // allowance instead of billing it. A missing answer counts as on.
-    let paid: Vec<&str> = allowances
-        .iter()
-        .filter(|(_, v)| {
-            v.get("overageAllowedWithExhaustedQuota")
-                .and_then(Value::as_bool)
-                != Some(false)
-        })
-        .map(|(k, _)| k.as_str())
-        .collect();
-    if allowances.is_empty() || !paid.is_empty() {
+    let paid = allowances.iter().any(|(_, v)| {
+        v.get("overageAllowedWithExhaustedQuota")
+            .and_then(Value::as_bool)
+            != Some(false)
+    });
+    if allowances.is_empty() || paid {
         return status(
             AuthState::Unverified,
             Some(method),
-            Some(format!(
-                "GitHub may charge for extra use once your Copilot allowance runs out{}. Plenipo \
+            Some(
+                "GitHub may charge for extra use once your Copilot allowance runs out. Plenipo \
                  never lets a task cost money, so no task runs. On github.com, open Settings → \
                  Billing and licensing → Budgets and alerts, set the budget for AI Credits to $0 \
-                 with Stop usage on, then choose Check again.",
-                if paid.is_empty() {
-                    String::new()
-                } else {
-                    format!(" ({})", paid.join(", "))
-                }
-            )),
+                 with Stop usage on, then check GitHub Copilot again in Plenipo."
+                    .into(),
+            ),
         );
     }
     status(AuthState::Subscription, Some(method), None)
@@ -584,11 +577,14 @@ fn iso_ms(text: &str) -> Option<u64> {
     u64::try_from(seconds).ok().map(|s| s * 1000)
 }
 
-/// Its own tools refused, as Copilot words it: one that does not exist (all of them, with
-/// Plenipo's flags), or one it had no permission for. Anything else may have run.
-fn refused(message: &str) -> bool {
-    let m = message.to_ascii_lowercase();
-    m.contains("does not exist") || m.contains("permission denied")
+/// Its own tools refused, as Copilot reports it: a tool that does not exist ("Tool 'bash' does
+/// not exist.", all of them with Plenipo's flags), or one refused its permission (`denied`).
+/// Anything else, even wording that looks alike ("Path does not exist"), may have run.
+fn refused(error: &Value) -> bool {
+    let message = error.get("message").and_then(Value::as_str).unwrap_or("");
+    let code = error.get("code").and_then(Value::as_str);
+    code == Some("denied")
+        || (message.starts_with("Tool '") && message.ends_with("' does not exist."))
 }
 
 /// One task's JSON lines (Copilot 1.0.89, recorded on the owner's PC).
@@ -635,8 +631,8 @@ impl Parser {
         if data.get("isByok").and_then(Value::as_bool) == Some(true) {
             return self.stop(
                 TurnOutcome::BillingNotAllowed,
-                "GitHub Copilot used a model provider billed per use instead of your Copilot \
-                 plan, so Plenipo stopped the task."
+                "GitHub Copilot used a model billed per use instead of your Copilot plan, so \
+                 Plenipo stopped the task."
                     .into(),
             );
         }
@@ -711,7 +707,8 @@ impl Parser {
                     .and_then(Value::as_str)
                     .unwrap_or("");
                 let succeeded = data.get("success").and_then(Value::as_bool) == Some(true);
-                if succeeded || !refused(message) {
+                let error = data.get("error").cloned().unwrap_or(Value::Null);
+                if succeeded || !refused(&error) {
                     return self.stop(
                         TurnOutcome::Failed,
                         format!(
@@ -732,8 +729,13 @@ impl Parser {
                     .and_then(Value::as_str)
                     .unwrap_or("Copilot reported an error");
                 // Sorted by its kind, not its wording (its own event schema).
+                let status = data.get("statusCode").and_then(Value::as_u64);
                 let error = match data.get("errorType").and_then(Value::as_str) {
                     Some("quota" | "rate_limit") => format!("Usage limit reached: {message}"),
+                    // Past the allowance with paid extra use off, GitHub answers 402 (or 429).
+                    _ if matches!(status, Some(402 | 429)) => {
+                        format!("Usage limit reached: {message}")
+                    }
                     Some("authentication") => format!("Authentication failed: {message}"),
                     _ => message.to_owned(),
                 };
@@ -930,9 +932,27 @@ mod tests {
         assert_eq!(s.state, AuthState::Unverified);
         let detail = s.detail.unwrap();
         assert!(
-            detail.contains("(chat)") && detail.contains("$0"),
+            detail.contains("$0") && !detail.contains("chat"),
             "{detail}"
         );
+        // Any allowance, even one Plenipo has never seen, counts.
+        let mut other = quota(false);
+        other["quotaSnapshots"]["ai_credits"] = allowance(100, true);
+        let s = parse_auth(&talk(&[
+            connected(),
+            (AUTH_STATUS, signed_in("user")),
+            (QUOTA, other),
+        ]));
+        assert_eq!(s.state, AuthState::Unverified);
+        // An allowance reported as nothing at all counts as paid extra use on.
+        let mut empty = quota(false);
+        empty["quotaSnapshots"]["premium_interactions"] = Value::Null;
+        let s = parse_auth(&talk(&[
+            connected(),
+            (AUTH_STATUS, signed_in("user")),
+            (QUOTA, empty),
+        ]));
+        assert_eq!(s.state, AuthState::Unverified);
         // An allowance that does not say counts as paid extra use on.
         let mut unsure = quota(false);
         unsure["quotaSnapshots"]["chat"]
@@ -1155,10 +1175,24 @@ mod tests {
         assert!(parsed[1].stop.is_some());
         assert_eq!(r.outcome, TurnOutcome::Failed);
         assert!(r.summary.contains("own tool"), "{}", r.summary);
-        // Failed for another reason: it may have run, so the task stops too.
-        let odd = r#"{"type":"tool.execution_complete","data":{"toolName":"bash","success":false,"error":{"message":"exit code 1"}}}"#;
-        let (_, r) = run(odd, &TurnRequest::default());
-        assert_eq!(r.outcome, TurnOutcome::Failed);
+        // Failed for another reason: it may have run, so the task stops too, even when its words
+        // look like a refusal.
+        for error in [
+            r#"{"message":"exit code 1"}"#,
+            r#"{"message":"Path 'C:/x' does not exist.","code":"failure"}"#,
+            r#"{"message":"bash: permission denied","code":"failure"}"#,
+        ] {
+            let odd = format!(
+                r#"{{"type":"tool.execution_complete","data":{{"toolName":"bash","success":false,"error":{error}}}}}"#
+            );
+            let (_, r) = run(&odd, &TurnRequest::default());
+            assert_eq!(r.outcome, TurnOutcome::Failed, "{error}");
+        }
+        // Refused its permission (`denied`, 1.0.88's own words): shown, and the task goes on.
+        let denied = r#"{"type":"tool.execution_complete","data":{"toolName":"bash","success":false,"error":{"message":"Permission denied and could not request permission from user","code":"denied"}}}
+{"type":"result","sessionId":"s1","exitCode":0}"#;
+        let (_, r) = run(denied, &TurnRequest::default());
+        assert_eq!(r.outcome, TurnOutcome::Completed);
     }
 
     #[test]
@@ -1187,12 +1221,42 @@ mod tests {
             let (_, r) = run(&lines, &TurnRequest::default());
             assert_eq!(r.outcome, outcome, "{kind}: {r:?}");
         }
+        // A 402 sorted as a plain query error (the stand-in's recording) is a usage limit too.
+        let lines = format!(
+            "{}\n{}",
+            json!({ "type": "session.error",
+                    "data": { "errorType": "query", "message": "402 quota_exceeded",
+                              "statusCode": 402 } }),
+            json!({ "type": "result", "sessionId": "s", "exitCode": 1 })
+        );
+        let (_, r) = run(&lines, &TurnRequest::default());
+        assert_eq!(r.outcome, TurnOutcome::UsageLimited);
         // Signed out: its words on stderr, no JSON (recorded, 1.0.89).
         let mut p = Copilot.parser(&TurnRequest::default());
         p.stderr("Error: No authentication information found.");
         p.stderr("Copilot can be authenticated with GitHub using an OAuth Token or a Fine-Grained Personal Access Token.");
         let r = p.finish(&end(ExecutionState::Failed, Some(1)));
         assert_eq!(r.outcome, TurnOutcome::AuthRequired, "{r:?}");
+    }
+
+    /// The owner's `copilot-tool.jsonl`: asked to make a file with its tools off, the model only
+    /// wrote a pretend request as text ("commentary"). No tool ran, so the task completes with
+    /// those words, and nothing is stopped.
+    #[test]
+    fn a_pretend_tool_request_in_words_is_only_words() {
+        let recorded = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/phases/evidence/phase-16-wave-2/owner-check/copilot/copilot-tool.jsonl"
+        ))
+        .unwrap();
+        let (parsed, r) = run(&recorded, &TurnRequest::default());
+        assert!(parsed.iter().all(|p| p.stop.is_none()));
+        assert_eq!(r.outcome, TurnOutcome::Completed, "{r:?}");
+        assert!(r.text.unwrap().contains("to=functions.write_file"));
+        assert!(!parsed
+            .iter()
+            .flat_map(|p| &p.events)
+            .any(|e| matches!(e, AgentEvent::ToolUse { .. })));
     }
 
     #[test]

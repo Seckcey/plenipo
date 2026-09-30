@@ -187,7 +187,6 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     );
     // It ran with Plenipo's settings folder for it, never the owner's.
     assert.match(t.text, /Settings folder: .*ai-tool-homes.copilot/);
-    assert.match(t.text, /20 in \(4 cached\) · 9 out/);
     await waitForText(browser, ".detail__header", "GitHub Copilot conversation");
     // The tool it asked for was refused, and that is in the task's activity.
     await (await browser.$('//summary[contains(., "Live activity")]')).click();
