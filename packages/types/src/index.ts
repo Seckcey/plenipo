@@ -328,3 +328,10 @@ export type { Service } from "./generated/Service";
 export type { ServiceCard } from "./generated/ServiceCard";
 export type { ToolKind } from "./generated/ToolKind";
 export type { Who } from "./generated/Who";
+// Phase 20 part 20C: keys typed into a card (ADR-071), and add-on tools (ADR-066). Never a key.
+export type { KeyInput } from "./generated/KeyInput";
+export type { AddOn } from "./generated/AddOn";
+export type { AddOnChange } from "./generated/AddOnChange";
+export type { AddOnInput } from "./generated/AddOnInput";
+export type { AddOnTool } from "./generated/AddOnTool";
+export type { ToolMark } from "./generated/ToolMark";

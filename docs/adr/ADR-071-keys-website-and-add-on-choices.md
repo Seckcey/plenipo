@@ -73,8 +73,7 @@ The services' own pages, read on 2026-09-30:
   Since 2026-03-30 HubSpot's web interface uses **dated addresses** (`/crm/objects/2026-09/…`);
   the old `/crm/v3/…` ones stop being supported in September 2027. **Adding a note needs
   `crm.objects.contacts.write`**, even for a note on a company or a deal (there is no notes
-  permission); a note is linked to a contact, company, or deal by association types 202, 190, and
-  214. Legacy private apps: none new from 2026-09-28 (new accounts) and 2026-10-26 (all); existing
+  permission); a note is linked to a contact, company, or deal by association types 202, 190, and 214. Legacy private apps: none new from 2026-09-28 (new accounts) and 2026-10-26 (all); existing
   ones keep working until September 2027.
 - **Stripe.** A restricted key starts `rk_test_` or `rk_live_`, is made at **Developers → API
   keys → Create restricted key** with **None**, **Read**, or **Write** per resource, and is shown

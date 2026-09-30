@@ -20,11 +20,17 @@ export function WhoMayUse({
   access,
   people,
   onApply,
+  onSave,
+  levelWords,
 }: {
   id: string;
   access: Access[];
   people: PersonOption[];
   onApply: (page: ConnectionsPage) => void;
+  /** How the list is saved (an add-on's, ADR-066 §3); a connection's by default. */
+  onSave?: (next: Access[]) => Promise<ConnectionsPage>;
+  /** What each level means here, under the list. */
+  levelWords?: string;
 }) {
   const { pending, error, run } = useRun(onApply);
   const [adding, setAdding] = useState("");
@@ -42,7 +48,8 @@ export function WhoMayUse({
       label: p.kind === "agent" && p.role ? `${p.name} (${p.role})` : p.name,
       group: p.kind === "role" ? "Roles" : "Agents",
     }));
-  const save = (next: Access[]) => run(() => setConnectionAccess(id, next));
+  const save = (next: Access[]) =>
+    run(() => (onSave ? onSave(next) : setConnectionAccess(id, next)));
   const add = () => {
     const [kind, ...rest] = adding.split(":");
     const who: Who | null =
@@ -88,8 +95,8 @@ export function WhoMayUse({
         </ul>
       )}
       <p className="muted">
-        An agent&apos;s own line wins over its role&apos;s. A project&apos;s or department&apos;s
-        limit can still narrow it.
+        {levelWords ? `${levelWords} ` : ""}An agent&apos;s own line wins over its role&apos;s. A
+        project&apos;s or department&apos;s limit can still narrow it.
       </p>
       {choices.length > 0 && (
         <div className="actions">

@@ -82,6 +82,34 @@ export function noAppWords(service: Service): string | null {
   }
 }
 
+/**
+ * Who a keyed connection is connected to: "HubSpot account 24681357", "8 West IT (Test mode)",
+ * "Plenipo (a WordPress user) at https://shop.example.com".
+ */
+export function keyedAccountLine(c: Connection): string {
+  const name = c.account?.name ?? "";
+  switch (c.service) {
+    case "stripe":
+      return c.account?.organization ? `${name} (${c.account.organization})` : name;
+    case "wordpress":
+      return `${name} (a WordPress user) at ${c.site ?? ""}`;
+    default:
+      return name;
+  }
+}
+
+/** What Disconnect does for a keyed connection, in plain words. */
+export function keyedDisconnectWords(service: Service, title: string, vault: string): string {
+  switch (service) {
+    case "wordpress":
+      return `Disconnect ${title}? Its tools stop now, the Application Password and any WooCommerce key are removed from ${vault}, and the password is revoked at your site.`;
+    case "hubspot":
+      return `Disconnect ${title}? Its tools stop now, and its key is removed from ${vault}. HubSpot has no way to cancel a key from outside: delete it in HubSpot too (Development → Keys → Service keys).`;
+    default:
+      return `Disconnect ${title}? Its tools stop now, and its key is removed from ${vault}. Stripe has no way to cancel a key from outside: delete it in Stripe too (Developers → API keys).`;
+  }
+}
+
 /** Slack's limit on 8 West's app while it is outside Slack's Marketplace (ADR-070 §3). */
 export const SLACK_SLOW =
   "With 8 West's Slack app, Slack lets Plenipo read one channel or thread a minute, 15 messages at a time. Your workspace's own Slack app (Advanced) reads at Slack's normal speed.";

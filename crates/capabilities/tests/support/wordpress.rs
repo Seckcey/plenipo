@@ -280,7 +280,11 @@ pub fn route(req: &Req, rest: &str, w: &mut World) -> Resp {
                 ok(Value::Array(list))
             }
             ("GET", [kind, id]) if matches!(*kind, "posts" | "pages") => {
-                match site.posts.iter().find(|p| p["id"].to_string() == *id) {
+                match site
+                    .posts
+                    .iter()
+                    .find(|p| p["id"].as_u64() == id.parse::<u64>().ok())
+                {
                     Some(p) => ok(p.clone()),
                     None => wp_error("404 Not Found", "rest_post_invalid_id", "Invalid post ID."),
                 }
@@ -311,7 +315,11 @@ pub fn route(req: &Req, rest: &str, w: &mut World) -> Resp {
                     .roles
                     .iter()
                     .any(|r| r == "editor" || r == "shop_manager");
-                let Some(p) = site.posts.iter_mut().find(|p| p["id"].to_string() == *id) else {
+                let Some(p) = site
+                    .posts
+                    .iter_mut()
+                    .find(|p| p["id"].as_u64() == id.parse::<u64>().ok())
+                else {
                     return wp_error("404 Not Found", "rest_post_invalid_id", "Invalid post ID.");
                 };
                 if body["status"] == "publish" && !publisher {
@@ -342,7 +350,7 @@ pub fn route(req: &Req, rest: &str, w: &mut World) -> Resp {
                 let mut list: Vec<Value> = site
                     .comments
                     .iter()
-                    .filter(|c| c["post"].to_string() == post)
+                    .filter(|c| c["post"].as_u64() == post.parse::<u64>().ok())
                     .cloned()
                     .collect();
                 list.reverse();
@@ -384,8 +392,11 @@ pub fn route(req: &Req, rest: &str, w: &mut World) -> Resp {
             _ => {}
         }
         let parts: Vec<&str> = path.split('/').collect();
-        let find =
-            |site: &Site, id: &str| site.orders.iter().position(|o| o["id"].to_string() == id);
+        let find = |site: &Site, id: &str| {
+            site.orders
+                .iter()
+                .position(|o| o["id"].as_u64() == id.parse::<u64>().ok())
+        };
         return match (req.method.as_str(), parts.as_slice()) {
             ("GET", ["orders"]) => ok(Value::Array(site.orders.clone())),
             ("GET", ["orders", id]) => match find(site, id) {

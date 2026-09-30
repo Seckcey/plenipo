@@ -4502,8 +4502,6 @@ mod ipc_boundary_tests {
         }
         // From the main window: the page, a part's level, the list, and Disconnect (always
         // allowed). Connecting needs this copy's app ID.
-        let page: plenipo_capabilities::connections::ConnectionsPage =
-            body(invoke(&main, "get_connections"));
         // A key refused before it is sent never comes back out in the answer.
         let refused = "sk_live_51IpcSecretKey";
         let err = invoke_json(

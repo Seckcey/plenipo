@@ -1,4 +1,5 @@
 import type {
+  AddOn,
   ConnectionCard,
   ConnectionsPage,
   Part,
@@ -52,22 +53,68 @@ const PART_WORDS: Record<Part, [string, string, string]> = {
     "Find and read your files: text files, Google Docs, and Word documents.",
     "Add new text files.",
   ],
+  contacts: [
+    "Contacts",
+    "Search and read contacts, with their latest notes.",
+    "Create or change a contact, and add a note to one.",
+  ],
+  companies: [
+    "Companies",
+    "Search and read companies, with their latest notes.",
+    "Create or change a company, and add a note to one.",
+  ],
+  deals: [
+    "Deals",
+    "Search and read deals, with their latest notes.",
+    "Create or change a deal, and add a note to one.",
+  ],
+  payments: [
+    "Payments",
+    "Read the balance, payments, and payouts.",
+    "Refund a payment — always asks you, and Stripe asks again for an agent key.",
+  ],
+  customers: ["Customers", "Read customers.", "Customers only read."],
+  invoices: [
+    "Invoices",
+    "Read invoices and subscriptions.",
+    "Draft an invoice (it is not sent). Finalizing and sending one always asks you.",
+  ],
+  posts: [
+    "Posts and pages",
+    "Read posts and pages, and their comments.",
+    "Write drafts. Publishing, and changing anything already published, always ask you.",
+  ],
+  store: [
+    "Store",
+    "Read orders and their notes, products, and customers.",
+    "Add private order notes. An order's status and notes the customer sees ask you, unless the customer is on your list. Refunds always ask you.",
+  ],
 };
 
-const PARTS: Record<"microsoft365" | "slack" | "google", Part[]> = {
+type Built = "microsoft365" | "slack" | "google" | "hubspot" | "stripe" | "wordpress";
+
+const PARTS: Record<Built, Part[]> = {
   microsoft365: ["mail", "calendar", "onedrive", "sharepoint", "teams"],
   slack: ["channels", "directMessages", "search"],
   google: ["gmail", "calendar", "drive"],
+  hubspot: ["contacts", "companies", "deals"],
+  stripe: ["payments", "customers", "invoices"],
+  wordpress: ["posts", "store"],
 };
 
-const STARTING: Record<"microsoft365" | "slack" | "google", Partial<Record<Part, PartLevel>>> = {
+const STARTING: Record<Built, Partial<Record<Part, PartLevel>>> = {
   microsoft365: { mail: "readOnly", calendar: "readOnly" },
   slack: { channels: "readOnly" },
   google: { gmail: "readOnly", calendar: "readOnly" },
+  hubspot: { contacts: "readOnly", companies: "readOnly", deals: "readOnly" },
+  stripe: { payments: "readOnly", customers: "readOnly", invoices: "readOnly" },
+  wordpress: { posts: "readOnly", store: "readOnly" },
 };
 
+const KEYED: readonly Built[] = ["hubspot", "stripe", "wordpress"];
+
 function makeCard(
-  service: "microsoft365" | "slack" | "google",
+  service: Built,
   id: string,
   levels: Partial<Record<Part, PartLevel>>,
   card: Partial<ConnectionCard>,
@@ -87,21 +134,73 @@ function makeCard(
       ...(card.connection ?? {}),
     },
     hasApp: service !== "google",
-    builtInApp: service !== "google",
+    builtInApp: service !== "google" && !KEYED.includes(service),
     signingIn: false,
     parts: PARTS[service].map((p): PartCard => ({
       part: p,
       label: PART_WORDS[p][0],
       level: parts[p] ?? "off",
       available: !(personal && (p === "sharepoint" || p === "teams")),
-      fullAccess: p !== "search",
+      fullAccess: p !== "search" && p !== "customers",
       reads: PART_WORDS[p][1],
       changes: PART_WORDS[p][2],
       needsAdmin: p === "teams",
     })),
     reconnectFor: [],
     granted: [],
+    usesKey: KEYED.includes(service),
+    keyNeeds:
+      service === "hubspot"
+        ? ["crm.objects.contacts.read", "crm.objects.companies.read", "crm.objects.deals.read"]
+        : service === "stripe"
+          ? ["Balance: Read", "PaymentIntents: Read", "Payouts: Read", "Customers: Read"]
+          : [],
+    storeKeyKept: false,
     ...card,
+  };
+}
+
+/** HubSpot's, Stripe's, or the website's card (not connected, unless `card` says so). */
+export function keyedCard(
+  service: "hubspot" | "stripe" | "wordpress",
+  levels: Partial<Record<Part, PartLevel>> = {},
+  card: Partial<ConnectionCard> = {},
+): ConnectionCard {
+  return makeCard(service, service, levels, card);
+}
+
+/** An add-on program, off, with its tools looked at (all Off) unless `extra` says otherwise. */
+export function sampleAddOn(extra: Partial<AddOn> = {}): AddOn {
+  return {
+    id: "tickets",
+    name: "Tickets",
+    program: "C:\\Tools\\tickets-mcp.exe",
+    args: ["--stdio"],
+    secrets: [],
+    on: false,
+    tools: [
+      {
+        name: "lookup_order",
+        alias: "addon_tickets_lookup_order",
+        mark: "off",
+        description: "Looks up an order by its number.",
+        input: { type: "object" },
+        readOnlyHint: true,
+        changed: false,
+      },
+      {
+        name: "create_ticket",
+        alias: "addon_tickets_create_ticket",
+        mark: "off",
+        description: "Creates a support ticket.",
+        input: { type: "object" },
+        changed: false,
+      },
+    ],
+    access: [],
+    checkedAt: 1,
+    addedAt: 1,
+    ...extra,
   };
 }
 
@@ -160,12 +259,6 @@ export function connectedCard(extra: Partial<ConnectionCard> = {}): ConnectionCa
   };
 }
 
-const LATER: [Service, string][] = [
-  ["hubspot", "HubSpot"],
-  ["stripe", "Stripe"],
-  ["wordpress", "WordPress and WooCommerce"],
-];
-
 /** The app description a workspace pastes into Slack (a short stand-in). */
 export const SAMPLE_MANIFEST = `{
   "oauth_config": {
@@ -181,7 +274,13 @@ export const SAMPLE_MANIFEST = `{
 export function samplePage(
   card: ConnectionCard = sampleCard(),
   page: Partial<ConnectionsPage> = {},
-  others: { slack?: ConnectionCard[]; google?: ConnectionCard } = {},
+  others: {
+    slack?: ConnectionCard[];
+    google?: ConnectionCard;
+    hubspot?: ConnectionCard;
+    stripe?: ConnectionCard;
+    wordpress?: ConnectionCard;
+  } = {},
 ): ConnectionsPage {
   const built = (service: Service, label: string, connections: ConnectionCard[]): ServiceCard => ({
     service,
@@ -195,13 +294,9 @@ export function samplePage(
       built("microsoft365", "Microsoft 365", [card]),
       built("slack", "Slack", others.slack ?? [slackCard()]),
       built("google", "Google", [others.google ?? googleCard()]),
-      ...LATER.map(([service, label]) => ({
-        service,
-        label,
-        built: false,
-        many: false,
-        connections: [],
-      })),
+      built("hubspot", "HubSpot", [others.hubspot ?? keyedCard("hubspot")]),
+      built("stripe", "Stripe", [others.stripe ?? keyedCard("stripe")]),
+      built("wordpress", "WordPress and WooCommerce", [others.wordpress ?? keyedCard("wordpress")]),
     ],
     people: [
       { kind: "role", id: "role-sup", name: "Supervisor", archived: false },
@@ -219,6 +314,8 @@ export function samplePage(
     vaultAvailable: true,
     vaultLabel: "Windows Credential Manager",
     slackManifest: SAMPLE_MANIFEST,
+    addOns: [],
+    secretNames: ["Notion key"],
     ...page,
   };
 }

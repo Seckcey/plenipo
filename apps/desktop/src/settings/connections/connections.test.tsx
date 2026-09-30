@@ -8,6 +8,8 @@ import {
   SAMPLE_MANIFEST,
   connectedCard,
   googleCard,
+  keyedCard,
+  sampleAddOn,
   sampleCard,
   samplePage,
   slackCard,
@@ -30,6 +32,12 @@ vi.mock("../../api/commands", async (importOriginal) => {
     saveConnectionApp: vi.fn(),
     addConnection: vi.fn(),
     removeConnection: vi.fn(),
+    saveConnectionKey: vi.fn(),
+    addAddOn: vi.fn(),
+    changeAddOn: vi.fn(),
+    removeAddOn: vi.fn(),
+    checkAddOnTools: vi.fn(),
+    setAddOnTools: vi.fn(),
   };
 });
 vi.mock("../../api/events", () => ({
@@ -54,7 +62,7 @@ async function card() {
 }
 
 describe("Settings → Connections", () => {
-  it("lists every service: Microsoft 365, Slack, and Google, then the rest as coming later", async () => {
+  it("lists every service, each built, and add-on tools last", async () => {
     // As Settings shows it: under the page's heading and the section's.
     const { container } = render(
       <main>
@@ -65,25 +73,30 @@ describe("Settings → Connections", () => {
     );
     const m365 = await screen.findByRole("listitem", { name: "Microsoft 365" });
     expect(within(m365).getByText("Not connected")).toBeInTheDocument();
-    for (const built of ["Slack", "Google"]) {
+    for (const built of ["Slack", "Google", "HubSpot", "Stripe", "WordPress and WooCommerce"]) {
       expect(screen.getByRole("listitem", { name: built })).toHaveTextContent("Not connected");
     }
-    for (const later of ["HubSpot", "Stripe", "WordPress and WooCommerce"]) {
-      const item = screen.getByRole("listitem", { name: `${later}, coming in a later update` });
-      expect(item).toHaveTextContent("Coming in a later update");
-    }
+    expect(screen.queryByText("Coming in a later update")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Add-on tools" })).toBeInTheDocument();
+    expect(screen.getByText(/Money always asks you/)).toBeInTheDocument();
     expect(screen.getByText(/other people's words/)).toBeInTheDocument();
     expect(screen.getByText(/kept in Windows Credential Manager/)).toBeInTheDocument();
-    // Plain words; the only secret box is Google's app secret, on Google's card, hiding what you
-    // type; never a place for a password.
+    // Plain words; every secret box hides what you type: Google's app secret, HubSpot's and
+    // Stripe's keys, and the website's Application Password and WooCommerce key.
     const secretBoxes = container.querySelectorAll("input[type=password]");
-    expect(secretBoxes).toHaveLength(1);
+    expect(secretBoxes).toHaveLength(6);
     const google = screen.getByRole("listitem", { name: "Google" });
     expect(within(google).getByLabelText("Client secret")).toBe(secretBoxes[0]);
-    // (The app description to paste into Slack is Slack's own format, copied as it is.)
+    const hubspot = screen.getByRole("listitem", { name: "HubSpot" });
+    expect(within(hubspot).getByLabelText("Service key")).toHaveAttribute("type", "password");
+    const stripe = screen.getByRole("listitem", { name: "Stripe" });
+    expect(within(stripe).getByLabelText("Restricted key")).toHaveAttribute("type", "password");
+    // (The app description to paste into Slack is Slack's own format, copied as it is. "MCP" is
+    // named once, in the add-on tools' help.)
     const words = container.cloneNode(true) as HTMLElement;
     words.querySelectorAll(".connection__manifest").forEach((m) => m.remove());
-    expect(words).not.toHaveTextContent(/password:|token|OAuth|MCP|plugin/i);
+    expect(words.textContent?.match(/MCP/g)).toHaveLength(1);
+    expect(words).not.toHaveTextContent(/password:|token|OAuth|MCP server|plugin/i);
     expect(a11yProblems(container)).toEqual([]);
   });
 
@@ -527,5 +540,207 @@ describe("Settings → Connections", () => {
       expect(affectsConnections(e)).toBe(true);
     }
     expect(affectsConnections("agent.message")).toBe(false);
+  });
+
+  it("saves a key once into a box that hides it, and the card says what the key needs", async () => {
+    api.saveConnectionKey.mockResolvedValue(
+      samplePage(
+        sampleCard(),
+        {},
+        {
+          hubspot: keyedCard(
+            "hubspot",
+            {},
+            {
+              connection: {
+                id: "hubspot",
+                service: "hubspot",
+                parts: { contacts: "readOnly", companies: "readOnly", deals: "readOnly" },
+                granted: ["crm.objects.contacts.read"],
+                access: [],
+                sendList: [],
+                state: "connected",
+                account: { name: "HubSpot account 24681357", address: "" },
+              },
+            },
+          ),
+        },
+      ),
+    );
+    render(<ConnectionsSettings go={go} />);
+    const hubspot = await screen.findByRole("listitem", { name: "HubSpot" });
+    // No sign-in page, no Connect: a key.
+    expect(within(hubspot).queryByRole("button", { name: /^Connect/ })).not.toBeInTheDocument();
+    expect(hubspot).toHaveTextContent("crm.objects.contacts.read");
+    expect(hubspot).toHaveTextContent("never shown again");
+    const box = within(hubspot).getByLabelText("Service key");
+    const save = within(hubspot).getByRole("button", { name: "Save and check" });
+    expect(save).toBeDisabled();
+    const user = userEvent.setup();
+    await user.type(box, "plenipo-test-hubspot-typed-key");
+    await user.click(save);
+    expect(api.saveConnectionKey).toHaveBeenCalledWith("hubspot", { key: "plenipo-test-hubspot-typed-key" });
+    expect(await within(hubspot).findByText(/Connected to/)).toHaveTextContent(
+      "Connected to HubSpot account 24681357.",
+    );
+    // The box is empty again: the key is never shown back.
+    expect(within(hubspot).getByLabelText("Service key")).toHaveValue("");
+    expect(within(hubspot).getByRole("button", { name: "Replace the key" })).toBeInTheDocument();
+    // HubSpot has nothing that sends: no Send without asking to list.
+    expect(within(hubspot).queryByText("Send without asking to")).not.toBeInTheDocument();
+  });
+
+  it("warns that a live Stripe key moves real money, and a key refused needs a new one", async () => {
+    const live = keyedCard(
+      "stripe",
+      {},
+      {
+        connection: {
+          id: "stripe",
+          service: "stripe",
+          parts: { payments: "fullAccess", customers: "readOnly", invoices: "readOnly" },
+          granted: ["live mode"],
+          access: [],
+          sendList: [],
+          state: "connected",
+          account: { name: "8 West IT", address: "", organization: "Live mode" },
+        },
+        granted: [{ name: "live mode", words: "Live mode: moves real money" }],
+      },
+    );
+    const gone = keyedCard(
+      "hubspot",
+      {},
+      {
+        connection: {
+          id: "hubspot",
+          service: "hubspot",
+          parts: { contacts: "readOnly" },
+          granted: [],
+          access: [],
+          sendList: [],
+          state: "needsSignIn",
+        },
+      },
+    );
+    api.getConnections.mockResolvedValue(
+      samplePage(sampleCard(), {}, { stripe: live, hubspot: gone }),
+    );
+    const { container } = render(
+      <main>
+        <h1>Settings</h1>
+        <h2>Connections</h2>
+        <ConnectionsSettings go={go} />
+      </main>,
+    );
+    const stripe = await screen.findByRole("listitem", { name: "Stripe" });
+    expect(stripe).toHaveTextContent("Connected to 8 West IT (Live mode).");
+    expect(within(stripe).getByRole("alert")).toHaveTextContent(
+      "Live mode: this key moves real money.",
+    );
+    const hubspot = screen.getByRole("listitem", { name: "HubSpot" });
+    expect(within(hubspot).getByText("Needs a new key")).toBeInTheDocument();
+    expect(hubspot).toHaveTextContent("HubSpot needs a new key.");
+    // Disconnect says where to delete the key in Stripe too.
+    const user = userEvent.setup();
+    await user.click(within(stripe).getByRole("button", { name: "Disconnect" }));
+    expect(stripe).toHaveTextContent("delete it in Stripe too (Developers → API keys)");
+    expect(a11yProblems(container)).toEqual([]);
+  });
+
+  it("saves the website's address, user, and Application Password, and a WooCommerce key", async () => {
+    api.saveConnectionKey.mockResolvedValue(samplePage());
+    render(<ConnectionsSettings go={go} />);
+    const site = await screen.findByRole("listitem", { name: "WordPress and WooCommerce" });
+    const user = userEvent.setup();
+    await user.type(within(site).getByLabelText("Your site's address"), "https://shop.example.com");
+    await user.type(within(site).getByLabelText("WordPress user name"), "plenipo");
+    await user.type(
+      within(site).getByLabelText("Application Password"),
+      "abcd EFGH 1234 ijkl MNOP 5678",
+    );
+    await user.click(within(site).getByText("WooCommerce key (optional)"));
+    await user.type(within(site).getByLabelText("Consumer key (ck_…)"), "ck_1");
+    await user.type(within(site).getByLabelText("Consumer secret (cs_…)"), "cs_2");
+    await user.click(within(site).getByRole("button", { name: "Save and check" }));
+    expect(api.saveConnectionKey).toHaveBeenCalledWith("wordpress", {
+      site: "https://shop.example.com",
+      user: "plenipo",
+      password: "abcd EFGH 1234 ijkl MNOP 5678",
+      storeKey: "ck_1",
+      storeSecret: "cs_2",
+    });
+    // The website's list is for customers; publishing and refunds always ask.
+    expect(site).toHaveTextContent("publishing on your site and refunds always ask you");
+  });
+
+  it("adds a program off, marks its tools, switches it on, and picks who may use it", async () => {
+    api.addAddOn.mockResolvedValue(samplePage(sampleCard(), { addOns: [sampleAddOn()] }));
+    render(<ConnectionsSettings go={go} />);
+    const form = await screen.findByRole("form", { name: "Add a program" });
+    const user = userEvent.setup();
+    await user.type(within(form).getByLabelText("Name"), "Tickets");
+    await user.type(within(form).getByLabelText("Program"), "tickets-mcp");
+    await user.type(within(form).getByLabelText("Arguments, one a line"), "--stdio{enter}--quiet");
+    await user.click(within(form).getByLabelText("Notion key"));
+    await user.click(within(form).getByRole("button", { name: "Add a program" }));
+    expect(api.addAddOn).toHaveBeenCalledWith({
+      name: "Tickets",
+      program: "tickets-mcp",
+      args: ["--stdio", "--quiet"],
+      secrets: ["Notion key"],
+    });
+    const card = await screen.findByRole("listitem", { name: "Tickets" });
+    expect(card.querySelector(".connection__header")).toHaveTextContent("Off");
+    expect(card).toHaveTextContent("The program's words: Looks up an order by its number.");
+    expect(card).toHaveTextContent("The program says it only reads.");
+    // Each tool starts Off; the owner marks it.
+    api.setAddOnTools.mockResolvedValue(samplePage(sampleCard(), { addOns: [sampleAddOn()] }));
+    const mark = within(card).getByRole("group", { name: "create_ticket: what it may do" });
+    expect(within(mark).getByRole("button", { name: "Off" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await user.click(within(mark).getByRole("button", { name: "Changing" }));
+    expect(api.setAddOnTools).toHaveBeenCalledWith("tickets", { create_ticket: "changing" });
+    api.changeAddOn.mockResolvedValue(
+      samplePage(sampleCard(), { addOns: [sampleAddOn({ on: true })] }),
+    );
+    await user.click(within(card).getByRole("button", { name: "Switch on" }));
+    expect(api.changeAddOn).toHaveBeenCalledWith("tickets", { on: true });
+    // Who may use it: nobody to start; added lines start at Read only.
+    expect(card).toHaveTextContent("Nobody yet");
+    await user.selectOptions(
+      within(card).getByLabelText("Add a role or an agent"),
+      "role:role-sup",
+    );
+    await user.click(within(card).getByRole("button", { name: "Add" }));
+    expect(api.changeAddOn).toHaveBeenLastCalledWith("tickets", {
+      access: [{ who: { kind: "role", id: "role-sup" }, level: "readOnly" }],
+    });
+  });
+
+  it("says when a program's tool changed and must be looked at again", async () => {
+    const [lookup] = sampleAddOn().tools;
+    if (!lookup) throw new Error("the sample add-on has tools");
+    const changed = sampleAddOn({
+      on: true,
+      tools: [{ ...lookup, changed: true, mark: "off" }],
+    });
+    api.getConnections.mockResolvedValue(samplePage(sampleCard(), { addOns: [changed] }));
+    const { container } = render(
+      <main>
+        <h1>Settings</h1>
+        <h2>Connections</h2>
+        <ConnectionsSettings go={go} />
+      </main>,
+    );
+    const card = await screen.findByRole("listitem", { name: "Tickets" });
+    expect(within(card).getByRole("alert")).toHaveTextContent("1 tool changed — look again.");
+    expect(within(card).getByText("Changed — look again")).toBeInTheDocument();
+    api.checkAddOnTools.mockResolvedValue(samplePage(sampleCard(), { addOns: [changed] }));
+    await userEvent.setup().click(within(card).getByRole("button", { name: "Look at its tools" }));
+    expect(api.checkAddOnTools).toHaveBeenCalledWith("tickets");
+    expect(a11yProblems(container)).toEqual([]);
   });
 });

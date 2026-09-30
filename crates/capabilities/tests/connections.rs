@@ -4475,33 +4475,34 @@ async fn stripe_connect_read_refund_invoice_with_approval_and_disconnect() {
         "{text}"
     );
     assert!(text.contains("Tool stripe_refund: Refund re_"), "{text}");
-    let world = h.ms.world();
-    // One refund, of the approved amount; every change carried an idempotency key; every call
-    // named Stripe's version.
-    assert_eq!(world.stripe.refunds.len(), 1);
-    assert_eq!(world.stripe.refunds[0]["amount"], 2500);
-    assert!(world
-        .stripe
-        .idempotency
-        .keys()
-        .all(|k| k.starts_with("plenipo-")));
-    assert_eq!(
-        world.stripe.idempotency.len(),
-        3,
-        "the draft, its line, and the refund"
-    );
-    assert!(!world.stripe.versions.is_empty());
-    assert!(world
-        .stripe
-        .versions
-        .iter()
-        .all(|v| v == "2026-08-26.dahlia"));
-    // Only the refund moved money; the draft invoice was not sent.
-    let drafted = world.stripe.invoices.last().unwrap().clone();
-    assert_eq!(drafted["status"], "draft");
-    assert_eq!(drafted["collection_method"], "send_invoice");
-    assert_eq!(drafted["amount_due"], 5500);
-    drop(world);
+    {
+        let world = h.ms.world();
+        // One refund, of the approved amount; every change carried an idempotency key; every call
+        // named Stripe's version.
+        assert_eq!(world.stripe.refunds.len(), 1);
+        assert_eq!(world.stripe.refunds[0]["amount"], 2500);
+        assert!(world
+            .stripe
+            .idempotency
+            .keys()
+            .all(|k| k.starts_with("plenipo-")));
+        assert_eq!(
+            world.stripe.idempotency.len(),
+            3,
+            "the draft, its line, and the refund"
+        );
+        assert!(!world.stripe.versions.is_empty());
+        assert!(world
+            .stripe
+            .versions
+            .iter()
+            .all(|v| v == "2026-08-26.dahlia"));
+        // Only the refund moved money; the draft invoice was not sent.
+        let drafted = world.stripe.invoices.last().unwrap().clone();
+        assert_eq!(drafted["status"], "draft");
+        assert_eq!(drafted["collection_method"], "send_invoice");
+        assert_eq!(drafted["amount_due"], 5500);
+    }
 
     // Finalizing and sending an invoice asks, and the card shows what the customer is asked
     // to pay.
