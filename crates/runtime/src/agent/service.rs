@@ -3083,11 +3083,12 @@ fn not_ready_reason(adapter: &dyn RuntimeAdapter, info: &AgentRuntimeInfo) -> St
             "{label} is configured for a third-party cloud provider, which Plenipo does not use. {}",
             adapter.login_hint()
         ),
-        // The check said why, with what to do (GitHub Copilot's paid extra use, ADR-083): that,
-        // not a sign-in, is the fix.
+        // The check said why (GitHub Copilot's paid extra use, ADR-083): its reason first, then
+        // how to sign in, for the tools whose fix that is.
         AuthState::Unverified if info.auth.detail.is_some() => format!(
-            "{label} cannot take work now. {}",
-            info.auth.detail.clone().unwrap_or_default()
+            "{label} cannot take work now. {} {}",
+            info.auth.detail.clone().unwrap_or_default(),
+            adapter.login_hint()
         ),
         _ => format!(
             "Plenipo could not confirm that {label} is signed in with a subscription. {}",
@@ -3398,9 +3399,21 @@ mod tests {
         info.auth.state = AuthState::Unverified;
         info.auth.detail = Some("GitHub may charge for extra use.".into());
         let why = not_ready_reason(&crate::agent::copilot::Copilot, &info);
-        assert_eq!(
-            why,
-            "GitHub Copilot cannot take work now. GitHub may charge for extra use."
+        assert!(
+            why.starts_with(
+                "GitHub Copilot cannot take work now. GitHub may charge for extra use."
+            ),
+            "{why}"
+        );
+        // The way to sign in follows, for a tool whose fix that is.
+        let mut codex = checking(&crate::agent::codex::Codex);
+        codex.installation.state = InstallState::Installed;
+        codex.auth.state = AuthState::Unverified;
+        codex.auth.detail = Some("Signed in, but the billing method was not recognized.".into());
+        let why = not_ready_reason(&crate::agent::codex::Codex, &codex);
+        assert!(
+            why.ends_with(crate::agent::codex::Codex.login_hint()),
+            "{why}"
         );
         info.auth.detail = None;
         let why = not_ready_reason(&crate::agent::copilot::Copilot, &info);

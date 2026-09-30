@@ -157,10 +157,10 @@ impl RuntimeAdapter for Copilot {
     }
 
     fn login_hint(&self) -> &'static str {
-        "Choose Sign in: Copilot's own sign-in opens in a terminal tab and then in your browser. \
-         Sign in with the GitHub account that has your Copilot plan. (If the GitHub CLI is \
-         signed in, Copilot can use that sign-in too.) Plenipo never asks for your password or \
-         a token. Then check it again in Plenipo."
+        "To sign in, choose Sign in on GitHub Copilot's card (AI tools): Copilot's own sign-in \
+         opens in a terminal tab and then in your browser. Use the GitHub account that has your \
+         Copilot plan; if the GitHub CLI is signed in, Copilot can use that sign-in too. Plenipo \
+         never asks for your password or a token."
     }
 
     fn executable_name(&self) -> &'static str {
@@ -340,8 +340,9 @@ impl RuntimeAdapter for Copilot {
 
     fn update_by_hand(&self) -> Option<&'static str> {
         Some(
-            "Copilot was installed with npm and cannot update itself. Open a terminal and run: \
-             npm install -g @github/copilot",
+            "Copilot could not update itself here. Open a terminal and run: winget upgrade \
+             GitHub.Copilot (if you installed it with WinGet), or npm install -g @github/copilot \
+             (if you installed it with npm).",
         )
     }
 
