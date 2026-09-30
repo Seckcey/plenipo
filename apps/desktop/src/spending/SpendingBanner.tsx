@@ -1,10 +1,11 @@
+import { useEffect } from "react";
 import type { SpendingPage } from "@plenipo/types";
 import { Banner, Button } from "@plenipo/ui";
 
 import { getSpending } from "../api/commands";
 import type { Go } from "../components/views";
 import { useLive } from "../pages/useLive";
-import { dollars, resetDay } from "./words";
+import { dollars, resetDay, untilTurnover } from "./words";
 
 /**
  * The banner on every page when a spending cap needs the owner (Phase 16 Wave 3, ADR-085): paid
@@ -18,6 +19,14 @@ export function SpendingBanner({ go }: { go: Go }) {
     (e) => e.eventType.startsWith("spending.") || e.eventType === "org.settings_changed",
   );
   const page = live.value;
+  // The month starts over while Plenipo is open: the banner goes with it.
+  const resetsAt = page?.resetsAt;
+  const { reload } = live;
+  useEffect(() => {
+    if (resetsAt === undefined) return undefined;
+    const timer = setTimeout(reload, untilTurnover(resetsAt));
+    return () => clearTimeout(timer);
+  }, [resetsAt, reload]);
   if (!page) return null;
   const stopped = page.caps.filter((c) => c.state === "stopped" && !c.gone);
   const warned = page.caps.filter((c) => c.state === "warning" && !c.gone);
@@ -28,7 +37,8 @@ export function SpendingBanner({ go }: { go: Go }) {
     </Button>
   );
   const first = stopped[0] ?? warned[0]!;
-  const name = first.cap.covers.kind === "business" ? "the business's cap" : `${first.label}'s cap`;
+  const name =
+    first.cap.covers.kind === "business" ? "the business's cap" : `the cap for ${first.label}`;
   if (stopped.length > 0) {
     return (
       <Banner
@@ -56,7 +66,7 @@ export function SpendingBanner({ go }: { go: Go }) {
       className="banner--spending"
       title={
         warned.length === 1
-          ? `80% of ${name} is used`
+          ? `80% or more of ${name} is used`
           : `80% or more of ${warned.length} spending caps is used`
       }
       action={open}

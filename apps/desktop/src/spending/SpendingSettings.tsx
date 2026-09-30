@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { CapCovers, CapStatus, OrgSnapshot, SpendingPage } from "@plenipo/types";
+import { useEffect, useState } from "react";
+import type { CapCovers, CapStatus, OrgSnapshot, PositionInfo, SpendingPage } from "@plenipo/types";
 import { Button, ErrorState, HealthBar, LoadingState, Select, TextField } from "@plenipo/ui";
 
 import { getSpending, removeSpendingCap, setSpendingCap, toCommandError } from "../api/commands";
@@ -19,6 +19,7 @@ import {
   recordWho,
   resetDay,
   typedAmount,
+  untilTurnover,
   when,
 } from "./words";
 
@@ -44,6 +45,14 @@ export function SpendingSettings({ go }: { go: Go }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // The month starts over while the page is open: its numbers go with it.
+  const resetsAt = page?.resetsAt;
+  const { reload } = live;
+  useEffect(() => {
+    if (resetsAt === undefined) return undefined;
+    const timer = setTimeout(reload, untilTurnover(resetsAt));
+    return () => clearTimeout(timer);
+  }, [resetsAt, reload]);
   if (live.status === "loading" && !page) return <LoadingState label="Loading spending caps" />;
   if (!page) {
     return (
@@ -117,7 +126,7 @@ export function SpendingSettings({ go }: { go: Go }) {
       <section aria-labelledby="spending-business">
         <h3 id="spending-business">The business</h3>
         {!page.hasBusinessCap && (
-          <p className="form-error" role="status">
+          <p className="notice-box" role="note">
             No paid AI key works until you set the business&apos;s monthly cap.
           </p>
         )}
@@ -275,7 +284,12 @@ function DepartmentCaps({
   onSet: SetCap;
   onRemove: RemoveCap;
 }) {
-  const departments = (org?.departments ?? []).filter((d) => d.active && !d.deleted);
+  // Every department still in the organization; an inactive one only when it has a cap (so
+  // the cap that still applies can be changed or removed).
+  const capped = new Set(page.caps.map((c) => coversKey(c.cap.covers)));
+  const departments = (org?.departments ?? []).filter(
+    (d) => !d.deleted && (d.active || capped.has(`department:${d.id}`)),
+  );
   const gone = page.caps.filter((c) => c.cap.covers.kind === "department" && c.gone);
   if (departments.length === 0 && gone.length === 0) {
     return <p className="muted">No departments yet. Add them on the Organization map.</p>;
@@ -289,7 +303,7 @@ function DepartmentCaps({
           <li key={d.id}>
             <CapEditor
               key={status?.cap.id ?? "none"}
-              label={d.name}
+              label={d.active ? d.name : `${d.name} (inactive)`}
               covers={covers}
               status={status}
               busy={busy === coversKey(covers)}
@@ -347,7 +361,7 @@ function PositionCaps({
                 <GoneCap status={status} busy={busy} onRemove={onRemove} />
               ) : (
                 <CapEditor
-                  label={status.label}
+                  label={positionLabel(org, status.cap.covers, status.label)}
                   covers={status.cap.covers}
                   status={status}
                   busy={busy === coversKey(status.cap.covers)}
@@ -364,7 +378,7 @@ function PositionCaps({
           <Select
             label="Add a cap for one position"
             value={pick}
-            options={open.map((p) => ({ value: p.id, label: p.title }))}
+            options={open.map((p) => ({ value: p.id, label: titleWithTeam(org, p) }))}
             onChange={setChosen}
           />
           <TextField
@@ -391,6 +405,20 @@ function PositionCaps({
       )}
     </>
   );
+}
+
+/** "Senior Developer · Engineering": a position's title with its department, so two positions
+ * with the same title can be told apart. */
+function titleWithTeam(org: OrgSnapshot | null, p: PositionInfo): string {
+  const department = org?.departments.find((d) => d.id === p.departmentId)?.name;
+  return department ? `${p.title} · ${department}` : p.title;
+}
+
+/** A position cap's name on the page, with its department when the organization knows it. */
+function positionLabel(org: OrgSnapshot | null, covers: CapCovers, label: string): string {
+  const position =
+    covers.kind === "position" ? org?.positions.find((p) => p.id === covers.id) : undefined;
+  return position ? titleWithTeam(org, position) : label;
 }
 
 /** A cap whose department or position is no longer in the organization. */

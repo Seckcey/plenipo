@@ -9,7 +9,15 @@ import { a11yProblems } from "../test/a11y";
 import { sampleOrganization } from "../test/orgFixtures";
 import { SpendingBanner } from "./SpendingBanner";
 import { SpendingSettings } from "./SpendingSettings";
-import { dollars, monthName, parseDollars, recordCost, resetDay, typedAmount } from "./words";
+import {
+  dollars,
+  monthName,
+  parseDollars,
+  recordCost,
+  resetDay,
+  typedAmount,
+  untilTurnover,
+} from "./words";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -122,6 +130,11 @@ describe("words", () => {
     expect(parseDollars(" $12.5 ")).toBe(12_500_000);
     expect(parseDollars("1,000.25")).toBe(1_000_250_000);
     expect(parseDollars("0.01")).toBe(10_000);
+    expect(parseDollars("1,000,000")).toBe(1_000_000 * D);
+    // A comma is never a decimal point, and only goes between groups of three.
+    for (const bad of ["12,50", "1,0", "5,00", ",,5,,", "1,,000", "1000,000", ",100"]) {
+      expect(parseDollars(bad), bad).toBeNull();
+    }
     for (const bad of ["", "0", "0.001", "-5", "abc", "12.345", "1000001", "1e3"]) {
       expect(parseDollars(bad), bad).toBeNull();
     }
@@ -287,7 +300,9 @@ describe("the spending banner", () => {
     );
     const user = userEvent.setup();
     render(<SpendingBanner go={go} />);
-    expect(await screen.findByText("80% of the business's cap is used")).toBeInTheDocument();
+    expect(
+      await screen.findByText("80% or more of the business's cap is used"),
+    ).toBeInTheDocument();
     expect(screen.getByText(/\$41\.00 of \$50\.00 spent this month/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Spending caps" }));
     expect(go).toHaveBeenCalledWith({ view: "settings", id: "spending" });
@@ -312,5 +327,130 @@ describe("the spending banner", () => {
     expect(banner).toHaveTextContent("Paid AI work stopped under the business's cap");
     expect(banner).toHaveTextContent("$50.00 of $50.00 is spent this month.");
     expect(banner).toHaveTextContent("wait until November 1");
+  });
+});
+
+describe("found in review", () => {
+  it("waits for the month's turn at most an hour at a time", () => {
+    expect(untilTurnover(10_000, 0)).toBe(11_000);
+    expect(untilTurnover(0, 5_000)).toBe(1_000);
+    expect(untilTurnover(40 * 24 * 3_600_000, 0)).toBe(3_600_000);
+  });
+
+  it("shows a cap on an inactive department, so it can be changed or removed", async () => {
+    const org = sampleOrganization();
+    org.departments = org.departments.map((d) => (d.id === "d-mkt" ? { ...d, active: false } : d));
+    api.getOrganization.mockResolvedValue(org);
+    api.getSpending.mockResolvedValue(
+      page({
+        hasBusinessCap: true,
+        caps: [
+          cap(),
+          cap({
+            cap: {
+              id: "cap-mkt",
+              covers: { kind: "department", id: "d-mkt" },
+              monthlyMicros: 5 * D,
+              setAt: 0,
+              setBy: "owner",
+            },
+            label: "Marketing",
+          }),
+        ],
+      }),
+    );
+    inPage(<SpendingSettings go={go} />);
+    expect(
+      await screen.findByLabelText("Marketing (inactive): monthly cap in dollars"),
+    ).toHaveValue("5");
+    expect(
+      screen.getByRole("button", { name: "Remove the cap for Marketing (inactive)" }),
+    ).toBeInTheDocument();
+  });
+
+  it("tells positions with the same title apart by their department", async () => {
+    const org = sampleOrganization();
+    const twin = org.positions.find((p) => p.id === "p-dev")!;
+    org.positions = [
+      ...org.positions,
+      { ...twin, id: "p-dev-2", departmentId: "d-mkt", projectId: null },
+    ];
+    api.getOrganization.mockResolvedValue(org);
+    api.getSpending.mockResolvedValue(
+      page({
+        hasBusinessCap: true,
+        caps: [
+          cap(),
+          cap({
+            cap: {
+              id: "cap-dev",
+              covers: { kind: "position", id: "p-dev" },
+              monthlyMicros: 3 * D,
+              setAt: 0,
+              setBy: "owner",
+            },
+            label: "Senior Developer",
+          }),
+        ],
+      }),
+    );
+    const { container } = inPage(<SpendingSettings go={go} />);
+    expect(
+      await screen.findByLabelText("Senior Developer · Engineering: monthly cap in dollars"),
+    ).toBeInTheDocument();
+    const which = screen.getByLabelText("Add a cap for one position");
+    expect(
+      within(which).getByRole("option", { name: "Senior Developer · Marketing" }),
+    ).toBeTruthy();
+    expect(a11yProblems(container)).toEqual([]);
+  });
+
+  it("names a department's cap in the banner in plain words", async () => {
+    api.getSpending.mockResolvedValue(
+      page({
+        hasBusinessCap: true,
+        caps: [
+          cap({
+            cap: {
+              id: "cap-eng",
+              covers: { kind: "department", id: "d-eng" },
+              monthlyMicros: 20 * D,
+              setAt: 0,
+              setBy: "owner",
+            },
+            label: "Engineering",
+            spentMicros: 18 * D,
+            state: "warning",
+          }),
+        ],
+      }),
+    );
+    render(<SpendingBanner go={go} />);
+    expect(
+      await screen.findByText("80% or more of the cap for Engineering is used"),
+    ).toBeInTheDocument();
+  });
+
+  it("goes away by itself when the month starts over", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const now = Date.now();
+      api.getSpending.mockResolvedValueOnce(
+        page({
+          hasBusinessCap: true,
+          resetsAt: now + 5_000,
+          caps: [cap({ spentMicros: 50 * D, leftMicros: 0, state: "stopped" })],
+        }),
+      );
+      api.getSpending.mockResolvedValue(
+        page({ hasBusinessCap: true, resetsAt: now + 31 * 86_400_000, caps: [cap()] }),
+      );
+      const { container } = render(<SpendingBanner go={go} />);
+      expect(await screen.findByRole("alert")).toHaveTextContent("Paid AI work stopped");
+      await vi.advanceTimersByTimeAsync(7_000);
+      await waitFor(() => expect(container).toBeEmptyDOMElement());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

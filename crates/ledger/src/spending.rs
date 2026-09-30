@@ -394,6 +394,26 @@ pub fn dollars(micros: u64) -> String {
     format!("${digits}{grouped}.{:02}", cents % 100)
 }
 
+/// Money rounded up to the cent, for what a task could cost (never shown as less than it is).
+fn dollars_up(micros: u64) -> String {
+    if micros < 10_000 {
+        dollars(micros)
+    } else {
+        dollars(micros.div_ceil(10_000).saturating_mul(10_000))
+    }
+}
+
+/// Money rounded down to the cent, for what is left (never shown as more than it is).
+fn dollars_down(micros: u64) -> String {
+    if micros >= 10_000 {
+        dollars(micros / 10_000 * 10_000)
+    } else if micros >= 100 {
+        format!("$0.{:04}", micros / 100)
+    } else {
+        dollars(0)
+    }
+}
+
 /// Days since 1970-01-01 → (year, month, day) (the proleptic Gregorian calendar).
 fn civil_from_days(days: i64) -> (i64, u32, u32) {
     let z = days + 719_468;
@@ -641,18 +661,32 @@ const RECORD_COLUMNS: &str = "id, task_id, position_id, position_title, departme
      department_name, runtime, model, key_name, month, state, set_aside_micros, spent_micros, \
      priced_by, detail, created_at, settled_at";
 
-/// Mark the caps covering a settled record: warned at 80%, stopped at 100%, once a month each.
-/// Returns the labels of caps whose amount the month's spending now passes.
+/// A settled record, for [`after_spending`].
+struct Settling<'a> {
+    /// The record's own month.
+    month: &'a str,
+    /// The month it is now (Pacific time).
+    this_month: &'a str,
+    department: Option<&'a str>,
+    position: Option<&'a str>,
+    task_id: Option<&'a str>,
+    /// The bill was more than was set aside for it.
+    over_set_aside: bool,
+}
+
+/// After a record is settled. For the current month only, each cap covering it is warned at 80%
+/// and stopped at 100%, once each: a late bill from an earlier month changes no mark of this
+/// month's and says nothing about "this month". Returns the caps this bill passed: only when it
+/// was more than was set aside for it and the month's spending is now over the cap (the caller
+/// stops the task's work at once).
 fn after_spending(
     tx: &Connection,
     out: &mut Vec<LedgerEvent>,
     config: &mut SpendingConfig,
-    month: &str,
-    department: Option<&str>,
-    position: Option<&str>,
-    task_id: Option<&str>,
+    record: &Settling<'_>,
 ) -> Result<Vec<String>> {
-    let caps: Vec<SpendingCap> = covering(config, department, position)
+    let month = record.month;
+    let caps: Vec<SpendingCap> = covering(config, record.department, record.position)
         .into_iter()
         .cloned()
         .collect();
@@ -660,8 +694,29 @@ fn after_spending(
     let mut changed = false;
     for cap in caps {
         let (counted, pending) = used(tx, month, &cap.covers)?;
-        let settled = counted.saturating_sub(pending);
         let (label, _) = label_of(tx, &cap.covers)?;
+        if record.over_set_aside && counted > cap.monthly_micros {
+            passed.push(label.clone());
+            event(
+                tx,
+                out,
+                "plenipo",
+                record.task_id,
+                "spending.passed",
+                json!({
+                    "capId": cap.id,
+                    "covers": cap.covers,
+                    "label": label,
+                    "month": month,
+                    "countedMicros": counted,
+                    "capMicros": cap.monthly_micros,
+                }),
+            )?;
+        }
+        if month != record.this_month {
+            continue;
+        }
+        let settled = counted.saturating_sub(pending);
         let percent = settled.saturating_mul(100) / cap.monthly_micros.max(1);
         let marks = config.marks_for(&cap.id, month);
         if settled.saturating_mul(100) >= cap.monthly_micros.saturating_mul(WARN_PERCENT)
@@ -707,24 +762,6 @@ fn after_spending(
                     "month": month,
                     "why": "full",
                     "spentMicros": settled,
-                    "capMicros": cap.monthly_micros,
-                }),
-            )?;
-        }
-        if counted > cap.monthly_micros {
-            passed.push(label.clone());
-            event(
-                tx,
-                out,
-                "plenipo",
-                task_id,
-                "spending.passed",
-                json!({
-                    "capId": cap.id,
-                    "covers": cap.covers,
-                    "label": label,
-                    "month": month,
-                    "countedMicros": counted,
                     "capMicros": cap.monthly_micros,
                 }),
             )?;
@@ -1085,8 +1122,8 @@ impl Ledger {
                 let reason = format!(
                     "Not started: this task could cost up to {}, and {} is left this month under \
                      {} ({} a month).",
-                    dollars(task.most_micros),
-                    dollars(left),
+                    dollars_up(task.most_micros),
+                    dollars_down(left),
                     cap_words(&label, &cap.covers),
                     dollars(cap.monthly_micros)
                 );
@@ -1145,23 +1182,33 @@ impl Ledger {
     pub fn settle_spending(&self, record_id: &str, bill: &Bill, now: u64) -> Result<Settled> {
         let record_id = clean_id("the spending record", Some(record_id))?.unwrap_or_default();
         self.write(|tx, out| {
-            // Task, department, position, month, and state.
+            // Task, department, position, month, state, and what was set aside.
             type Row = (
                 Option<String>,
                 Option<String>,
                 Option<String>,
                 String,
                 String,
+                i64,
             );
             let row: Option<Row> = tx
                 .query_row(
-                    "SELECT task_id, department_id, position_id, month, state
+                    "SELECT task_id, department_id, position_id, month, state, set_aside_micros
                      FROM spending WHERE id = ?1",
                     [&record_id],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                    |r| {
+                        Ok((
+                            r.get(0)?,
+                            r.get(1)?,
+                            r.get(2)?,
+                            r.get(3)?,
+                            r.get(4)?,
+                            r.get(5)?,
+                        ))
+                    },
                 )
                 .optional()?;
-            let (task_id, department, position, month, state) =
+            let (task_id, department, position, month, state, set_aside) =
                 row.ok_or_else(|| LedgerError::NotFound(format!("spending record {record_id}")))?;
             if state != SpendingState::SetAside.as_str() {
                 return Err(LedgerError::InvalidTransition {
@@ -1171,16 +1218,29 @@ impl Ledger {
                     to: "settled".into(),
                 });
             }
+            let mut over_set_aside = false;
             let (state, spent, priced_by, detail) = match bill {
                 Bill::Spent { micros, priced_by } => {
-                    if *micros > MAX_SET_ASIDE_MICROS {
-                        return Err(invalid("a bill cannot be that large"));
-                    }
+                    // A bill beyond any cap is a mistake somewhere: it is recorded at the most any
+                    // cap could be, which stops paid work, and says so. It is never refused, so a
+                    // known bill is never counted as less.
+                    let (micros, detail) = if *micros > MAX_SET_ASIDE_MICROS {
+                        (
+                            MAX_SET_ASIDE_MICROS,
+                            Some(format!(
+                                "The bill read was more than {}, so it is recorded as that much.",
+                                dollars(MAX_SET_ASIDE_MICROS)
+                            )),
+                        )
+                    } else {
+                        (*micros, None)
+                    };
+                    over_set_aside = micros > u64_of(set_aside);
                     (
                         SpendingState::Spent,
-                        Some(to_i64(*micros)),
+                        Some(to_i64(micros)),
                         Some(priced_by.as_str()),
-                        None,
+                        detail,
                     )
                 }
                 Bill::NotPriced { detail } => (
@@ -1219,28 +1279,39 @@ impl Ledger {
                     "detail": detail,
                 }),
             )?;
-            let mut config = SpendingConfig::read(tx)?;
-            let passed = after_spending(
-                tx,
-                out,
-                &mut config,
-                &month,
-                department.as_deref(),
-                position.as_deref(),
-                task_id.as_deref(),
-            )?;
+            // The bill is recorded even when the caps cannot be read (a damaged setting): only
+            // the warnings wait, and no new paid task starts until the caps can be read.
+            let (year, this) = pacific_month(now);
+            let this_month = month_key(year, this);
+            let passed = match SpendingConfig::read(tx) {
+                Ok(mut config) => after_spending(
+                    tx,
+                    out,
+                    &mut config,
+                    &Settling {
+                        month: &month,
+                        this_month: &this_month,
+                        department: department.as_deref(),
+                        position: position.as_deref(),
+                        task_id: task_id.as_deref(),
+                        over_set_aside,
+                    },
+                )?,
+                Err(_) => Vec::new(),
+            };
             Ok(Settled { passed })
         })
     }
 
-    /// After a restart: money still set aside belongs to tasks that stopped with Plenipo, whose
-    /// bills were never read. Each is counted at the most it could have cost ("not priced
-    /// yet"), never freed, so a cap is never passed unseen. Returns how many were found.
-    pub fn recover_spending(&self, now: u64) -> Result<usize> {
+    /// After a restart: money still set aside before `started` (when this run of Plenipo began)
+    /// belongs to tasks that stopped with the last run, whose bills were never read. Each is
+    /// counted at the most it could have cost ("not priced yet"), never freed, so a cap is never
+    /// passed unseen. A task this run started is left alone. Returns how many were found.
+    pub fn recover_spending(&self, started: u64, now: u64) -> Result<usize> {
         self.write(|tx, out| {
             let mut stmt = tx.prepare(
                 "SELECT id, task_id, department_id, position_id, month
-                 FROM spending WHERE state = 'setAside' ORDER BY created_at",
+                 FROM spending WHERE state = 'setAside' AND created_at < ?1 ORDER BY created_at",
             )?;
             type Left = (
                 String,
@@ -1250,14 +1321,17 @@ impl Ledger {
                 String,
             );
             let left: Vec<Left> = stmt
-                .query_map([], |r| {
+                .query_map([to_i64(started)], |r| {
                     Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
                 })?
                 .collect::<rusqlite::Result<_>>()?;
             drop(stmt);
             let detail = "Plenipo stopped before this task's bill was read, so it counts at the \
                           most it could have cost.";
-            let mut config = SpendingConfig::read(tx)?;
+            // Counted even when the caps cannot be read; only the warnings wait.
+            let mut config = SpendingConfig::read(tx).ok();
+            let (year, this) = pacific_month(now);
+            let this_month = month_key(year, this);
             for (id, task_id, department, position, month) in &left {
                 tx.execute(
                     "UPDATE spending SET state = 'notPriced', detail = ?2, settled_at = ?3
@@ -1279,17 +1353,90 @@ impl Ledger {
                         "detail": detail,
                     }),
                 )?;
-                after_spending(
-                    tx,
-                    out,
-                    &mut config,
-                    month,
-                    department.as_deref(),
-                    position.as_deref(),
-                    task_id.as_deref(),
-                )?;
+                if let Some(config) = config.as_mut() {
+                    after_spending(
+                        tx,
+                        out,
+                        config,
+                        &Settling {
+                            month,
+                            this_month: &this_month,
+                            department: department.as_deref(),
+                            position: position.as_deref(),
+                            task_id: task_id.as_deref(),
+                            over_set_aside: false,
+                        },
+                    )?;
+                }
             }
             Ok(left.len())
+        })
+    }
+
+    /// After a restore (ADR-085): the Ledger as it was before is kept as the backup `kept` (a
+    /// file name in the backups folder), and its spending records are carried into the restored
+    /// Ledger. So money spent since the backup was made still counts, and restoring cannot open
+    /// room under a cap. A record the restored Ledger has as set aside takes the kept one's
+    /// settlement. Returns how many records came back.
+    pub fn carry_spending_from_backup(&self, kept: &str) -> Result<usize> {
+        if kept.is_empty() || kept.contains(['/', '\\']) || kept.contains("..") {
+            return Err(invalid("that is not a backup's name"));
+        }
+        let Some(path) = self.backups_dir().map(|d| d.join(kept)) else {
+            return Ok(0);
+        };
+        if !path.is_file() {
+            return Ok(0);
+        }
+        self.conn().execute(
+            "ATTACH DATABASE ?1 AS kept",
+            [path.to_string_lossy().as_ref()],
+        )?;
+        let carried = self.carry_attached(kept);
+        let _ = self.conn().execute_batch("DETACH DATABASE kept");
+        carried
+    }
+
+    fn carry_attached(&self, kept: &str) -> Result<usize> {
+        let has_table: bool = self.conn().query_row(
+            "SELECT EXISTS (SELECT 1 FROM kept.sqlite_master
+                            WHERE type = 'table' AND name = 'spending')",
+            [],
+            |r| r.get(0),
+        )?;
+        if !has_table {
+            return Ok(0);
+        }
+        self.write(|tx, out| {
+            const COLUMNS: &str = "id, task_id, execution_id, position_id, position_title,                  department_id, department_name, runtime, model, key_id, key_name, month, state,                  set_aside_micros, spent_micros, priced_by, detail, created_at, settled_at";
+            let added = tx.execute(
+                &format!(
+                    "INSERT INTO main.spending ({COLUMNS})
+                     SELECT {COLUMNS} FROM kept.spending
+                     WHERE id NOT IN (SELECT id FROM main.spending)"
+                ),
+                [],
+            )?;
+            let settled = tx.execute(
+                "UPDATE main.spending
+                 SET state = k.state, spent_micros = k.spent_micros, priced_by = k.priced_by,
+                     detail = k.detail, settled_at = k.settled_at
+                 FROM kept.spending AS k
+                 WHERE main.spending.id = k.id
+                   AND main.spending.state = 'setAside' AND k.state <> 'setAside'",
+                [],
+            )?;
+            if added + settled > 0 {
+                event(
+                    tx,
+                    out,
+                    "plenipo",
+                    None,
+                    "spending.carried_over",
+                    json!({ "backup": kept, "records": added, "settled": settled }),
+                )?;
+            }
+            Ok(added)
         })
     }
 
@@ -1787,8 +1934,12 @@ mod tests {
         l.set_spending_cap(&CapCovers::Business, 10 * D, "owner", OCT_15)
             .unwrap();
         fits(l.set_aside_spending(&task(9 * D), OCT_15).unwrap());
-        assert_eq!(l.recover_spending(OCT_15).unwrap(), 1);
-        assert_eq!(l.recover_spending(OCT_15).unwrap(), 0, "only once");
+        assert_eq!(l.recover_spending(OCT_15 + 1, OCT_15 + 1).unwrap(), 1);
+        assert_eq!(
+            l.recover_spending(OCT_15 + 1, OCT_15 + 1).unwrap(),
+            0,
+            "only once"
+        );
         let page = l.spending_page(OCT_15).unwrap();
         assert_eq!(page.set_aside_micros, 0);
         assert_eq!(page.spent_micros, 9 * D);
@@ -1852,5 +2003,255 @@ mod tests {
         let kinds: Vec<_> = trail.events.iter().map(|e| e.event_type.as_str()).collect();
         assert!(kinds.contains(&"spending.set_aside"), "{kinds:?}");
         assert!(kinds.contains(&"spending.recorded"), "{kinds:?}");
+    }
+
+    // ---- Found in review (Phase 16 Wave 3, part 1) ----
+
+    fn spent(l: &Ledger, micros: u64, now: u64) -> SetAside {
+        let set = fits(l.set_aside_spending(&task(micros), now).unwrap());
+        l.settle_spending(
+            &set.record_id,
+            &Bill::Spent {
+                micros,
+                priced_by: PricedBy::Service,
+            },
+            now,
+        )
+        .unwrap();
+        set
+    }
+
+    #[test]
+    fn a_late_bill_from_last_month_leaves_this_months_marks_alone() {
+        let l = ledger();
+        l.set_spending_cap(&CapCovers::Business, 10 * D, "owner", OCT_15)
+            .unwrap();
+        // A task set aside late on 31 October, still running at midnight.
+        let late = fits(l.set_aside_spending(&task(9 * D), OCT_15).unwrap());
+        let nov = month_start_ms(2026, 11) + 1;
+        spent(&l, 9 * D, nov);
+        refused(l.set_aside_spending(&task(2 * D), nov).unwrap());
+        assert_eq!(types(&l, "spending.warning").len(), 1);
+        assert_eq!(types(&l, "spending.stopped").len(), 1);
+        // October's bill arrives in November: it counts in October, and changes nothing of
+        // November's: no warning about "this month", and November still says it stopped.
+        l.settle_spending(
+            &late.record_id,
+            &Bill::Spent {
+                micros: 9 * D,
+                priced_by: PricedBy::Service,
+            },
+            nov,
+        )
+        .unwrap();
+        assert_eq!(types(&l, "spending.warning").len(), 1);
+        let page = l.spending_page(nov).unwrap();
+        assert_eq!(page.caps[0].state, CapState::Stopped);
+        assert!(page.caps[0].stopped_why.is_some());
+        refused(l.set_aside_spending(&task(2 * D), nov).unwrap());
+        assert_eq!(
+            types(&l, "spending.stopped").len(),
+            1,
+            "told once in November"
+        );
+        assert_eq!(l.spending_page(OCT_15).unwrap().spent_micros, 9 * D);
+    }
+
+    #[test]
+    fn passed_names_only_a_bill_that_came_in_over_its_set_aside() {
+        let l = ledger();
+        l.set_spending_cap(&CapCovers::Business, 10 * D, "owner", OCT_15)
+            .unwrap();
+        let a = fits(l.set_aside_spending(&task(4 * D), OCT_15).unwrap());
+        let b = fits(l.set_aside_spending(&task(4 * D), OCT_15).unwrap());
+        // The owner lowers the cap below what is counted.
+        l.set_spending_cap(&CapCovers::Business, 5 * D, "owner", OCT_15)
+            .unwrap();
+        // A task that never sent its request passed nothing.
+        let settled = l
+            .settle_spending(&a.record_id, &Bill::Released, OCT_15)
+            .unwrap();
+        assert!(settled.passed.is_empty());
+        // A bill within what was set aside passed nothing either.
+        let settled = l
+            .settle_spending(
+                &b.record_id,
+                &Bill::Spent {
+                    micros: 3 * D,
+                    priced_by: PricedBy::Service,
+                },
+                OCT_15,
+            )
+            .unwrap();
+        assert!(settled.passed.is_empty());
+        assert!(types(&l, "spending.passed").is_empty());
+        // A bill over what was set aside, past the cap: that one.
+        let c = fits(l.set_aside_spending(&task(D), OCT_15).unwrap());
+        let settled = l
+            .settle_spending(
+                &c.record_id,
+                &Bill::Spent {
+                    micros: 3 * D,
+                    priced_by: PricedBy::Service,
+                },
+                OCT_15,
+            )
+            .unwrap();
+        assert_eq!(settled.passed, ["The business"]);
+        assert_eq!(types(&l, "spending.passed").len(), 1);
+    }
+
+    #[test]
+    fn a_bill_beyond_any_cap_is_recorded_at_the_most_not_refused() {
+        let l = ledger();
+        l.set_spending_cap(&CapCovers::Business, 10 * D, "owner", OCT_15)
+            .unwrap();
+        let set = fits(l.set_aside_spending(&task(5 * D), OCT_15).unwrap());
+        let settled = l
+            .settle_spending(
+                &set.record_id,
+                &Bill::Spent {
+                    micros: MAX_SET_ASIDE_MICROS + 1,
+                    priced_by: PricedBy::Service,
+                },
+                OCT_15,
+            )
+            .unwrap();
+        assert_eq!(settled.passed, ["The business"]);
+        let r = &l.spending_page(OCT_15).unwrap().recent[0];
+        assert_eq!(r.spent_micros, Some(MAX_SET_ASIDE_MICROS));
+        assert!(r
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("recorded as that much"));
+    }
+
+    #[test]
+    fn a_bill_is_recorded_even_when_the_caps_cannot_be_read() {
+        let l = ledger();
+        l.set_spending_cap(&CapCovers::Business, 10 * D, "owner", OCT_15)
+            .unwrap();
+        let set = fits(l.set_aside_spending(&task(2 * D), OCT_15).unwrap());
+        // A later version's cap kind, read by this one (a downgrade), or a damaged setting.
+        l.put_setting(
+            SETTING,
+            &json!({ "caps": [{ "id": "x", "covers": { "kind": "everyone" } }] }),
+            "test",
+        )
+        .unwrap();
+        l.settle_spending(
+            &set.record_id,
+            &Bill::Spent {
+                micros: 5 * D,
+                priced_by: PricedBy::Service,
+            },
+            OCT_15,
+        )
+        .unwrap();
+        let r = &l.spending_for_task_or_all()[0];
+        assert_eq!(r.state, SpendingState::Spent);
+        assert_eq!(r.spent_micros, Some(5 * D));
+        // No new paid task starts until the caps can be read again.
+        assert!(l.set_aside_spending(&task(1), OCT_15).is_err());
+        // After a restart, nothing is left set aside to recover, and recovery itself works.
+        assert_eq!(l.recover_spending(OCT_15 + 1, OCT_15 + 1).unwrap(), 0);
+    }
+
+    impl Ledger {
+        /// Every record, oldest first (tests only).
+        fn spending_for_task_or_all(&self) -> Vec<SpendingRecord> {
+            self.read(|c| {
+                let mut stmt = c.prepare(&format!(
+                    "SELECT {RECORD_COLUMNS} FROM spending ORDER BY created_at"
+                ))?;
+                let rows = stmt
+                    .query_map([], record)?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .unwrap()
+        }
+    }
+
+    #[test]
+    fn a_refusal_never_shows_a_task_as_cheaper_or_more_as_left() {
+        let l = ledger();
+        l.set_spending_cap(&CapCovers::Business, 10 * D, "owner", OCT_15)
+            .unwrap();
+        spent(&l, 5_995_001, OCT_15);
+        // 4,004,999 micros left; the task could cost 4,000,001 + 10,000.
+        let refusal = refused(l.set_aside_spending(&task(4_010_001), OCT_15).unwrap());
+        assert!(
+            refusal
+                .reason
+                .contains("could cost up to $4.02, and $4.00 is left"),
+            "{}",
+            refusal.reason
+        );
+        assert_eq!(dollars_up(4_000_001), "$4.01");
+        assert_eq!(dollars_down(4_009_999), "$4.00");
+        assert_eq!(dollars_down(4_200), "$0.0042");
+        assert_eq!(dollars_down(42), "$0.00");
+        assert_eq!(dollars_up(42), "$0.0001");
+    }
+
+    #[test]
+    fn after_a_restart_a_task_this_run_started_is_left_alone() {
+        let l = ledger();
+        l.set_spending_cap(&CapCovers::Business, 10 * D, "owner", OCT_15)
+            .unwrap();
+        fits(l.set_aside_spending(&task(D), OCT_15).unwrap());
+        // This run started at OCT_15, when the task began: it is this run's own.
+        assert_eq!(l.recover_spending(OCT_15, OCT_15 + 5).unwrap(), 0);
+        assert_eq!(l.spending_page(OCT_15).unwrap().set_aside_micros, D);
+        // Started after it: it belongs to the last run.
+        assert_eq!(l.recover_spending(OCT_15 + 1, OCT_15 + 5).unwrap(), 1);
+    }
+
+    #[test]
+    fn a_restore_keeps_the_months_spending() {
+        let dir = tempfile::tempdir().unwrap();
+        let now = OCT_15;
+        // The Ledger as it is now: $90 spent this month.
+        let current = Ledger::open(&dir.path().join("now").join("plenipo.db")).unwrap();
+        current
+            .set_spending_cap(&CapCovers::Business, 100 * D, "owner", now)
+            .unwrap();
+        spent(&current, 90 * D, now);
+        let running = fits(current.set_aside_spending(&task(3 * D), now).unwrap());
+        let kept = current
+            .backup_of_kind(crate::backups::BackupKind::BeforeRestore, None)
+            .unwrap();
+        // The restored Ledger: an older backup, with the cap but none of this month's spending.
+        let restored = Ledger::open(&dir.path().join("then").join("plenipo.db")).unwrap();
+        restored
+            .set_spending_cap(&CapCovers::Business, 100 * D, "owner", now)
+            .unwrap();
+        let name = std::path::Path::new(&kept.path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        std::fs::create_dir_all(restored.backups_dir().unwrap()).unwrap();
+        std::fs::copy(&kept.path, restored.backups_dir().unwrap().join(&name)).unwrap();
+        fits(restored.set_aside_spending(&task(20 * D), now).unwrap());
+        assert_eq!(restored.carry_spending_from_backup(&name).unwrap(), 2);
+        let page = restored.spending_page(now).unwrap();
+        assert_eq!(page.spent_micros, 90 * D);
+        assert_eq!(page.set_aside_micros, 23 * D);
+        // No room was opened by restoring: $100 - $90 - $23 set aside.
+        refused(restored.set_aside_spending(&task(1), now).unwrap());
+        // Carried once; the task still running settles in the restored Ledger.
+        assert_eq!(restored.carry_spending_from_backup(&name).unwrap(), 0);
+        restored
+            .settle_spending(&running.record_id, &Bill::Released, now)
+            .unwrap();
+        assert!(restored.carry_spending_from_backup("../escape.db").is_err());
+        assert_eq!(
+            restored.carry_spending_from_backup("missing.db").unwrap(),
+            0
+        );
+        assert_eq!(types(&restored, "spending.carried_over").len(), 1);
     }
 }

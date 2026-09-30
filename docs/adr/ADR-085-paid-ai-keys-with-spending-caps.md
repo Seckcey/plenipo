@@ -87,13 +87,19 @@ paid route is offered, and no paid task runs; every test that forbids keys passe
    amount is set aside. Checking and setting aside happen in one Ledger transaction, so two tasks
    can never both fit into the same last dollars.
 6. **After the task,** its record says what it really cost, and the rest is freed. A bill larger
-   than what was set aside (a price that changed) is recorded as it was, the caps it passes are
-   named, and the caller stops that task's work at once.
+   than what was set aside (a price that changed) is recorded as it was, and only then are the
+   caps it passed named, for the caller to stop that task's work at once. A bill beyond any cap is
+   a mistake somewhere: it is recorded at the most any cap could be (which stops paid work), with
+   a note, never refused, so a known bill is never counted as less.
 7. **Telling the owner:** the first time in a month that a cap reaches 80%, and the first time a
    cap stops paid work (used up, or a task that did not fit), an event becomes a Windows notice
    (Settings → Notifications → **Paid AI spending**) and a banner on every page, with
    **Spending caps** to open the page. The banner stays until the cap is raised or the month
-   starts over. Raising a cap that stopped work lets work go on at once.
+   starts over (it looks again then by itself). Raising a cap that stopped work lets work go on at
+   once. A late bill from an earlier month counts in its own month and changes nothing about this
+   month's warnings.
+8. **In refusals,** what a task could cost is rounded up to the cent and what is left rounded
+   down, so a refusal never reads as though the task would have fit.
 
 ### 3. Money and prices
 
@@ -108,6 +114,11 @@ paid route is offered, and no paid task runs; every test that forbids keys passe
 4. **No known price, no paid key** (choice 4): the Router skips such a route and says "not priced
    yet". A finished task whose bill could not be read is recorded as **not priced yet** and counts
    at the most it could have cost (what was set aside), never as zero (ADR-036 §2.5).
+5. **Cached input** is never priced above other input: a price list that says otherwise is
+   refused, because the most a request could cost counts every input token at the input price. A
+   report with more cached tokens than input tokens counted them apart, so all of its input is
+   priced as fresh and its cached tokens on top. Plenipo's helpers never ask a service to store a
+   conversation for reuse (a "cache write"), which some services price above ordinary input.
 
 ### 4. The record of every paid task
 
@@ -120,9 +131,20 @@ never changes (triggers refuse both). Every step is an event in the task's own t
 (`spending.set_aside`, `spending.recorded`), and caps' changes are events too
 (`spending.cap_set`, `spending.cap_removed`).
 
-**After a restart,** money still set aside belongs to tasks that stopped with Plenipo, whose bills
-were never read. Each is recorded as not priced yet and counts at the most it could have cost. It
-is never freed, so a cap is never passed unseen.
+**After a restart,** money still set aside from before this run began belongs to tasks that
+stopped with Plenipo, whose bills were never read. Each is recorded as not priced yet and counts at
+the most it could have cost. It is never freed, so a cap is never passed unseen. This runs once the
+notices have started (so a cap it reaches is told), and a task this run started is left alone.
+
+**After a restore** of the Ledger from a backup, the Ledger as it was is kept as a backup, and its
+spending records are carried into the restored Ledger: money spent since the backup was made still
+counts, and restoring never opens room under a cap.
+
+**If the caps cannot be read** (a damaged setting, or an older Plenipo reading a newer one's), no
+paid task starts, a bill is still recorded, and Plenipo says so with two ways out, like its other
+settings: restore a backup of the Ledger, or reset spending caps to none (after a backup) and set
+them again. What was spent is kept either way. The Ledger's export includes every spending
+record.
 
 ### 5. Paid keys (part 2)
 
@@ -217,3 +239,13 @@ Workers on a paid route answer in text only in this wave (choice 6).
   100% once a month, a bill over what was set aside, raising a cap, not priced yet, restart
   handling, settled rows never change, Pacific months and daylight saving time, exact prices;
   IPC tests that refuse the sign window, other windows, and web pages; the screens.
+- **The review** (four reviewers — money and caps, security and desktop commands, the Ledger's
+  data, and the screens — with each finding checked by a second reviewer; details in the
+  [checklist](../phases/phase-16-wave-3-checklist.md#review-of-part-1)) led to: marks for the
+  current month only (§2.7); "passed" only for a bill over its set-aside, and a bill beyond any
+  cap recorded, never refused (§2.6); refusal money rounded the safe way (§2.8); cached input
+  never above input, and no cache writes (§3.5); a bill recorded even when the caps cannot be
+  read, with a reset in Settings; spending kept through a restore; recovery after the notices,
+  leaving this run's tasks alone (§4); spending in the export; and on the page, a cap on an
+  inactive department shown, positions named with their department, amounts with commas only in
+  groups of three, and the page and banner looking again when the month starts over.

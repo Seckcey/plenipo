@@ -26,7 +26,10 @@ export function dollars(micros: number): string {
  * is not an amount of dollars and cents from $0.01 to $1,000,000.
  */
 export function parseDollars(text: string): number | null {
-  const cleaned = text.trim().replace(/^\$/, "").replace(/,/g, "");
+  const typed = text.trim().replace(/^\$/, "");
+  // A comma only between groups of three digits ("1,000"), never as a decimal point ("12,50").
+  if (typed.includes(",") && !/^\d{1,3}(,\d{3})+(\.\d{1,2})?$/.test(typed)) return null;
+  const cleaned = typed.replace(/,/g, "");
   const match = /^(\d{1,7})(?:\.(\d{1,2}))?$/.exec(cleaned);
   if (!match) return null;
   const micros =
@@ -38,6 +41,14 @@ export function parseDollars(text: string): number | null {
 export function typedAmount(micros: number): string {
   const cents = Math.round(micros / 10_000);
   return cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
+}
+
+/**
+ * How long until `resetsAt` (the month starts over), for a timer that reloads then: at most an
+ * hour (a browser timer longer than about 24 days fires at once), at least a second.
+ */
+export function untilTurnover(resetsAt: number, now = Date.now()): number {
+  return Math.min(Math.max(resetsAt - now + 1_000, 1_000), 60 * 60 * 1_000);
 }
 
 export const AMOUNT_HELP =

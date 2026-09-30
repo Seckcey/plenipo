@@ -50,11 +50,12 @@ impl Price {
         }
     }
 
-    /// Each part is at most [`MAX_PRICE_MICROS`].
+    /// Each part is at most [`MAX_PRICE_MICROS`], and cached input costs no more than other
+    /// input ([`Self::most`] counts every input token at the input price).
     pub fn is_sane(&self) -> bool {
         self.input <= MAX_PRICE_MICROS
             && self.output <= MAX_PRICE_MICROS
-            && self.cached_input.is_none_or(|c| c <= MAX_PRICE_MICROS)
+            && self.cached_input.is_none_or(|c| c <= self.input)
     }
 
     /// The most a request could cost: `input_tokens` sent in, none of them cached, and at most
@@ -64,10 +65,18 @@ impl Price {
     }
 
     /// What a finished request cost from its token counts. `input_tokens` includes the cached
-    /// ones, as every AI tool reports them.
+    /// ones, as every AI tool reports them; a report with more cached tokens than input counted
+    /// them apart, so all of its input is priced as fresh and its cached tokens on top (never
+    /// less than was spent).
     pub fn bill(&self, usage: &TokenUsage) -> u64 {
-        let cached = usage.cached_input_tokens.min(usage.input_tokens);
-        let fresh = usage.input_tokens - cached;
+        let (fresh, cached) = if usage.cached_input_tokens > usage.input_tokens {
+            (usage.input_tokens, usage.cached_input_tokens)
+        } else {
+            (
+                usage.input_tokens - usage.cached_input_tokens,
+                usage.cached_input_tokens,
+            )
+        };
         cost(fresh, self.input)
             .saturating_add(cost(cached, self.cached_input.unwrap_or(self.input)))
             .saturating_add(cost(usage.output_tokens, self.output))
@@ -185,8 +194,8 @@ mod tests {
             ..p
         };
         assert_eq!(flat.bill(&usage(10_000, 9_000, 0)), 30_000);
-        // A report with more cached than input counts all of it as cached.
-        assert_eq!(p.bill(&usage(10, 50, 0)), 3);
+        // A report with more cached than input counted them apart: never less than was spent.
+        assert_eq!(p.bill(&usage(10, 50, 0)), 30 + 15);
     }
 
     #[test]
@@ -195,6 +204,13 @@ mod tests {
         assert!(!Price {
             input: MAX_PRICE_MICROS + 1,
             cached_input: None,
+            output: 0
+        }
+        .is_sane());
+        // Cached input dearer than other input would make the most a request could cost wrong.
+        assert!(!Price {
+            input: 1_000_000,
+            cached_input: Some(2_000_000),
             output: 0
         }
         .is_sane());

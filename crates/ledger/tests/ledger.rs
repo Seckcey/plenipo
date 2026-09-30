@@ -662,6 +662,23 @@ fn json_export_contains_every_table() {
     }
     assert_eq!(doc["tables"]["tasks"][0]["objective"], "exported");
     assert_eq!(doc["tables"]["events"].as_array().unwrap().len(), 2);
+    // Every table of the Ledger is in the export (spending on paid AI keys too, Phase 16 Wave 3).
+    let conn = Connection::open(db_path(dir.path())).unwrap();
+    let mut stmt = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+        .unwrap();
+    let tables: Vec<String> = stmt
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    for table in &tables {
+        assert!(
+            doc["tables"][table].is_array(),
+            "{table} is not in the export"
+        );
+    }
+    assert!(tables.iter().any(|t| t == "spending"));
 }
 
 #[test]

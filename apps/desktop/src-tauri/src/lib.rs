@@ -228,6 +228,8 @@ pub fn configure<R: Runtime>(
                 keeper.set_phase(recovery::Phase::ChangingLayout);
             }
             let ledger = ledger_host::open(app.handle(), options.persistence);
+            // When this run began: spending set aside before it belongs to the last run.
+            let started = plenipo_ledger::now_ms();
             if let Some(keeper) = &keeper {
                 keeper.set_phase(recovery::Phase::Running);
                 keeper.keep_beating();
@@ -245,16 +247,6 @@ pub fn configure<R: Runtime>(
             } else {
                 recovery::InProgress::default()
             };
-            // Money still set aside for paid tasks belongs to tasks that stopped with the last
-            // run (Phase 16 Wave 3, ADR-085): each counts at the most it could have cost, so a
-            // spending cap is never passed unseen.
-            match ledger.recover_spending(plenipo_ledger::now_ms()) {
-                Ok(0) => {}
-                Ok(n) => log::info!(
-                    "{n} paid task(s) from the last run count at the most they could have cost"
-                ),
-                Err(e) => log::warn!("could not settle spending left from the last run: {e}"),
-            }
             app.manage(ledger.clone());
             app.manage(options.persistence);
             let supervisor =
@@ -297,6 +289,17 @@ pub fn configure<R: Runtime>(
                 options.notices,
                 notices::GATHER,
             )));
+            // Money still set aside for paid tasks from before this run belongs to tasks that
+            // stopped with the last run (Phase 16 Wave 3, ADR-085): each counts at the most it
+            // could have cost, so a spending cap is never passed unseen. After the notices
+            // start, so a cap this reaches is told; a task this run started is left alone.
+            match ledger.recover_spending(started, plenipo_ledger::now_ms()) {
+                Ok(0) => {}
+                Ok(n) => log::info!(
+                    "{n} paid task(s) from the last run count at the most they could have cost"
+                ),
+                Err(e) => log::warn!("could not settle spending left from the last run: {e}"),
+            }
             // Workforce (Phase 5): the organization, and Liaison's directory for its members,
             // whose workers the Router places.
             let workforce = Workforce::new(

@@ -218,6 +218,33 @@ New records (numbers from Phase 16's range, ADR-085 to ADR-089, kept by ADR-090)
 - [x] Vitest for the Spending caps screen, the switch, and the banner; IPC tests for every new
       command.
 
+## Review of part 1
+
+Four reviewers each read part 1 for one area: money and caps, security and desktop commands, the
+Ledger's data, and the screens. A second reviewer then checked every finding, reproducing most of
+them. Confirmed findings were fixed with a test; one was refuted.
+
+| Area     | Finding                                                                                   | Second reviewer        | What was done                                                                            |
+| -------- | ----------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------- |
+| Money    | A late bill from last month reset this month's warning and stop, and told them again      | Confirmed (medium)     | Warnings and stops are marked for the current month only                                 |
+| Money    | "Passed the cap" named every cap already over, not only a bill over its set-aside         | Confirmed (low)        | Named only for a bill larger than what was set aside for it                              |
+| Money    | More cached tokens than input could be priced low; cached input dearer than input allowed | Confirmed (low)        | Priced apart, never less; such a price list is refused                                   |
+| Money    | Cache writes, priced above input by some services                                         | Plausible (part 2)     | The helpers never ask for them (ADR-085 §3.5)                                            |
+| Money    | "12,50" typed as a cap read as $1,250                                                     | Confirmed (low-medium) | A comma only between groups of three digits                                              |
+| Money    | A refusal could read "could cost $4.00, and $4.00 is left"                                | Confirmed (low)        | The cost rounds up, what is left rounds down                                             |
+| Money    | A bill beyond any cap was refused, so it later counted as less                            | Confirmed (low)        | Recorded at the most any cap could be, with a note                                       |
+| Data     | A bill was lost when the caps setting could not be read                                   | Confirmed (low-medium) | The bill is always recorded; only the warnings wait                                      |
+| Data     | Restoring an older backup forgot the month's spending                                     | Confirmed (medium)     | The kept "before restore" backup's spending records are carried into the restored Ledger |
+| Data     | No way in the app to reset unreadable caps                                                | Confirmed (low)        | Settings problem **Spending caps**, with reset to none after a backup                    |
+| Data     | The export left out spending                                                              | Confirmed (low)        | Added (with workspaces, missing before), and a test that every table is exported         |
+| Security | A warning found while counting last run's money reached no notice                         | Confirmed (low)        | Counted after the notices start, leaving this run's own tasks alone                      |
+| Security | Removing the business cap does not yet check for saved keys                               | Note (part 2)          | Part 2 passes the real check, with an IPC test                                           |
+| Screens  | A cap on an inactive department was hidden                                                | Confirmed (low-medium) | Shown as "(inactive)", so it can be changed or removed                                   |
+| Screens  | Positions with the same title looked the same                                             | Confirmed (low)        | Named with their department ("Senior Developer · Engineering")                           |
+| Screens  | The banner stayed after the month started over                                            | Confirmed (low-medium) | The page and the banner look again when the month starts over                            |
+| Screens  | "80% of" at 97%; "Operations's cap"; a status styled as an error                          | Confirmed (nits)       | "80% or more of", "the cap for Operations", and a note instead                           |
+| Screens  | A cap's amount field could keep old text                                                  | Refuted                | Only its own editor changes a cap                                                        |
+
 ## Pull request 2 — keys in the Vault, routes, and OpenRouter
 
 ### Keys (typed only into Plenipo's own screen)
