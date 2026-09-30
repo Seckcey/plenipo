@@ -34,17 +34,24 @@ jobs:
           PLENIPO_IMAGE=plenipo-website:ci PLENIPO_PORT=14380 docker compose -p plenipo-website-ci -f apps/website/compose.yaml up -d --wait
           curl --fail http://127.0.0.1:14380/healthz
           curl --fail http://127.0.0.1:14380/ -o /tmp/plenipo-home.html
-          grep -Fq '<link rel="canonical" href="https://plenipo.8westit.com/"' /tmp/plenipo-home.html
+          grep -Fq '<link rel="canonical" href="https://getplenipo.com/"' /tmp/plenipo-home.html
           grep -Eq '<h1 id="hero-title">[^<]*[^[:space:]<]' /tmp/plenipo-home.html
           curl --fail http://127.0.0.1:14380/ | grep -q "What&rsquo;s new in v$version<"
-          curl --fail http://127.0.0.1:14380/sitemap.xml | grep -q 'https://plenipo.8westit.com/'
+          curl --fail http://127.0.0.1:14380/sitemap.xml | grep -q 'https://getplenipo.com/'
           for page in terms privacy; do
             curl --fail "http://127.0.0.1:14380/$page/" -o "/tmp/plenipo-$page.html"
-            grep -Fq "<link rel=\"canonical\" href=\"https://plenipo.8westit.com/$page/\"" "/tmp/plenipo-$page.html"
+            grep -Fq "<link rel=\"canonical\" href=\"https://getplenipo.com/$page/\"" "/tmp/plenipo-$page.html"
             grep -Fq 'href="mailto:admin@8westventures.com"' "/tmp/plenipo-$page.html"
           done
           curl --fail http://127.0.0.1:14380/release.json | grep -q "\"version\": \"$version\""
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:14380/missing)" = 404
+          for host in plenipo.8westit.com www.getplenipo.com; do
+            for path in '/privacy/?from=old&mode=read' '/brand/pip-icon-192.png?v=1' '/release.json?check=1' '/missing%20page?q=a%2Fb'; do
+              result="$(curl --path-as-is -sS -o /dev/null -w '%{http_code} %{redirect_url}' -H "Host: $host" "http://127.0.0.1:14380$path")"
+              test "$result" = "308 https://getplenipo.com$path"
+            done
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: getplenipo.com' http://127.0.0.1:14380/privacy/)" = 200
       - name: Stop CI container
         if: always()
         run: PLENIPO_IMAGE=plenipo-website:ci PLENIPO_PORT=14380 docker compose -p plenipo-website-ci -f apps/website/compose.yaml down

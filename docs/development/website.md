@@ -1,6 +1,13 @@
 # Plenipo marketing website
 
-The public product site is built from `apps/website` for <https://plenipo.8westit.com>.
+The public product site is built from `apps/website` for <https://getplenipo.com>.
+
+[ADR-130 (the website address move)](../adr/ADR-130-website-domain-migration.md) makes this
+the canonical address. `www.getplenipo.com` and the prior `plenipo.8westit.com` website
+return a permanent HTTP 308 redirect, preserving the path and query string. The new HTTPS
+routes must be verified before releasing that redirect. `account.getplenipo.com` and its
+fixed `/v1/check` address are separate; this website move changes no account, mail, or
+Stripe settings. Historical release receipts retain the addresses used at the time.
 It serves static HTML, CSS, and JavaScript. The homepage includes an optional, self-hosted
 React Flow sample. Repository website code adds no forms, accounts, tracking scripts, or billing
 integrations. The public edge may insert the project's existing Cloudflare analytics script.
@@ -163,7 +170,7 @@ The intended permanent service is:
 | Internal HTTP port       | `8080`                                                        |
 | Host binding             | `127.0.0.1:14380` after live reservation/startup verification |
 | Cloudflare Tunnel origin | `http://127.0.0.1:14380`                                      |
-| Public hostname          | `plenipo.8westit.com`                                         |
+| Public hostname          | `getplenipo.com`                                              |
 
 `cloudflared` was verified as a host systemd service during setup. Recheck that topology before
 using localhost: a connector inside another container has a different localhost. The origin is
@@ -253,6 +260,20 @@ installer attached) changes, its release notes change, or the website files chan
    and checks its health.
 
 The website comparison uses Git's content identifiers for `apps/website` and its workflow.
+The homepage and policy identity checks read the canonical address from the exact source
+revision being verified. Only the known new and prior website origins are permitted, and
+the served page must match that revision's address. This also verifies an older rollback
+without accepting the wrong hostname for a new release. During the domain cutover, stop
+the update timer, wait for the active run to finish, back up the installed updater and
+release settings under its persistent `run.lock`, then atomically install the reviewed
+updater before deploying the new site. Restore the timer after public verification or
+verified rollback. Never replace or delete either lock file.
+If timer control is unavailable, reviewed release hooks may instead hold the existing
+`run.lock` continuously across guarded preflight, deployment, verification, and atomic
+updater installation. The timer must be unable to acquire that lock, and the exact reviewed
+updater must be installed before releasing it. Rehearse failed verification and failed
+installation against separate staging containers, including restoration of the prior
+runtime, settings, and updater. Unknown installed-script changes are an ownership conflict.
 An unrelated desktop or documentation commit does not rebuild an unchanged site. A website
 change keeps the latest published installer version; a desktop version bump on `main` does not
 publish an installer. Missing, pending, failed, cancelled, or mismatched check results leave the

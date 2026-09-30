@@ -118,3 +118,4 @@ architecture must be recorded here.
 | [116](ADR-116-the-weekly-answer-is-signed.md)            | The weekly check's answer is signed, and its time decides the grace (adds to 022)             | Accepted |
 | [117](ADR-117-paid-ai-keys-are-free.md)                  | Paid AI keys are in the Free edition (amends 021)                                             | Accepted |
 | [118](ADR-118-customer-accounts.md)                      | Customer accounts: signing in, and deleting an account                                        | Accepted |
+| [130](ADR-130-website-domain-migration.md)               | The public website moves to getplenipo.com; old and www addresses preserve paths in redirects | Accepted |

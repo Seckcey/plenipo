@@ -243,11 +243,20 @@ compose_up() { # compose_up <image> <website dir>
 }
 
 verify() { # verify <version> <revision> <image id>; prints what failed
-  local body release container policy title
+  local body release container policy title canonical
+  # Read identity from this exact revision, including an older rollback. Never
+  # accept either host interchangeably for a candidate from the other host.
+  canonical="$(git --git-dir="$SOURCE_GIT" show "$2:apps/website/index.html" \
+    | sed -n 's/.*<link rel="canonical" href="\([^"]*\)".*/\1/p')" \
+    || { echo "could not read the source website identity"; return 1; }
+  case "$canonical" in
+    https://getplenipo.com/ | https://plenipo.8westit.com/) ;;
+    *) echo "the source has an unknown website identity"; return 1 ;;
+  esac
   body="$(curl -fsS --max-time 10 "$ORIGIN/healthz")" || { echo "health check failed"; return 1; }
   body="$(curl -fsS --max-time 10 "$ORIGIN/")" || { echo "home page failed"; return 1; }
   # Check stable page identity, so copy changes do not break verification or an older rollback.
-  grep -Fq '<link rel="canonical" href="https://plenipo.8westit.com/"' <<< "$body" \
+  grep -Fq "<link rel=\"canonical\" href=\"$canonical\"" <<< "$body" \
     || { echo "home page has the wrong identity"; return 1; }
   grep -Eq '<h1 id="hero-title">[^<]*[^[:space:]<]' <<< "$body" \
     || { echo "home page is missing its heading"; return 1; }
@@ -261,7 +270,7 @@ verify() { # verify <version> <revision> <image id>; prints what failed
     # Older, explicitly selected website snapshots may predate these pages.
     if git --git-dir="$SOURCE_GIT" cat-file -e "$2:apps/website/legal/$policy.md" 2> /dev/null; then
       body="$(curl -fsS --max-time 10 "$ORIGIN/$policy/")" || { echo "$policy page failed"; return 1; }
-      grep -Fq "<link rel=\"canonical\" href=\"https://plenipo.8westit.com/$policy/\"" <<< "$body" \
+      grep -Fq "<link rel=\"canonical\" href=\"$canonical$policy/\"" <<< "$body" \
         || { echo "$policy page has the wrong identity"; return 1; }
       title="$(git --git-dir="$SOURCE_GIT" show "$2:apps/website/legal/$policy.md" | sed -n '1p')"
       grep -Fq "<h1>${title#\# }</h1>" <<< "$body" \
