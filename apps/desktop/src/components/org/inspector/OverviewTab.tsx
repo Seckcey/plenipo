@@ -9,6 +9,8 @@ import { archivedWithLine, experienceLine } from "../../../org/control";
 import { STAFFING_LABEL, STATUS_LABEL, ago, runtimeLabel, runtimeReady } from "../../../org/format";
 import { canTakeObjective, positionMap } from "../../../org/rules";
 import { rankName, roleLabel, titlesOf } from "../../../org/titles";
+import { ObjectiveFilesList } from "../../../files/ObjectiveFiles";
+import { useObjectiveFiles } from "../../../files/useObjectiveFiles";
 import { EFFORT_LABEL } from "../../../routing/format";
 import { useOpenWatch } from "../../../terminal/useTerminal";
 import { PILL_TONE } from "../../tones";
@@ -205,6 +207,8 @@ function ObjectivePanel({ p, actions }: { p: PositionInfo; actions: InspectorAct
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const sendHint = useId();
+  // Files can go on an objective of a project's lead (its workers have the project's folder).
+  const [files, dropTarget] = useObjectiveFiles(p.coordinatesProjectId !== null);
   if (!p.agent) {
     return (
       <p className="hint">
@@ -217,16 +221,26 @@ function ObjectivePanel({ p, actions }: { p: PositionInfo; actions: InspectorAct
     e.preventDefault();
     setPending(true);
     setError(null);
-    const failure = await actions.giveObjective(p.id, objective);
+    const toSend = files.toSend();
+    const failure = await actions.giveObjective(
+      p.id,
+      objective,
+      toSend.length > 0 && p.coordinatesProjectId
+        ? { projectId: p.coordinatesProjectId, files: toSend }
+        : undefined,
+    );
     setPending(false);
     setError(failure);
     if (failure === null) {
       setObjective("");
+      files.clear();
       setSent(true);
     }
   };
   return (
     <form
+      ref={dropTarget}
+      {...files.dropProps}
       className="inspector__objective"
       aria-label="Give an objective"
       onSubmit={(e) => void submit(e)}
@@ -252,6 +266,7 @@ function ObjectivePanel({ p, actions }: { p: PositionInfo; actions: InspectorAct
           />
         )}
       </Field>
+      {p.coordinatesProjectId !== null && <ObjectiveFilesList state={files} />}
       {busy && <p className="muted">Busy with its current objective; wait until it finishes.</p>}
       {sent && (
         <p className="status status--ok" role="status">

@@ -7,19 +7,29 @@ use std::sync::Arc;
 use plenipo_ledger::{Ledger, LedgerEvent, DB_FILE_NAME};
 use plenipo_liaison::store::to_row;
 use plenipo_runtime::MetadataStore;
-use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
+use tauri::{AppHandle, Manager as _, Runtime};
 
 use crate::runtime_host::Persistence;
 
-/// Tauri event name carrying each committed [`LedgerEvent`] to the main window.
+/// Tauri event name carrying each committed [`LedgerEvent`] to its organization's window.
 pub const LEDGER_EVENT: &str = "plenipo://ledger";
 
-/// Open the ledger. Never fails: if the on-disk ledger cannot be used, Plenipo runs on a
-/// temporary in-memory ledger and says so prominently (nothing is silently ignored).
-pub fn open<R: Runtime>(app: &AppHandle<R>, persistence: Persistence) -> Arc<Ledger> {
+/// Open organization `org`'s Ledger. Never fails: if the on-disk ledger cannot be used, Plenipo
+/// runs on a temporary in-memory ledger and says so prominently (nothing is silently ignored).
+/// Its events go to the window showing that organization only (Phase 21, ADR-094 §12).
+pub fn open<R: Runtime>(
+    app: &AppHandle<R>,
+    org: &crate::orgs::OrgPlace,
+    persistence: Persistence,
+) -> Arc<Ledger> {
+    let path = org
+        .folder
+        .as_deref()
+        .map(ledger_file)
+        .ok_or_else(|| "no data folder".to_owned());
     let ledger = match persistence {
         Persistence::InMemory => in_memory(None),
-        Persistence::AppData => match ledger_path(app) {
+        Persistence::AppData => match path {
             Ok(path) => match Ledger::open(&path) {
                 Ok(ledger) => ledger,
                 Err(e) => in_memory(Some(format!(
@@ -36,12 +46,34 @@ pub fn open<R: Runtime>(app: &AppHandle<R>, persistence: Persistence) -> Arc<Led
     };
     let ledger = Arc::new(ledger);
     let handle = app.clone();
+    let id = org.id.clone();
     ledger.add_listener(Arc::new(move |event: &LedgerEvent| {
-        if let Err(e) = handle.emit_to("main", LEDGER_EVENT, event) {
-            log::warn!("failed to emit ledger event: {e}");
+        crate::orgs::emit_to_org(&handle, &id, LEDGER_EVENT, event);
+        if id == crate::orgs::FIRST {
+            if let Some(what) = shared_change(&event.event_type) {
+                crate::orgs::shared_changed(&handle, what);
+            }
         }
     }));
     ledger
+}
+
+/// What an event in the first organization's Ledger changes of what every organization shares
+/// (Phase 21, ADR-094 §5): your tile, or your Workforce.
+pub fn shared_change(event_type: &str) -> Option<&'static str> {
+    match event_type {
+        "owner.profile_changed" => Some("tile"),
+        "org.agent_saved"
+        | "org.agent_hired_from_workforce"
+        | "org.saved_agent_deleted"
+        | "org.saved_agent_moved" => Some("workforce"),
+        _ => None,
+    }
+}
+
+/// The Ledger file in an organization's folder.
+pub fn ledger_file(folder: &Path) -> PathBuf {
+    folder.join("ledger").join(DB_FILE_NAME)
 }
 
 fn in_memory(notice: Option<String>) -> Ledger {

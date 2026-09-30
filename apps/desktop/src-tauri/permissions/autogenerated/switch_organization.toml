@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-switch-organization"
+description = "Enables the switch_organization command without any pre-configured scope."
+commands.allow = ["switch_organization"]
+
+[[permission]]
+identifier = "deny-switch-organization"
+description = "Denies the switch_organization command without any pre-configured scope."
+commands.deny = ["switch_organization"]

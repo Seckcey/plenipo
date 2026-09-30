@@ -88,6 +88,12 @@ impl WindowWatch {
         }
     }
 
+    /// When the page last said it was alive (ms; 0: never).
+    #[cfg(test)]
+    pub fn last_alive(&self) -> u64 {
+        self.last_alive.load(Ordering::SeqCst)
+    }
+
     /// The window is being closed to be opened again (at `now`).
     pub fn reopening(&self, now: u64) {
         self.reopened_at.store(now, Ordering::SeqCst);

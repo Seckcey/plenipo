@@ -355,7 +355,7 @@ listed below as a limit.
 | Screens | "$3.00 in, $15.00 out"                                                                               | Nit                       | "$3.00 a million tokens read, $15.00 a million written", as the word list says                                                               |
 | Secrets | Another secret's save could overwrite a paid key                                                     | Refuted                   | A secret's name never matches a paid key's                                                                                                   |
 
-**Limits, recorded:** some companies behind OpenRouter do not count thinking inside the answer's
+**Limits, recorded:** paid keys are saved on the AI tools page, which is the first organization's (Phase 21, ADR-094 §4), so paid work runs in the first organization only for now; every organization keeps its own switch and spending caps. Some companies behind OpenRouter do not count thinking inside the answer's
 length limit, so such a model's thinking can pass what was set aside (the bill is still recorded
 as it came); an on-demand overseer from another department is counted by the Router against its
 own department, while the gate counts the team's (the gate decides, so nothing is overspent); a

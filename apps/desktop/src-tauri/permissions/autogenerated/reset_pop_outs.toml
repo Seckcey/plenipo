@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reset-pop-outs"
+description = "Enables the reset_pop_outs command without any pre-configured scope."
+commands.allow = ["reset_pop_outs"]
+
+[[permission]]
+identifier = "deny-reset-pop-outs"
+description = "Denies the reset_pop_outs command without any pre-configured scope."
+commands.deny = ["reset_pop_outs"]

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "popout",
+  "description": "A popped-out panel (Phase 21, ADR-092): its organization's window draws it and makes every call, so it can call nothing itself.",
+  "windows": ["popout-*"],
+  "permissions": []
+}

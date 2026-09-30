@@ -400,8 +400,14 @@ impl Router {
     }
 
     fn ensure_builtins(&self) -> Result<()> {
-        let tools: Vec<(String, String)> =
-            self.tools().into_iter().map(|t| (t.id, t.label)).collect();
+        // A paid AI tool's models are the owner's to add (ADR-085): none is listed by itself.
+        let paid = crate::engine::paid_tool_ids();
+        let tools: Vec<(String, String)> = self
+            .tools()
+            .into_iter()
+            .filter(|t| !paid.contains(&t.id))
+            .map(|t| (t.id, t.label))
+            .collect();
         let config = self.config()?;
         let missing = tools.iter().any(|(id, _)| {
             !config
@@ -879,6 +885,24 @@ mod tests {
         assert_eq!(again.config().unwrap().models.len(), 2);
         assert_eq!(ledger.recent_events(1).unwrap()[0].seq, seeded.seq);
         assert!(!s.api_billing);
+    }
+
+    #[test]
+    fn a_paid_ai_tool_gets_no_default_model_by_itself() {
+        // ADR-085: a paid AI tool's models are the owner's to add; none is listed by itself.
+        let ledger = Arc::new(Ledger::open_in_memory().unwrap());
+        let router = Router::with_tools(
+            Arc::clone(&ledger),
+            Arc::new(|| {
+                vec![
+                    info("alpha", "Alpha Code", "acme", true),
+                    info("openrouter", "OpenRouter", "openrouter", false),
+                ]
+            }),
+        );
+        let s = router.snapshot().unwrap();
+        let labels: Vec<&str> = s.models.iter().map(|m| m.label.as_str()).collect();
+        assert_eq!(labels, ["Alpha Code (default model)"]);
     }
 
     #[test]

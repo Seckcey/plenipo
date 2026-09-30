@@ -337,6 +337,34 @@ export type { AddOnChange } from "./generated/AddOnChange";
 export type { AddOnInput } from "./generated/AddOnInput";
 export type { AddOnTool } from "./generated/AddOnTool";
 export type { ToolMark } from "./generated/ToolMark";
+// Phase 21 (ADR-092): the workspace's panels and pop-out windows.
+export type { PanelId } from "./generated/PanelId";
+export type { PopOutNotice } from "./generated/PopOutNotice";
+export type { WindowPlace } from "./generated/WindowPlace";
+// Phase 21 (ADR-093): the owner's files.
+export type { ChangingFile } from "./generated/ChangingFile";
+export type { FileContent } from "./generated/FileContent";
+export type { FileRoot } from "./generated/FileRoot";
+export type { FileRootKind } from "./generated/FileRootKind";
+export type { FileRoots } from "./generated/FileRoots";
+export type { FileView } from "./generated/FileView";
+export type { FolderEntry } from "./generated/FolderEntry";
+export type { FolderListing } from "./generated/FolderListing";
+export type { FolderWriter } from "./generated/FolderWriter";
+export type { LineEnding } from "./generated/LineEnding";
+export type { ReadOnlyWhy } from "./generated/ReadOnlyWhy";
+export type { SaveOutcome } from "./generated/SaveOutcome";
+export type { DroppedFile } from "./generated/DroppedFile";
+export type { DroppedFiles } from "./generated/DroppedFiles";
+export type { ObjectiveFile } from "./generated/ObjectiveFile";
+// Phase 21 (ADR-094): your organizations.
+export type { OrgDeletePreview } from "./generated/OrgDeletePreview";
+export type { OrgListing } from "./generated/OrgListing";
+export type { OrgOpened } from "./generated/OrgOpened";
+export type { OrgStart } from "./generated/OrgStart";
+export type { OrgSummary } from "./generated/OrgSummary";
+export type { OrgTemplate } from "./generated/OrgTemplate";
+export type { OrgWorker } from "./generated/OrgWorker";
 // Phase 16 Wave 3 (ADR-085, paid AI keys with spending caps): spending caps and prices.
 export type { CapCovers } from "./generated/CapCovers";
 export type { CapState } from "./generated/CapState";

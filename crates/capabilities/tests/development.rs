@@ -1907,3 +1907,368 @@ async fn a_moved_full_time_agent_works_under_its_new_projects_limit_from_its_nex
     );
     assert!(!h.dir.path().join("shop").join("notes.txt").exists());
 }
+
+// ---- Phase 21: the owner's files, one writer at a time, and files on an objective -------------
+
+/// The file view's top folder of the objective's working copy, once it exists.
+/// Stop the worker, as the owner's Stop the worker does. A turn still starting says to try again
+/// in a moment (Windows starts programs more slowly), so it is tried again.
+async fn stop_the_worker(h: &H, session_id: &str) {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        match h.rt.cancel_turn(session_id).await {
+            Ok(_) => return,
+            Err(plenipo_runtime::RuntimeError::NotReady(_)) if Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(e) => panic!("the worker could not be stopped: {e}"),
+        }
+    }
+}
+
+async fn working_copy_root(h: &H) -> plenipo_capabilities::FileRoot {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        if let Some(r) = h
+            .broker
+            .file_roots()
+            .unwrap()
+            .roots
+            .into_iter()
+            .find(|r| r.kind == plenipo_capabilities::FileRootKind::WorkingCopy)
+        {
+            return r;
+        }
+        assert!(Instant::now() < deadline, "no working copy appeared");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_working_copy_a_worker_is_writing_is_read_only_for_the_owner_until_it_stops() {
+    let h = harness().await;
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [to("Senior Developer", "Change src/app.txt.")] },
+            { "say": "Done." }
+        ],
+        "Senior Developer": [
+            { "say": "Changed.", "delay": 20000,
+              "tools": [write("src/app.txt", "version = 2\n")] }
+        ]
+    }));
+    let root = h.objective(&h.team.supervisor, "Change the app").await;
+    // The working copy, held by the Senior Developer while its step runs.
+    let deadline = Instant::now() + WAIT;
+    let copy = loop {
+        let r = working_copy_root(&h).await;
+        if r.writer.is_some() {
+            break r;
+        }
+        assert!(Instant::now() < deadline, "the writer never showed");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    };
+    let writer = copy.writer.clone().unwrap();
+    assert_eq!(writer.worker, "Senior Developer");
+    let view = h.broker.read_file(&copy.id, "src/app.txt").unwrap();
+    assert_eq!(
+        view.read_only,
+        Some(plenipo_capabilities::ReadOnlyWhy::Writer {
+            writer: writer.clone()
+        })
+    );
+    let refused = h
+        .broker
+        .save_file(
+            &copy.id,
+            "src/app.txt",
+            "the owner's\n",
+            false,
+            plenipo_capabilities::LineEnding::Lf,
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("Senior Developer is writing"), "{refused}");
+    // The project folder itself is not held: the owner edits the README meanwhile.
+    let project = format!("project:{}", h.project);
+    let readme = h.broker.read_file(&project, "README.md").unwrap();
+    assert!(readme.read_only.is_none());
+    assert!(matches!(
+        h.broker
+            .save_file(
+                &project,
+                "README.md",
+                "# Website\n\nEdited by the owner.\n",
+                false,
+                plenipo_capabilities::LineEnding::Lf,
+                readme.hash.as_deref(),
+            )
+            .unwrap(),
+        plenipo_capabilities::SaveOutcome::Saved { .. }
+    ));
+    // Stop the worker: its step ends, and the working copy is the owner's to edit.
+    stop_the_worker(&h, &writer.session_id).await;
+    h.until("the working copy to be free", |h| {
+        h.broker
+            .file_roots()
+            .unwrap()
+            .roots
+            .iter()
+            .any(|r| r.id == copy.id && r.writer.is_none())
+    })
+    .await;
+    let view = h.broker.read_file(&copy.id, "src/app.txt").unwrap();
+    assert!(view.read_only.is_none(), "{view:?}");
+    let saved = h
+        .broker
+        .save_file(
+            &copy.id,
+            "src/app.txt",
+            "the owner's\n",
+            false,
+            plenipo_capabilities::LineEnding::Lf,
+            view.hash.as_deref(),
+        )
+        .unwrap();
+    assert!(matches!(
+        saved,
+        plenipo_capabilities::SaveOutcome::Saved { .. }
+    ));
+    assert_eq!(
+        std::fs::read_to_string(Path::new(&copy.path).join("src").join("app.txt")).unwrap(),
+        "the owner's\n"
+    );
+    let _ = h.finished(&root).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_workers_change_says_which_working_copy_and_the_file_view_marks_it() {
+    let h = harness().await;
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [to("Senior Developer", "Change src/app.txt.")] },
+            { "say": "Done." }
+        ],
+        "Senior Developer": [
+            { "say": "Changed.", "delay": 3000,
+              "tools": [write("src/app.txt", "version = 2\n")] }
+        ]
+    }));
+    let root = h.objective(&h.team.supervisor, "Change the app").await;
+    let copy = working_copy_root(&h).await;
+    // While its step is open, the file view marks the file being changed.
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let changing = h.broker.changing_files();
+        if changing
+            .iter()
+            .any(|c| c.root == copy.id && c.path == "src/app.txt" && c.worker == "Senior Developer")
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "never marked: {changing:?}");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    // The saved change says where it is, in memory and in the record.
+    let dev = position_id(&h, "Senior Developer");
+    let view = h.broker.watch_view(&dev);
+    assert_eq!(view.changes[0].root.as_deref(), Some(copy.id.as_str()));
+    let task = &h.tasks_of(&root, "Senior Developer")[0];
+    let used = h.events(&task.id, "capability.used");
+    assert!(
+        used.iter().any(|u| u["change"]["root"] == copy.id.as_str()),
+        "{used:#?}"
+    );
+    assert!(
+        h.broker.changing_files().is_empty(),
+        "nothing is being changed now"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_file_reached_through_another_projects_folder_is_read_only_while_a_worker_writes_there() {
+    let h = harness_with(false).await;
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [to("Senior Developer", "Change src/app.txt.")] },
+            { "say": "Done." }
+        ],
+        "Senior Developer": [
+            { "say": "Changed.", "delay": 20000,
+              "tools": [write("src/app.txt", "version = 2\n")] }
+        ]
+    }));
+    // A second project whose folder is inside the Website's.
+    let inner = h
+        .ledger
+        .create_project(
+            "Website Source",
+            Some(&h.folder.join("src").display().to_string()),
+            None,
+            None,
+            "test",
+        )
+        .unwrap();
+    let inner_root = format!("project:{}", inner.id);
+    let root = h.objective(&h.team.supervisor, "Change the app").await;
+    let project = format!("project:{}", h.project);
+    h.until("the worker to write in the project folder", |h| {
+        h.broker
+            .file_roots()
+            .unwrap()
+            .roots
+            .iter()
+            .any(|r| r.id == project && r.writer.is_some())
+    })
+    .await;
+    let writer = h
+        .broker
+        .file_roots()
+        .unwrap()
+        .roots
+        .into_iter()
+        .find(|r| r.id == project)
+        .and_then(|r| r.writer)
+        .unwrap();
+    // The same file, reached through the other project's folder, is held too.
+    let view = h.broker.read_file(&inner_root, "app.txt").unwrap();
+    assert!(
+        matches!(
+            view.read_only,
+            Some(plenipo_capabilities::ReadOnlyWhy::Writer { .. })
+        ),
+        "{view:?}"
+    );
+    let refused = h
+        .broker
+        .save_file(
+            &inner_root,
+            "app.txt",
+            "the owner's\n",
+            false,
+            plenipo_capabilities::LineEnding::Lf,
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("Senior Developer is writing"), "{refused}");
+    stop_the_worker(&h, &writer.session_id).await;
+    let _ = h.finished(&root).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn files_on_an_objective_are_named_or_copied_and_reach_its_working_copy_once() {
+    let h = harness().await;
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [to("Senior Developer", "Use the attached files.")] },
+            { "say": "Done." }
+        ],
+        "Senior Developer": [
+            { "say": "Read them.",
+              "tools": [tool("read_file", json!({ "path": "attachments/brief.txt" }))] }
+        ]
+    }));
+    // One file from outside the project, and one in it.
+    let outside = h.dir.path().join("brief.txt");
+    std::fs::write(&outside, "Make the logo bigger.\n").unwrap();
+    let staged = h
+        .broker
+        .stage_files(&h.project, &[outside.clone(), h.folder.join("README.md")])
+        .unwrap();
+    assert_eq!(staged.named, vec!["README.md".to_owned()]);
+    assert_eq!(staged.copied, vec![("brief.txt".to_owned(), 22)]);
+    let text = staged.objective("Use the attached files");
+    assert!(
+        text.contains("Look at these files in the project: README.md."),
+        "{text}"
+    );
+    let root = h.objective(&h.team.supervisor, &text).await;
+    h.broker.record_files(&root, &staged);
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    // The worker read the copy in its working copy; the original is untouched.
+    let dev = &h.tasks_of(&root, "Senior Developer")[0];
+    assert!(
+        h.text(&dev.id).contains("Make the logo bigger."),
+        "{}",
+        h.text(&dev.id)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&outside).unwrap(),
+        "Make the logo bigger.\n"
+    );
+    let copy = working_copy_root(&h).await;
+    assert!(Path::new(&copy.path)
+        .join("attachments")
+        .join("brief.txt")
+        .is_file());
+    // The owner's checkout gets nothing.
+    assert!(!h.folder.join("attachments").exists());
+    // Git leaves the copies out: a worker adding everything never commits them.
+    let status = git(Path::new(&copy.path), &["status", "--porcelain"]);
+    assert!(!status.contains("attachments"), "{status}");
+    // Recorded: the files by name, never their contents; delivered once.
+    let attached = h.events(&root, "objective.files_attached");
+    assert_eq!(attached.len(), 1);
+    assert!(!attached[0].to_string().contains("logo"), "{}", attached[0]);
+    assert_eq!(h.events(&root, "objective.files_delivered").len(), 1);
+    // A change not committed yet is not in the working copy a worker gets: it is copied.
+    std::fs::write(h.folder.join("README.md"), "# Website\n\nNot committed.\n").unwrap();
+    std::fs::write(h.folder.join("new.txt"), "brand new\n").unwrap();
+    let staged = h
+        .broker
+        .stage_files(
+            &h.project,
+            &[h.folder.join("README.md"), h.folder.join("new.txt")],
+        )
+        .unwrap();
+    assert!(staged.named.is_empty(), "{:?}", staged.named);
+    assert_eq!(
+        staged
+            .copied
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect::<Vec<_>>(),
+        vec!["README.md", "new.txt"]
+    );
+    // A blocked file never goes on an objective, from the project or from anywhere.
+    std::fs::write(h.folder.join(".env"), "KEY=secret\n").unwrap();
+    let env_outside = h.dir.path().join(".env");
+    std::fs::write(&env_outside, "KEY=secret\n").unwrap();
+    for blocked in [h.folder.join(".env"), env_outside] {
+        let refused = h
+            .broker
+            .stage_files(&h.project, &[blocked])
+            .unwrap_err()
+            .to_string();
+        assert!(refused.contains("blocked"), "{refused}");
+    }
+    // Nothing goes on an objective while a worker uses the screen, mouse, and keyboard.
+    let desktop = h.broker.control_center().begin(
+        plenipo_capabilities::control::ControlKind::Desktop,
+        "g1",
+        "t1",
+        "Operator",
+        None,
+    );
+    let refused = h
+        .broker
+        .stage_files(&h.project, std::slice::from_ref(&outside))
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("Take over"), "{refused}");
+    h.broker.control_center().end(&desktop.id);
+    assert!(h
+        .broker
+        .stage_files(&h.project, std::slice::from_ref(&outside))
+        .is_ok());
+    // Too many or too large files are refused before anything is given.
+    let many: Vec<PathBuf> = (0..21).map(|_| outside.clone()).collect();
+    assert!(h.broker.stage_files(&h.project, &many).is_err());
+    assert!(h
+        .broker
+        .stage_files(&h.project, &[h.folder.join("src")])
+        .is_err());
+}

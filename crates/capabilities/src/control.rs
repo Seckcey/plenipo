@@ -274,12 +274,22 @@ impl ControlCenter {
     /// Stop every active session of one kind (the owner switched that feature off, ADR-023).
     /// Unlike [`ControlCenter::stop_all`], it sets no emergency stop. Returns the sessions stopped.
     pub fn stop_kind(&self, kind: ControlKind) -> Vec<ControlSession> {
+        self.stop_kind_of(kind, |_| true)
+    }
+
+    /// Stop the active sessions of `kind` whose step's grant `own` names (one organization's,
+    /// when organizations share the record, Phase 21).
+    pub fn stop_kind_of(
+        &self,
+        kind: ControlKind,
+        own: impl Fn(&str) -> bool,
+    ) -> Vec<ControlSession> {
         let stopped: Vec<ControlSession> = {
             let mut i = self.inner();
             let stopped: Vec<ControlSession> = i
                 .sessions
                 .values_mut()
-                .filter(|s| s.kind == kind && s.state == ControlState::Active)
+                .filter(|s| s.kind == kind && s.state == ControlState::Active && own(&s.grant_id))
                 .map(|s| {
                     s.state = ControlState::Stopped;
                     s.clone()

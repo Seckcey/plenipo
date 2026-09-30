@@ -95,3 +95,7 @@ architecture must be recorded here.
 | [086](ADR-086-openrouter-through-a-plenipo-helper.md)    | OpenRouter through a Plenipo helper: one fixed address, the key on standard input              | Proposed |
 | [087](ADR-087-direct-keys-for-every-ai-company.md)       | Direct keys for every AI company whose models take one, through Plenipo's helper, dated prices | Proposed |
 | [090](ADR-090-phase-21-alongside-phase-16-wave-2.md)     | Building Phase 21 alongside Phase 16's second wave; ADR-090 to 099 for Phase 21 (amends 039)   | Accepted |
+| [091](ADR-091-phase-21-owners-answers.md)                | Phase 21: what the check found, and the owner's answers (amends 021, 033, 055)                 | Accepted |
+| [092](ADR-092-panels-and-windows.md)                     | Panels and windows: resize, dock, pop out, drag out, and Reset layout (amends 031, 033, 055)   | Accepted |
+| [093](ADR-093-your-files-and-the-editor.md)              | Your files and the editor; one writer at a time; files on an objective (amends 016, 055)       | Accepted |
+| [094](ADR-094-more-than-one-organization.md)             | More than one organization: each its own Ledger, window, backups, and Vault names              | Accepted |

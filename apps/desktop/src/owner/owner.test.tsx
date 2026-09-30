@@ -16,7 +16,7 @@ vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
   return { ...actual, getOwnerProfile: vi.fn(), setOwnerProfile: vi.fn() };
 });
-vi.mock("../api/events", () => ({ subscribeLedgerEvents: vi.fn() }));
+vi.mock("../api/events", () => ({ subscribeLedgerEvents: vi.fn(), subscribeShared: vi.fn() }));
 vi.mock("./picture", async (importOriginal) => {
   const actual = await importOriginal<typeof picture>();
   return { ...actual, shrinkToPng: vi.fn() };
@@ -25,6 +25,7 @@ vi.mock("./picture", async (importOriginal) => {
 const api = vi.mocked(commands);
 const shrink = vi.mocked(picture.shrinkToPng);
 let emit: (e: LedgerEvent) => void = () => undefined;
+let shared: (what: "tile" | "workforce") => void = () => undefined;
 
 const PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==";
@@ -103,6 +104,10 @@ beforeEach(() => {
   );
   vi.mocked(events.subscribeLedgerEvents).mockImplementation((handler) => {
     emit = handler;
+    return Promise.resolve(() => undefined);
+  });
+  vi.mocked(events.subscribeShared).mockImplementation((handler) => {
+    shared = handler;
     return Promise.resolve(() => undefined);
   });
 });
@@ -479,6 +484,16 @@ describe("OwnerProvider", () => {
       }),
     ).toBeInTheDocument();
     expect(api.getOwnerProfile).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads your tile again when another organization's window changes it", async () => {
+    renderButton();
+    await screen.findByRole("button", { name: /^You: Available — / });
+    act(() => shared("workforce"));
+    expect(api.getOwnerProfile).toHaveBeenCalledTimes(1);
+    api.getOwnerProfile.mockResolvedValue(profile({ status: "busy" }));
+    act(() => shared("tile"));
+    expect(await screen.findByRole("button", { name: /^You: Busy — / })).toBeInTheDocument();
   });
 
   it("stays quiet when your tile can't be read", async () => {

@@ -12,6 +12,7 @@ import {
   toCommandError,
   writeTerminal,
 } from "../api/commands";
+import { usePanelWindow } from "../workspace/context";
 import type { OwnerTab } from "./panel";
 import { endedLine, fromBase64, pieces, screenReaderWanted } from "./words";
 
@@ -183,11 +184,8 @@ export function OwnerTerminal({
         setStatus({ kind: "failed", message });
         failedNow.current?.(message);
       });
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(refit);
-    observer?.observe(el);
     return () => {
       disposed = true;
-      observer?.disconnect();
       typing.dispose();
       sizing.dispose();
       if (id && !ended) void closeTerminal(id).catch(() => undefined);
@@ -196,6 +194,33 @@ export function OwnerTerminal({
       fit.current = null;
     };
   }, [tab.place, attempt]);
+
+  // The panel is in this window now (Plenipo's own, or its pop-out, ADR-092): the terminal
+  // follows it, keeping what it shows, and fits the panel's size there.
+  const panelWindow = usePanelWindow();
+  useEffect(() => {
+    const el = box.current;
+    const xterm = term.current;
+    if (!el || !xterm) return;
+    xterm.open(el);
+    const refit = () => {
+      if (el.offsetParent === null) return;
+      try {
+        fit.current?.fit();
+      } catch {
+        // Not laid out yet.
+      }
+    };
+    refit();
+    // The observer of the window the panel is in now.
+    const Observer =
+      (panelWindow as Window & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver ??
+      (typeof ResizeObserver === "undefined" ? undefined : ResizeObserver);
+    if (!Observer) return;
+    const observer = new Observer(refit);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [panelWindow, attempt]);
 
   useEffect(() => {
     themeNow.current = theme;
