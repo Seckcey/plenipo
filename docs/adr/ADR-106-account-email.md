@@ -1,11 +1,10 @@
 # ADR-106: Stripe sends every billing email; the account service sends the rest through Microsoft 365
 
-- **Status:**
-  - **Accepted** for billing email (the owner, 2026-09-30: "Can we have Stripe handle all billing
-    emails instead of us?").
-  - **Proposed** for the account service's own email through Microsoft 365. The builder first
-    recommended Amazon SES; the owner asked, "We use Entra for all our other app emailing. Can we
-    use that instead of AWS for consistency?" The builder recommends yes, and the owner confirms.
+- **Status:** Accepted (by the owner, 2026-09-30).
+  - Billing email: "Can we have Stripe handle all billing emails instead of us?"
+  - Account email: the builder first recommended Amazon SES. The owner asked, "We use Entra for all
+    our other app emailing. Can we use that instead of AWS for consistency?", then set up
+    `getplenipo.com` in 8 West's Microsoft 365.
 - **Date:** 2026-09-30
 - **Phase:** 22
 - **Part of:** [ADR-100 (Phase 11A and 22: what the check found, and the owner's answers)](ADR-100-phase-11a-22-owners-answers.md)
@@ -66,8 +65,8 @@ already send email.
    - password resets;
    - email confirmations;
    - "your account was deleted".
-4. **How the account service sends (proposed): Microsoft Graph `sendMail`**, from a shared mailbox on
-   Plenipo's domain, for example `hello@<domain>`, named "Plenipo by 8 West". A shared mailbox needs no
+4. **How the account service sends: Microsoft Graph `sendMail`**, from a shared mailbox on
+   `getplenipo.com`, `hello@getplenipo.com`, named "Plenipo by 8 West". A shared mailbox needs no
    license. Replies go to admin@8westventures.com.
 5. **An Entra app just for this service**, with only the Mail.Send permission, **locked to that one
    mailbox** with Exchange Online's RBAC for Applications. Without the lock, Mail.Send lets an app

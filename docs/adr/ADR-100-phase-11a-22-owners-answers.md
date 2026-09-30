@@ -1,10 +1,10 @@
 # ADR-100: Phase 11A and 22 — what the check found, and the owner's answers
 
-- **Status:** Accepted (by the owner, 2026-09-30: "Everything else is as recommended"). Three
-  answers are still open, and their records say **Proposed**: the server's size
-  ([ADR-103](ADR-103-account-service-hosting.md) §2), Plenipo's own domain and web address
-  ([ADR-105](ADR-105-domain-and-web-address.md)), and the account service's own email through Microsoft 365
-  ([ADR-106](ADR-106-account-email.md)).
+- **Status:** Accepted (by the owner, 2026-09-30: "Everything else is as recommended"). Later the
+  same day the owner bought `getplenipo.com` ([ADR-105](ADR-105-domain-and-web-address.md)) and
+  chose Stripe for billing email and Microsoft 365 for account email
+  ([ADR-106](ADR-106-account-email.md)). One answer is still open, and its part says **Proposed**:
+  the server's size ([ADR-103](ADR-103-account-service-hosting.md) §2).
 - **Date:** 2026-09-30
 - **Phase:** 11A (Free and Pro editions and the license key) and 22 (the 8 West account service)
 - **Number:** Phase 11A and 22 use ADR-100 to ADR-129. This is the first record. ADR-101 to
@@ -78,26 +78,26 @@ The code was read at `6776e0c` (v1.16.0 on `main`, 2026-09-30).
 
 The owner's answers, 2026-09-30:
 
-| #   | Question                                  | Answer                                                                         | Record                                               |
-| --- | ----------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------- |
-| 1   | The new repository's name                 | `plenipo-account`                                                              | [101](ADR-101-account-service-repository-name.md)    |
-| 2   | Public or private                         | Private                                                                        | [102](ADR-102-account-service-repository-private.md) |
-| 3   | Hosting, backups, monitoring              | AWS, a server of its own; nightly copies; an outside checker. Size proposed    | [103](ADR-103-account-service-hosting.md)            |
-| 4   | The cloud key vault                       | AWS KMS; keys stay Ed25519                                                     | [104](ADR-104-signing-key-in-aws-kms.md)             |
-| 5   | The service's web address                 | Proposed: `account.<Plenipo's own domain>`                                     | [105](ADR-105-domain-and-web-address.md)             |
-| 6   | Email                                     | Stripe sends every billing email; account email proposed through Microsoft 365 | [106](ADR-106-account-email.md)                      |
-| 7   | How 8 West signs in to the admin page     | A password and a passkey, behind Cloudflare Access                             | [107](ADR-107-admin-sign-in.md)                      |
-| 8   | Stripe's Managed Payments                 | Not at launch                                                                  | [108](ADR-108-no-managed-payments.md)                |
-| 9   | A Stripe account of Plenipo's own         | Yes: "Plenipo by 8 West Ventures, LLC", already made by the owner              | [109](ADR-109-plenipos-own-stripe-account.md)        |
-| 10  | Computers per subscription                | One person, on any of their own PCs                                            | [110](ADR-110-one-person-any-of-their-pcs.md)        |
-| 11  | Refunds                                   | No partial refunds; a full refund within 14 days of the first payment          | [111](ADR-111-refunds-and-terms-of-sale.md)          |
-| 12  | Lessons on Free                           | They pause, like Connections                                                   | [112](ADR-112-lessons-pause-on-free.md)              |
-| 13  | Workers at the same time                  | Free: the 4th waits with a note. Pro: 4 at a time in each organization         | [113](ADR-113-workers-at-the-same-time.md)           |
-| 14  | What counts as a business department      | One made from a business template                                              | [114](ADR-114-business-departments.md)               |
-| 15  | "No outbound request at all" on Free      | A Free copy never contacts 8 West; updates and AI tool versions keep working   | [115](ADR-115-free-never-contacts-8-west.md)         |
-| 16  | Sign the weekly answer                    | Yes                                                                            | [116](ADR-116-the-weekly-answer-is-signed.md)        |
-| 17  | Paid AI keys                              | Free                                                                           | [117](ADR-117-paid-ai-keys-are-free.md)              |
-| —   | Customer sign-in, and deleting an account | A password or an emailed sign-in link; tax records kept 7 years                | [118](ADR-118-customer-accounts.md)                  |
+| #   | Question                                   | Answer                                                                       | Record                                               |
+| --- | ------------------------------------------ | ---------------------------------------------------------------------------- | ---------------------------------------------------- |
+| 1   | The new repository's name                  | `plenipo-account`                                                            | [101](ADR-101-account-service-repository-name.md)    |
+| 2   | Public or private                          | Private                                                                      | [102](ADR-102-account-service-repository-private.md) |
+| 3   | Hosting, backups, monitoring               | AWS, a server of its own; nightly copies; an outside checker. Size proposed  | [103](ADR-103-account-service-hosting.md)            |
+| 4   | The cloud key vault                        | AWS KMS; keys stay Ed25519                                                   | [104](ADR-104-signing-key-in-aws-kms.md)             |
+| 5   | Plenipo's domain and the service's address | `getplenipo.com`; the service at `account.getplenipo.com`                    | [105](ADR-105-domain-and-web-address.md)             |
+| 6   | Email                                      | Stripe sends every billing email; account email through Microsoft 365        | [106](ADR-106-account-email.md)                      |
+| 7   | How 8 West signs in to the admin page      | A password and a passkey, behind Cloudflare Access                           | [107](ADR-107-admin-sign-in.md)                      |
+| 8   | Stripe's Managed Payments                  | Not at launch                                                                | [108](ADR-108-no-managed-payments.md)                |
+| 9   | A Stripe account of Plenipo's own          | Yes: "Plenipo by 8 West Ventures, LLC", already made by the owner            | [109](ADR-109-plenipos-own-stripe-account.md)        |
+| 10  | Computers per subscription                 | One person, on any of their own PCs                                          | [110](ADR-110-one-person-any-of-their-pcs.md)        |
+| 11  | Refunds                                    | No partial refunds; a full refund within 14 days of the first payment        | [111](ADR-111-refunds-and-terms-of-sale.md)          |
+| 12  | Lessons on Free                            | They pause, like Connections                                                 | [112](ADR-112-lessons-pause-on-free.md)              |
+| 13  | Workers at the same time                   | Free: the 4th waits with a note. Pro: 4 at a time in each organization       | [113](ADR-113-workers-at-the-same-time.md)           |
+| 14  | What counts as a business department       | One made from a business template                                            | [114](ADR-114-business-departments.md)               |
+| 15  | "No outbound request at all" on Free       | A Free copy never contacts 8 West; updates and AI tool versions keep working | [115](ADR-115-free-never-contacts-8-west.md)         |
+| 16  | Sign the weekly answer                     | Yes                                                                          | [116](ADR-116-the-weekly-answer-is-signed.md)        |
+| 17  | Paid AI keys                               | Free                                                                         | [117](ADR-117-paid-ai-keys-are-free.md)              |
+| —   | Customer sign-in, and deleting an account  | A password or an emailed sign-in link; tax records kept 7 years              | [118](ADR-118-customer-accounts.md)                  |
 
 The builder's other defaults, accepted with the rest, are in the record they belong to: the
 service's language and checks (ADR-101), the license key's contents (ADR-104), one license for

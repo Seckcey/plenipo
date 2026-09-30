@@ -103,8 +103,8 @@ architecture must be recorded here.
 | [102](ADR-102-account-service-repository-private.md)     | The account service's repository is private                                                   | Accepted |
 | [103](ADR-103-account-service-hosting.md)                | Hosting, backups, and monitoring for the account service (server size proposed)               | Accepted |
 | [104](ADR-104-signing-key-in-aws-kms.md)                 | The license signing key lives in AWS KMS; license keys stay Ed25519 (carries out 039 §2.14)   | Accepted |
-| [105](ADR-105-domain-and-web-address.md)                 | Plenipo's own domain, and where the account service answers                                   | Proposed |
-| [106](ADR-106-account-email.md)                          | Stripe sends billing email; account email through Microsoft 365 (proposed)                    | Accepted |
+| [105](ADR-105-domain-and-web-address.md)                 | Plenipo's own domain is getplenipo.com; the account service at account.getplenipo.com         | Accepted |
+| [106](ADR-106-account-email.md)                          | Stripe sends billing email; account email goes through Microsoft 365                          | Accepted |
 | [107](ADR-107-admin-sign-in.md)                          | 8 West signs in to the admin page with a password and a passkey, behind Cloudflare Access     | Accepted |
 | [108](ADR-108-no-managed-payments.md)                    | No Stripe Managed Payments at launch; Stripe Tax as planned                                   | Accepted |
 | [109](ADR-109-plenipos-own-stripe-account.md)            | Plenipo has its own Stripe account (carries out 039 §2.13)                                    | Accepted |
