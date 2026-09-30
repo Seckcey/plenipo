@@ -229,8 +229,8 @@ pub fn erase(store: &dyn SecretStore, id: &str) -> std::result::Result<(), Strin
 }
 
 /// Every value Plenipo keeps in `store` for `config`: the owner's secrets, the servers'
-/// sign-ins, and the connections' sign-ins (Phase 20). Uninstalling with "delete my data"
-/// removes them all (Phase 13).
+/// sign-ins, the connections' sign-ins (Phase 20), and the paid AI keys (Phase 16 Wave 3).
+/// Uninstalling with "delete my data" removes them all (Phase 13).
 pub fn stored_ids(config: &plenipo_guard::GuardConfig) -> Vec<String> {
     config
         .secrets
@@ -243,6 +243,7 @@ pub fn stored_ids(config: &plenipo_guard::GuardConfig) -> Vec<String> {
                 .flat_map(|s| crate::broker::servers::vault_ids(&s.id)),
         )
         .chain(crate::connections::Connections::vault_ids(config))
+        .chain(config.paid_keys.iter().map(|k| k.id.clone()))
         .collect()
 }
 
@@ -271,6 +272,7 @@ pub fn stored_ids_in(settings: &serde_json::Value) -> Vec<String> {
         .chain(crate::connections::vault_ids_of(
             ids("connections").iter().map(String::as_str),
         ))
+        .chain(ids("paidKeys"))
         .collect()
 }
 

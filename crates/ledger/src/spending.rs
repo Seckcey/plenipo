@@ -858,6 +858,30 @@ impl Ledger {
         })
     }
 
+    /// What is left this month for a paid task of `position` in `department`: the smallest amount
+    /// left under the caps covering it. None without the business's cap (no paid task starts).
+    pub fn spending_room(
+        &self,
+        department: Option<&str>,
+        position: Option<&str>,
+        now: u64,
+    ) -> Result<Option<u64>> {
+        let (year, month) = pacific_month(now);
+        let key = month_key(year, month);
+        self.read(|c| {
+            let config = SpendingConfig::read(c)?;
+            if config.business().is_none() {
+                return Ok(None);
+            }
+            let mut room = u64::MAX;
+            for cap in covering(&config, department, position) {
+                let (counted, _) = used(c, &key, &cap.covers)?;
+                room = room.min(cap.monthly_micros.saturating_sub(counted));
+            }
+            Ok(Some(room))
+        })
+    }
+
     /// The owner's caps.
     pub fn spending_caps(&self) -> Result<Vec<SpendingCap>> {
         self.read(|c| Ok(SpendingConfig::read(c)?.caps))

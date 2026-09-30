@@ -15,6 +15,7 @@ pub mod grok;
 pub mod kimi;
 pub mod memory_store;
 pub mod ollama;
+pub mod paid;
 pub mod preview;
 pub mod service;
 pub mod tools;
@@ -44,5 +45,6 @@ pub fn builtin_adapters() -> Vec<std::sync::Arc<dyn RuntimeAdapter>> {
         std::sync::Arc::new(ollama::Ollama),
         std::sync::Arc::new(antigravity::Antigravity),
         std::sync::Arc::new(copilot::Copilot),
+        std::sync::Arc::new(paid::OpenRouter),
     ]
 }

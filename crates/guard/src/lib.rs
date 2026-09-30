@@ -22,6 +22,7 @@ pub mod dto;
 pub mod engine;
 mod error;
 pub mod outbound;
+pub mod paid;
 pub mod paths;
 pub mod redact;
 pub mod registry;
@@ -45,6 +46,7 @@ pub use engine::{
 };
 pub use error::{GuardError, Result};
 pub use outbound::{OutboundRules, Purpose};
+pub use paid::{PaidKeyInfo, PaidProtocol, PaidService, MAX_PAID_KEYS};
 pub use paths::{PathRefusal, Resolved, Workspace};
 pub use redact::Redactor;
 pub use registry::Capability;

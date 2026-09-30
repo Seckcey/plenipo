@@ -16,6 +16,8 @@ import type {
   RoutingSnapshot,
 } from "@plenipo/types";
 
+import { priceWords } from "../spending/words";
+
 /** What a model can do, in plain words. */
 export const FEATURE_LABEL: Record<ModelFeature, string> = {
   vision: "Sees images",
@@ -83,10 +85,12 @@ export function modelGroups(
     const now = k.pointsTo && tool?.knownModels.find((x) => x.name === k.pointsTo);
     if (now) parts.push(`now ${now.label}`);
     parts.push(madeByWords(k.maker ?? unlisted));
+    if (k.price) parts.push(priceWords(k.price));
     return parts.join(" — ");
   };
+  const paid = tool?.auth === "paidKey" ? " (paid per use)" : "";
   const groups = [
-    group(`${tool?.label ?? "The AI tool"}'s models`, [
+    group(`${tool?.label ?? "The AI tool"}'s models${paid}`, [
       ...(tool?.knownModels ?? []).map((k) => ({ name: k.name, label: words(k) })),
       ...(tool?.newModels ?? []).map((k) => ({
         name: k.name,

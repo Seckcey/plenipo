@@ -16,6 +16,11 @@ fn main() {
     {
         std::process::exit(code);
     }
+    // Paid helper mode (Phase 16 Wave 3, ADR-085, ADR-086): a paid task or key check, sent to
+    // its service's fixed address, each checked by Guard's rules; the key comes on stdin.
+    if let Some(code) = plenipo_capabilities::paid::helper::maybe_run_from_args(std::env::args()) {
+        std::process::exit(code);
+    }
     // Uninstall mode (Phase 13): the uninstaller asks Plenipo to forget the secrets it kept in
     // Windows Credential Manager, when the owner chose to delete their Plenipo data.
     if let Some(code) = plenipo_desktop_lib::uninstall::maybe_run_from_args(std::env::args()) {

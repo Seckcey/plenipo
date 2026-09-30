@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 
+use plenipo_capabilities::broker::Broker;
 use plenipo_core::CommandError;
 use plenipo_ledger::{now_ms, CapCovers, Ledger, SpendingPage};
 use tauri::State;
@@ -39,18 +40,19 @@ pub async fn set_spending_cap(
     .await
 }
 
-/// Remove a cap.
+/// Remove a cap. The business's cap stays while a paid key is saved (ADR-085 §2.4).
 #[tauri::command]
 pub async fn remove_spending_cap(
     ledger: State<'_, Arc<Ledger>>,
+    broker: State<'_, Broker>,
     cap_id: String,
 ) -> Result<SpendingPage, CommandError> {
     if cap_id.is_empty() || cap_id.len() > 64 {
         return Err(CommandError::invalid_input("invalid spending cap"));
     }
+    let keys_saved = plenipo_capabilities::paid::any_key(&broker);
     with_ledger(&ledger, move |l| {
-        // No paid key can be saved in this version, so nothing needs the business cap yet.
-        l.remove_spending_cap(&cap_id, false, OWNER)?;
+        l.remove_spending_cap(&cap_id, keys_saved, OWNER)?;
         l.spending_page(now_ms())
     })
     .await

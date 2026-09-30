@@ -62,6 +62,8 @@ export type { UsageDay } from "./generated/UsageDay";
 export type { UsageModel } from "./generated/UsageModel";
 export type { NewestFrom } from "./generated/NewestFrom";
 export type { PaymentMethod } from "./generated/PaymentMethod";
+export type { PaidKeyInfo } from "./generated/PaidKeyInfo";
+export type { PaidService } from "./generated/PaidService";
 export type { SessionState } from "./generated/SessionState";
 export type { TurnOutcome } from "./generated/TurnOutcome";
 export type { TurnResult } from "./generated/TurnResult";

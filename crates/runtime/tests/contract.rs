@@ -470,6 +470,8 @@ impl AgentSink for NoUpdates {
 struct Fakes {
     rt: AgentRuntime,
     dir: tempfile::TempDir,
+    /// The paid AI tools' key and spending caps (ADR-085), kept in memory.
+    gate: Arc<plenipo_runtime::agent::paid::MemoryPaidGate>,
 }
 
 impl Fakes {
@@ -515,7 +517,11 @@ impl Fakes {
             Arc::new(NoUpdates),
             HostEnv::new(Some(bin.into_os_string()), Some(home), None),
         );
-        Self { rt, dir }
+        // The same persona plays Plenipo's paid helper (ADR-085): a test key, and caps that
+        // let every charge through unless a test says otherwise.
+        let gate = Arc::new(plenipo_runtime::agent::paid::MemoryPaidGate::with_key());
+        rt.set_paid_gate(gate.clone());
+        Self { rt, dir, gate }
     }
 
     /// Run one task on `runtime` to its end; the task and the arguments the CLI received.
@@ -543,7 +549,8 @@ impl Fakes {
 
 #[tokio::test]
 async fn sign_in_check_tells_a_subscription_from_an_api_key() {
-    for a in builtin_adapters() {
+    // A paid AI tool is Plenipo's own helper: no program of its own (ADR-085).
+    for a in builtin_adapters().into_iter().filter(|a| !a.built_in()) {
         assert!(
             personas().contains(&a.executable_name()),
             "{}: add a `{}` persona to plenipo-fake-agent",
@@ -567,11 +574,133 @@ async fn sign_in_check_tells_a_subscription_from_an_api_key() {
                 // is no API-key sign-in to tell apart (ADR-017).
                 continue;
             }
+            let paid = builtin_adapters()
+                .iter()
+                .any(|a| a.id() == info.id && a.paid());
+            if paid {
+                // A paid AI tool runs on the owner's key, checked by its own test below.
+                continue;
+            }
             assert_eq!(info.installation.state, InstallState::Installed, "{at}");
             assert!(info.installation.version.is_some(), "{at}");
             assert_eq!((info.auth.state, info.ready), (state, ready), "{at}");
         }
     }
+}
+
+/// A paid AI tool (ADR-085, ADR-086): ready only with a key; the key goes in on the helper's
+/// first line of input, never on its command line or in its environment; a step is set aside
+/// before it starts, at the model's price and within its limits, and settled with its bill;
+/// refused by the caps, or not priced, it does not start.
+#[tokio::test]
+async fn a_paid_ai_tool_uses_its_key_only_on_stdin_and_every_step_is_set_aside_and_settled() {
+    let fakes = Fakes::new("subscription");
+    let state = fakes.dir.path().join("home").join(".plenipo-fake-agent");
+    let info = fakes
+        .rt
+        .refresh()
+        .await
+        .into_iter()
+        .find(|r| r.id == "openrouter")
+        .unwrap();
+    assert_eq!(
+        info.installation.state,
+        InstallState::Installed,
+        "{info:#?}"
+    );
+    assert_eq!(
+        (info.auth.state, info.ready),
+        (AuthState::PaidKey, true),
+        "{info:#?}"
+    );
+    let models = info.reported_models.unwrap().models;
+    let kimi = models
+        .iter()
+        .find(|m| m.name == "moonshotai/kimi-k3")
+        .unwrap();
+    assert_eq!(kimi.price.unwrap().output, 15_000_000);
+    assert_eq!(kimi.maker.as_ref().unwrap().id, "moonshot");
+
+    let (turn, args) = fakes.run("openrouter", "Contract check 7c1e").await;
+    let result = turn.result.unwrap();
+    assert_eq!(result.outcome, TurnOutcome::Completed, "{result:#?}");
+    assert!(result.text.unwrap().contains("Contract check 7c1e"));
+    let key = "sk-or-v1-test-key-not-real-0123456789";
+    assert!(
+        !args.iter().any(|a| a.contains(key) || a.contains("sk-or")),
+        "{args:?}"
+    );
+    assert!(args.iter().any(|a| a == "--max-input-bytes"), "{args:?}");
+    let env = std::fs::read_to_string(state.join("last-env.txt")).unwrap();
+    assert!(!env.contains(key), "the key is not in the environment");
+    let given: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(state.join("paid-key.json")).unwrap())
+            .unwrap();
+    assert_eq!(given["given"], true);
+    assert_eq!(given["length"], key.len());
+    // Set aside at Qwen3.8 Flash's price (its default), then settled with the service's bill.
+    let charges = fakes.gate.charges();
+    let charge = charges.last().unwrap();
+    assert_eq!(charge.model, "qwen/qwen3.8-flash");
+    assert_eq!(charge.key_name, "Test key");
+    assert!(charge.most_micros > 0);
+    let bills = fakes.gate.bills();
+    assert_eq!(
+        bills.last().unwrap().1,
+        plenipo_runtime::agent::paid::PaidBill::Spent {
+            micros: 57,
+            by_service: true
+        }
+    );
+    // No credit on the service, or its usage limit: held back like a usage limit, nothing billed.
+    for marker in ["[no-credit]", "[usage-limit]"] {
+        let (turn, _) = fakes.run("openrouter", marker).await;
+        assert_eq!(
+            turn.result.unwrap().outcome,
+            TurnOutcome::UsageLimited,
+            "{marker}"
+        );
+        assert_eq!(
+            fakes.gate.bills().last().unwrap().1,
+            plenipo_runtime::agent::paid::PaidBill::NotSent,
+            "{marker}"
+        );
+    }
+    // Cut short before its bill: counted at the most it could have cost.
+    let (turn, _) = fakes.run("openrouter", "[cut]").await;
+    assert_ne!(turn.result.unwrap().outcome, TurnOutcome::Completed);
+    assert!(matches!(
+        fakes.gate.bills().last().unwrap().1,
+        plenipo_runtime::agent::paid::PaidBill::NotPriced(_)
+    ));
+    // Refused by the spending caps: nothing starts, and the owner hears why.
+    fakes
+        .gate
+        .refuse(Some("Not started: the business's cap is used up."));
+    let before = fakes.gate.charges().len();
+    let started = fakes
+        .rt
+        .start_session("openrouter", "Refused please", None)
+        .await
+        .unwrap();
+    let deadline = Instant::now() + WAIT;
+    let result = loop {
+        let detail = fakes.rt.session(&started.session.id).await.unwrap();
+        if let Some(r) = detail.turns.first().and_then(|t| t.result.clone()) {
+            break r;
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    };
+    assert_eq!(result.outcome, TurnOutcome::BillingNotAllowed);
+    assert!(result.summary.contains("cap is used up"), "{result:#?}");
+    assert_eq!(fakes.gate.charges().len(), before);
+    fakes.gate.refuse(None);
+    // No key: the paid AI tool is not ready, and says why.
+    fakes.gate.set_key(None);
+    let (_, info) = fakes.rt.recheck("openrouter").await.unwrap();
+    assert_eq!((info.auth.state, info.ready), (AuthState::SignedOut, false));
+    assert!(info.auth.detail.unwrap().contains("No paid key"));
 }
 
 #[tokio::test]
@@ -826,6 +955,12 @@ fn every_ai_tool_signs_in_with_its_own_command_and_never_for_api_billing() {
     use plenipo_runtime::agent::AccountAction;
     for a in builtin_adapters() {
         let id = a.id();
+        if a.paid() {
+            // A paid AI tool's key is typed into Plenipo's own screen (ADR-085): no command.
+            assert!(a.account_command(AccountAction::SignIn).is_none(), "{id}");
+            assert!(a.account_command(AccountAction::SignOut).is_none(), "{id}");
+            continue;
+        }
         let sign_in = a
             .account_command(AccountAction::SignIn)
             .unwrap_or_else(|| panic!("{id}: every AI tool signs in with its own command"));

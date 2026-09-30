@@ -21,6 +21,7 @@ pub mod fence;
 pub mod files;
 pub mod github;
 pub mod mcp;
+pub mod paid;
 mod process;
 pub mod programs;
 pub mod relay;

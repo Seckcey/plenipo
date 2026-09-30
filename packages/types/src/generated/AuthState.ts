@@ -3,4 +3,4 @@
 /**
  * Sign-in state as reported by the runtime's own status command.
  */
-export type AuthState = "checking" | "subscription" | "unverified" | "apiKey" | "thirdPartyCloud" | "signedOut" | "unknown";
+export type AuthState = "checking" | "subscription" | "unverified" | "apiKey" | "thirdPartyCloud" | "paidKey" | "signedOut" | "unknown";

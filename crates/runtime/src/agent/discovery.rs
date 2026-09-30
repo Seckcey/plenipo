@@ -203,8 +203,25 @@ pub async fn run_probe(
     working_dir: &Path,
     timeout: Duration,
 ) -> ProbeOutput {
-    let mut command =
-        crate::supervisor::wrapped_command(executable, args, env, working_dir, Stdio::null());
+    run_probe_with(executable, args, env, working_dir, None, timeout).await
+}
+
+/// [`run_probe`], with `input` written to the program's standard input, which is then closed (a
+/// paid AI tool's key check gets its key there, ADR-085: never an argument or a variable).
+pub async fn run_probe_with(
+    executable: &Path,
+    args: &[String],
+    env: &[(String, String)],
+    working_dir: &Path,
+    input: Option<&[u8]>,
+    timeout: Duration,
+) -> ProbeOutput {
+    let stdin = if input.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    };
+    let mut command = crate::supervisor::wrapped_command(executable, args, env, working_dir, stdin);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -214,6 +231,14 @@ pub async fn run_probe(
             }
         }
     };
+    if let (Some(bytes), Some(mut pipe)) = (input, child.stdin().take()) {
+        use tokio::io::AsyncWriteExt as _;
+        let bytes = bytes.to_vec();
+        tokio::spawn(async move {
+            let _ = pipe.write_all(&bytes).await;
+            let _ = pipe.shutdown().await;
+        });
+    }
     let stdout = child.stdout().take();
     let stderr = child.stderr().take();
     let out = tokio::spawn(read_capped(stdout));

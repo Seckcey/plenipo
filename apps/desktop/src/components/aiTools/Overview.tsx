@@ -18,7 +18,8 @@ import { when } from "../../pages/words";
 import { until } from "../../routing/format";
 import { useTerminalIfAny } from "../../terminal/useTerminal";
 import { Refusal } from "../models/shared";
-import { Toggle } from "../SwitchSettings";
+import type { Go } from "../views";
+import { PaidKey } from "./PaidKey";
 import { SignIn } from "./SignIn";
 import {
   atLimit,
@@ -44,7 +45,8 @@ const PLAN_DURING_A_TASK: ReadonlySet<string> = new Set(["claude-code"]);
 
 /**
  * A card's Overview (Phase 19): sign-in, version and update, how it is paid for, the usage limit,
- * what is left of the plan, and this week's tokens.
+ * what is left of the plan, and this week's tokens. A paid AI tool (Phase 16 Wave 3, ADR-085)
+ * shows its key instead of a plan.
  */
 export function Overview({
   info,
@@ -54,6 +56,7 @@ export function Overview({
   usage,
   onApply,
   onRouting,
+  go,
 }: {
   info: AgentRuntimeInfo;
   /** The page's part for this tool; `undefined` while it loads. */
@@ -64,8 +67,11 @@ export function Overview({
   usage: { usage: AiToolUsage | null; window: UsageWindow | null; error: string | null };
   onApply: Apply;
   onRouting: (snapshot: RoutingSnapshot) => void;
+  /** Opens another page (Settings → Switches or Spending caps). */
+  go?: Go | undefined;
 }) {
   const install = info.installation.state;
+  const paid = tool?.payment === "paidKey";
   const installed = install === "installed" ? (info.installation.version ?? "unknown") : null;
   // Not working, or installed in a way Plenipo can't use: Plenipo's reason, where it gave one.
   const problem =
@@ -78,38 +84,54 @@ export function Overview({
       : null;
   return (
     <dl className="kv ai-tool__facts">
-      <dt>Sign-in</dt>
+      <dt>{paid ? "Key check" : "Sign-in"}</dt>
       <dd>
-        <SignIn info={info} checking={checking} />
+        {paid && tool ? (
+          <KeyCheck info={info} tool={tool} checking={checking} />
+        ) : (
+          <SignIn info={info} checking={checking} />
+        )}
       </dd>
       <dt>Version</dt>
       <dd>
-        <div>
-          {installed ? `Installed ${installed}` : INSTALL_LABEL[install]} · Checked by Plenipo{" "}
-          {info.checkedVersion}
-        </div>
+        {tool?.builtIn ? (
+          <div>Comes with Plenipo {info.checkedVersion}</div>
+        ) : (
+          <div>
+            {installed ? `Installed ${installed}` : INSTALL_LABEL[install]} · Checked by Plenipo{" "}
+            {info.checkedVersion}
+          </div>
+        )}
         {problem && <p className="muted">{problem}</p>}
         {notice && <p className="muted">{notice}</p>}
       </dd>
       <dt>Update</dt>
       <dd>
-        <UpdateInfo info={info} tool={tool} onApply={onApply} />
+        {tool?.builtIn ? (
+          <>{info.label} comes with Plenipo: it is updated when Plenipo is.</>
+        ) : (
+          <UpdateInfo info={info} tool={tool} onApply={onApply} />
+        )}
       </dd>
       <dt>How it is paid for</dt>
       <dd>
-        <div>
-          {tool?.payment === "paidKey" ? "Paid AI key" : "Subscription"}
-          {plan ? ` (${plan})` : ""}
-        </div>
-        {/* Locked until paid keys can be saved (Phase 16 Wave 3): it never asks for a paid key. */}
-        <Toggle
-          label="Paid AI key (pay per use)"
-          name={`Paid AI key for ${info.label} (pay per use)`}
-          hint="Comes in a later update, within your spending caps (Settings → Spending caps)."
-          checked={tool?.payment === "paidKey"}
-          disabled
-          onChange={() => undefined}
-        />
+        {!tool ? (
+          <span className="muted">Loading…</span>
+        ) : paid ? (
+          <PaidKey info={info} tool={tool} onApply={onApply} go={go} />
+        ) : (
+          <>
+            <div>
+              Subscription
+              {plan ? ` (${plan})` : ""}
+            </div>
+            {/* A subscription AI tool never takes a paid key (ADR-085 §5). */}
+            <p className="muted">
+              {info.label} always uses your subscription. To pay per use, add a key to a paid AI
+              tool such as OpenRouter, within your spending caps.
+            </p>
+          </>
+        )}
       </dd>
       <dt>Usage limit</dt>
       <dd>
@@ -117,13 +139,60 @@ export function Overview({
       </dd>
       <dt>Left of your plan</dt>
       <dd>
-        <PlanLeft info={info} tool={tool} />
+        {paid ? (
+          <div className="ai-tool__block">
+            <p>
+              No plan: {info.label} is paid per use. What is left this month is under your spending
+              caps.
+            </p>
+            {go && (
+              <div className="ai-tool__buttons">
+                <Button
+                  size="sm"
+                  variant="quiet"
+                  onClick={() => go({ view: "settings", id: "spending" })}
+                >
+                  Spending caps
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <PlanLeft info={info} tool={tool} />
+        )}
       </dd>
       <dt>This week</dt>
       <dd>
         <WeekLine label={info.label} usage={usage} />
       </dd>
     </dl>
+  );
+}
+
+/**
+ * A paid AI tool's check (ADR-085): whether its key works, or why it is not in use. Nothing to
+ * sign in to: the key is added below.
+ */
+function KeyCheck({
+  info,
+  tool,
+  checking,
+}: {
+  info: AgentRuntimeInfo;
+  tool: AiToolState;
+  checking: boolean;
+}) {
+  if (checking) return <>Checking…</>;
+  if (info.ready) {
+    return <>Your key works{info.checkedAt ? ` (checked at ${when(info.checkedAt)})` : ""}.</>;
+  }
+  // Switched off or no business cap: the notice below says so once.
+  const why = tool.paidBlocked ? null : info.auth.detail;
+  return (
+    <div className="ai-tool__block">
+      <div>{tool.paidKey ? "Key not in use" : "No key yet"}</div>
+      {why && <p className="muted ai-tool__why">{why}</p>}
+    </div>
   );
 }
 

@@ -137,6 +137,8 @@ pub fn create<R: Runtime>(
     let broker = Broker::new(guard.clone(), supervisor, store, config);
     agents.set_tools(Arc::new(broker.clone()));
     agents.set_filter(broker.text_filter());
+    // Paid AI keys and the spending caps (Phase 16 Wave 3, ADR-085).
+    agents.set_paid_gate(plenipo_capabilities::paid::gate(&broker));
     // Who uses the browser or the mouse and keyboard: every window, the tray, and the sign
     // above all windows while a worker uses the mouse and keyboard (Phase 10).
     // The tray and the sign are updated off this thread, always to the newest status, so a

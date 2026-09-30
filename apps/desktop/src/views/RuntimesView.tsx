@@ -4,6 +4,7 @@ import { Button, EmptyState, Panel } from "@plenipo/ui";
 import { toCommandError } from "../api/commands";
 import { AgentRuntimeCards } from "../components/AgentRuntimeCards";
 import { OutputPanel } from "../components/OutputPanel";
+import type { Go } from "../components/views";
 import { StateBadge } from "../components/StateBadge";
 import { formatDuration, formatTime, outcomeText } from "../runtime/format";
 import { isActive } from "../runtime/store";
@@ -14,11 +15,14 @@ export function RuntimesView({
   selectedId,
   onSelect,
   toolId = null,
+  onOpenPage,
 }: {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   /** The AI tool whose card to show (another page asked for it). */
   toolId?: string | null;
+  /** Opens another page (a paid AI tool's Settings links). */
+  onOpenPage?: Go;
 }) {
   const { state, start, cancel, loadOutput } = useRuntime();
   const [pending, setPending] = useState<string | null>(null);
@@ -64,7 +68,7 @@ export function RuntimesView({
         </p>
       )}
 
-      <AgentRuntimeCards focusId={toolId} />
+      <AgentRuntimeCards focusId={toolId} go={onOpenPage} />
 
       <h2>Approved programs</h2>
       <ul className="profiles">

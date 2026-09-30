@@ -73,6 +73,35 @@ pub struct RouteInput<'a> {
     pub reviewed: &'a [WorkDoneBy],
     pub on_limit: LimitBehavior,
     pub now: u64,
+    /// What is left this month under the spending caps covering this work (ADR-085): a paid
+    /// route is skipped when nothing is. None: not known, or no paid route can run anyway.
+    pub spending_room: Option<u64>,
+}
+
+/// A paid AI tool with the owner's key (ADR-085): pay per use, within the spending caps.
+pub(crate) fn is_paid(info: &plenipo_runtime::agent::AgentRuntimeInfo) -> bool {
+    info.auth.state == AuthState::PaidKey
+}
+
+/// The price of `model` on a paid AI tool, from what it reported (its default when none).
+fn priced(info: &plenipo_runtime::agent::AgentRuntimeInfo, model: Option<&str>) -> bool {
+    let reported = info
+        .reported_models
+        .as_ref()
+        .map(|r| r.models.as_slice())
+        .unwrap_or_default();
+    match model {
+        Some(name) => reported.iter().any(|m| m.name == name && m.price.is_some()),
+        // Its default model: Plenipo prices it before the task (the runtime refuses it if not).
+        None => true,
+    }
+}
+
+/// A worker on this AI tool answers in text only (its own words say so).
+pub(crate) fn text_only(info: &plenipo_runtime::agent::AgentRuntimeInfo) -> bool {
+    info.capabilities
+        .tool_posture
+        .starts_with("Conversation only")
 }
 
 struct Candidate<'a> {
@@ -113,7 +142,18 @@ pub fn not_ready(info: &AgentRuntimeInfo) -> Option<String> {
         }
         InstallState::Installed => match info.auth.state {
             AuthState::Checking => format!("{label} is still being checked"),
-            AuthState::SignedOut => format!("{label} is not signed in"),
+            // A paid AI tool says why (ADR-085): paid keys switched off, no business cap, no
+            // key, or the key refused.
+            AuthState::SignedOut => match info.auth.detail.as_deref().map(str::trim) {
+                Some(why) if !why.is_empty() => {
+                    format!(
+                        "{label} cannot take work now ({})",
+                        why.trim_end_matches('.')
+                    )
+                }
+                _ => format!("{label} is not signed in"),
+            },
+            AuthState::PaidKey => format!("Plenipo could not confirm {label}'s paid key"),
             AuthState::ApiKey => {
                 format!("{label} is signed in with an API key, and pay-per-use API billing is off")
             }
@@ -345,7 +385,10 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
             CostPreference::Economical => all.sort_by_key(|m| m.cost),
             CostPreference::Premium => all.sort_by_key(|m| std::cmp::Reverse(m.cost)),
         }
+        // A paid route is used only where the owner listed it (ADR-085 §8), never picked from
+        // the whole list.
         all.into_iter()
+            .filter(|m| tool(&m.runtime_id).is_none_or(|t| !is_paid(&t.info)))
             .map(|m| Candidate {
                 id: &m.id,
                 rank: None,
@@ -504,6 +547,18 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 waiting = Some((info.provider.as_str(), info.label.clone()));
             }
             Some(format!("{} {}", info.label, limit_words(limit, input.now)))
+        } else if is_paid(info) && !priced(info, m.name.as_deref()) {
+            Some(
+                "it is not priced yet: Plenipo does not know what it costs, so it will not use a \
+                 paid key for it"
+                    .into(),
+            )
+        } else if is_paid(info) && input.spending_room == Some(0) {
+            Some(format!(
+                "{} is paid per use, and nothing is left this month under the spending caps \
+                 covering this work",
+                info.label
+            ))
         } else if let Some((_, tool_label)) = waiting.as_ref().filter(|(p, _)| *p != info.provider)
         {
             Some(format!(
@@ -531,6 +586,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                         effort,
                         label: label.clone(),
                         maker: made_by.clone(),
+                        paid: is_paid(info),
                     },
                     c.rank,
                 ));
@@ -580,6 +636,18 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 effort_passed.as_ref(),
                 &choice.label,
             ));
+            // Whether it costs money, and what a worker on it can do (ADR-085).
+            if let Some(t) = tool(&choice.runtime_id) {
+                if choice.paid {
+                    reason.push_str(
+                        " It costs money: it is paid per use with your key, within your spending \
+                         caps.",
+                    );
+                }
+                if text_only(&t.info) {
+                    reason.push_str(" A worker on it answers in text only.");
+                }
+            }
             if cross != CrossCompany::Off {
                 let other = choice.maker.as_ref().is_some_and(|made| {
                     !reviewed_unknown && !reviewed.iter().any(|r| r.id == made.id)
@@ -777,6 +845,7 @@ mod tests {
             reviewed: &reviewed,
             on_limit,
             now: NOW,
+            spending_room: None,
         })
     }
 
@@ -1196,6 +1265,7 @@ mod tests {
             reviewed: &[],
             on_limit: LimitBehavior::Wait,
             now: NOW,
+            spending_room: None,
         })
     }
 
@@ -1371,6 +1441,7 @@ mod tests {
             reviewed,
             on_limit: LimitBehavior::Wait,
             now: NOW,
+            spending_room: None,
         })
     }
 
@@ -1571,5 +1642,171 @@ mod tests {
             chosen(&review(&w, &prefer(&["mystery"]), &[])),
             Some("mystery")
         );
+    }
+
+    // ---- Paid routes (Phase 16 Wave 3, ADR-085) ----
+
+    /// Kimi K3 three ways (ADR-036 §4): the Kimi Code subscription, Ollama's plan, and an
+    /// OpenRouter key, which is paid per use.
+    fn three_ways() -> World {
+        let mut paid = tool("openrouter", "openrouter");
+        paid.info.label = "OpenRouter".into();
+        paid.info.auth.state = AuthState::PaidKey;
+        paid.info.capabilities.tool_posture =
+            "Conversation only: an OpenRouter worker can answer, write, and review text.".into();
+        let priced = |name: &str, label: &str| KnownModel {
+            price: Some(plenipo_runtime::pricing::Price::per_million_dollars(3, 15)),
+            ..KnownModel::new(name, label, &[])
+        };
+        paid.info.reported_models = Some(plenipo_runtime::agent::ReportedModels {
+            models: vec![
+                priced("moonshotai/kimi-k3", "Kimi K3"),
+                KnownModel::new("someco/unpriced", "Unpriced", &[]),
+            ],
+            complete: true,
+            checked_at: NOW,
+        });
+        let mut ollama = tool("ollama", "ollama");
+        ollama.info.label = "Ollama".into();
+        ollama.info.capabilities.tool_posture = "Conversation only: an Ollama worker …".into();
+        World {
+            models: vec![
+                model("k3-kimi", "kimi", "Kimi K3"),
+                model("k3-ollama", "ollama", "Kimi K3"),
+                ModelInfo {
+                    name: Some("moonshotai/kimi-k3".into()),
+                    ..model("k3-openrouter", "openrouter", "Kimi K3")
+                },
+                ModelInfo {
+                    name: Some("someco/unpriced".into()),
+                    ..model("unpriced", "openrouter", "Unpriced")
+                },
+            ],
+            tools: vec![tool("kimi", "moonshot"), ollama, paid],
+        }
+    }
+
+    fn with_room(w: &World, policy: &RolePolicy, room: Option<u64>) -> RouteDecision {
+        route(&RouteInput {
+            role: "Senior Developer",
+            role_id: "dev",
+            policy,
+            agent: None,
+            department: None,
+            organization: None,
+            models: &w.models,
+            tools: &w.tools,
+            project: None,
+            reviewed: &[],
+            on_limit: LimitBehavior::NextChoice,
+            now: NOW,
+            spending_room: room,
+        })
+    }
+
+    fn limited() -> Option<UsageLimit> {
+        Some(UsageLimit {
+            model: None,
+            since: NOW - 1000,
+            resets_at: Some(NOW + 3_600_000),
+            until: NOW + 3_600_000,
+            detail: "usage limit reached".into(),
+        })
+    }
+
+    #[test]
+    fn the_owners_example_kimi_runs_out_and_the_ollama_plan_carries_the_work() {
+        let mut w = three_ways();
+        w.tools[0].limit = limited();
+        let d = with_room(
+            &w,
+            &prefer(&["k3-kimi", "k3-ollama", "k3-openrouter"]),
+            None,
+        );
+        assert_eq!(chosen(&d), Some("k3-ollama"), "{}", d.reason);
+        assert!(!d.choice.as_ref().unwrap().paid);
+        assert!(d.reason.contains("second choice"), "{}", d.reason);
+        assert!(d.reason.contains("usage limit"), "{}", d.reason);
+        assert!(!d.reason.contains("costs money"), "{}", d.reason);
+        assert!(d.reason.contains("answers in text only"), "{}", d.reason);
+    }
+
+    #[test]
+    fn a_paid_route_runs_next_and_the_reason_says_it_costs_money() {
+        let mut w = three_ways();
+        w.tools[0].limit = limited();
+        w.tools[1].limit = limited();
+        let d = with_room(
+            &w,
+            &prefer(&["k3-kimi", "k3-ollama", "k3-openrouter"]),
+            Some(5_000_000),
+        );
+        assert_eq!(chosen(&d), Some("k3-openrouter"), "{}", d.reason);
+        assert!(d.choice.as_ref().unwrap().paid);
+        assert!(d.reason.contains("third choice"), "{}", d.reason);
+        assert!(
+            d.reason
+                .contains("It costs money: it is paid per use with your key"),
+            "{}",
+            d.reason
+        );
+        assert!(d.reason.contains("Kimi K3 (OpenRouter)"), "{}", d.reason);
+    }
+
+    #[test]
+    fn a_paid_route_over_its_cap_or_not_priced_is_skipped() {
+        let mut w = three_ways();
+        w.tools[0].limit = limited();
+        w.tools[1].limit = limited();
+        let d = with_room(&w, &prefer(&["k3-openrouter", "k3-kimi"]), Some(0));
+        assert_eq!(chosen(&d), None, "{}", d.reason);
+        let note = &d.candidates[0];
+        assert_eq!(note.verdict, CandidateVerdict::Skipped);
+        assert!(
+            note.note.contains("nothing is left this month"),
+            "{}",
+            note.note
+        );
+        let d = with_room(&w, &prefer(&["unpriced"]), Some(5_000_000));
+        assert_eq!(chosen(&d), None, "{}", d.reason);
+        assert!(
+            d.candidates[0].note.contains("not priced yet"),
+            "{}",
+            d.candidates[0].note
+        );
+    }
+
+    #[test]
+    fn a_paid_route_is_used_only_where_the_owner_listed_it() {
+        let mut w = three_ways();
+        w.tools[0].limit = limited();
+        w.tools[1].limit = limited();
+        // No list: the whole registry, but never a paid route, however it sorts.
+        let d = with_room(&w, &RolePolicy::default(), Some(5_000_000));
+        assert_eq!(chosen(&d), None, "{}", d.reason);
+        assert!(d
+            .candidates
+            .iter()
+            .all(|c| !c.model_id.contains("openrouter") && c.model_id != "unpriced"));
+    }
+
+    #[test]
+    fn a_paid_route_without_its_key_is_skipped_and_the_reason_says_why() {
+        let mut w = three_ways();
+        w.tools[0].limit = limited();
+        w.tools[1].limit = limited();
+        let paid = &mut w.tools[2].info;
+        paid.ready = false;
+        paid.auth.state = AuthState::SignedOut;
+        paid.auth.detail = Some(
+            "Paid AI keys are switched off: turn on Settings → Switches → Let workers use paid \
+             AI keys."
+                .into(),
+        );
+        let d = with_room(&w, &prefer(&["k3-openrouter"]), Some(5_000_000));
+        assert_eq!(chosen(&d), None, "{}", d.reason);
+        let note = &d.candidates[0].note;
+        assert!(note.contains("OpenRouter cannot take work now"), "{note}");
+        assert!(note.contains("Paid AI keys are switched off"), "{note}");
     }
 }

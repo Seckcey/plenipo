@@ -9,6 +9,7 @@
 //! of Plenipo was built to use one (never a setting, never an environment variable).
 
 use crate::connections::Service;
+use crate::paid::PaidService;
 use crate::websites::Site;
 
 /// Why Plenipo reaches the internet itself.
@@ -22,6 +23,9 @@ pub enum Purpose {
     /// Signing in to, and using, one of the owner's connections (Phase 20, ADR-062 §8): only
     /// that service's own addresses ([`connection_hosts`]).
     Connection(Service),
+    /// A paid task, or its key's check, on a paid AI service (Phase 16 Wave 3, ADR-085): only
+    /// that service's own addresses ([`PaidService::hosts`]).
+    PaidAi(PaidService),
 }
 
 impl Purpose {
@@ -36,6 +40,9 @@ impl Purpose {
                 Service::Hubspot => "the HubSpot connection",
                 Service::Stripe => "the Stripe connection",
                 Service::Wordpress => "the WordPress connection",
+            },
+            Self::PaidAi(s) => match s {
+                PaidService::OpenRouter => "the OpenRouter paid key",
             },
         }
     }
@@ -121,6 +128,9 @@ pub struct OutboundRules {
     /// service's host and path after it), for copies of Plenipo built for the end-to-end tests
     /// only (never a setting, never an environment variable).
     pub connections_test_port: Option<u16>,
+    /// A stand-in for the paid AI services on this computer (`127.0.0.1:<port>`, the service's
+    /// host and path after it), for tests only (never a setting, never an environment variable).
+    pub paid_test_port: Option<u16>,
 }
 
 impl OutboundRules {
@@ -136,6 +146,7 @@ impl OutboundRules {
             test_server_port: port,
             ai_tool_test_port: None,
             connections_test_port: None,
+            paid_test_port: None,
         }
     }
 
@@ -192,6 +203,9 @@ impl OutboundRules {
         if let Purpose::Connection(service) = purpose {
             return self.check_connection(service, &site, site_host, refuse);
         }
+        if let Purpose::PaidAi(service) = purpose {
+            return self.check_paid(service, &site, refuse);
+        }
         if let Some(port) = self.test_server_port {
             if site.scheme == "http" && site.host == "127.0.0.1" && site.port == Some(port) {
                 return Ok(site);
@@ -216,7 +230,47 @@ impl OutboundRules {
                     refuse("updates come only from Plenipo's releases on GitHub")
                 }
             }
-            Purpose::AiToolVersions | Purpose::Connection(_) => unreachable!("checked above"),
+            Purpose::AiToolVersions | Purpose::Connection(_) | Purpose::PaidAi(_) => {
+                unreachable!("checked above")
+            }
+        }
+    }
+
+    /// One of the paid service's own hosts, over `https` on its usual port with no user name, or
+    /// its stand-in on this computer in the tests.
+    fn check_paid(
+        &self,
+        service: PaidService,
+        site: &Site,
+        refuse: impl Fn(&str) -> Result<Site, String>,
+    ) -> Result<Site, String> {
+        let Ok(url) = url::Url::parse(&site.url) else {
+            return refuse("that is not a web address");
+        };
+        if !url.username().is_empty() || url.password().is_some() {
+            return refuse("a user name or password in the address is never used");
+        }
+        if let Some(port) = self.paid_test_port {
+            if site.scheme == "http" && site.host == "127.0.0.1" && site.port == Some(port) {
+                // `http://127.0.0.1:<port>/<host><path>`.
+                let rest = url.path().trim_start_matches('/');
+                let host = &rest[..rest.find('/').unwrap_or(rest.len())];
+                if service.hosts().contains(&host) {
+                    return Ok(site.clone());
+                }
+                return refuse("the test stand-in serves only the paid service's own addresses");
+            }
+        }
+        if site.scheme != "https" {
+            return refuse("only https is allowed");
+        }
+        if site.port.is_some() {
+            return refuse("only the usual https port is allowed");
+        }
+        if service.hosts().contains(&site.host.as_str()) {
+            Ok(site.clone())
+        } else {
+            refuse("a paid AI key reaches only its own service's addresses")
         }
     }
 
@@ -634,5 +688,68 @@ mod tests {
         assert_eq!(refused.len(), 1);
         assert_eq!(refused[0].payload["host"], "evil.example");
         assert!(!refused[0].payload.to_string().contains("token=abc"));
+    }
+
+    #[test]
+    fn a_paid_key_reaches_only_its_own_services_https_addresses() {
+        let rules = OutboundRules::default();
+        let paid = Purpose::PaidAi(PaidService::OpenRouter);
+        for ok in [
+            "https://openrouter.ai/api/v1/key",
+            "https://openrouter.ai/api/v1/models",
+            "https://openrouter.ai/api/v1/chat/completions",
+        ] {
+            assert!(rules.check(paid, ok).is_ok(), "{ok}");
+        }
+        for (bad, why) in [
+            ("http://openrouter.ai/api/v1/key", "only https"),
+            ("https://openrouter.ai:8443/api/v1/key", "usual https port"),
+            (
+                "https://user:pass@openrouter.ai/api/v1/key",
+                "user name or password",
+            ),
+            (
+                "https://api.openai.com/v1/models",
+                "its own service's addresses",
+            ),
+            (
+                "https://openrouter.ai.evil.example/api/v1/key",
+                "its own service's addresses",
+            ),
+            (
+                "https://evil.example/openrouter.ai/api/v1/key",
+                "its own service's addresses",
+            ),
+            // A stand-in on this computer only in the tests.
+            (
+                "http://127.0.0.1:9911/openrouter.ai/api/v1/key",
+                "only https",
+            ),
+        ] {
+            let err = rules.check(paid, bad).expect_err(bad);
+            assert!(err.contains(why), "{bad}: {err}");
+            // An address with a user name in it is refused before any purpose is looked at.
+            if why != "user name or password" {
+                assert!(err.contains("the OpenRouter paid key"), "{err}");
+            }
+        }
+        // The tests' stand-in serves the service's own addresses, and nothing else.
+        let tests = OutboundRules {
+            paid_test_port: Some(9911),
+            ..OutboundRules::default()
+        };
+        assert!(tests
+            .check(paid, "http://127.0.0.1:9911/openrouter.ai/api/v1/key")
+            .is_ok());
+        assert!(tests
+            .check(paid, "http://127.0.0.1:9911/evil.example/api/v1/key")
+            .is_err());
+        assert!(tests
+            .check(paid, "http://127.0.0.1:9912/openrouter.ai/api/v1/key")
+            .is_err());
+        // Another purpose never reaches a paid service's addresses.
+        assert!(rules
+            .check(Purpose::Updates, "https://openrouter.ai/api/v1/key")
+            .is_err());
     }
 }

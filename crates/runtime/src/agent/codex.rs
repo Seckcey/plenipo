@@ -418,6 +418,8 @@ fn parse_models(out: &ProbeOutput) -> Option<Vec<KnownModel>> {
                     effort_levels: efforts,
                     maker: None,
                     points_to: None,
+                    price: None,
+                    same: None,
                 })
             })
             .collect(),

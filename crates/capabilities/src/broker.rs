@@ -846,6 +846,30 @@ impl Broker {
         }
     }
 
+    /// The Vault (Windows Credential Manager): the owner's secrets, servers' and connections'
+    /// sign-ins, and paid AI keys (Phase 16 Wave 3).
+    pub fn secret_store(&self) -> Arc<dyn SecretStore> {
+        Arc::clone(&self.inner.store)
+    }
+
+    /// The paid AI keys (ADR-085), with the names they are hidden under.
+    fn paid_secrets(&self) -> Vec<(String, String)> {
+        let keys = self
+            .inner
+            .guard
+            .config()
+            .map(|c| c.paid_keys)
+            .unwrap_or_default();
+        keys.iter()
+            .filter_map(|k| {
+                vault::read(self.inner.store.as_ref(), &k.id)
+                    .ok()
+                    .flatten()
+                    .map(|v| (v, format!("paid key {}", k.name)))
+            })
+            .collect()
+    }
+
     /// Rebuild the redactor from the secrets in the Vault.
     pub fn refresh_redactor(&self) {
         let secrets = self
@@ -864,6 +888,7 @@ impl Broker {
             })
             .chain(self.server_secrets())
             .chain(self.inner.connections.secrets())
+            .chain(self.paid_secrets())
             .collect();
         *self
             .inner

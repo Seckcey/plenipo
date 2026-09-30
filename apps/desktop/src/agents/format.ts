@@ -97,6 +97,7 @@ export const AUTH_LABEL: Record<AuthState, string> = {
   thirdPartyCloud: "Third-party cloud — not allowed",
   signedOut: "Not signed in",
   unknown: "Sign-in unknown",
+  paidKey: "Key saved (paid per use)",
 };
 
 export function runtimeStatus(r: AgentRuntimeInfo): {

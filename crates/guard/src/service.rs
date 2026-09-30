@@ -13,6 +13,7 @@ use crate::defaults::template_sets;
 use crate::dto::*;
 use crate::engine::{Scope, ScopeProject, ScopeUnit};
 use crate::error::{GuardError, Result};
+use crate::paid::PaidKeyInfo;
 use crate::registry::Capability;
 
 /// Ledger setting holding Guard's configuration.
@@ -485,6 +486,38 @@ impl Guard {
             Ok(Some((
                 json!({ "secretId": s.id, "name": s.name, "envVar": s.env_var, "programs": s.programs }),
                 s,
+            )))
+        })?
+        .ok_or_else(|| GuardError::Invalid("nothing changed".into()))
+    }
+
+    /// Record a paid key's reference for `runtime_id` (the Vault stores the key under `id`).
+    /// Returns it, and the reference it replaced.
+    pub fn save_paid_key(
+        &self,
+        runtime_id: &str,
+        name: &str,
+        id: &str,
+    ) -> Result<(PaidKeyInfo, Option<PaidKeyInfo>)> {
+        let now = plenipo_ledger::now_ms();
+        self.update("vault.paid_key_saved", OWNER, |c| {
+            let (key, previous) = c.save_paid_key(runtime_id, name, id, now)?;
+            // Only the reference: never the key.
+            Ok(Some((
+                json!({ "runtime": key.runtime_id, "name": key.name, "replaced": previous.is_some() }),
+                (key, previous),
+            )))
+        })?
+        .ok_or_else(|| GuardError::Invalid("nothing changed".into()))
+    }
+
+    /// Remove the paid key's reference for `runtime_id`. Returns it.
+    pub fn remove_paid_key(&self, runtime_id: &str) -> Result<PaidKeyInfo> {
+        self.update("vault.paid_key_removed", OWNER, |c| {
+            let key = c.remove_paid_key(runtime_id)?;
+            Ok(Some((
+                json!({ "runtime": key.runtime_id, "name": key.name }),
+                key,
             )))
         })?
         .ok_or_else(|| GuardError::Invalid("nothing changed".into()))

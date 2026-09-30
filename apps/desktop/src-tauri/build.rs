@@ -84,6 +84,9 @@ const COMMANDS: &[&str] = &[
     "cancel_ai_tool_update",
     "set_ai_tools_auto_update",
     "set_ai_tool_payment",
+    // Phase 16 Wave 3 (ADR-085): paid AI keys.
+    "save_paid_key",
+    "remove_paid_key",
     // Phase 16 Wave 3 (ADR-085): spending caps.
     "get_spending",
     "set_spending_cap",

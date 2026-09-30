@@ -12,6 +12,7 @@ import { runtimeStatus } from "../../agents/format";
 import { useNow } from "../../runtime/useNow";
 import { useTerminalIfAny } from "../../terminal/useTerminal";
 import { PILL_TONE } from "../tones";
+import type { Go } from "../views";
 import { ModelsTab } from "./ModelsTab";
 import { Overview } from "./Overview";
 import { UsageTab } from "./UsageTab";
@@ -39,6 +40,10 @@ function cardStatus(
   if (tool && MOVING.has(tool.update.state) && tool.update.state !== "waiting") {
     return { status: "pending", label: "Updating…" };
   }
+  // A paid AI tool is not signed in to: it has a key in use, or not (ADR-085).
+  if (tool?.payment === "paidKey" && !info.ready && info.auth.state === "signedOut") {
+    return { status: PILL_TONE.warn, label: tool.paidKey ? "Key not in use" : "No key yet" };
+  }
   const s = runtimeStatus(info);
   return { status: PILL_TONE[s.tone], label: s.text };
 }
@@ -55,6 +60,7 @@ export function AiToolCard({
   usageRevision,
   onApply,
   onRouting,
+  go,
 }: {
   info: AgentRuntimeInfo;
   tool: AiToolState | undefined;
@@ -62,6 +68,8 @@ export function AiToolCard({
   usageRevision: number;
   onApply: (page: AiToolsPage) => void;
   onRouting: (snapshot: RoutingSnapshot) => void;
+  /** Opens another page (a paid AI tool's Settings links). */
+  go?: Go | undefined;
 }) {
   const [tab, setTab] = useState<CardTab>("overview");
   const terminal = useTerminalIfAny();
@@ -117,6 +125,7 @@ export function AiToolCard({
             usage={usage}
             onApply={onApply}
             onRouting={onRouting}
+            go={go}
           />
         )}
         {tab === "usage" && <UsageTab label={info.label} usage={usage} />}

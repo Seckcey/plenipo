@@ -201,6 +201,8 @@ async fn harness(auth: &str) -> H {
         broker_config,
     );
     rt.set_tools(Arc::new(broker.clone()));
+    // Paid AI keys and the spending caps (ADR-085), as in the app.
+    rt.set_paid_gate(plenipo_capabilities::paid::gate(&broker));
     let releases = releases("9.9.9");
     let tools = AiTools::new(
         rt.clone(),
@@ -922,12 +924,30 @@ async fn a_task_that_runs_past_midnight_on_two_models_is_counted_once() {
 #[tokio::test]
 async fn the_payment_switch_cannot_be_turned_to_a_paid_key_and_plans_come_only_as_reported() {
     let h = harness("subscription").await;
-    assert!(h
-        .tools
-        .page()
+    // Every AI tool that signs in with a subscription uses it; a paid AI tool (OpenRouter,
+    // ADR-085) uses its key and has none saved yet.
+    let page = h.tools.page();
+    assert!(page
         .tools
         .iter()
+        .filter(|t| t.runtime_id != "openrouter")
         .all(|t| t.payment == PaymentMethod::Subscription));
+    let openrouter = page
+        .tools
+        .iter()
+        .find(|t| t.runtime_id == "openrouter")
+        .unwrap();
+    assert_eq!(openrouter.payment, PaymentMethod::PaidKey);
+    assert!(openrouter.paid_key.is_none());
+    assert!(openrouter
+        .paid_blocked
+        .as_deref()
+        .unwrap()
+        .contains("switched off"));
+    assert!(h
+        .tools
+        .set_payment("openrouter", PaymentMethod::Subscription)
+        .is_err());
     let err = h
         .tools
         .set_payment("codex", PaymentMethod::PaidKey)
@@ -992,4 +1012,114 @@ async fn what_plenipo_keeps_but_cannot_read_is_never_written_over() {
     // Nor does the switch write over it; it says it could not.
     assert!(h.tools.set_auto_update(true).is_err());
     assert_eq!(h.ledger.setting("ai_tools").unwrap().unwrap(), odd);
+}
+
+/// A paid key (ADR-085) is saved only with the switch on and the business's cap set, checked
+/// once, kept only in the Vault, hidden everywhere, and removed from the Vault when removed. A
+/// key the service refuses changes nothing.
+#[tokio::test]
+async fn a_paid_key_is_kept_only_in_the_vault_and_only_with_the_switch_and_the_business_cap() {
+    let h = harness("subscription").await;
+    let key = "sk-or-v1-test-key-not-real-abcdef012345";
+    let card = |page: &plenipo_capabilities::ai_tools::AiToolsPage| {
+        page.tools
+            .iter()
+            .find(|t| t.runtime_id == "openrouter")
+            .cloned()
+            .unwrap()
+    };
+    // Paid keys switched off: refused, and nothing is kept.
+    let err = h
+        .tools
+        .save_paid_key("openrouter", "Office key", key)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("switched off"), "{err}");
+    h.broker
+        .guard()
+        .set_switches(&plenipo_guard::dto::Switches {
+            paid_ai_keys: true,
+            ..plenipo_guard::dto::Switches::default()
+        })
+        .unwrap();
+    // No business cap yet: refused.
+    let err = h
+        .tools
+        .save_paid_key("openrouter", "Office key", key)
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("business's monthly spending cap"),
+        "{err}"
+    );
+    h.ledger
+        .set_spending_cap(
+            &plenipo_ledger::CapCovers::Business,
+            50_000_000,
+            "owner",
+            plenipo_ledger::now_ms(),
+        )
+        .unwrap();
+    // A key the service refuses: nothing changes.
+    std::fs::write(h.state.join("auth"), "signed-out").unwrap();
+    let err = h
+        .tools
+        .save_paid_key("openrouter", "Office key", key)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("did not accept the key"), "{err}");
+    assert!(!err.to_string().contains(key));
+    assert!(card(&h.tools.page()).paid_key.is_none());
+    assert!(h.broker.guard().config().unwrap().paid_keys.is_empty());
+    // Accepted: saved by name, and OpenRouter is ready.
+    std::fs::write(h.state.join("auth"), "subscription").unwrap();
+    let page = h
+        .tools
+        .save_paid_key("openrouter", "Office key", key)
+        .await
+        .unwrap();
+    let saved = card(&page);
+    assert_eq!(saved.paid_key.as_ref().unwrap().name, "Office key");
+    assert!(saved.paid_blocked.is_none());
+    let info =
+        h.rt.runtimes()
+            .into_iter()
+            .find(|r| r.id == "openrouter")
+            .unwrap();
+    assert!(info.ready, "{info:#?}");
+    // The key is in the Vault only: never in the settings, the Ledger, the page, or a log line.
+    let config = h.broker.guard().config().unwrap();
+    let stored = saved.paid_key.clone().unwrap().id;
+    assert!(plenipo_capabilities::vault::stored_ids(&config).contains(&stored));
+    assert_eq!(config.paid_keys.len(), 1);
+    assert_eq!(
+        plenipo_capabilities::vault::read(h.broker.secret_store().as_ref(), &stored)
+            .unwrap()
+            .as_deref(),
+        Some(key)
+    );
+    let guard_setting = h.ledger.setting("guard").unwrap().unwrap().to_string();
+    assert!(!guard_setting.contains(key));
+    let events = serde_json::to_string(&h.ledger.recent_events(1_000).unwrap()).unwrap();
+    assert!(!events.contains(key) && !events.contains("abcdef012345"));
+    assert!(!format!("{page:?}").contains(key));
+    let filter = h.broker.text_filter();
+    assert!(!filter(&format!("the service said {key}")).contains(key));
+    // While a key is saved, the business's cap stays (ADR-085 §2.4).
+    assert!(plenipo_capabilities::paid::any_key(&h.broker));
+    // Removed: gone from the Vault too, and OpenRouter is not ready.
+    let page = h.tools.remove_paid_key("openrouter").await.unwrap();
+    assert!(card(&page).paid_key.is_none());
+    assert!(
+        plenipo_capabilities::vault::read(h.broker.secret_store().as_ref(), &stored)
+            .unwrap()
+            .is_none()
+    );
+    assert!(!plenipo_capabilities::paid::any_key(&h.broker));
+    let info =
+        h.rt.runtimes()
+            .into_iter()
+            .find(|r| r.id == "openrouter")
+            .unwrap();
+    assert!(!info.ready);
 }

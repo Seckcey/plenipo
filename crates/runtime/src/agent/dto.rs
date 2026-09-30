@@ -49,6 +49,9 @@ pub enum AuthState {
     ApiKey,
     /// Routed through a third-party cloud provider. Refused.
     ThirdPartyCloud,
+    /// A paid AI tool with the owner's saved key, while paid keys are switched on (Phase 16
+    /// Wave 3, ADR-085): pay per use, within the spending caps.
+    PaidKey,
     SignedOut,
     /// The status command failed or is not supported by this version.
     Unknown,
@@ -166,6 +169,10 @@ pub mod makers {
     pub const MINIMAX: (&str, &str) = ("minimax", "MiniMax");
     pub const NVIDIA: (&str, &str) = ("nvidia", "NVIDIA");
     pub const GITHUB: (&str, &str) = ("github", "GitHub");
+    /// Qwen's maker (Phase 16 Wave 3, through OpenRouter).
+    pub const ALIBABA: (&str, &str) = ("alibaba", "Alibaba (Qwen)");
+    pub const MISTRAL: (&str, &str) = ("mistral", "Mistral");
+    pub const META: (&str, &str) = ("meta", "Meta");
 }
 
 /// A model a CLI itself offers, as of the CLI version its adapter was checked against.
@@ -189,6 +196,17 @@ pub struct KnownModel {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub points_to: Option<String>,
+    /// Its price per million tokens, for a model a paid AI tool reported with one (Phase 16
+    /// Wave 3, ADR-085). None: not priced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub price: Option<crate::pricing::Price>,
+    /// The same model on other AI tools (ADR-036 §4): one short name for it everywhere
+    /// (`kimi-k3` for Kimi K3 on Kimi Code, on Ollama, and on OpenRouter), so the owner sees one
+    /// model with more than one way to reach it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub same: Option<String>,
 }
 
 impl KnownModel {
@@ -199,7 +217,15 @@ impl KnownModel {
             effort_levels: effort_levels.to_vec(),
             maker: None,
             points_to: None,
+            price: None,
+            same: None,
         }
+    }
+
+    /// The same model as `same` on other AI tools (ADR-036 §4).
+    pub fn same(mut self, same: &str) -> Self {
+        self.same = Some(same.into());
+        self
     }
 
     /// Made by `maker`, an `(ID, name)` pair from [`makers`].

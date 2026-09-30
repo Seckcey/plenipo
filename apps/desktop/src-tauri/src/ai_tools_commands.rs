@@ -108,7 +108,8 @@ pub async fn set_ai_tools_auto_update(
     .await
 }
 
-/// How an AI tool is paid for: a subscription only, until spending caps exist (Phase 16).
+/// How an AI tool is paid for: fixed by the tool (Phase 16 Wave 3, ADR-085). A subscription AI
+/// tool uses its subscription, and a paid AI tool its key.
 #[tauri::command]
 pub async fn set_ai_tool_payment(
     tools: State<'_, AiTools>,
@@ -120,6 +121,48 @@ pub async fn set_ai_tool_payment(
         tools.set_payment(&runtime_id, method).map_err(broker_error)
     })
     .await
+}
+
+/// Longest key accepted over IPC (the key is checked again, and kept only in the Vault).
+const MAX_KEY_CHARS: usize = 400;
+
+/// Save a paid AI tool's key (ADR-085), typed into this window only: checked with one read call,
+/// then kept only in the Vault. The answer never holds the key, and neither does any error.
+#[tauri::command]
+pub async fn save_paid_key(
+    tools: State<'_, AiTools>,
+    runtime_id: String,
+    name: String,
+    key: String,
+) -> Result<AiToolsPage, CommandError> {
+    validate_runtime_id(&runtime_id)?;
+    if name.chars().count() > 60 {
+        return Err(CommandError::invalid_input(
+            "A key's name is at most 60 characters.",
+        ));
+    }
+    if key.chars().count() > MAX_KEY_CHARS {
+        return Err(CommandError::invalid_input(
+            "That is longer than any key: paste the whole key, as the service shows it.",
+        ));
+    }
+    tools
+        .save_paid_key(&runtime_id, &name, &key)
+        .await
+        .map_err(broker_error)
+}
+
+/// Remove a paid AI tool's key, from the Vault too.
+#[tauri::command]
+pub async fn remove_paid_key(
+    tools: State<'_, AiTools>,
+    runtime_id: String,
+) -> Result<AiToolsPage, CommandError> {
+    validate_runtime_id(&runtime_id)?;
+    tools
+        .remove_paid_key(&runtime_id)
+        .await
+        .map_err(broker_error)
 }
 
 #[cfg(test)]

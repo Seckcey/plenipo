@@ -170,19 +170,24 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("shows each AI tool's versions, sign-in, and how it is paid for, with the paid key locked", async () => {
+  it("shows each AI tool's versions, sign-in, and how it is paid for, with paid keys locked", async () => {
     const { browser } = app;
     await waitForShell(browser);
     await openAiTools(browser);
     const codex = await textOf(browser, card("Codex"));
     assert.match(codex, /Installed 0\.99\.0/);
     assert.match(codex, /Subscription/);
-    // The paid-key switch is shown, and cannot be turned on before spending caps (Phase 16).
-    const paid = await browser.$(
-      '//li[@aria-label="Codex AI tool"]//button[@role="switch"][@aria-label="Paid AI key for Codex (pay per use)"]',
-    );
-    await paid.waitForExist({ timeout: 10_000 });
-    assert.equal(await paid.isEnabled(), false, "the paid-key switch is locked");
+    // A subscription AI tool never takes a paid key (Phase 16 Wave 3, ADR-085).
+    assert.match(codex, /Codex always uses your subscription/);
+    // OpenRouter comes with Plenipo and is paid per use: with paid keys switched off (the
+    // default), its card says so and its key form is locked. It never reaches OpenRouter here.
+    await waitForText(browser, card("OpenRouter"), "No key yet");
+    const openRouter = await textOf(browser, card("OpenRouter"));
+    assert.match(openRouter, /Comes with Plenipo/);
+    assert.match(openRouter, /Paid AI keys are switched off/i);
+    const key = await browser.$('//li[@aria-label="OpenRouter AI tool"]//input[@type="password"]');
+    await key.waitForExist({ timeout: 10_000 });
+    assert.equal(await key.isEnabled(), false, "the key form is locked");
     // Kimi has no sign-out command, and its card says so.
     await waitForText(browser, card("Kimi"), "Kimi has no sign-out command");
     assert.equal(
