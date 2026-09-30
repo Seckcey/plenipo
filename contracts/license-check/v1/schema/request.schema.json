@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://account.getplenipo.com/contracts/license-check/v1/request.schema.json",
+  "title": "The weekly license check's request body",
+  "description": "Exactly the key ID and the app version. Plenipo sends it as {\"key_id\":\"…\",\"app_version\":\"…\"} with no spaces.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["key_id", "app_version"],
+  "properties": {
+    "key_id": {
+      "type": "string",
+      "pattern": "^lk_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "app_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$",
+      "maxLength": 40
+    }
+  }
+}

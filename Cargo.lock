@@ -4261,6 +4261,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "plenipo-licensing"
+version = "1.17.0"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "ts-rs",
+ "uuid",
+]
+
+[[package]]
 name = "plenipo-router"
 version = "1.17.0"
 dependencies = [

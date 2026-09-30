@@ -6,6 +6,7 @@ members = [
     "crates/core",
     "crates/guard",
     "crates/ledger",
+    "crates/licensing",
     "crates/liaison",
     "crates/router",
     "crates/runtime",

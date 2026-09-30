@@ -1,0 +1,6 @@
+{
+  "id": "test-1",
+  "note": "TEST ONLY. Published on purpose so both sides can sign and check the examples. Release builds of Plenipo never trust it.",
+  "publicHex": "1db6c8af82d69a5b855dfafc9fb183907acea28217cc0a594df0e2f7f995b581",
+  "seedHex": "706c656e69706f2d636f6e74726163742d746573742d7369676e696e672d6b31"
+}

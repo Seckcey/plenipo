@@ -1,0 +1,25 @@
+[package]
+name = "plenipo-licensing"
+description = "Plenipo licensing: Free and Pro, the license key, the weekly check, and the one place every Free limit is decided (Phase 11A)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+# Copies of Plenipo built for the tests also trust the contract's test signing key, and may
+# point the weekly check at a stand-in on this computer. Release builds never enable it.
+test-keys = []
+
+[dependencies]
+base64 = "0.22"
+ed25519-dalek = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+ts-rs = "11"
+uuid = { version = "1", features = ["v4"] }
+
+[lints]
+workspace = true

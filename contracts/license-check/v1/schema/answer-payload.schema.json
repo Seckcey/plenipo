@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://account.getplenipo.com/contracts/license-check/v1/answer-payload.schema.json",
+  "title": "What a weekly answer says",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "key_id", "state", "paid_through", "ends_at", "as_of", "signer"],
+  "properties": {
+    "v": { "const": 1 },
+    "key_id": { "type": "string", "pattern": "^lk_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "state": { "enum": ["active", "cancelled", "ended", "unknown"] },
+    "paid_through": { "type": ["integer", "null"] },
+    "ends_at": { "type": ["integer", "null"] },
+    "as_of": { "type": "integer", "minimum": 1767225600 },
+    "signer": { "type": "string", "minLength": 1, "maxLength": 40 }
+  },
+  "if": { "properties": { "state": { "const": "cancelled" } } },
+  "then": { "properties": { "ends_at": { "type": "integer" } } }
+}
