@@ -18,6 +18,7 @@ use plenipo_ledger::{
     CancelOutcome, HandoffDecision, Ledger, LedgerError, LedgerEvent, LiaisonMessage, MessageKind,
     MessageState, NewEvent, NewHandoffRequest, NewReply, NewTask, OpenRequest, Task, TaskState,
 };
+use plenipo_licensing::{Admission, Blocked, Entitlements};
 use plenipo_runtime::agent::{
     text_hash, unavailable_outcome, AgentRuntime, AgentSessionDetail, Effort, InstallState,
     SessionStart, StepNote, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef,
@@ -195,6 +196,9 @@ struct Inner {
     state: Mutex<State>,
     /// The organization's directory (Workforce, Phase 5), when installed.
     directory: RwLock<Option<Arc<dyn Directory>>>,
+    /// The PC's Free or Pro (Phase 11A): Free runs three workers at a time across the PC
+    /// (ADR-113). Until the app gives the PC's, always Pro.
+    entitlements: RwLock<Arc<Entitlements>>,
 }
 
 /// Cheap to clone; clones share state.
@@ -282,6 +286,7 @@ impl Liaison {
             planning: Mutex::new(()),
             state: Mutex::new(State::default()),
             directory: RwLock::new(None),
+            entitlements: RwLock::new(Entitlements::unlocked()),
         });
         runtime.set_hook(Arc::new(Hook {
             inner: Arc::downgrade(&inner),
@@ -306,6 +311,66 @@ impl Liaison {
             .directory
             .write()
             .unwrap_or_else(|p| p.into_inner()) = Some(directory);
+    }
+
+    /// Use the PC's Free or Pro for workers at the same time (ADR-113).
+    pub fn set_entitlements(&self, entitlements: Arc<Entitlements>) {
+        *self
+            .inner
+            .entitlements
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = entitlements;
+    }
+
+    fn entitlements(&self) -> Arc<Entitlements> {
+        self.inner
+            .entitlements
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    /// Let a worker the owner started go on the job, or say, in plain words, that Free runs three
+    /// at a time (the owner tries again when one finishes).
+    fn admit_owners(&self) -> std::result::Result<Admission, RuntimeError> {
+        self.entitlements()
+            .admit_worker(None)
+            .map_err(|b| RuntimeError::Busy(b.message))
+    }
+
+    /// After an owner's start: the admitted worker's task, or its place freed when it did not
+    /// start.
+    fn admitted(
+        &self,
+        admission: Admission,
+        started: std::result::Result<AgentSessionDetail, RuntimeError>,
+    ) -> std::result::Result<AgentSessionDetail, RuntimeError> {
+        let e = self.entitlements();
+        match &started {
+            Ok(detail) => match detail.session.active_task_id.as_deref() {
+                Some(task) => e.bind(&admission, task),
+                None => e.release(admission),
+            },
+            Err(_) => e.release(admission),
+        }
+        started
+    }
+
+    /// Record once that a delegated task waits for a place on Free (ADR-113): it starts by
+    /// itself when a worker finishes.
+    async fn note_waiting_for_a_place(&self, task_id: &str, blocked: &Blocked) -> Result<()> {
+        let (tid, reason) = (task_id.to_owned(), blocked.message.clone());
+        self.blocking(move |l| {
+            if l.count_task_events(&tid, "liaison.waiting_for_free_slot")? == 0 {
+                l.append_event(task_event(
+                    &tid,
+                    "liaison.waiting_for_free_slot",
+                    json!({ "reason": reason }),
+                ))?;
+            }
+            Ok(())
+        })
+        .await
     }
 
     fn directory(&self) -> Option<Arc<dyn Directory>> {
@@ -424,8 +489,10 @@ impl Liaison {
         handoffs: bool,
     ) -> std::result::Result<AgentSessionDetail, RuntimeError> {
         let runtime = &self.inner.runtime;
+        let admission = self.admit_owners()?;
         if !handoffs {
-            return runtime.start_session(runtime_id, objective, model).await;
+            let started = runtime.start_session(runtime_id, objective, model).await;
+            return self.admitted(admission, started);
         }
         if runtime
             .runtimes()
@@ -435,7 +502,7 @@ impl Liaison {
             runtime.refresh().await;
         }
         let brief = context::root_brief(objective, None, None, &self.destinations(), self.limits());
-        runtime
+        let started = runtime
             .start_session_with(
                 SessionStart {
                     id: None,
@@ -460,7 +527,8 @@ impl Liaison {
                     },
                 },
             )
-            .await
+            .await;
+        self.admitted(admission, started)
     }
 
     /// Give a session its next objective. In a session that allows handoffs it starts a new
@@ -485,11 +553,13 @@ impl Liaison {
                     .into(),
             ));
         }
+        let admission = self.admit_owners()?;
         if !info.enabled {
-            return runtime.resume_session(session_id, objective).await;
+            let started = runtime.resume_session(session_id, objective).await;
+            return self.admitted(admission, started);
         }
         let brief = context::root_brief(objective, None, None, &self.destinations(), self.limits());
-        runtime
+        let started = runtime
             .resume_session_with(
                 session_id,
                 TurnInput {
@@ -503,7 +573,8 @@ impl Liaison {
                     },
                 },
             )
-            .await
+            .await;
+        self.admitted(admission, started)
     }
 
     // ---- Members of the organization (Workforce, Phase 5) ------------------------------
@@ -524,6 +595,7 @@ impl Liaison {
             ));
         }
         let runtime = &self.inner.runtime;
+        let admission = self.admit_owners()?;
         if runtime
             .runtimes()
             .iter()
@@ -547,7 +619,7 @@ impl Liaison {
         metadata["workforce"] = workforce.clone();
         let mut task_metadata = root_metadata();
         task_metadata["workforce"] = workforce;
-        runtime
+        let started = runtime
             .start_session_with(
                 SessionStart { metadata, ..start },
                 TurnInput {
@@ -561,7 +633,8 @@ impl Liaison {
                     },
                 },
             )
-            .await
+            .await;
+        self.admitted(admission, started)
     }
 
     /// Give a member's session its next objective (a new workflow in the same provider
@@ -584,6 +657,7 @@ impl Liaison {
                 "this session does not belong to that member".into(),
             ));
         }
+        let admission = self.admit_owners()?;
         let audience = self.audience_async(workforce.clone()).await;
         let brief = context::root_brief(
             objective,
@@ -594,7 +668,7 @@ impl Liaison {
         );
         let mut task_metadata = root_metadata();
         task_metadata["workforce"] = workforce;
-        runtime
+        let started = runtime
             .resume_session_with(
                 session_id,
                 TurnInput {
@@ -608,7 +682,8 @@ impl Liaison {
                     },
                 },
             )
-            .await
+            .await;
+        self.admitted(admission, started)
     }
 
     // ---- Saved records a conversation has (ADR-044 §4.13) --------------------------------
@@ -1520,6 +1595,10 @@ impl Liaison {
                 task_id: child.id.clone(),
             },
         };
+        let admission = match self.entitlements().admit_worker(Some(&child.id)) {
+            Ok(a) => a,
+            Err(blocked) => return self.note_waiting_for_a_place(&child.id, &blocked).await,
+        };
         self.sending(&child.id, &conversation.session_id, task_records(packet));
         let runtime = &self.inner.runtime;
         let started = match member.start {
@@ -1532,6 +1611,7 @@ impl Liaison {
         };
         if started.is_err() {
             self.lock().sending.remove(&child.id);
+            self.entitlements().release(admission);
         }
         match started {
             Ok(_) | Err(RuntimeError::Busy(_) | RuntimeError::ShuttingDown) => Ok(()),
@@ -1604,7 +1684,15 @@ impl Liaison {
                 task_id: child.id.clone(),
             },
         };
-        match self.inner.runtime.start_session_with(start, input).await {
+        let admission = match self.entitlements().admit_worker(Some(&child.id)) {
+            Ok(a) => a,
+            Err(blocked) => return self.note_waiting_for_a_place(&child.id, &blocked).await,
+        };
+        let started = self.inner.runtime.start_session_with(start, input).await;
+        if started.is_err() {
+            self.entitlements().release(admission);
+        }
+        match started {
             Ok(_) | Err(RuntimeError::Busy(_) | RuntimeError::ShuttingDown) => Ok(()),
             Err(e) => {
                 // Refused only while still waiting to be dispatched (not cancelled meanwhile).
@@ -1735,6 +1823,10 @@ impl Liaison {
                 Some((r.task_id.clone()?, text_hash(text.unwrap_or(&r.summary))))
             })
             .collect();
+        let admission = match self.entitlements().admit_worker(Some(&task.id)) {
+            Ok(a) => a,
+            Err(blocked) => return self.note_waiting_for_a_place(&task.id, &blocked).await,
+        };
         self.sending(&task.id, session_id, answered);
         let continued = self
             .inner
@@ -1743,6 +1835,7 @@ impl Liaison {
             .await;
         if continued.is_err() {
             self.lock().sending.remove(&task.id);
+            self.entitlements().release(admission);
         }
         match continued {
             Ok(_) | Err(RuntimeError::Busy(_) | RuntimeError::ShuttingDown) => Ok(()),

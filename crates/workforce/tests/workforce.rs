@@ -2287,3 +2287,115 @@ async fn lessons_pause_on_free_and_come_back_with_pro() {
         std::thread::sleep(Duration::from_millis(25));
     }
 }
+
+/// Phase 11A (ADR-113): on Free, three workers are on the job at once across the PC. A worker a
+/// Supervisor hands work to waits its turn, with a plain note, and starts by itself when one
+/// finishes; one the owner starts is told to wait. The whole Development flow still finishes on
+/// one department, one project, and three workers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn free_runs_three_workers_at_once_and_the_fourth_waits_its_turn() {
+    use plenipo_licensing::Edition;
+    let h = harness().await;
+    let org = h.development();
+    let e = h.edition(Edition::Free);
+    h.liaison.set_entitlements(e.clone());
+    // Never more than three on the job, sampled all the way through.
+    let most = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let watching = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let sampler = {
+        let (ledger, most, watching) = (Arc::clone(&h.ledger), most.clone(), watching.clone());
+        std::thread::spawn(move || {
+            while watching.load(std::sync::atomic::Ordering::SeqCst) {
+                let n = ledger.tasks_on_the_job().unwrap().len();
+                most.fetch_max(n, std::sync::atomic::Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        })
+    };
+    // The manager works on something long; the Supervisor hands three jobs out at once.
+    let long = h
+        .objective(&org.head, "Review the budget [delay:9000]")
+        .await;
+    let root = h
+        .objective(
+            &org.coordinator,
+            "Ship the sign-in page {{handoff:role:Senior Developer|Build the form [delay:5000]}} \
+             {{handoff:role:QA Engineer|Test the form [delay:5000]}} \
+             {{handoff:role:Senior Developer|Write the help page [delay:5000]}}",
+        )
+        .await;
+    // One of the three waits its turn, saying why in plain words.
+    let deadline = Instant::now() + WAIT;
+    let waiting = loop {
+        let found = h
+            .ledger
+            .events_of_types(&["liaison.waiting_for_free_slot"], 10)
+            .unwrap();
+        if let Some(event) = found.into_iter().next() {
+            break event;
+        }
+        assert!(Instant::now() < deadline, "no worker waited its turn");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    };
+    assert_eq!(
+        waiting.payload["reason"],
+        plenipo_licensing::words::message(plenipo_licensing::Limit::WorkersAtOnce)
+    );
+    // The owner starting a fourth is told to wait, in the same plain words.
+    let refused = h
+        .liaison
+        .start_session("claude-code", "Check the release", None, false)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        refused.contains("Free runs 3 workers at a time"),
+        "{refused}"
+    );
+    // Everything still finishes.
+    assert_eq!(h.finished(&long).await.state, TaskState::Succeeded);
+    let done = h.finished(&root).await;
+    assert_eq!(done.state, TaskState::Succeeded, "{:#?}", h.types(&root));
+    assert!(
+        h.text(&root).starts_with("Turn 2: received 3 replies:"),
+        "{}",
+        h.text(&root)
+    );
+    let waited = waiting.task_id.clone().unwrap();
+    assert_eq!(h.task(&waited).state, TaskState::Succeeded);
+    watching.store(false, std::sync::atomic::Ordering::SeqCst);
+    sampler.join().unwrap();
+    assert!(
+        most.load(std::sync::atomic::Ordering::SeqCst) <= 3,
+        "{} on the job at once",
+        most.load(std::sync::atomic::Ordering::SeqCst)
+    );
+}
+
+/// Phase 11A (ADR-113): Pro keeps today's limit of four at a time in each organization, and the
+/// same three jobs never wait for Free's limit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pro_never_waits_for_frees_limit() {
+    use plenipo_licensing::Edition;
+    let h = harness().await;
+    let org = h.development();
+    let e = h.edition(Edition::Pro);
+    h.liaison.set_entitlements(e);
+    let long = h
+        .objective(&org.head, "Review the budget [delay:3000]")
+        .await;
+    let root = h
+        .objective(
+            &org.coordinator,
+            "Ship the sign-in page [handoff:role:Senior Developer+delay:1500] \
+             [handoff:role:QA Engineer+delay:1500] [handoff:role:Senior Developer+delay:1500]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert_eq!(h.finished(&long).await.state, TaskState::Succeeded);
+    assert!(h
+        .ledger
+        .events_of_types(&["liaison.waiting_for_free_slot"], 10)
+        .unwrap()
+        .is_empty());
+}

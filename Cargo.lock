@@ -4252,6 +4252,7 @@ version = "1.17.0"
 dependencies = [
  "dunce",
  "plenipo-ledger",
+ "plenipo-licensing",
  "plenipo-runtime",
  "serde",
  "serde_json",
