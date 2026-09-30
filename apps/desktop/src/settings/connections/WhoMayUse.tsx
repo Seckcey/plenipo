@@ -22,6 +22,7 @@ export function WhoMayUse({
   onApply,
   onSave,
   levelWords,
+  headingLevel = 4,
 }: {
   id: string;
   access: Access[];
@@ -31,9 +32,12 @@ export function WhoMayUse({
   onSave?: (next: Access[]) => Promise<ConnectionsPage>;
   /** What each level means here, under the list. */
   levelWords?: string;
+  /** Its heading's level: 4 on a connection's card, 5 inside an add-on's card. */
+  headingLevel?: 4 | 5;
 }) {
   const { pending, error, run } = useRun(onApply);
   const [adding, setAdding] = useState("");
+  const Heading = headingLevel === 5 ? "h5" : "h4";
   const listed = new Set(access.map((a) => key(a.who)));
   const nameOf = (who: Who) => {
     const p = people.find((x) => x.kind === who.kind && x.id === who.id);
@@ -61,7 +65,7 @@ export function WhoMayUse({
   };
   return (
     <section className="connection__section" aria-labelledby={`${id}-who`}>
-      <h4 id={`${id}-who`}>Who may use it</h4>
+      <Heading id={`${id}-who`}>Who may use it</Heading>
       {access.length === 0 ? (
         <p className="empty">
           Nobody yet, so no worker can use it. Add a role or an agent; each starts at Read only.

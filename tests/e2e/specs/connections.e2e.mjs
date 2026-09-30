@@ -24,7 +24,8 @@
 // whose card shows the amount, the currency, the customer, and test mode; a store refund's card
 // says the payment company sends the money back, and the owner denies it; publishing a draft
 // waits, and is approved. An add-on program is added off; switching it on lists its tools, each
-// Off; a Reading tool answers fenced, and a Changing tool asks. Disconnect removes every key and
+// Off; a Reading tool answers without asking (its words fenced, as the Rust tests check), and a
+// Changing tool asks. Disconnect removes every key and
 // revokes the site's password.
 //
 // It needs a copy built with PLENIPO_CONNECTIONS_STAND_IN, PLENIPO_MICROSOFT_APP_ID, and
@@ -901,7 +902,7 @@ describe(
       await screenshot(browser, "keys-website-connected", cardOf("wordpress"));
     });
 
-    it("a planted HubSpot note deletes nothing; a Stripe refund waits for the owner's yes", async () => {
+    it("a contact with a planted note is read and changes nothing; a Stripe refund waits for the owner's yes", async () => {
       const { browser } = app;
       await objective(
         browser,
@@ -1007,6 +1008,13 @@ describe(
       ).click();
       await waitForText(browser, card, "lookup_order", 60_000);
       await waitForText(browser, card, "The program says it only reads.");
+      // Every tool starts Off.
+      for (const name of ["lookup_order", "create_ticket", "key_check"]) {
+        const off = await browser.$(
+          `//li[@aria-labelledby="add-on-tickets"]//div[@role="group"][@aria-label="${name}: what it may do"]//button[normalize-space()="Off"]`,
+        );
+        assert.equal(await off.getAttribute("aria-pressed"), "true", `${name} starts Off`);
+      }
       await screenshot(browser, "add-on-tools-off", card);
       const mark = async (tool, level) => {
         const b = await browser.$(
@@ -1057,7 +1065,11 @@ describe(
         "the ticket to be created",
         60_000,
       );
-      assert.equal(readFileSync(addOnLog, "utf8").match(/create_ticket/g).length, 1);
+      // The Reading tool ran first, without asking; the Changing one once, after the yes.
+      const calls = readFileSync(addOnLog, "utf8");
+      assert.ok(calls.indexOf("lookup_order") >= 0, calls);
+      assert.ok(calls.indexOf("lookup_order") < calls.indexOf("create_ticket"), calls);
+      assert.equal(calls.match(/create_ticket/g).length, 1);
     });
 
     it("no key or password is in the diagnostics file or anything Plenipo keeps", async () => {
@@ -1075,6 +1087,7 @@ describe(
         STRIPE_KEY,
         SITE_PASSWORD.replaceAll(" ", ""),
         SITE_PASSWORD,
+        RW_CK,
         RW_CS,
       ];
       for (const [name, text] of Object.entries(files)) {

@@ -590,6 +590,27 @@ describe("Settings → Connections", () => {
     expect(within(hubspot).queryByText("Send without asking to")).not.toBeInTheDocument();
   });
 
+  it("will not save a key while no part is on, or while the Vault is missing", async () => {
+    const user = userEvent.setup();
+    api.getConnections.mockResolvedValue(
+      samplePage(
+        sampleCard(),
+        {},
+        { hubspot: keyedCard("hubspot", { contacts: "off", companies: "off", deals: "off" }) },
+      ),
+    );
+    render(<ConnectionsSettings go={go} />);
+    const hubspot = await screen.findByRole("listitem", { name: "HubSpot" });
+    await user.type(within(hubspot).getByLabelText("Service key"), "plenipo-test-hubspot-typed-key");
+    expect(within(hubspot).getByRole("button", { name: "Save and check" })).toBeDisabled();
+    cleanup();
+    api.getConnections.mockResolvedValue(samplePage(sampleCard(), { vaultAvailable: false }));
+    render(<ConnectionsSettings go={go} />);
+    const again = await screen.findByRole("listitem", { name: "HubSpot" });
+    await user.type(within(again).getByLabelText("Service key"), "plenipo-test-hubspot-typed-key");
+    expect(within(again).getByRole("button", { name: "Save and check" })).toBeDisabled();
+  });
+
   it("warns that a live Stripe key moves real money, and a key refused needs a new one", async () => {
     const live = keyedCard(
       "stripe",

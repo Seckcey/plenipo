@@ -220,9 +220,17 @@ pub async fn remove_connection(
 pub async fn save_connection_key(
     broker: State<'_, Broker>,
     connection_id: String,
-    key: KeyInput,
+    key: serde_json::Value,
 ) -> Result<ConnectionsPage, CommandError> {
     validate_connection_id(&connection_id)?;
+    // Read here, not by Tauri, so a refusal never repeats what was sent (a key in the wrong
+    // place would be in the reader's words).
+    let key: KeyInput = serde_json::from_value(key).map_err(|_| {
+        CommandError::invalid_input(
+            "that key is not in the expected shape: key, site, user, password, storeKey, and \
+             storeSecret, each text",
+        )
+    })?;
     for v in [&key.key, &key.password, &key.store_key, &key.store_secret]
         .into_iter()
         .flatten()
@@ -240,9 +248,9 @@ pub async fn save_connection_key(
         .map_err(crate::commands::broker_error)
 }
 
-/// An add-on's ID: small letters and digits, 1–14.
+/// An add-on's ID: small letters and digits, 1–12.
 fn validate_add_on_id(id: &str) -> Result<(), CommandError> {
-    let ok = (1..=14).contains(&id.len())
+    let ok = (1..=12).contains(&id.len())
         && id
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit());

@@ -96,13 +96,13 @@ function AddProgram({
         });
       }}
     >
-      <h4>Add a program</h4>
+      <h4 id="add-a-program">Add a program</h4>
       <TextField label="Name" value={name} placeholder="Notion" onChange={setName} />
       <TextField
         label="Program"
         value={program}
         placeholder="notion-mcp-server, or its full path"
-        hint="A program Plenipo finds on PATH, or its full path. Never a shell."
+        hint="A program Plenipo can find by its name, or its full path. Never a shell."
         onChange={setProgram}
       />
       <label className="field">
@@ -159,6 +159,9 @@ function AddOnCard({
   onApply: (page: ConnectionsPage) => void;
 }) {
   const { pending, error, run } = useRun(onApply);
+  // Looking at its tools starts the program, which takes a moment: its own "busy".
+  const look = useRun(onApply);
+  const busy = pending || look.pending;
   const [confirmRemove, setConfirmRemove] = useState(false);
   const titleId = `add-on-${a.id}`;
   const changed = a.tools.filter((t) => t.changed).length;
@@ -168,7 +171,7 @@ function AddOnCard({
       aria-labelledby={titleId}
     >
       <div className="connection__header">
-        <h3 id={titleId}>{a.name}</h3>
+        <h4 id={titleId}>{a.name}</h4>
         <StatusPill status={a.on ? "ok" : "offline"} label={a.on ? "On" : "Off"} />
       </div>
       <p className="muted">
@@ -194,7 +197,7 @@ function AddOnCard({
         <Button
           variant={a.on ? "secondary" : "primary"}
           size="sm"
-          disabled={pending}
+          disabled={busy}
           onClick={() => void run(() => changeAddOn(a.id, { on: !a.on }))}
         >
           {a.on ? "Switch off" : "Switch on"}
@@ -202,10 +205,10 @@ function AddOnCard({
         <Button
           variant="secondary"
           size="sm"
-          disabled={pending}
-          onClick={() => void run(() => checkAddOnTools(a.id))}
+          disabled={busy}
+          onClick={() => void look.run(() => checkAddOnTools(a.id))}
         >
-          {pending ? "Starting it…" : "Look at its tools"}
+          {look.pending ? "Starting it…" : "Look at its tools"}
         </Button>
         {confirmRemove ? (
           <>
@@ -228,9 +231,9 @@ function AddOnCard({
           </Button>
         )}
       </div>
-      <Refusal error={error} />
+      <Refusal error={error ?? look.error} />
       <section className="connection__section" aria-labelledby={`${a.id}-tools`}>
-        <h4 id={`${a.id}-tools`}>Its tools</h4>
+        <h5 id={`${a.id}-tools`}>Its tools</h5>
         {a.tools.length === 0 ? (
           <p className="empty">
             Not looked at yet. Switch it on, or press Look at its tools: Plenipo starts it once,
@@ -274,6 +277,7 @@ function AddOnCard({
         onApply={onApply}
         onSave={(next) => changeAddOn(a.id, { access: next })}
         levelWords="Read only uses its Reading tools; Read and write adds its Changing tools."
+        headingLevel={5}
       />
     </li>
   );

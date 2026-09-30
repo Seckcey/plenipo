@@ -361,7 +361,7 @@ differences ([ADR-071 (HubSpot, Stripe, the website, and add-on tools: the owner
   go ahead. Publishing, or changing anything already published, reaches "(everyone who visits
   <site>)", which no list entry can match: it always asks. HubSpot's and Stripe's cards have no
   **Send without asking to** list (nothing they do is a send).
-- **Other people's words** (§6): a HubSpot record and its notes, a Stripe payment's description, a
+- **Other people's words** (§6): a HubSpot record and its notes, a Stripe payment as read, a
   WordPress post or page and its comments, and a WooCommerce order's notes reach workers fenced,
   each named ("CRM records", "payment records", "posts", "store orders"). The approval card says
   "This worker read CRM records and payment records in this step" when it did.

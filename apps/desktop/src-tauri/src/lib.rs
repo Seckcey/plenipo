@@ -4400,7 +4400,7 @@ mod ipc_boundary_tests {
             (
                 "save_connection_key",
                 serde_json::json!({ "connectionId": "stripe", "key": { "secret": "x" } }),
-                "unknown field `secret`",
+                "not in the expected shape",
             ),
             (
                 "save_connection_key",
@@ -4508,6 +4508,14 @@ mod ipc_boundary_tests {
             &main,
             "save_connection_key",
             serde_json::json!({ "connectionId": "stripe", "key": { "key": refused } }),
+        )
+        .unwrap_err();
+        assert!(!err.to_string().contains(refused), "{err}");
+        // Nor a key sent in the wrong shape (as text, not in its box's field).
+        let err = invoke_json(
+            &main,
+            "save_connection_key",
+            serde_json::json!({ "connectionId": "stripe", "key": refused }),
         )
         .unwrap_err();
         assert!(!err.to_string().contains(refused), "{err}");

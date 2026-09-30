@@ -134,6 +134,11 @@ export function KeyForm({
             )}
             <TextField label="WordPress user name" value={user} onChange={setUser} />
             <SecretBox label="Application Password" value={password} onChange={setPassword} />
+            {connected && card.storeKeyKept && (
+              <p className="muted">
+                A WooCommerce key is kept. Leave its boxes empty to keep it; Disconnect removes it.
+              </p>
+            )}
             <details className="connection__advanced">
               <summary>WooCommerce key (optional)</summary>
               <SecretBox label="Consumer key (ck_…)" value={storeKey} onChange={setStoreKey} />

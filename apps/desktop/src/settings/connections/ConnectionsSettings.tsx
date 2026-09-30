@@ -41,7 +41,7 @@ export function ConnectionsSettings({ go }: { go: Go }) {
       </p>
       <p className="notice-box" role="note">
         <strong>
-          Mail, chats, calendars, files, CRM notes, orders, comments, and add-on answers are other
+          Mail, chats, calendars, files, HubSpot notes, orders, comments, and add-on answers are other
           people&apos;s words.
         </strong>{" "}
         Workers get them marked as information, never as instructions from you. An email that says

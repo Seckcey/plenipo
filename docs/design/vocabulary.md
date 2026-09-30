@@ -283,6 +283,9 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
   troubleshooting (rollout plan, Phase 12: "raw diagnostics remain available").
 - **Code and developer documents:** identifiers, Ledger event types (`org.worker_spawned`),
   ADRs, and architecture notes keep the rollout plan's terms. The mapping above is the bridge.
+- **A service's own words, quoted so you can find them:** its menus, buttons, and permission
+  names (Stripe's **Developers → API keys**, WooCommerce's **Advanced → REST API**, HubSpot's
+  `crm.objects.contacts.read`), as the key steps and cards give them.
 - **Product names:** Plenipo Ledger, Liaison, and Guard. "Guard" names the part of Plenipo
   that decides; the owner sees "permissions" and "approvals".
 - **The owner's own words:** objective, handoff, QA evaluator, security auditor, oversight.

@@ -102,7 +102,7 @@ export function keyedAccountLine(c: Connection): string {
 export function keyedDisconnectWords(service: Service, title: string, vault: string): string {
   switch (service) {
     case "wordpress":
-      return `Disconnect ${title}? Its tools stop now, the Application Password and any WooCommerce key are removed from ${vault}, and the password is revoked at your site.`;
+      return `Disconnect ${title}? Its tools stop now, the Application Password and any WooCommerce key are removed from ${vault}, and the password is revoked at your site. If you gave a WooCommerce key, revoke it in WooCommerce too (WooCommerce → Settings → Advanced → REST API).`;
     case "hubspot":
       return `Disconnect ${title}? Its tools stop now, and its key is removed from ${vault}. HubSpot has no way to cancel a key from outside: delete it in HubSpot too (Development → Keys → Service keys).`;
     default:

@@ -250,7 +250,9 @@ export function ConnectionCard({
       </div>
       {cancelling && pending && (
         <p className="muted" role="status">
-          Cancelling the sign-in at {service.label}…
+          {c.service === "wordpress"
+            ? "Revoking the Application Password at your site…"
+            : `Cancelling the sign-in at ${service.label}…`}
         </p>
       )}
       <Refusal error={error} />

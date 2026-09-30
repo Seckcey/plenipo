@@ -4,7 +4,7 @@
   Stripe agent key", "Refuse them", "Nobody; Read only", "Only the saved address", and "Money goes
   back")
 - **Date:** 2026-09-30
-- **Phase:** 20, part 20C (ADR-067)
+- **Phase:** 20, part 20C (ADR-067, Phase 20 in three parts)
 - **Amends:** [ADR-062 (one set of rules for every connection)](ADR-062-connections-one-set-of-rules.md)
   — publishing on a website, and money, never go on a **Send without asking to** list;
   [ADR-063 (signing in, and the Vault)](ADR-063-signing-in-to-a-connection.md) §7 — a key typed
@@ -58,7 +58,7 @@ compared with what parts 20A and 20B built:
 - Connection tools come from **fixed tables** found by name (`tools::find`). Add-on tools are named
   from the owner's programs, so they need their own path.
 - `mcp.invoke` ("Use add-on tools") is in Guard's registry with no tools. Connections grant their
-  permissions through their own **Who may use it** list, not a role's set (ADR-062 §3); ADR-066 §3
+  permissions through their own **Who may use it** list, not a role's set (ADR-062 §3, one set of rules for every connection); ADR-066 §3 (add-on tools)
   gives each add-on the same list.
 - The supervisor already runs a program Plenipo talks to over its standard input and output (the
   AI tools that speak ACP): an add-on program can be run the same way, as an approved program.
@@ -234,3 +234,38 @@ else (never a refund that only marks the order).
 - **One Application Password for everything, no WooCommerce key.** Kept as the default when no
   key is given; the optional WooCommerce key stays, because a **Read** key limits the store at
   WooCommerce itself.
+
+## As built (v1.14.2)
+
+Built as decided. The review before merging (acceptance report, section 6) changed these
+details:
+
+- **§1, a key without permission to read contacts:** HubSpot's key is kept, and the card lists
+  only what was checked; a record's notes then say they need `crm.objects.contacts.read`
+  (reading any record's notes needs it, so Companies and Deals at Read only ask for it too).
+  Stripe's mode comes from the key (`rk_test_` or `rk_live_`), checked against Stripe's own
+  answer when the key may read the balance.
+- **§1, Replace the key:** only when Plenipo can tell it is the same account (HubSpot's number,
+  Stripe's account, the website's user). A key that may not say which account it is needs
+  **Disconnect** first; the card's parts and lists stay. A key the service stopped taking is
+  replaced unless it is clearly another account. Replacing the website's password keeps (and
+  checks) a WooCommerce key already kept.
+- **§4, the website's address:** the domain in small letters, the folder as typed (a server may
+  tell `/Blog` from `/blog`). The password is kept only for the address it was checked at, and
+  Disconnect revokes it there.
+- **§5, money:** a change whose answer is lost, or that the service fails with an error of its
+  own (5xx), says "Maybe done: check before asking again", never "Not done". Stripe's changes are
+  sent once more with the same idempotency key; no other service's change is sent twice, or
+  followed to another page. An invoice paid, voided, or written off meanwhile is not sent. The
+  refund card leaves out the payment's own description (the payment's words). Store refunds are
+  only in currencies written with cents.
+- **§6.7, who a send reaches:** an unpaid card order's status change (to processing, completed,
+  or cancelled) may take or release the money held on the card: it is money, and always asks.
+  The publish and change cards list what a post's markup holds that its words do not show
+  (links' addresses, scripts, frames, forms, code run on a click).
+- **§6.9, add-on tools:** workers get a tool's input shape without the program's words; a
+  program's error words are fenced and never recorded; tools with unusual names or oversize
+  inputs are left out; a running program whose program, arguments, or secrets changed is started
+  afresh, in a private folder removed when it stops; more programs are refused (switches before a
+  downloading subcommand, `env`, `busybox`, `conhost`, `node -e`, `python -c`, `deno npm:`,
+  `go run …@…`, `dnx`).

@@ -42,20 +42,23 @@ access. You can give a key only permissions you have yourself.
 2. Click **Create service key**. Name it **Plenipo**.
 3. Under scopes, tick **only** what Plenipo's HubSpot card lists. For each part:
 
-   | Part in Plenipo | Read only                    | Full access adds                                                        |
-   | --------------- | ---------------------------- | ----------------------------------------------------------------------- |
-   | Contacts        | `crm.objects.contacts.read`  | `crm.objects.contacts.write`                                            |
-   | Companies       | `crm.objects.companies.read` | `crm.objects.companies.write`, and `crm.objects.contacts.write` (notes) |
-   | Deals           | `crm.objects.deals.read`     | `crm.objects.deals.write`, and `crm.objects.contacts.write` (notes)     |
+   | Part in Plenipo | Read only                                                             | Full access adds                                                        |
+   | --------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+   | Contacts        | `crm.objects.contacts.read`                                           | `crm.objects.contacts.write`                                            |
+   | Companies       | `crm.objects.companies.read`, and `crm.objects.contacts.read` (notes) | `crm.objects.companies.write`, and `crm.objects.contacts.write` (notes) |
+   | Deals           | `crm.objects.deals.read`, and `crm.objects.contacts.read` (notes)     | `crm.objects.deals.write`, and `crm.objects.contacts.write` (notes)     |
 
-   HubSpot has no notes permission of its own: adding a note to any record needs
-   `crm.objects.contacts.write`.
+   HubSpot has no notes permission of its own: reading any record's notes needs
+   `crm.objects.contacts.read`, and adding a note needs `crm.objects.contacts.write`.
 
 4. Click **Create**. Copy the key (it starts `pat-`).
 5. In Plenipo: **Settings → Connections → HubSpot → Service key**. Paste it and click **Save and
-   check**. The card says **Connected to HubSpot account** and your account's number.
+   check**. The card says **Connected to HubSpot** (with your account's number, when the key
+   may read it).
 6. **Every six months** (HubSpot's advice): in HubSpot, **Rotate and expire later** on the key
-   (the old one keeps working 7 days). Paste the new one into **Replace the key** on the card.
+   (the old one keeps working 7 days). On the card, press **Disconnect**, then paste the new key
+   and **Save and check**: the card's parts and lists stay. (Plenipo cannot tell by itself that
+   a new key is for the same HubSpot account, so it does not swap keys while connected.)
 
 **When you disconnect:** delete the key in HubSpot too (**Development → Keys → Service keys →**
 the key **→ Delete**).
@@ -76,11 +79,11 @@ publishable key (`pk_…`).
 4. Name it **Plenipo**.
 5. Set **every** permission to **None**, then set only what Plenipo's Stripe card lists:
 
-   | Part in Plenipo | Read only                                            | Full access adds                                                |
-   | --------------- | ---------------------------------------------------- | --------------------------------------------------------------- |
-   | Payments        | Balance: Read · PaymentIntents: Read · Payouts: Read | Charges and Refunds: Write (refunds; each always asks you)      |
-   | Customers       | Customers: Read                                      | (nothing: customers only read)                                  |
-   | Invoices        | Invoices: Read · Subscriptions: Read                 | Invoices: Write (drafts; finalizing and sending always ask you) |
+   | Part in Plenipo | Read only                                            | Full access adds                                                                                              |
+   | --------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+   | Payments        | Balance: Read · PaymentIntents: Read · Payouts: Read | Charges and Refunds: Write (refunds; each always asks you), and Customers: Read (the card names the customer) |
+   | Customers       | Customers: Read                                      | (nothing: customers only read)                                                                                |
+   | Invoices        | Invoices: Read · Subscriptions: Read                 | Invoices: Write (drafts; finalizing and sending always ask you), and Customers: Read                          |
 
 6. Click **Create key**. Stripe shows it **once**: copy it now.
 7. In Plenipo: **Settings → Connections → Stripe → Restricted key**. Paste it and click **Save and
