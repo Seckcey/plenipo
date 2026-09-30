@@ -1993,7 +1993,7 @@ async fn the_development_template_sets_up_a_department_project_and_team() {
 // ---- Free and Pro (Phase 11A) -----------------------------------------------------------------
 
 /// What is live in the tests' one organization, counted the way the app counts it for the PC.
-struct LedgerUsage(Arc<Ledger>);
+struct LedgerUsage(Arc<Ledger>, Arc<std::sync::atomic::AtomicUsize>);
 
 impl plenipo_licensing::Usage for LedgerUsage {
     fn organizations(&self) -> u32 {
@@ -2006,6 +2006,7 @@ impl plenipo_licensing::Usage for LedgerUsage {
         self.0.live_projects().unwrap()
     }
     fn workers_on_the_job(&self) -> Vec<String> {
+        self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.0.tasks_on_the_job().unwrap()
     }
 }
@@ -2013,10 +2014,25 @@ impl plenipo_licensing::Usage for LedgerUsage {
 impl H {
     /// Give the Workforce the PC's Free or Pro, counting this organization.
     fn edition(&self, edition: plenipo_licensing::Edition) -> Arc<plenipo_licensing::Entitlements> {
+        self.edition_counted(edition).0
+    }
+
+    /// Like `edition`, with how many times the workers on the job were counted.
+    fn edition_counted(
+        &self,
+        edition: plenipo_licensing::Edition,
+    ) -> (
+        Arc<plenipo_licensing::Entitlements>,
+        Arc<std::sync::atomic::AtomicUsize>,
+    ) {
         let e = plenipo_licensing::Entitlements::new(edition);
-        e.set_usage(Arc::new(LedgerUsage(Arc::clone(&self.ledger))));
+        let looks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        e.set_usage(Arc::new(LedgerUsage(
+            Arc::clone(&self.ledger),
+            looks.clone(),
+        )));
         self.workforce.set_entitlements(e.clone());
-        e
+        (e, looks)
     }
 
     fn new_department(&self, name: &str) -> Result<OrgSnapshot, WorkforceError> {
@@ -2087,6 +2103,47 @@ async fn free_allows_one_department_and_one_project_and_refuses_the_second() {
     let s = h.snapshot();
     assert_eq!(s.departments.len(), 1);
     assert_eq!(s.projects.len(), 1);
+}
+
+/// Review finding: the Free check and the Ledger write were apart, so projects made at the same
+/// moment could all pass. One is made; the others are part of Pro.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn on_free_projects_made_at_the_same_moment_never_pass_the_limit() {
+    use plenipo_licensing::Edition;
+    let h = harness().await;
+    h.edition(Edition::Free);
+    let (dept, _) = h.department("Development", "Development Manager", "claude-code");
+    let supervisor = h.role("Supervisor");
+    let at_once = std::sync::Barrier::new(8);
+    let made = std::thread::scope(|scope| {
+        let tries: Vec<_> = (0..8)
+            .map(|n| {
+                let (workforce, dept, supervisor, at_once) =
+                    (h.workforce.clone(), &dept, &supervisor, &at_once);
+                scope.spawn(move || {
+                    let name = format!("Project{n}");
+                    let input = ProjectInput {
+                        department_id: Some(dept.clone()),
+                        coordinator: Some(lead(
+                            supervisor,
+                            &format!("{name} Supervisor"),
+                            "claude-code",
+                        )),
+                        ..project_input(&name, &["claude-code"])
+                    };
+                    at_once.wait();
+                    workforce.create_project(&input).is_ok()
+                })
+            })
+            .collect();
+        tries
+            .into_iter()
+            .map(|t| t.join().unwrap_or(false))
+            .filter(|made| *made)
+            .count()
+    });
+    assert_eq!(made, 1);
+    assert_eq!(h.ledger.live_projects().unwrap(), 1);
 }
 
 /// Phase 11A: Pro has no limit on departments or projects.
@@ -2298,7 +2355,7 @@ async fn free_runs_three_workers_at_once_and_the_fourth_waits_its_turn() {
     use plenipo_licensing::Edition;
     let h = harness().await;
     let org = h.development();
-    let e = h.edition(Edition::Free);
+    let (e, looks) = h.edition_counted(Edition::Free);
     h.liaison.set_entitlements(e.clone());
     // Never more than three on the job, sampled all the way through.
     let most = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -2342,15 +2399,26 @@ async fn free_runs_three_workers_at_once_and_the_fourth_waits_its_turn() {
         waiting.payload["reason"],
         plenipo_licensing::words::message(plenipo_licensing::Limit::WorkersAtOnce)
     );
-    // The owner starting a fourth is told to wait, in the same plain words.
+    // Review finding: while it waits, Liaison does not try it again and again at once (it once
+    // did, many times a second); it tries when something changes, or on its regular pass.
+    let before = looks.load(std::sync::atomic::Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    let tries = looks.load(std::sync::atomic::Ordering::SeqCst) - before;
+    assert!(tries < 60, "{tries} tries in a second while it waited");
+    // The owner starting a fourth is told to wait, in the same plain words, as part of Pro.
     let refused = h
         .liaison
         .start_session("claude-code", "Check the release", None, false)
         .await
-        .unwrap_err()
-        .to_string();
+        .unwrap_err();
     assert!(
-        refused.contains("Free runs 3 workers at a time"),
+        matches!(refused, plenipo_runtime::RuntimeError::PartOfPro(_)),
+        "{refused:?}"
+    );
+    assert!(
+        refused
+            .to_string()
+            .contains("Free runs 3 workers at a time"),
         "{refused}"
     );
     // Everything still finishes.
@@ -2371,6 +2439,26 @@ async fn free_runs_three_workers_at_once_and_the_fourth_waits_its_turn() {
         "{} on the job at once",
         most.load(std::sync::atomic::Ordering::SeqCst)
     );
+}
+
+/// Review finding: a worker's place on Free was held for up to a minute after its task
+/// started, so three quick tasks in a row kept a fourth from starting while nothing ran. The place
+/// is freed as soon as the start returns: from then on the Ledger counts the task.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn on_free_a_worker_that_finished_frees_its_place_at_once() {
+    use plenipo_licensing::Edition;
+    let h = harness().await;
+    let e = h.edition(Edition::Free);
+    h.liaison.set_entitlements(e);
+    for n in 1..=4 {
+        let started = h
+            .liaison
+            .start_session("claude-code", &format!("Quick job {n}"), None, false)
+            .await
+            .unwrap_or_else(|err| panic!("job {n}: {err}"));
+        let task = started.session.active_task_id.expect("a task");
+        assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    }
 }
 
 /// Phase 11A (ADR-113): Pro keeps today's limit of four at a time in each organization, and the

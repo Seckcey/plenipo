@@ -162,7 +162,9 @@ const field = (browser, form, label, tag = "input") =>
  * A stand-in for 8 West's license check (Phase 11A, ADR-115): this copy sends its check here
  * when it has a key. On Free it must receive nothing.
  */
-const licenseCheck = { seen: 0, server: null };
+const licenseCheck = { seen: 0, server: null, startedAt: 0 };
+/** Plenipo's first look for a due check waits this long after it starts (license_host.rs). */
+const FIRST_LOOK_MS = 30_000;
 
 describe("Phase 8 Development Department (real app, fake CLIs and gh)", () => {
   let app;
@@ -173,6 +175,7 @@ describe("Phase 8 Development Department (real app, fake CLIs and gh)", () => {
       res.writeHead(503).end();
     });
     await new Promise((done) => licenseCheck.server.listen(8768, "127.0.0.1", done));
+    licenseCheck.startedAt = Date.now();
     app = await launch(home, env);
     await app.browser.setWindowSize(1600, 1000);
   });
@@ -351,7 +354,15 @@ describe("Phase 8 Development Department (real app, fake CLIs and gh)", () => {
     assert.equal(git(folder, "branch", "--list", "plenipo/*", "--format=%(refname:short)"), branch);
   });
 
-  it("acceptance (Phase 11A): a whole Development objective on Free never contacts 8 West", () => {
+  it("acceptance (Phase 11A): a whole Development objective on Free never contacts 8 West", async () => {
+    const { browser } = app;
+    const license = await browser.executeAsync((done) => {
+      window.__TAURI_INTERNALS__.invoke("get_license").then(done, () => done(null));
+    });
+    assert.equal(license?.edition, "free", "the whole flow ran on Free");
+    // Past Plenipo's first look for a due check.
+    const wait = FIRST_LOOK_MS + 5_000 - (Date.now() - licenseCheck.startedAt);
+    if (wait > 0) await browser.pause(wait);
     assert.equal(licenseCheck.seen, 0, "a Free copy sends nothing to 8 West");
   });
 });

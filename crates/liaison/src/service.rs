@@ -172,6 +172,10 @@ struct State {
     /// The saved records a step is being sent (task ID, text hash), by the step's task ID,
     /// until the step ends: (session ID, records).
     sending: HashMap<String, (String, Vec<(String, u64)>)>,
+    /// Tasks whose last try found no place on Free (ADR-113): their try ending does not wake
+    /// the loop at once. They are tried again when a task changes, a worker is released, or on
+    /// the regular pass.
+    waiting_for_place: HashSet<String>,
 }
 
 /// The saved records a conversation has: given to it, or its own results. They hold while the
@@ -335,30 +339,24 @@ impl Liaison {
     fn admit_owners(&self) -> std::result::Result<Admission, RuntimeError> {
         self.entitlements()
             .admit_worker(None)
-            .map_err(|b| RuntimeError::Busy(b.message))
+            .map_err(|b| RuntimeError::PartOfPro(b.message))
     }
 
-    /// After an owner's start: the admitted worker's task, or its place freed when it did not
-    /// start.
+    /// After an owner's start: its place is freed. A worker that started is on the job in the
+    /// Ledger by now (its task is running before the start returns), so it is counted there.
     fn admitted(
         &self,
         admission: Admission,
         started: std::result::Result<AgentSessionDetail, RuntimeError>,
     ) -> std::result::Result<AgentSessionDetail, RuntimeError> {
-        let e = self.entitlements();
-        match &started {
-            Ok(detail) => match detail.session.active_task_id.as_deref() {
-                Some(task) => e.bind(&admission, task),
-                None => e.release(admission),
-            },
-            Err(_) => e.release(admission),
-        }
+        self.entitlements().release(admission);
         started
     }
 
     /// Record once that a delegated task waits for a place on Free (ADR-113): it starts by
     /// itself when a worker finishes.
     async fn note_waiting_for_a_place(&self, task_id: &str, blocked: &Blocked) -> Result<()> {
+        self.lock().waiting_for_place.insert(task_id.to_owned());
         let (tid, reason) = (task_id.to_owned(), blocked.message.clone());
         self.blocking(move |l| {
             if l.count_task_events(&tid, "liaison.waiting_for_free_slot")? == 0 {
@@ -475,6 +473,19 @@ impl Liaison {
     fn release(&self, key: &str) {
         self.lock().inflight.remove(key);
         self.inner.wake.notify_one();
+    }
+
+    /// Like [`Self::release`], for the try of `task_id`: when it only found no place on Free, the
+    /// loop is not woken at once (it would try again straight away, over and over).
+    fn release_after(&self, key: &str, task_id: &str) {
+        let waited = {
+            let mut state = self.lock();
+            state.inflight.remove(key);
+            state.waiting_for_place.remove(task_id)
+        };
+        if !waited {
+            self.inner.wake.notify_one();
+        }
     }
 
     // ---- Owner-facing sessions ----------------------------------------------------------
@@ -1496,7 +1507,7 @@ impl Liaison {
                     request.id
                 ));
             }
-            this.release(&key);
+            this.release_after(&key, &child.id);
         });
     }
 
@@ -1537,8 +1548,28 @@ impl Liaison {
 
     /// Run a task delegated to a full-time member in the member's own conversation (ADR-016):
     /// resume it, or start its first one. A member busy with another task takes this one when
-    /// it is free (a later pass tries again).
+    /// it is free (a later pass tries again). On Free, a place first (ADR-113): a task that waits
+    /// its turn is not given a conversation yet.
     async fn dispatch_member(
+        &self,
+        request: &LiaisonMessage,
+        child: &Task,
+        packet: &ContextPacket,
+        audience: &Audience,
+    ) -> Result<()> {
+        let admission = match self.entitlements().admit_worker(Some(&child.id)) {
+            Ok(a) => a,
+            Err(blocked) => return self.note_waiting_for_a_place(&child.id, &blocked).await,
+        };
+        let done = self
+            .dispatch_member_now(request, child, packet, audience)
+            .await;
+        // Started or not, the place is freed: a task that started is on the job in the Ledger.
+        self.entitlements().release(admission);
+        done
+    }
+
+    async fn dispatch_member_now(
         &self,
         request: &LiaisonMessage,
         child: &Task,
@@ -1595,10 +1626,6 @@ impl Liaison {
                 task_id: child.id.clone(),
             },
         };
-        let admission = match self.entitlements().admit_worker(Some(&child.id)) {
-            Ok(a) => a,
-            Err(blocked) => return self.note_waiting_for_a_place(&child.id, &blocked).await,
-        };
         self.sending(&child.id, &conversation.session_id, task_records(packet));
         let runtime = &self.inner.runtime;
         let started = match member.start {
@@ -1611,7 +1638,6 @@ impl Liaison {
         };
         if started.is_err() {
             self.lock().sending.remove(&child.id);
-            self.entitlements().release(admission);
         }
         match started {
             Ok(_) | Err(RuntimeError::Busy(_) | RuntimeError::ShuttingDown) => Ok(()),
@@ -1689,9 +1715,8 @@ impl Liaison {
             Err(blocked) => return self.note_waiting_for_a_place(&child.id, &blocked).await,
         };
         let started = self.inner.runtime.start_session_with(start, input).await;
-        if started.is_err() {
-            self.entitlements().release(admission);
-        }
+        // Started or not, the place is freed: a task that started is on the job in the Ledger.
+        self.entitlements().release(admission);
         match started {
             Ok(_) | Err(RuntimeError::Busy(_) | RuntimeError::ShuttingDown) => Ok(()),
             Err(e) => {
@@ -1730,7 +1755,7 @@ impl Liaison {
                     "Liaison could not deliver replies to task {task_id}: {e}"
                 ));
             }
-            this.release(&key);
+            this.release_after(&key, &task_id);
         });
     }
 
@@ -1835,8 +1860,9 @@ impl Liaison {
             .await;
         if continued.is_err() {
             self.lock().sending.remove(&task.id);
-            self.entitlements().release(admission);
         }
+        // Continued or not, the place is freed: a task that continued is on the job in the Ledger.
+        self.entitlements().release(admission);
         match continued {
             Ok(_) | Err(RuntimeError::Busy(_) | RuntimeError::ShuttingDown) => Ok(()),
             Err(RuntimeError::NotWaiting(why)) => {

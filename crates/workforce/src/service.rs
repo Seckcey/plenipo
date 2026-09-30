@@ -121,6 +121,9 @@ struct Inner {
     notices: Mutex<Vec<String>>,
     /// Held while open conversations take their new effort, one change at a time.
     refreshing: Mutex<()>,
+    /// Held from a Free limit's check to the Ledger write it allows (Phase 11A): two made at
+    /// once never both pass.
+    making: Mutex<()>,
 }
 
 /// Cheap to clone; clones share state.
@@ -191,6 +194,7 @@ impl Workforce {
                 router: router.clone(),
                 notices: Mutex::new(Vec::new()),
                 refreshing: Mutex::new(()),
+                making: Mutex::new(()),
             }),
         };
         match ledger.ensure_roles(&role_templates(), PLENIPO) {
@@ -230,6 +234,15 @@ impl Workforce {
     /// Use the PC's Free or Pro for every limit this service decides.
     pub fn set_entitlements(&self, entitlements: Arc<Entitlements>) {
         self.inner.entitlements.set(entitlements);
+    }
+
+    /// One department or project made or brought back at a time, from its Free check to its
+    /// Ledger write.
+    fn making(&self) -> MutexGuard<'_, ()> {
+        self.inner
+            .making
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Allowed, or the plain-words reason a Free copy cannot do it.
@@ -986,7 +999,13 @@ impl Workforce {
     }
 
     pub fn create_department(&self, input: &DepartmentInput) -> Result<OrgSnapshot> {
+        let _making = self.making();
         self.allow(Limit::Departments)?;
+        self.make_department(input)
+    }
+
+    /// Make a department, its Free check done and the making lock held.
+    fn make_department(&self, input: &DepartmentInput) -> Result<OrgSnapshot> {
         let head = input
             .head
             .as_ref()
@@ -1064,7 +1083,13 @@ impl Workforce {
     }
 
     pub fn create_project(&self, input: &ProjectInput) -> Result<OrgSnapshot> {
+        let _making = self.making();
         self.allow(Limit::Projects)?;
+        self.make_project(input)
+    }
+
+    /// Make a project, its Free check done and the making lock held.
+    fn make_project(&self, input: &ProjectInput) -> Result<OrgSnapshot> {
         let department_id = input
             .department_id
             .as_deref()
@@ -1116,6 +1141,7 @@ impl Workforce {
         t: &templates::TeamTemplate,
         input: &DevelopmentInput,
     ) -> Result<OrgSnapshot> {
+        let _making = self.making();
         if t.business {
             self.allow(Limit::BusinessDepartment)?;
         }
@@ -1184,7 +1210,7 @@ impl Workforce {
         {
             Some(d) => d.id,
             None => {
-                let s = self.create_department(&DepartmentInput {
+                let s = self.make_department(&DepartmentInput {
                     name: t.department.into(),
                     description: t.description.into(),
                     head: Some(lead(&head_role, t.head.0.into())),
@@ -1200,7 +1226,7 @@ impl Workforce {
                     })?
             }
         };
-        let s = self.create_project(&ProjectInput {
+        let s = self.make_project(&ProjectInput {
             department_id: Some(department),
             coordinator: Some(lead(&supervisor_role, format!("{name} Supervisor"))),
             ..input.project.clone()
@@ -1412,6 +1438,7 @@ impl Workforce {
 
     /// Bringing a project back makes it live again: on Free, only within Free's one project.
     pub fn bring_back_project(&self, id: &str) -> Result<OrgSnapshot> {
+        let _making = self.making();
         self.allow(Limit::Projects)?;
         self.ledger()
             .bring_back_project(id, &self.providers(), OWNER)?;
@@ -1420,6 +1447,7 @@ impl Workforce {
 
     /// Bringing a department back makes it live again: on Free, only within Free's one department.
     pub fn bring_back_department(&self, id: &str) -> Result<OrgSnapshot> {
+        let _making = self.making();
         self.allow(Limit::Departments)?;
         self.ledger()
             .bring_back_department(id, &self.providers(), OWNER)?;

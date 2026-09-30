@@ -109,5 +109,20 @@ for the service, and a separate one-time key for the set-up script.
 
 ## 6. Review
 
-The security review of the service, with a second reviewer for each finding, is recorded here
-when done. A full security review comes again before anything goes live.
+A security review of the service found 9 issues. A second reviewer confirmed all 9 (3 of them
+with a narrower reach, and it widened one). Each is fixed with tests that fail on the code before
+the fix, in the service's pull request. 136 tests now pass.
+
+| Finding                                                                              | Fixed by                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Someone could sign up in another person's name first, then take the account over     | No password sign-in until the email is confirmed; the confirm link asks for the password; a first confirmation by sign-in link sets a new password and signs everyone else out; unconfirmed accounts are deleted after 24 hours |
+| Changing IPv6 addresses got around the per-address limits, and flooded sign-up email | IPv6 counted by its /64; a service-wide hourly cap on sign-up email with an alert; no typed name in that email; sign-in links and keys sent first; Cloudflare rate rules in the deploy steps                                    |
+| Made-up key IDs cost a signature each                                                | Nothing stored for them; one hourly budget for them, then 429                                                                                                                                                                   |
+| Every container on the server could reach the server's AWS role                      | The database on an internal network; only the app may reach the AWS address; images pinned                                                                                                                                      |
+| Password guesses sent all at once got past the per-email limit                       | Each try counts before the password is checked                                                                                                                                                                                  |
+| A first payment that never went through counted as Pro                               | A separate "payment pending" state                                                                                                                                                                                              |
+| Two tabs could pay twice                                                             | One Buy at a time per account; the open payment page is reused; 8 West is told if a customer has two                                                                                                                            |
+| The service did not check it signs with the key Plenipo trusts                       | It refuses to start unless the vault's key matches the one set in its settings                                                                                                                                                  |
+| Deleting an account could miss a subscription or a payment page still open           | Stripe's own list is used; open payment pages are closed; a payment after deletion gets no key and is cancelled                                                                                                                 |
+
+A full security review comes again before anything goes live.

@@ -17,11 +17,13 @@ impl Ledger {
         })
     }
 
-    /// Projects that are neither archived nor deleted.
+    /// Projects that are neither archived nor deleted. Before 1.10.0, archiving a project set
+    /// only its status (no `archived_at`), so the status counts too.
     pub fn live_projects(&self) -> Result<u32> {
         self.read(|c| {
             Ok(c.query_row(
-                "SELECT COUNT(*) FROM projects WHERE archived_at IS NULL AND deleted_at IS NULL",
+                "SELECT COUNT(*) FROM projects
+                 WHERE status <> 'archived' AND archived_at IS NULL AND deleted_at IS NULL",
                 [],
                 |r| r.get(0),
             )?)
@@ -64,6 +66,28 @@ mod tests {
         l.archive_project(&done.id, "test").unwrap();
         assert_eq!(l.live_departments().unwrap(), 1);
         assert_eq!(l.live_projects().unwrap(), 1);
+    }
+
+    /// Review finding: before 1.10.0, archiving a project set only its status. An owner who
+    /// archived one then could neither make a project on Free nor bring that one back.
+    #[test]
+    fn a_project_archived_before_1_10_does_not_count() {
+        let l = Ledger::open_in_memory().unwrap();
+        let dev = l
+            .create_department("Development", "", None, "test")
+            .unwrap();
+        let old = l
+            .create_project("Old", None, None, Some(dev.id.as_str()), "test")
+            .unwrap();
+        l.write(|c, _| {
+            c.execute(
+                "UPDATE projects SET status = 'archived' WHERE id = ?1",
+                [&old.id],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(l.live_projects().unwrap(), 0);
     }
 
     #[test]

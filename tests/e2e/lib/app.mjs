@@ -243,6 +243,24 @@ export async function becomePro(browser) {
 }
 
 /**
+ * Free for this copy (Phase 11A): a key an earlier suite entered is still in the test machine's
+ * key store (shared by every launch in a run), so it is removed, as a page would.
+ */
+export async function becomeFree(browser) {
+  const answer = await browser.executeAsync((done) => {
+    const ipc = window.__TAURI_INTERNALS__;
+    const refused = (e) => done({ refused: typeof e === "string" ? e : JSON.stringify(e) });
+    ipc.invoke("get_license").then((now) => {
+      if (now.keyId === null) done({ edition: now.edition });
+      else ipc.invoke("remove_license_key").then((v) => done({ edition: v.edition }), refused);
+    }, refused);
+  });
+  if (answer.edition !== "free") {
+    throw new Error(`This copy could not be put on Free for the test: ${JSON.stringify(answer)}`);
+  }
+}
+
+/**
  * The app has drawn its frame: the left strip, with Plenipo's logo at its top. The canvas's
  * first-time tour is marked as seen, so it does not cover the canvas in the other tests (the
  * canvas test shows it on purpose). Every suite runs on Plenipo Pro (the contract's test key)
@@ -262,6 +280,7 @@ export const waitForShell = async (browser, timeoutMs, { edition = "pro" } = {})
   );
   await browser.execute(() => localStorage.setItem("plenipo.canvasTour", "seen"));
   if (edition === "pro") await becomePro(browser);
+  else await becomeFree(browser);
 };
 
 /**

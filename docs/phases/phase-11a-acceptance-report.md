@@ -74,7 +74,41 @@ Each is recorded in its ADR as built:
 
 ## 5. Review
 
-A review of each area, with a second reviewer for each finding, is recorded here when done.
+Three areas were reviewed. A second reviewer then checked every finding in the code. Each fix
+has a test, and each test was run on the code before its fix and fails there (except where the
+table says it guards the fix).
+
+**The license and the weekly check** (8 findings: 7 confirmed, 1 not real; the second reviewer
+found 1 more):
+
+| Finding                                                                         | Fixed by                                                                                                                                        | Test                                                                            |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| A clock once set far ahead kept a paying owner on Free, even after a new answer | 8 West's next newer signed answer resets Plenipo's time; a check is due when the clock is put right; the screen says how far ahead the clock is | `a_clock_set_ahead_once_is_undone_by_8_wests_next_answer`                       |
+| Removing a key and entering it again started a new 30 days, and forgot "ended"  | The record stays when the key is removed or missing                                                                                             | `removing_and_entering_a_key_again_never_restarts_the_30_days_or_forgets_ended` |
+| A Vault that could not be read kept a paying owner on Free until a restart      | Each look tries the Vault again, with the record on disk                                                                                        | `a_vault_that_answers_again_brings_the_key_back_at_the_next_look`               |
+| Any window could overwrite the key through the secret commands                  | **Not real:** those commands accept only Plenipo's own secret IDs                                                                               | —                                                                               |
+| A kept key that stopped checking was dropped with no word, and its record wiped | The screen says why; the record is kept                                                                                                         | `a_kept_key_that_no_longer_checks_says_why_and_keeps_its_record`                |
+| A time entered missing or in the future let the 30 days slide on                | Not believed; set to now                                                                                                                        | `a_missing_or_future_entered_time_is_not_believed`                              |
+| The contract did not list the `Accept` header; its key schema was looser        | README and schema match the code (and the service is pinned to them again)                                                                      | the contract tests in both repositories                                         |
+| Short blocking calls while the license was held                                 | `get_license` runs off the main thread; the Ledger and the Vault are written outside it                                                         | (no behaviour to test)                                                          |
+| (Second reviewer) A clock held back stopped Plenipo's time                      | While Plenipo runs, a clock that only moves forward carries its time on                                                                         | `holding_the_clock_back_while_plenipo_runs_does_not_stop_its_time`              |
+| A replayed answer must never undo the clock fix                                 | Only a strictly newer answer lowers Plenipo's time                                                                                              | `a_replayed_answer_never_brings_back_what_the_clock_took` (guards the fix)      |
+
+**Where Free's limits are enforced** (7 findings: 5 confirmed, 2 partly; the second reviewer found
+1 more):
+
+| Finding                                                                   | Fixed by                                                                                  | Test                                                            |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Projects archived before 1.10.0 still counted, blocking Free for good     | They count as archived                                                                    | `a_project_archived_before_1_10_does_not_count`                 |
+| A worker's place was held up to a minute after its task started           | The place is freed as soon as the start returns; the Ledger counts the task from then     | `on_free_a_worker_that_finished_frees_its_place_at_once`        |
+| A waiting member task was given a new conversation on every try           | Its place is found first; no conversation until it starts                                 | (covered by the loop test below)                                |
+| A race could let a fourth worker start                                    | Who is on the job is read under the same lock that lets one in                            | `workers_starting_together_never_pass_three`                    |
+| Bringing a department back skips the project limit                        | **Kept as a limit** (ADR-021 as built): its projects were made on Pro                     | —                                                               |
+| Two creates at the same moment could both pass                            | One lock from the Free check to the Ledger write                                          | `on_free_projects_made_at_the_same_moment_never_pass_the_limit` |
+| Work the owner starts past the third reached the screen as the wrong kind | A "part of Pro" error, mapped on every path                                               | `free_runs_three_workers_at_once_and_the_fourth_waits_its_turn` |
+| (Second reviewer) A waiting task was retried hundreds of times a second   | Its try ending no longer wakes Liaison at once (549 tries a second before; a handful now) | `free_runs_three_workers_at_once_and_the_fourth_waits_its_turn` |
+
+The account service's review is in the [Phase 22 report](phase-22-acceptance-report.md), section 6.
 
 ## 6. Left for the owner
 

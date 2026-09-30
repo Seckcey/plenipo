@@ -276,9 +276,11 @@ impl Entitlements {
     }
 
     /// Workers on the job now, with those just let in, forgetting admissions that are over.
+    /// What is on the job is read while the admissions are held, so a worker that starts
+    /// meanwhile is counted once or twice, never not at all.
     fn on_the_job(&self, usage: Option<&dyn Usage>) -> u32 {
-        let running = usage.map(Usage::workers_on_the_job).unwrap_or_default();
         let mut admitted = lock(&self.admitted);
+        let running = usage.map(Usage::workers_on_the_job).unwrap_or_default();
         admitted.retain(|a| {
             a.at.elapsed() < ADMITTED_FOR && a.task_id.as_ref().is_none_or(|t| !running.contains(t))
         });
@@ -292,11 +294,12 @@ impl Entitlements {
             return Ok(Admission { token: None });
         }
         let usage = self.usage();
+        // Read under the admissions' lock (see `on_the_job`). Usage never calls back in here.
+        let mut admitted = lock(&self.admitted);
         let running = usage
             .as_deref()
             .map(Usage::workers_on_the_job)
             .unwrap_or_default();
-        let mut admitted = lock(&self.admitted);
         admitted.retain(|a| {
             a.at.elapsed() < ADMITTED_FOR && a.task_id.as_ref().is_none_or(|t| !running.contains(t))
         });
