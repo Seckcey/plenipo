@@ -1,0 +1,316 @@
+# Phase 16 — Implementation Checklist (Wave 3)
+
+**Status:** planned (2026-09-30). The owner's choices are recorded below. Coding starts after the
+owner raises the effort level.
+
+Source: `ROLLOUT_PLAN.md`, Phase 16 — Every AI Model Worth Having, **Wave 3 only** ("spending caps
+first, then paid routes"):
+
+- spending caps: for the business, a department, and one position; monthly amount, warning at 80%,
+  hard stop;
+- pricing and recording of every paid task in the Ledger;
+- "Let workers use paid AI keys" switch in Settings, off by default;
+- paid keys in the Vault, reaching only the AI tool they were saved for;
+- more than one route to a model, in the owner's order, with fallback when a route is
+  usage-limited, signed out, or over its cap;
+- OpenRouter through a Plenipo helper, built like the Ollama helper (ADR-017);
+- direct keys for Anthropic, OpenAI, xAI, and Google.
+
+Records it follows:
+
+- [ADR-036 (every AI model worth having)](../adr/ADR-036-every-ai-model.md): §2 keys and caps,
+  §4 routes, §5 Wave 3;
+- [ADR-017 (Ollama's cloud models through the Ollama service on this PC)](../adr/ADR-017-ollama-cloud-models.md):
+  the shape of a helper run per task;
+- [ADR-081 (who made each model)](../adr/ADR-081-who-made-each-model.md): every model says who
+  made it;
+- [ADR-023 (Settings → Switches)](../adr/ADR-023-settings-switches.md): where the new switch
+  lives;
+- [ADR-014 (adding AI tools)](../adr/ADR-014-adding-ai-tools.md) and
+  [ADR-007 (how Plenipo runs AI tools)](../adr/ADR-007-runtime-adapters.md): the rules Wave 3
+  changes, in its own record.
+
+New records (numbers from Phase 16's range, ADR-085 to ADR-089, kept by ADR-090):
+
+- **ADR-085 (paid AI keys with spending caps).** Amends ADR-003 (roles never tied to one AI
+  company: no silent paid fallback), ADR-007 §4 (how Plenipo runs AI tools: sign-ins and
+  billing), ADR-011 (how Plenipo picks each worker's model: paid use was fixed off), and ADR-014
+  (adding AI tools: subscription sign-in only). It amends them; it does not rewrite them.
+- **ADR-086 (OpenRouter through a Plenipo helper).** A helper run per task, like ADR-017's.
+- **ADR-087 (direct keys for Anthropic, OpenAI, xAI, and Google).**
+
+## Step 0 — checks on the owner's PC (2026-09-30)
+
+- [x] The PC builds v1.15.0 (`3535d03`): Rust 1.98.1 (the repository's pin), Node.js 26, pnpm
+      10.33.0, Visual Studio 2026 Build Tools, WebView2. `pnpm build` makes the app and the
+      installer, and the launch smoke test exits 0.
+- [x] Three checks fail on Windows only, and GitHub's checks miss them: two tests in
+      `scripts/check-doc-links.test.mjs` (paths with `\`), clippy's `unused_mut` at
+      `crates/capabilities/src/broker/add_on_calls.rs:161` (the `mut` is needed only on Unix),
+      and `a_busy_supervisor_takes_a_handed_over_objective_when_it_is_free` (passes alone,
+      fails every time with the rest of `crates/workforce/tests/workforce.rs`; GitHub's Windows
+      job passes it).
+- [x] No AI company key is set on the PC (names checked, never values): no `ANTHROPIC_*`,
+      `OPENAI_*`, `XAI_*`, `GEMINI_*`, `GOOGLE_API_KEY`, `OPENROUTER_*`, or `MOONSHOT_*` for the
+      user or the machine.
+- [x] OpenRouter's public model list answers without a key: 464 models from 64 makers, each with
+      a price (`prompt`, `completion`, `input_cache_read`, `input_cache_write`, `web_search`, per
+      token). Kimi K3 (`moonshotai/kimi-k3`): $3 in and $15 out per million tokens. Asking about
+      a key without one answers `401`.
+- [x] Ollama 0.34.4 is signed in, but still on the **free plan** (`/api/me`: `plan: free`); Kimi
+      K3 on Ollama answers `402 Payment Required`. The owner's example ("Kimi runs out, the paid
+      Ollama plan carries the work") is built and tested with stand-ins, and checked for real
+      when the paid plan shows.
+- [x] Linux test machine (Coastline) reachable: Ubuntu 24.04, 4 cores, 7 GB, Docker only. GitHub's
+      Linux end-to-end job is the Linux check; Coastline is used, in Docker, only to debug it.
+- [x] Keys the owner has for the final check: Anthropic, OpenAI, xAI (Grok), and Kimi. OpenRouter
+      and Google keys come later; those routes are built and tested with stand-ins and marked "not
+      checked with a real key yet" until then.
+
+## The owner's choices (2026-09-30)
+
+1. **The business cap first:** no key can be saved until the whole-business cap exists. Department
+   and position caps are extras. Every paid task counts against its position, its department,
+   and the business; the smallest amount left decides.
+2. **The month:** starts on the 1st at midnight, Pacific time.
+3. **The hard stop never goes over:** before a paid request, Plenipo sets aside the most it could
+   cost (the answer's length is capped) and does not start a request that could pass a cap. Work
+   can stop a little before 100%. If a real bill still passes a cap, the task stops at once and
+   the owner is told.
+4. **No known price, no paid key:** the Router skips such a model on a paid route and says "not
+   priced yet". A finished task whose cost could not be read is recorded as "not priced yet",
+   never as zero.
+5. **Direct keys run through Plenipo's own helper**, like OpenRouter, not through the companies'
+   own programs. The "no keys" tests for every subscription AI tool stay as they are.
+6. **Paid workers answer in text only** in this wave. Plenipo's tools (files, programs, git,
+   through Guard) come later, for Ollama and paid keys together. The Router's reason says "text
+   only" when it picks such a route.
+7. **OpenRouter's list:** a short checked list (the newest general and coding models from Qwen,
+   Mistral, and Meta's Llama, about six), plus any other OpenRouter model the owner names exactly.
+   Prices come from OpenRouter's public list before each task.
+8. **Privacy on OpenRouter: no limits.** Plenipo does not narrow which hosting companies OpenRouter
+   may use. (ADR-036's "to watch" about client data stands: a paid route is used only by a
+   position the owner put it on.)
+9. **Wave 1's leftover joins this wave:** more Ollama cloud models once the paid plan shows,
+   checked against what Ollama really lists.
+10. **The three Windows-only failures are fixed first**, in a small pull request, and GitHub's
+    Windows job gains clippy so they cannot come back unseen.
+11. **Three pull requests, in order:** (1) caps, pricing, records, and the switch; (2) keys in the
+    Vault, routes, and OpenRouter; (3) direct keys and v1.16.0. Each merges when every check
+    passes, Windows included.
+12. **v1.16.0:** the last pull request sets the version.
+13. **The owner's go-ahead:** create and merge this phase's pull requests, and run any GitHub
+    Actions needed.
+
+## Owner's rules for every pull request
+
+- [ ] No key, password, or token asked for in chat or committed. Keys are typed only into
+      Plenipo's own screen and kept only in the Vault.
+- [ ] Everything that touches files, programs, the network, the browser, or the screen goes through
+      Guard and the capability broker.
+- [ ] Nothing loads code into Plenipo while it runs (ADR-014). A price list read from OpenRouter is
+      data, checked and capped in size, never code.
+- [ ] New desktop commands are for the main window only; the sign window and web pages are refused,
+      with IPC tests.
+- [ ] Logs and the diagnostics file never hold a key (or any part of one) or what the owner types in
+      the terminal.
+- [ ] No model names in commits, branch names, or pull requests.
+- [ ] Plain words on screen ([the word list](../design/vocabulary.md)); decision records named, not
+      only numbered; 8 West Ventures, LLC credited.
+- [ ] Connections (`crates/capabilities/src/connections/`, `crates/guard/src/connections.rs`,
+      `apps/desktop/src/settings/connections/`) are not changed. Paid keys get their own place in
+      the Vault.
+- [ ] `main` merged in whenever it moves; in shared files, both sides kept. Pacific-time dates.
+- [ ] Before pushing: `pnpm check`, `cargo fmt --all -- --check`,
+      `cargo clippy --workspace --all-targets --locked -- -D warnings`,
+      `CARGO_INCREMENTAL=0 cargo test --workspace --locked` (rerun until the whole suite finishes),
+      `pnpm bindings` with no diff in `packages/types/src/generated`, and `pnpm docs:check` for
+      docs. Never push while GitHub's checks are still running.
+
+## Pull request 0 — the Windows-only failures (choice 10)
+
+- [ ] `scripts/check-doc-links.mjs`: `linkedPaths` builds repository paths with `/` on every
+      system (`node:path`'s `posix`), so its tests pass on Windows.
+- [ ] `crates/capabilities/src/broker/add_on_calls.rs`: the folder builder is mutable only where it
+      is changed (Unix), so clippy passes on Windows.
+- [ ] `a_busy_supervisor_takes_a_handed_over_objective_when_it_is_free`: find why it fails only when
+      run with the rest of its file on this PC, and make it wait for what it really needs.
+- [ ] `.github/workflows/ci.yml`: the Windows job runs clippy as well.
+
+## Pull request 1 — spending caps, pricing, records, and the switch
+
+### Money and months
+
+- [ ] Money is kept as whole millionths of a dollar (`u64`), never as a floating-point number.
+- [ ] A month is the calendar month in Pacific time (choice 2), daylight saving included.
+- [ ] Prices: per million tokens for input, cached input, and output. A dated built-in price list
+      for direct-key models (like `checked_version()` for model lists); OpenRouter prices from its
+      public list (PR 2).
+
+### Caps (a new setting, recorded in the Ledger)
+
+- [ ] A cap: who it covers (the business, one department, or one position), a monthly amount, when
+      it was set, and by whom. The 80% warning and the hard stop are fixed, not settings.
+- [ ] Setting, raising, lowering, and removing a cap is recorded as an event. The business cap
+      cannot be removed while a paid key exists.
+- [ ] **The gate** (one place, used by every paid route): before a paid task, add up this month's
+      spending plus what is set aside for running tasks, for the position, its department (worked
+      out from who it reports to, as today), and the business. Refuse if the most the task could
+      cost does not fit under every cap; otherwise set that amount aside. After the task, record
+      the real amount and free the rest.
+- [ ] The position and department are stored with each spending record, so a later
+      reorganisation or a loan does not move past spending.
+- [ ] Crossing 80% of a cap: an event, a banner on every page, and one Windows notification per cap
+      per month.
+- [ ] Reaching the hard stop: new paid tasks under that cap are refused with the reason; a running
+      task whose real bill passes a cap is stopped at once; the banner stays until the cap is raised
+      or the month turns over.
+- [ ] After a restart, amounts set aside for tasks that were interrupted are freed; nothing set
+      aside is lost or counted twice.
+
+### Recording every paid task (Ledger migration 0012)
+
+- [ ] A spending record per paid task: task and execution, position and department, AI tool and
+      model, which key by its name (never the key), the amount or "not priced yet", how it was
+      priced (the service's own bill, or the price list), the Pacific month, and the time.
+- [ ] Nothing about subscription tasks changes.
+
+### The switch
+
+- [ ] `Switches.paidAiKeys` ("Let workers use paid AI keys"), off by default; older settings read
+      it as off.
+- [ ] Off: no key can be saved, no paid route is offered or run, and every test that forbids keys
+      passes unchanged.
+- [ ] The AI tools page's "How it is paid for" row: the paid choice stays locked, with the reason,
+      until the switch is on and the business cap exists (PR 2 unlocks it for tools that take a
+      key).
+
+### Screens (Settings)
+
+- [ ] **Spending caps:** the business, each department, and each position with a cap; this
+      month's spending against each, what is set aside, and when the month turns over.
+- [ ] The switch in Settings → Switches, with a plain sentence about what it allows.
+- [ ] The banner for a warning or a hard stop, like the approvals banner, linking to Spending caps.
+
+### Desktop commands (main window only)
+
+- [ ] Read spending and caps; set a cap; remove a cap. Each is listed in `build.rs`, granted only in
+      `capabilities/default.json` (the main window), and has IPC tests that refuse the sign window,
+      another window, and a web page.
+
+### Tests
+
+- [ ] Money arithmetic and Pacific months (turning over, daylight saving).
+- [ ] Warning at 80% of a cap; hard stop at 100%, with the work stopped and the owner told.
+- [ ] A cap enforced for the business, a department, and one position; the smallest amount left
+      decides.
+- [ ] A task that could pass a cap is not started; setting aside and freeing add up after
+      restarts.
+- [ ] "Not priced yet" is never counted as zero.
+- [ ] With the switch off: no key can be saved and no paid route is offered.
+- [ ] Vitest for the Spending caps screen, the switch, and the banner; IPC tests for every new
+      command.
+
+## Pull request 2 — keys in the Vault, routes, and OpenRouter
+
+### Keys (typed only into Plenipo's own screen)
+
+- [ ] A paid key is saved from the AI tool's card, only while the switch is on and the business
+      cap exists. It is checked with one cheap read call, then kept only in the Vault (its own
+      names, `paid-key-…`, beside servers and connections). Settings keep a name, the AI tool it is
+      for, and when it was saved; never the key.
+- [ ] The key is never shown again. Replace it or remove it. Uninstall's "delete my data" removes
+      it (`vault::stored_ids`).
+- [ ] The key is added to the secret filter, so it cannot appear in a log, the diagnostics file,
+      the Ledger, or a task's activity, even if a service echoes it back.
+- [ ] The key reaches only its own helper, on the helper's standard input, only for that AI tool,
+      only while the switch is on. It is never put in an environment variable or on a command line,
+      so the contract suite's "no key variables" check stays unchanged for every AI tool.
+
+### Routes (ADR-036 §4)
+
+- [ ] A route is one model, the AI tool that runs it, and how it is paid for (subscription or a
+      named paid key). Models that are the same model on different AI tools are linked (for
+      example Kimi K3 on Kimi Code, on Ollama, and on OpenRouter), so the owner sees one model with
+      more than one way to reach it.
+- [ ] A position's (or role's) list is in the owner's order. With the switch on and no order set,
+      subscriptions come first (ADR-036 §2.6).
+- [ ] The Router moves to the next route when one is usage-limited, signed out, over its cap, not
+      priced yet, or its key is missing, and says why. Its reason names the route it chose, says
+      whether it costs money, and says "text only" for a route without tools (choice 6).
+- [ ] A route over its cap is skipped until the month turns over or the cap is raised; a usage
+      limit is remembered with its reset time, as today.
+
+### OpenRouter through a Plenipo helper (ADR-086)
+
+- [ ] A helper run per task (`plenipo-desktop --plenipo-paid openrouter check|chat`), supervised
+      like the Ollama helper: an ID, a time limit, cancel, the Ledger record, restart handling.
+- [ ] One fixed address (`https://openrouter.ai/api/v1/…`), no redirects followed. Guard gains a
+      purpose for paid AI services with each company's own addresses; the app checks the address
+      before the helper starts, and the helper checks it again before it connects. Refusals are
+      recorded.
+- [ ] The secure connection uses Windows' own TLS through the `reqwest` library already in
+      Plenipo, inside the helper only, never in the app itself.
+- [ ] The helper keeps the conversation in the session's folder, like the Ollama helper, and caps
+      the answer's length so the gate knows the most a task can cost.
+- [ ] Streamed answer, then the service's own bill for the request (usage with cost), recorded as
+      the spending. Errors: `401` → "Needs a new key"; `402` → "out of credit on OpenRouter";
+      `429` → usage limited, with the reset time when given.
+- [ ] The short model list (choice 7), each with its maker; any other model by its exact name;
+      prices from OpenRouter's public list before each task, capped in size.
+- [ ] An `openrouter` persona in `plenipo-fake-agent` and the full contract suite.
+
+### Wave 1's leftover (choice 9)
+
+- [ ] Once the paid Ollama plan shows, the paid-plan models are checked against what Ollama lists,
+      and the "(paid plan)" labels follow what really answers.
+
+### Tests
+
+- [ ] A key cannot be saved while no business cap exists, or while the switch is off.
+- [ ] No key, and no part of a key, appears in the Ledger, a task's activity, a log, or the
+      diagnostics file.
+- [ ] Route fallback: first route usage-limited → second route runs, and the reason says so.
+- [ ] Route fallback: first route over its cap → skipped until the cap resets or is raised.
+- [ ] The owner's example: Kimi Code usage-limited → Kimi K3 on Ollama carries the work (stand-ins).
+- [ ] A paid task records what it spent, against which caps, and which key by name.
+- [ ] The contract suite still refuses key variables for every subscription AI tool; the OpenRouter
+      helper passes the suite with its own persona.
+- [ ] IPC tests for the key commands; Vitest for the key form, routes, and the reason's words;
+      end-to-end in the real app with the fake persona.
+
+## Pull request 3 — direct keys and v1.16.0 (ADR-087)
+
+- [ ] Anthropic (`api.anthropic.com`), OpenAI (`api.openai.com`), xAI (`api.x.ai`), and Google
+      (`generativelanguage.googleapis.com`): the same helper, one small part per company, each with
+      its fixed address, key check, streamed answer, token counts priced from the dated list, and
+      errors in plain words.
+- [ ] Each company's models listed with their maker and price, checked against the company's own
+      list with the owner's key where the owner has one (Anthropic, OpenAI, xAI); Google is marked
+      "not checked with a real key yet" until the owner's key arrives.
+- [ ] A persona per company in `plenipo-fake-agent`; the full contract suite for each.
+- [ ] Proposed, waiting for the owner's yes: a direct key for Kimi (Moonshot AI,
+      `api.moonshot.ai`), because the owner has one. The plan names four companies; a fifth would
+      be recorded in ADR-087.
+- [ ] Version 1.16.0.
+
+## Paperwork
+
+- [ ] [ADR-085](../adr/), [ADR-086](../adr/), and [ADR-087](../adr/), each with "As built"; the ADR
+      index; notes in ADR-003, ADR-007, ADR-011, and ADR-014 pointing to ADR-085.
+- [ ] Setup guide (paid keys, caps, and the switch), the adding-an-AI-tool guide (a paid helper),
+      and README.
+- [ ] New word pairs in [the word list](../design/vocabulary.md) (spending cap, paid key, the ways
+      to reach a model, "not priced yet").
+- [ ] The acceptance report, release notes v1.16.0, a row in
+      [versioning](../development/versioning.md), and the plan's Phase 16 line and order-of-work
+      row.
+- [ ] A review across several areas (secrets and the Vault, money and caps, Guard and the network,
+      desktop commands, screens and words), each finding checked by a second reviewer; each
+      confirmed finding fixed with a test, or recorded as a design limit.
+
+## Not in this wave
+
+- Plenipo's tools (files, programs, git) for paid and Ollama workers (choice 6).
+- Hermes Agent (Wave 4).
+- A limit on which hosting companies OpenRouter uses (choice 8: none).
