@@ -214,11 +214,41 @@ export async function nav(browser, label) {
 }
 
 /**
+ * The license contract's test key (Phase 11A, ADR-104). Only copies built for the tests
+ * (`license-test-keys`, CI's E2E job) accept it; a released copy never does.
+ */
+export const TEST_LICENSE_KEY = readFileSync(
+  join(root, "contracts", "license-check", "v1", "keys", "valid.txt"),
+  "utf8",
+).trim();
+
+/**
+ * Plenipo Pro for this copy (Phase 11A): the contract's test key, entered as a page would, when
+ * this copy is not on Pro yet. Its first check goes to the tests' stand-in for 8 West, and Pro
+ * stays on without an answer.
+ */
+export async function becomePro(browser) {
+  const answer = await browser.executeAsync((key, done) => {
+    const ipc = window.__TAURI_INTERNALS__;
+    const refused = (e) => done({ refused: typeof e === "string" ? e : JSON.stringify(e) });
+    ipc.invoke("get_license").then((now) => {
+      if (now.edition === "pro") done({ edition: "pro" });
+      else
+        ipc.invoke("enter_license_key", { key }).then((v) => done({ edition: v.edition }), refused);
+    }, refused);
+  }, TEST_LICENSE_KEY);
+  if (answer.edition !== "pro") {
+    throw new Error(`Plenipo Pro could not be turned on for the test: ${JSON.stringify(answer)}`);
+  }
+}
+
+/**
  * The app has drawn its frame: the left strip, with Plenipo's logo at its top. The canvas's
  * first-time tour is marked as seen, so it does not cover the canvas in the other tests (the
- * canvas test shows it on purpose).
+ * canvas test shows it on purpose). Every suite runs on Plenipo Pro (the contract's test key)
+ * unless it asks for `{ edition: "free" }` (Phase 11A).
  */
-export const waitForShell = async (browser, timeoutMs) => {
+export const waitForShell = async (browser, timeoutMs, { edition = "pro" } = {}) => {
   await waitUntil(
     () =>
       browser.execute(
@@ -231,6 +261,7 @@ export const waitForShell = async (browser, timeoutMs) => {
     timeoutMs,
   );
   await browser.execute(() => localStorage.setItem("plenipo.canvasTour", "seen"));
+  if (edition === "pro") await becomePro(browser);
 };
 
 /**

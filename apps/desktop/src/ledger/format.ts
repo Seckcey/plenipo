@@ -8,6 +8,7 @@ import type {
 
 import { HANDOFF_OUTCOME_LABEL, OUTCOME_LABEL } from "../agents/format";
 import { capabilityLabel } from "../guard/format";
+import { describeLicenseEvent } from "../license/words";
 
 export const TASK_STATE_LABEL: Record<TaskState, string> = {
   queued: "Queued",
@@ -125,6 +126,8 @@ export function describeEvent(e: LedgerEvent): string {
   if (learned !== null) return learned;
   const upkeep = describeUpkeepEvent(e.eventType, p);
   if (upkeep !== null) return upkeep;
+  const license = describeLicenseEvent(e.eventType, p);
+  if (license !== null) return license;
   const aiTool = describeAiToolEvent(e.eventType, p);
   if (aiTool !== null) return aiTool;
   if (e.eventType.startsWith("org.")) {
@@ -904,6 +907,12 @@ function describeLiaisonEvent(type: string, p: Record<string, unknown>): string 
       return `Handoff requests ignored${why}`;
     case "liaison.delivery_failed":
       return `Handoff replies could not be delivered${why}`;
+    // Free runs three workers at a time (Phase 11A, ADR-113): "Waiting its turn: Free runs 3
+    // workers at a time".
+    case "liaison.waiting_for_free_slot": {
+      const first = (str(p.reason) ?? "").split(". ")[0]?.replace(/\.$/, "");
+      return first ? `Waiting its turn: ${first}` : "Waiting its turn";
+    }
     case "liaison.waiting_for_member": {
       // "waiting for Senior Developer to finish its current task"
       const reason = brief(p.reason, 200);

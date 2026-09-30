@@ -15,6 +15,7 @@ import {
 import { Field, Footer, FormError } from "../components/org/OrgDialogs";
 import { useSubmit } from "../components/org/dialogHelpers";
 import { Modal } from "../components/org/Modal";
+import { useOnFree } from "../license/useLicense";
 import { useOrganization } from "../org/useOrganization";
 import { NewOrganizationDialog } from "./NewOrganizationDialog";
 import { useOrganizations } from "./useOrganizations";
@@ -31,6 +32,7 @@ function where(o: OrgSummary): string {
  * organizations — switch, open in a new window, archive, bring back, and delete for good.
  */
 export function OrganizationsSetting() {
+  const onFree = useOnFree();
   const { listing, error: listError, apply } = useOrganizations();
   const org = useOrganization();
   const [creating, setCreating] = useState(false);
@@ -153,6 +155,12 @@ export function OrganizationsSetting() {
         ))}
       </ul>
       <FormError error={error} />
+      {onFree && (
+        <p className="muted" role="note">
+          More than one organization is part of Plenipo Pro (Settings → License). Free keeps one; an
+          archived organization waits, kept, until Pro is back.
+        </p>
+      )}
       <div className="settings-section__actions">
         <Button size="sm" icon="plus" onClick={() => setCreating(true)}>
           New organization

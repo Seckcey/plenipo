@@ -67,7 +67,14 @@ export function eventStatus(e: LedgerEvent): { status: Status; label: string } |
     case "ai_tool.update_failed":
       return { status: "error", label: "Failed" };
     case "liaison.waiting_for_member":
+    case "liaison.waiting_for_free_slot":
       return { status: "pending", label: "Waiting its turn" };
+    case "license.edition_changed":
+      return p.to === "pro"
+        ? { status: "ok", label: "Plenipo Pro" }
+        : { status: "warn", label: "Free" };
+    case "license.check_failed":
+      return { status: "warn", label: "Not checked" };
     case "approval.requested":
       return { status: "pending", label: "Waiting for you" };
     case "approval.resolved":

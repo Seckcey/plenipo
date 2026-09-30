@@ -6,11 +6,13 @@
 // to open a draft pull request, which waits for the owner's approval. The result shows who did
 // what on which AI tool, the files, the tests, the review, the branch, and the pull request. The
 // owner's own checkout is never changed; the working copy is removed and its branch stays.
-// Real CLIs are verified by the owner (Phase 8 checklist).
+// Real CLIs are verified by the owner (Phase 8 checklist). It runs on Free, with no license key
+// (Phase 11A): a worker past the third waits its turn, and the flow still finishes.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
@@ -156,20 +158,34 @@ function scrollTo(browser, selector) {
 const field = (browser, form, label, tag = "input") =>
   browser.$(`//form[@aria-label="${form}"]//label[.//span[normalize-space()="${label}"]]//${tag}`);
 
+/**
+ * A stand-in for 8 West's license check (Phase 11A, ADR-115): this copy sends its check here
+ * when it has a key. On Free it must receive nothing.
+ */
+const licenseCheck = { seen: 0, server: null };
+
 describe("Phase 8 Development Department (real app, fake CLIs and gh)", () => {
   let app;
 
   before(async () => {
+    licenseCheck.server = createServer((req, res) => {
+      licenseCheck.seen += 1;
+      res.writeHead(503).end();
+    });
+    await new Promise((done) => licenseCheck.server.listen(8768, "127.0.0.1", done));
     app = await launch(home, env);
     await app.browser.setWindowSize(1600, 1000);
   });
   after(async () => {
     await app?.close();
+    licenseCheck.server?.close();
   });
 
   it("the project's test is an approved command", async () => {
     const { browser } = app;
-    await waitForShell(browser);
+    // On Free (Phase 11A's acceptance): the whole Development flow runs on one department, one
+    // project, and three workers at a time, and this copy never contacts 8 West.
+    await waitForShell(browser, undefined, { edition: "free" });
     await openSettings(browser, "Permissions");
     const approved = await field(
       browser,
@@ -333,5 +349,9 @@ describe("Phase 8 Development Department (real app, fake CLIs and gh)", () => {
     );
     assert.ok(!existsSync(copy), "the working copy's folder is gone");
     assert.equal(git(folder, "branch", "--list", "plenipo/*", "--format=%(refname:short)"), branch);
+  });
+
+  it("acceptance (Phase 11A): a whole Development objective on Free never contacts 8 West", () => {
+    assert.equal(licenseCheck.seen, 0, "a Free copy sends nothing to 8 West");
   });
 });
