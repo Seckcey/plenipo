@@ -102,7 +102,10 @@ describe("Phase 21 more than one organization (real app)", () => {
     });
     assert.ok(saved.ok, saved.refused);
     const theirTasks = (await invoke(browser, "list_tasks")).ok;
-    assert.ok(theirTasks.every((t) => t.id !== task.id), "the client sees none of the first's work");
+    assert.ok(
+      theirTasks.every((t) => t.id !== task.id),
+      "the client sees none of the first's work",
+    );
     const theirApprovals = (await invoke(browser, "get_approvals")).ok;
     await browser.switchToWindow(main);
     const mine = (await invoke(browser, "get_permissions")).ok;
@@ -111,7 +114,9 @@ describe("Phase 21 more than one organization (real app)", () => {
     assert.ok(myTasks.some((t) => t.id === task.id));
     const myApprovals = (await invoke(browser, "get_approvals")).ok;
     assert.deepEqual(
-      theirApprovals.pending.map((a) => a.id).filter((id) => myApprovals.pending.some((m) => m.id === id)),
+      theirApprovals.pending
+        .map((a) => a.id)
+        .filter((id) => myApprovals.pending.some((m) => m.id === id)),
       [],
     );
     // A window cannot reach another organization's task.
@@ -125,12 +130,15 @@ describe("Phase 21 more than one organization (real app)", () => {
     const { browser } = app;
     await browser.switchToWindow(client);
     const made = (await invoke(browser, "create_ledger_backup")).ok;
+    // Beside the client's own Ledger, in its own folder.
+    assert.ok(made.path.includes(clientId), made.path);
+    const name = made.path.split(/[\\/]/).pop();
     const theirs = (await invoke(browser, "list_ledger_backups")).ok;
-    assert.ok(theirs.backups.some((b) => b.name === made.name));
+    assert.ok(theirs.backups.some((b) => b.name === name));
     assert.match(theirs.folder, /organizations/);
     await browser.switchToWindow(main);
     const mine = (await invoke(browser, "list_ledger_backups")).ok;
-    assert.ok(mine.backups.every((b) => b.name !== made.name));
+    assert.ok(mine.backups.every((b) => b.name !== name));
     assert.notEqual(mine.folder, theirs.folder);
   });
 

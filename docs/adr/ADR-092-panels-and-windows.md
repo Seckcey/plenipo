@@ -136,6 +136,29 @@ support being moved into such a window.
 - Linux (for development and tests) needs WebKitGTK's "let pages open windows" setting, which
   Plenipo turns on for the organization's window only; Windows needs nothing more.
 
+## As built
+
+Built on 2026-09-30 (v1.16.0) as decided. Where the build adds to the decision:
+
+- **Code:** `apps/desktop/src/workspace/` (the layout, the provider that moves each panel's parts
+  between docks and pop-outs, the docks, and Reset layout in Settings → Personalization);
+  `workspace_windows.rs` and `workspace_commands.rs` in the app (the pop-out windows, their places
+  in `windows.json`, and `prepare_pop_out`, `focus_pop_out`, `close_pop_out`, `reset_pop_outs`).
+- **§15, a pop-out's label** is `popout-<panel>--<window>--<number>` (not `main:terminal`): each
+  new pop-out gets a number of its own, so it never waits for an old one's label to be free, and
+  its place is kept by panel and window, whatever the number.
+- **§9, Put back** closes the pop-out through Plenipo as well as from the page: a window its page
+  closed could stay behind unseen on Linux.
+- **§10, closing:** only the owner closing a pop-out (its window's close button) puts the panel
+  back. A pop-out Plenipo closes itself (Quit, a reload, Reset layout) stays in the kept layout, so
+  it opens again after a restart.
+- **§8, the terminal in a pop-out:** xterm.js opens again in the new window's page and keeps its
+  running shell and scrollback; on Linux, WebKitGTK is told to let the page open the windows
+  Plenipo allows.
+- **Checked:** `workspace.e2e.mjs` (dock, resize, pop out and put back, no window unless asked,
+  the same layout after a restart, Reset layout), `Workspace.test.tsx`, `layout.test.ts`, and the
+  per-window IPC tests.
+
 ## Alternatives considered
 
 - **A pop-out as a separate page with its own permissions**, which then asks Plenipo for its

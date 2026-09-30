@@ -168,6 +168,35 @@ organization's secrets under that organization's name". ADR-091 lists what the c
 - Commands keep their names and their permission files; only where they find their organization
   changed, so the pages did not.
 
+## As built
+
+Built on 2026-09-30 (v1.16.0) as decided, with the limits above. Where the build adds to it:
+
+- **Code:** `orgs.rs` (the list, each open organization's services, which window shows which, and
+  the `Org` command argument), `org_host.rs` (opening an organization), `org_commands.rs` (the
+  commands), and `tool_holds.rs` (an AI tool's update) in the app; `copy_setup_from` in the Ledger
+  (`workforce/copy.rs`); your Workforce and tile in `Workforce::share_with`; the shared record of
+  who uses the screen in `Broker::sharing_control`; `apps/desktop/src/orgs/` on screen.
+- **§12, how a command finds its organization:** every command that works on an organization's
+  things takes `Org<…>` in place of `State<…>`, which reads the calling window's label. The PC's
+  commands (the AI tools page, updates, start and close, notice choices, the terminal's shell, Stop
+  all) keep the first organization's.
+- **§12, what a page hears:** Plenipo sends each organization's events to its window only, and the
+  page listens for its own window's events only (`listenHere` in `api/events.ts`).
+- **§15, a copy** goes into the new, empty Ledger before any service starts on it, so every role,
+  department, and position keeps its ID and every setting still names the same one. Positions that
+  staff a project stay behind with it.
+- **§18, deleting for good** saves each chosen worker into the first organization's Ledger with its
+  role and specialty found by name; a folder a file still holds open is removed at the next start.
+- **Each window's own place:** the first organization keeps the page's remembered names; another
+  organization's add its ID (`plenipo.place@<id>`), so each remembers its own page, map, and panels.
+- **Checked:** `two_organizations_in_two_windows_never_cross`,
+  `an_organization_is_archived_brought_back_and_deleted_for_good`, and
+  `a_new_organization_starts_from_scratch_a_copy_or_not_yet_a_template` (IPC);
+  `each_organizations_backups_are_its_own`; the copy and shared-Workforce tests in
+  `crates/workforce/tests/owner_control.rs`; the uninstaller's test; `Organizations.test.tsx`,
+  `events.test.ts`; and `organizations.e2e.mjs` in the real app.
+
 ## Alternatives considered
 
 - **One Ledger for every organization, with an organization ID on every row.** Rejected by

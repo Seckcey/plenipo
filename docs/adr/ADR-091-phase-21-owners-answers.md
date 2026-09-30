@@ -179,6 +179,23 @@ Settled by the check itself (no question needed):
   organization shares (ADR-094).
 - Every file can be looked at inside Plenipo, and nothing on a file's say-so is ever started.
 
+## As built
+
+Built on 2026-09-30 as **v1.16.0**: Phase 16's second wave merged first as v1.15.0, so Phase 21
+took the next number (answer 1). Everything above was built as answered, with these notes:
+
+- **Answer 2:** the row is in `docs/editions.md`; nothing is enforced yet (Phase 11A).
+- **Answer 3:** each organization runs its own full set of services; Stop all, Quit, and the tray
+  cover every one (ADR-094 §7).
+- **Answer 4:** the AI tools page stays the first organization's, unchanged (it is Phase 16's,
+  ADR-090); an AI tool's update holds the other organizations' new work beside it (ADR-094 §4).
+- **Answer 5:** **Use a template** shows "Templates are coming later." and cannot be picked; the
+  list of templates is empty in `OrgListing.templates`, ready for the first one.
+- **Answer 6:** the first organization cannot be archived or deleted, because it keeps the PC's
+  shared record (ADR-094, Limits); any other organization can.
+- **Settled item 10:** a page listens for its own window's events only, because Tauri gives an event
+  sent to one window to any page listening for every window's (ADR-094 §12).
+
 ## Alternatives considered
 
 - **Two or three parts, each its own pull request** (as Phase 20 was, ADR-067). Not chosen: the

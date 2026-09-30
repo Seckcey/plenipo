@@ -172,6 +172,28 @@ junctions, device names, and letter case against a folder's real path.
 - Dropped files take disk space in Plenipo's data folder until the objective is removed with its
   working copy.
 
+## As built
+
+Built on 2026-09-30 (v1.16.0) as decided. Where the build adds to the decision:
+
+- **Code:** `crates/capabilities/src/broker/owner_files.rs` (the roots, folder lists, reads, saves
+  with "changed on disk", and what is changing now), `attachments.rs` (files on an objective),
+  `files_commands.rs` in the app (the commands, the tickets for File Explorer drops, and opening
+  in another program or in File Explorer); `apps/desktop/src/files/` (Files, the editor page,
+  CodeMirror's setup in `editorSetup.ts`, and files on an objective in `useObjectiveFiles.ts`).
+- **§5, the editor page** keeps each open file's unsaved text while you move between pages; it is
+  lost when Plenipo quits (a limit).
+- **§7, Save** writes a new copy beside the file and swaps it in; where the swap cannot happen
+  (a file another program holds open on Windows), it writes in place.
+- **§20, File Explorer drops:** Plenipo keeps each drop's paths behind a ticket for that window
+  (an hour at most, 64 drops), and the page only sends the ticket and each file's number back.
+- **§21:** files are delivered into an `attachments` folder of the working copy when the
+  objective's first worker starts, once.
+- **Checked:** `owner_files` and `attachments` unit tests, `crates/capabilities/tests/development.rs`
+  (one writer, Watch naming its working copy, files on an objective), `Files.test.tsx`, the IPC
+  tests, and `workspace.e2e.mjs` (edit and save README.md, a file outside refused, a working copy
+  a worker writes: read-only, live, and writable after Stop the worker).
+
 ## Alternatives considered
 
 - **A side-by-side editor in the file view panel.** Not chosen: the editor needs the page's room;

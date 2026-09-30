@@ -18,6 +18,6 @@ here: boolean,
  */
 inWindow: boolean, 
 /**
- * Programs and AI tool turns running for it now.
+ * Programs running for it now (its AI tools' turns among them).
  */
 working: number, createdAt: number, };
