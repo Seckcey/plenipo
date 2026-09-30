@@ -30,8 +30,8 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 3 | 18 | The organization canvas, and watching workers write code as it happens | Delivered (v1.11.0) |
 | 4 | 19 | The AI tools page: sign-in, usage, and updates | Delivered (v1.12.0) |
 | 5 | 20 | Connections: Microsoft 365, Slack, Google, and more | Delivered: part 20A (Microsoft 365) in v1.13.0, part 20B (Slack, Google) in v1.14.1, part 20C (HubSpot, Stripe, WordPress and WooCommerce, add-on tools) in v1.14.2 (ADR-067, ADR-071) |
-| 6 | 16 | Every AI model worth having | Next: Wave 1 delivered in v1.14.0 (ADR-080, ADR-081, ADR-082), more Ollama models when the paid plan starts; Waves 2 to 4 are next, now that Phase 20 is delivered (ADR-036, ADR-061) |
-| 7 | 21 | Workspace: panels, windows, files, and more than one organization | Planned |
+| 6 | 16 | Every AI model worth having | In progress: Wave 1 delivered in v1.14.0 (ADR-080, ADR-081, ADR-082), more Ollama models when the paid plan starts; Wave 2 in progress; Waves 3 and 4 after (ADR-036, ADR-061) |
+| 7 | 21 | Workspace: panels, windows, files, and more than one organization | In progress beside Phase 16's Wave 2 (ADR-090): panels, windows, files, and the editor first; more than one organization last |
 | 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | Planned: selling starts once the app is finished |
 | 9 | 14 | Plenipo on your phone: a web interface built from scratch | Planned |
 | 10 | 15 | Additional providers, departments, Windows servers, and Milepost | Planned |
@@ -39,7 +39,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 12 | 23 | Mac and Linux | Planned |
 | 13 | 24 | Community | Planned |
 
-Phases 0–8, 10, 11, 12A, 12, 13, 17, 18, 19, and 20 are delivered. Next: Phase 16, Waves 2 to 4.
+Phases 0–8, 10, 11, 12A, 12, 13, 17, 18, 19, and 20 are delivered. In progress: Phase 16's Wave 2, and Phase 21 beside it (ADR-090).
 
 ---
 
@@ -2063,7 +2063,7 @@ Phase 7 (Guard), Phase 10 (browser, for sign-in), the Vault. Microsoft app regis
 
 # Phase 21 — Workspace: Panels, Windows, Files, and More Than One Organization
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Seventh in the order of work.
+**Added at the owner's direction (2026-09-28), ADR-039.** Seventh in the order of work. **Built now, beside Phase 16's Wave 2** ([ADR-090](docs/adr/ADR-090-phase-21-alongside-phase-16-wave-2.md), 2026-09-30): panels, windows, the file view, and the editor first; more than one organization last. Its decision records use ADR-090 to ADR-099.
 
 ## Goal
 
