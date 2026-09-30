@@ -18,8 +18,27 @@ pub struct TrustedKey {
 }
 
 /// 8 West's production signing keys (AWS KMS, `alias/plenipo-license-current` and
-/// `alias/plenipo-license-spare`), their public halves only.
-pub const PRODUCTION: &[TrustedKey] = &[];
+/// `alias/plenipo-license-spare`, us-west-1, made 2026-09-30), their public halves only.
+pub const PRODUCTION: &[TrustedKey] = &[
+    // The key in use: `alias/plenipo-license-current`.
+    TrustedKey {
+        id: "prod-1",
+        public: [
+            0x32, 0xc3, 0x92, 0x76, 0x86, 0xa1, 0x44, 0x92, 0xd8, 0x30, 0x7b, 0xf5, 0xf2, 0x84,
+            0x3a, 0xa0, 0x5f, 0xa1, 0xd7, 0xfa, 0xd3, 0x75, 0xc7, 0x03, 0xf2, 0x04, 0x8d, 0xeb,
+            0x70, 0xcf, 0x75, 0x44,
+        ],
+    },
+    // The spare: `alias/plenipo-license-spare`.
+    TrustedKey {
+        id: "prod-2",
+        public: [
+            0xd6, 0x87, 0x50, 0xd0, 0x68, 0x57, 0xcc, 0x8f, 0x44, 0xa1, 0x3e, 0xae, 0x4c, 0x17,
+            0x27, 0xc0, 0xb6, 0x63, 0x72, 0xec, 0xd3, 0x7a, 0x6f, 0x0c, 0x69, 0xf7, 0x28, 0x62,
+            0xa8, 0x81, 0xf0, 0xdf,
+        ],
+    },
+];
 
 /// The contract's test signing key: its private half is published in
 /// `contracts/license-check/v1/test-signing-key.json` on purpose, so both sides can sign and
@@ -67,6 +86,28 @@ mod tests {
         let mut ids: Vec<_> = PRODUCTION.iter().map(|k| k.id).collect();
         ids.dedup();
         assert_eq!(ids.len(), PRODUCTION.len(), "each key has its own name");
+    }
+
+    /// The key in use and the spare, as AWS KMS gave their public halves (hex): a license key
+    /// signed by either is accepted, so the spare works after a key change.
+    #[test]
+    fn the_key_in_use_and_the_spare_are_both_trusted() {
+        let hex = |id: &str| {
+            let k = find(id).unwrap_or_else(|| panic!("{id} is trusted"));
+            k.to_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        };
+        assert_eq!(PRODUCTION.len(), 2);
+        assert_eq!(
+            hex("prod-1"),
+            "32c3927686a14492d8307bf5f2843aa05fa1d7fad375c703f2048deb70cf7544"
+        );
+        assert_eq!(
+            hex("prod-2"),
+            "d68750d06857cc8f44a13eae4c1727c0b66372ecd37a6f0c69f72862a881f0df"
+        );
     }
 
     #[test]

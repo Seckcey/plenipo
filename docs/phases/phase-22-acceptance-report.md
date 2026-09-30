@@ -37,8 +37,6 @@ Plenipo (section 3).
   on Coastline, with a Stripe sandbox restricted key in that copy's own settings file. The robot
   buys with Stripe's test payment method (never a typed card). The owner does one Checkout
   click-through by hand. The screenshots go in `docs/phases/evidence/phase-22/`.
-- **"The spare public key works after a key change."** This waits for the production keys (the
-  [Phase 11A report](phase-11a-acceptance-report.md), section 6).
 
 ## 4. Questions for the owner (from the build)
 

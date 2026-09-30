@@ -6,7 +6,7 @@
 | **Branch**   | `claude/phase-11a-license`                                                                                                                                                                                                      |
 | **Verified** | Locally on Windows: `pnpm check`, `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (1,650 tests), `pnpm bindings` (no diff). GitHub CI on the pull request, including Windows and the real-app tests on Linux. |
 | **Date**     | 2026-09-30 (Pacific time)                                                                                                                                                                                                       |
-| **Result**   | Every deliverable built, as **v1.18.0**. Every test in the plan's list passes. The owner's checks, and the production signing keys, are in section 6. Plenipo by 8 West Ventures, LLC.                                          |
+| **Result**   | Every deliverable built, as **v1.18.0**. Every test in the plan's list passes. The owner's checks are in section 6. Plenipo by 8 West Ventures, LLC.                                                                            |
 
 Screenshots come from the real-app tests on GitHub's Linux machine, and are saved in
 `docs/phases/evidence/phase-11a/` once those tests pass.
@@ -112,20 +112,8 @@ The account service's review is in the [Phase 22 report](phase-22-acceptance-rep
 
 ## 6. Left for the owner
 
-1. **Make the signing keys in AWS KMS** (in AWS CloudShell, us-west-1). The key is made in the
-   vault and never leaves it:
-
-   ```bash
-   for name in plenipo-license-current plenipo-license-spare plenipo-license-test; do
-     id=$(aws kms create-key --key-spec ECC_NIST_EDWARDS25519 --key-usage SIGN_VERIFY \
-       --description "Plenipo license signing ($name), 8 West Ventures, LLC" \
-       --query KeyMetadata.KeyId --output text)
-     aws kms create-alias --alias-name "alias/$name" --target-key-id "$id"
-   done
-   ```
-
-   Then say "keys made". The builder reads the public halves (public, safe to share) and adds them
-   to the app as `prod-1` and `prod-2`, with a test that the spare works.
+1. **The signing keys in AWS KMS: done** (2026-09-30). The app trusts the current key as `prod-1`
+   and the spare as `prod-2`; `the_key_in_use_and_the_spare_are_both_trusted` checks both.
 
 2. **On a real Windows PC**, after the release:
    - enter a key, and see Pro turn on

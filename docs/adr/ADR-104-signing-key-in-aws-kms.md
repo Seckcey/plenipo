@@ -78,8 +78,10 @@ sign, and every signature is logged. Plenipo carries two public keys: the one in
   trusts it.
 - **A key signed by a key Plenipo no longer trusts** (§3 retires an at-risk key once 8 West has
   emailed new keys) says so on Settings → License, and its record is kept for the new key.
-- **Waiting on the owner.** The list of production public keys is empty until the owner makes the
-  two KMS keys. Their public halves go in as `prod-1` (current) and `prod-2` (spare), the names the
-  account service signs with. Until then, a released copy accepts no key.
+- **The production keys.** The owner made the three KMS keys on 2026-09-30 (us-west-1). The
+  app trusts the public halves of `alias/plenipo-license-current` as `prod-1` and
+  `alias/plenipo-license-spare` as `prod-2`, the names the account service signs with; a test checks
+  both, so the spare works after a key change. `alias/plenipo-license-test` is for test copies of the
+  service only, and no released copy of Plenipo trusts it.
 - **In the service** (`plenipo-account`). It signs with `ED25519_SHA_512` over the raw message, and
   checks every signature against the vault key's public half before sending it.

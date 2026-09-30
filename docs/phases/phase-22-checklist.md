@@ -80,8 +80,8 @@ Dates are Pacific time.
       issues one key and one email", with a UNIQUE rule in the database behind it).
 - [x] A key signed by anything but the vault's key is refused by Plenipo
       (`a_key_signed_by_another_key_is_refused`, and the contract's `unknown-signer` key).
-  - [ ] "The spare public key works after a key change" waits for the two production keys
-        (`prod-1`, `prod-2`); the test is added with them.
+  - [x] The spare public key works after a key change
+        (`the_key_in_use_and_the_spare_are_both_trusted`).
 - [x] The weekly check answers active, cancelled (at the end of the paid period), ended, and
       unknown (check tests; the app's `each_state_is_accepted_when_signed_by_a_trusted_key`).
 - [x] The check accepts only the key's ID and the app version ("refuses wrong or extra fields with
@@ -99,8 +99,7 @@ Dates are Pacific time.
 
 Values go only where each line says. Never in chat, and never in either repository.
 
-- [ ] **AWS KMS:** make the two production signing keys and the test key (the command is in the
-      acceptance report).
+- [x] **AWS KMS:** the two production signing keys and the test key (made 2026-09-30).
 - [ ] **AWS:** the server's instance role, the S3 backup bucket, and the settings in SSM Parameter
       Store under `/plenipo-account/production/` (the list is in the acceptance report and in the
       service's `docs/secrets.md`).

@@ -174,9 +174,8 @@ Dates are Pacific time. The app uses the plain words in
 
 ## Left for the owner
 
-- [ ] **Make the two signing keys in AWS KMS** (the command is in the acceptance report). Then the
-      builder adds their public halves to the app as `prod-1` and `prod-2`. Until then, a released copy
-      accepts no key, so every copy stays Free.
+- [x] **The two signing keys in AWS KMS** (made 2026-09-30); the app trusts them as `prod-1` and
+      `prod-2` (`the_key_in_use_and_the_spare_are_both_trusted`).
 - [ ] **On a real Windows PC**:
   - enter a test key in Settings → License, and see Pro turn on
   - restart, and see Pro kept (Windows Credential Manager)
