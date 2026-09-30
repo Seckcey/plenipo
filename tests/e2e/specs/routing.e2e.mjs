@@ -378,12 +378,13 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     const byTool = await groups();
     assert.deepEqual(
       byTool.map(([label]) => label),
-      ["Antigravity", "Claude Code", "Codex", "Grok", "Kimi", "Ollama"],
+      ["Antigravity", "Claude Code", "Codex", "GitHub Copilot", "Grok", "Kimi", "Ollama"],
     );
     await scrollTo(browser, "#models-title");
     await screenshot(browser, "models-grouped-by-tool");
-    // By who made them: Ollama's default (OpenAI's gpt-oss) sits with Codex's; Antigravity's
-    // default model is not known, so it comes last.
+    // By who made them: Ollama's default (OpenAI's gpt-oss) sits with Codex's; Antigravity's and
+    // GitHub Copilot's default models are not known (ADR-083: Copilot's Auto picks), so they come
+    // last.
     await groupBy("Who made it");
     const byMaker = await groups();
     assert.deepEqual(
@@ -392,7 +393,10 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     );
     const openai = byMaker.find(([label]) => label === "OpenAI")[1];
     assert.deepEqual(openai, ["Codex (default model)", "Ollama (default model)"]);
-    assert.deepEqual(byMaker.at(-1)[1], ["Antigravity (default model)"]);
+    assert.deepEqual(byMaker.at(-1)[1].toSorted(), [
+      "Antigravity (default model)",
+      "GitHub Copilot (default model)",
+    ]);
     // The same models, both ways.
     const names = (g) => g.flatMap(([, models]) => models).sort();
     assert.deepEqual(names(byMaker), names(byTool));
