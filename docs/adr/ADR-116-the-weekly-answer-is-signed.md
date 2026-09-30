@@ -60,3 +60,14 @@ them.
 - **An unsigned answer over HTTPS.** Not chosen: a fake server with its own certificate installed on
   the PC could answer anything, forever.
 - **A new key in every answer.** Not chosen for now; see ADR-104.
+
+## As built (v1.18.0)
+
+- **Signing.** Answers are signed with Ed25519 over `plenipo-license-answer.v1.` and the answer's
+  contents.
+- **What Plenipo keeps.** It keeps the newest signed answer, and checks it again at every start. A
+  record changed by hand keeps nothing it cannot prove.
+- **Plenipo's "now".** The latest of: the PC's clock, the latest clock time Plenipo has seen, and
+  the answer's own time. So winding the clock back never extends the 30 days.
+- **What does not count.** An "unknown" answer counts as a failed check, and an older answer than
+  the one kept is ignored.

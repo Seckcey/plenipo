@@ -84,3 +84,22 @@ Three ways out were considered, and are recorded in **Alternatives considered** 
 - **Hardware binding, so one subscription cannot be shared.** Rejected for the same reasons
   ADR-021 rejected it: it produces support tickets from honest customers who changed a motherboard,
   and stops nobody determined.
+
+## As built (v1.18.0, Phase 11A)
+
+- **The check.** A Pro copy checks at most once every 7 days. After a failed check it tries again
+  after 1, 3, 6, and 12 hours, then once a day. The request body is exactly
+  `{"key_id":"…","app_version":"…"}`, tested byte for byte in this repository and in the account
+  service against `contracts/license-check/v1`.
+- **The address.** The check goes through Guard's "weekly license check" purpose, to
+  `https://account.getplenipo.com/v1/check` and nowhere else. It follows no redirect, keeps no
+  cookie, and reads an answer of at most 4 KB.
+- **Fail-open.** Every failure keeps Pro on. Pro drops only when 8 West's signed answer says the
+  subscription ended, when a cancelled subscription reaches its end date, or when 30 days pass after
+  the last signed answer ([ADR-116](ADR-116-the-weekly-answer-is-signed.md)).
+- **Settings → License.** It shows Free or Pro and why, the key's ID (never the key), the plan, the
+  paid-through date, the last and next check, and **Enter**, **Replace**, **Check now**, and
+  **Remove the key**. Removing the key asks first.
+- **Limit: the 30 days are kept on the PC.** Deleting the license record, or removing the key and
+  starting again, starts a new 30 days for that key. Typing the same key in again does not. As this
+  record decided, there is no anti-tamper; the licence covers working around the check.

@@ -49,3 +49,14 @@ PC, one license covers every organization, and Free's limits count across the wh
 
 - **One PC per subscription.** It needs machine counting, which ADR-021 and ADR-022 rejected.
 - **A license for each organization.** Not chosen: more keys for the same person, for no gain.
+
+## As built (v1.18.0)
+
+- **Where the license is kept.** The key is in the Vault as `plenipo-license-key`, under the first
+  organization's name. Its record (`license.json`, not a secret) is in Plenipo's data folder.
+  "Delete my Plenipo data" at uninstall removes the key too.
+- **How Free's limits count.** Organizations that are not archived; departments and projects that are
+  neither archived nor deleted, in every open organization; and the workers on the job (running, or
+  waiting for an approval) in every organization.
+- **Organizations on Free.** A new organization, a copy of one, and bringing back an archived one
+  are all part of Pro. An archived organization waits, kept.

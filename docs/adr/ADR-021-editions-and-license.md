@@ -100,3 +100,24 @@ edition, from one public codebase.
   two repositories for a one-person team, and because the Apache core could still be forked and
   sold. It stays available as a later move — ELv2 does not prevent opening the core up further.
 - **Closing the repository.** Protects everything and gets Plenipo found by nobody.
+
+## As built (v1.18.0, Phase 11A)
+
+Built as decided. `crates/licensing` is the one place a Free limit is decided
+(`Entitlements::check`), and every limit in `docs/editions.md` goes through it: one organization,
+one department, one project, and three workers at a time, counted across the whole PC
+([ADR-110](ADR-110-one-person-any-of-their-pcs.md)); business departments, lessons, Connections,
+and add-on tools are Pro. Guard, permissions, approvals, the Vault, the Ledger, the Activity trail,
+spending caps, and every AI tool never ask it: a test gives the same work to a Free copy and a Pro
+copy and finds the same tools, the same refusals, and the same records. When Pro ends, nothing is
+deleted or hidden. Making something new past a Free limit waits for Pro, and Connections, add-on
+tools, and lessons pause.
+
+Known limits, each kept on purpose:
+
+- **Bringing back a department** on Free checks the department limit only. Its projects come back
+  with it, even past Free's one project: they were made on Pro, and nothing is hidden.
+- **A Vault that cannot be read** when Plenipo starts means Free for that run. Settings → License
+  says so, and the record is left whole for the next start.
+- **No pop-up notice when Pro ends.** Settings → License and the Activity trail say so. When Pro ends
+  while Plenipo is closed, the next start shows Free without an Activity entry for the change.

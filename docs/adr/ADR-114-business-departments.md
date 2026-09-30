@@ -45,3 +45,9 @@ business template exists yet, so the lock is built and tested now, and Phase 9 u
 
 - **Only Development on Free.** Not chosen: a Free owner whose one real project is not software
   could not use Plenipo at all.
+
+## As built (v1.18.0)
+
+Each team template says whether it is a business department. Development is not. Setting up a team
+from a business template on Free is refused before anything is made. So is a second department of
+any kind.
