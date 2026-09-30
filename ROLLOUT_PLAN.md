@@ -32,7 +32,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 5 | 20 | Connections: Microsoft 365, Slack, Google, and more | Delivered: part 20A (Microsoft 365) in v1.13.0, part 20B (Slack, Google) in v1.14.1, part 20C (HubSpot, Stripe, WordPress and WooCommerce, add-on tools) in v1.14.2 (ADR-067, ADR-071) |
 | 6 | 16 | Every AI model worth having | In progress: Wave 1 delivered in v1.14.0 (ADR-080, ADR-081, ADR-082), more Ollama models when the paid plan starts; Wave 2 delivered in v1.15.0 (ADR-083, GitHub Copilot; ADR-084, Cursor's agent waits); Wave 3 delivered in v1.17.0 (ADR-085, paid AI keys with spending caps; ADR-086, OpenRouter through a Plenipo helper; ADR-087, direct keys for every AI company); Wave 4 next (ADR-036, ADR-061) |
 | 7 | 21 | Workspace: panels, windows, files, and more than one organization | Delivered (v1.16.0), built beside Phase 16's Wave 2 (ADR-090 to ADR-094) |
-| 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | Planned: selling starts once the app is finished |
+| 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | In progress: the check and the owner's answers are recorded (ADR-100 to ADR-118); Phase 22 in its own private repository, `plenipo-account` (ADR-101); selling starts once the app is finished |
 | 9 | 14 | Plenipo on your phone: a web interface built from scratch | Planned |
 | 10 | 15 | Additional providers, departments, Windows servers, and Milepost | Planned |
 | 11 | 9 | Sales department on HubSpot | Postponed (ADR-018); after Connections |
