@@ -60,8 +60,8 @@ and user folder removed: [evidence/phase-16-wave-2/owner-check](evidence/phase-1
 - [x] Cursor's website shows the **Free** plan, linked to SuperGrok, with **On-Demand Spending:
       Disabled**.
 - [x] On the build machine, Cursor's agent (`cursor-agent` 2026.09.28-64d2043, signed out) reads
-      the task from standard input, reports JSON lines, and has a sign-in check (`status --format
-      json`). But whether paid on-demand use is on shows only on Cursor's website and on its own
+      the task from standard input, reports JSON lines, and has a sign-in check
+      (`status --format json`). But whether paid on-demand use is on shows only on Cursor's website and on its own
       screen (`/usage`); no command, no ACP message, and nothing in a task's output says it. That
       fails ADR-014 bar item 3 the same way Copilot's first try did.
 
@@ -105,8 +105,8 @@ and user folder removed: [evidence/phase-16-wave-2/owner-check](evidence/phase-1
   - The account name is never kept.
 - [ ] Environment: proxy and certificate settings only; `COPILOT_AUTO_UPDATE=false`; no token
       variable ever (the contract suite refuses them).
-- [ ] One task: `--output-format json --no-auto-update --available-tools=<no tool>
-      --disable-builtin-mcps --no-ask-user --no-custom-instructions`, `--model` when set,
+- [ ] One task: `--output-format json`, `--no-auto-update`, `--available-tools=<no tool>`,
+      `--disable-builtin-mcps`, `--no-ask-user`, `--no-custom-instructions`, `--model` when set,
       `--session-id` (Plenipo chooses) or `--resume=<id>`. The words go in on standard input.
 - [ ] Parser, from the owner's recorded output: text as it is written, the answer, the model Auto
       chose, the session, errors by `errorType` (`quota` and `rate_limit` → usage limit,
