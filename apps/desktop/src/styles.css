@@ -4503,3 +4503,14 @@ body {
 .connection__advanced summary {
   cursor: pointer;
 }
+
+.connection__manifest {
+  max-height: 220px;
+  overflow: auto;
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  font-size: var(--ui-font-sm);
+  white-space: pre;
+}

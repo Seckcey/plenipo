@@ -483,7 +483,7 @@ pub fn find(name: &str) -> Option<&'static ToolDef> {
     TOOLS
         .iter()
         .find(|t| t.name == name)
-        .or_else(|| crate::connections::microsoft365::tool(name).map(|t| &t.def))
+        .or_else(|| crate::connections::tool(name).map(|(_, t)| &t.def))
 }
 
 /// What a tool call asks for, with its arguments read.

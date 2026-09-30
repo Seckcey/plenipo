@@ -87,12 +87,16 @@ pub struct World {
     pub chats: Vec<Value>,
     pub chat_messages: HashMap<String, Vec<Value>>,
     pub channel_messages: HashMap<String, Vec<Value>>,
-    /// Everything sent: mail, chat messages, posts, invitations.
+    /// Everything sent: mail, chat messages, posts, invitations (Slack's and Google's too).
     pub sent: Vec<Value>,
+    /// The stand-in Slack (part 20B).
+    pub slack: super::slack::Slack,
+    /// The stand-in Google (part 20B).
+    pub google: super::google::Google,
     next: u64,
 }
 
-fn today_at(hour: u32, minute: u32) -> String {
+pub fn today_at(hour: u32, minute: u32) -> String {
     use chrono::{Local, TimeZone as _, Utc};
     let now = Local::now();
     let t = Local
@@ -104,7 +108,7 @@ fn today_at(hour: u32, minute: u32) -> String {
         .to_string()
 }
 
-fn docx(words: &str) -> Vec<u8> {
+pub fn docx(words: &str) -> Vec<u8> {
     use std::io::Write as _;
     let mut buf = std::io::Cursor::new(Vec::new());
     {
@@ -234,6 +238,8 @@ impl World {
                     { "displayName": "Dana Client", "email": CLIENT, "userId": "user-dana" },
                 ],
             })],
+            slack: super::slack::Slack::seeded(),
+            google: super::google::Google::seeded(),
             ..World::default()
         };
         w.chat_messages.insert(
@@ -257,14 +263,14 @@ impl World {
         w
     }
 
-    fn id(&mut self, prefix: &str) -> String {
+    pub fn id(&mut self, prefix: &str) -> String {
         self.next += 1;
         format!("{prefix}-{}", self.next)
     }
 
     /// A new token, as long as Microsoft's (well over 1,000 characters), so the Vault keeps
     /// the long-lived one in pieces as it does on Windows.
-    fn token(&mut self, prefix: &str) -> String {
+    pub fn token(&mut self, prefix: &str) -> String {
         let random: String = (0..40)
             .map(|_| uuid::Uuid::new_v4().simple().to_string())
             .collect();
@@ -334,12 +340,12 @@ impl StandIn {
 
 // ---- HTTP -------------------------------------------------------------------------------------
 
-struct Req {
-    method: String,
-    path: String,
-    query: HashMap<String, String>,
-    headers: HashMap<String, String>,
-    body: Vec<u8>,
+pub struct Req {
+    pub method: String,
+    pub path: String,
+    pub query: HashMap<String, String>,
+    pub headers: HashMap<String, String>,
+    pub body: Vec<u8>,
 }
 
 async fn read_request(stream: &mut TcpStream) -> Option<Req> {
@@ -411,13 +417,13 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-struct Resp {
-    status: &'static str,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
+pub struct Resp {
+    pub status: &'static str,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
 }
 
-fn json_resp(status: &'static str, v: Value) -> Resp {
+pub fn json_resp(status: &'static str, v: Value) -> Resp {
     Resp {
         status,
         headers: vec![("Content-Type".into(), "application/json".into())],
@@ -425,11 +431,11 @@ fn json_resp(status: &'static str, v: Value) -> Resp {
     }
 }
 
-fn ok(v: Value) -> Resp {
+pub fn ok(v: Value) -> Resp {
     json_resp("200 OK", v)
 }
 
-fn redirect(to: &str) -> Resp {
+pub fn redirect(to: &str) -> Resp {
     Resp {
         status: "302 Found",
         headers: vec![("Location".into(), to.to_owned())],
@@ -437,7 +443,7 @@ fn redirect(to: &str) -> Resp {
     }
 }
 
-fn error(status: &'static str, code: &str) -> Resp {
+pub fn error(status: &'static str, code: &str) -> Resp {
     json_resp(
         status,
         json!({ "error": { "code": code, "message": code } }),
@@ -479,14 +485,14 @@ async fn serve(mut stream: TcpStream, world: Arc<Mutex<World>>) -> std::io::Resu
     stream.shutdown().await
 }
 
-fn form(body: &[u8]) -> HashMap<String, String> {
+pub fn form(body: &[u8]) -> HashMap<String, String> {
     let url = reqwest::Url::parse(&format!("http://x/?{}", String::from_utf8_lossy(body))).unwrap();
     url.query_pairs()
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
         .collect()
 }
 
-fn b64(bytes: &[u8]) -> String {
+pub fn b64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
@@ -506,6 +512,8 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
         return match (req.method.as_str(), rest) {
             ("GET", "world") => ok(json!({
                 "sent": w.sent, "requests": w.requests, "issued": w.issued, "asked": w.asked,
+                "slackRevoked": w.slack.revoked.len(), "googleRevoked": w.google.revoked.len(),
+                "slackRenewalsLeft": w.slack.refresh.len(),
                 "messages": w.messages.iter().map(|m| json!({ "id": m["id"], "folder": m["_folder"], "subject": m["subject"] })).collect::<Vec<_>>(),
             })),
             ("POST", "knobs") => {
@@ -531,6 +539,9 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
                 if let Some(n) = v["throttleNext"].as_u64() {
                     w.throttle_next = n as u32;
                 }
+                if let Some(t) = v["slackTeam"].as_str() {
+                    w.slack.team = t.to_owned();
+                }
                 ok(json!({}))
             }
             _ => error("404 Not Found", "NotFound"),
@@ -538,6 +549,20 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
     }
     if let Some(rest) = path.strip_prefix("login.microsoftonline.com/") {
         return login(req, rest, &mut w);
+    }
+    // Slack's and Google's stand-ins (part 20B).
+    if let Some(rest) = path.strip_prefix("slack.com/") {
+        return super::slack::route(req, rest, &mut w);
+    }
+    for host in [
+        "accounts.google.com/",
+        "oauth2.googleapis.com/",
+        "gmail.googleapis.com/",
+        "www.googleapis.com/",
+    ] {
+        if path.starts_with(host) {
+            return super::google::route(req, path, &mut w);
+        }
     }
     // A file's download, where Graph sends it (no token: the address itself is the pass).
     if let Some(id) = path

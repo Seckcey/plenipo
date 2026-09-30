@@ -1,5 +1,6 @@
-//! Connections (Phase 20, ADR-062): the business's own accounts — Microsoft 365 first — that
-//! Plenipo signs in to for the owner, and Guard's part of the decision about a worker using one.
+//! Connections (Phase 20, ADR-062): the business's own accounts — Microsoft 365, Slack, and
+//! Google so far — that Plenipo signs in to for the owner, and Guard's part of the decision about a
+//! worker using one.
 //!
 //! A connection is set up by the owner in Settings → Connections: which of its parts are on, and
 //! at which level (**Read only** or **Full access**); who may use it (roles and agents, each **Read
@@ -84,9 +85,16 @@ impl Service {
         }
     }
 
-    /// Built into this copy of Plenipo (Phase 20 part 20A: Microsoft 365; ADR-067).
+    /// Built into this copy of Plenipo (Phase 20: Microsoft 365 in part 20A, Slack and Google in
+    /// part 20B; ADR-067).
     pub fn built(self) -> bool {
-        matches!(self, Self::Microsoft365)
+        matches!(self, Self::Microsoft365 | Self::Slack | Self::Google)
+    }
+
+    /// Whether the owner may keep more than one account of it (Slack: any number of workspaces,
+    /// ADR-064 §3); the others have one each.
+    pub fn many(self) -> bool {
+        self == Self::Slack
     }
 
     /// Its parts, in the order Settings shows them.
@@ -99,6 +107,8 @@ impl Service {
                 Part::Sharepoint,
                 Part::Teams,
             ],
+            Self::Slack => &[Part::Channels, Part::DirectMessages, Part::Search],
+            Self::Google => &[Part::Gmail, Part::Calendar, Part::Drive],
             _ => &[],
         }
     }
@@ -112,14 +122,16 @@ impl Service {
                 && matches!(part, Part::Sharepoint | Part::Teams))
     }
 
-    /// A connection's parts when the owner first sets it up: Microsoft 365's Mail and Calendar
-    /// at **Read only**, the rest off.
+    /// A connection's parts when the owner first sets it up: Microsoft 365's Mail and Calendar,
+    /// Slack's Channels, and Google's Gmail and Calendar at **Read only**; the rest off.
     pub fn starting_parts(self) -> BTreeMap<Part, PartLevel> {
         self.parts()
             .iter()
             .map(|p| {
                 let level = match (self, p) {
-                    (Self::Microsoft365, Part::Mail | Part::Calendar) => PartLevel::ReadOnly,
+                    (Self::Microsoft365, Part::Mail | Part::Calendar)
+                    | (Self::Slack, Part::Channels)
+                    | (Self::Google, Part::Gmail | Part::Calendar) => PartLevel::ReadOnly,
                     _ => PartLevel::Off,
                 };
                 (*p, level)
@@ -138,6 +150,15 @@ pub enum Part {
     Onedrive,
     Sharepoint,
     Teams,
+    /// Slack's channels (and their threads).
+    Channels,
+    /// Slack's direct messages and group messages.
+    DirectMessages,
+    /// Searching Slack's messages.
+    Search,
+    Gmail,
+    /// Google Drive.
+    Drive,
 }
 
 impl Part {
@@ -148,7 +169,18 @@ impl Part {
             Self::Onedrive => "OneDrive",
             Self::Sharepoint => "SharePoint",
             Self::Teams => "Teams",
+            Self::Channels => "Channels",
+            Self::DirectMessages => "Direct messages",
+            Self::Search => "Search",
+            Self::Gmail => "Gmail",
+            Self::Drive => "Drive",
         }
+    }
+
+    /// Whether it has a **Full access** level: every part but Slack's Search, which only reads
+    /// (ADR-070 §5.3).
+    pub fn has_full_access(self) -> bool {
+        self != Self::Search
     }
 }
 
@@ -276,16 +308,24 @@ pub enum ConnectionState {
     NeedsSignIn,
 }
 
-/// An organization's own app registration, used instead of 8 West's (Microsoft 365, choice 4).
-/// Not a secret.
+/// The owner's own app, used instead of 8 West's: an organization's own Microsoft app (choice 4),
+/// a Slack workspace's own app, or the owner's Google app (ADR-070 §3–§4). Not a secret: a Google
+/// app's secret is kept only in the Vault, and this says only that it is there.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[ts(export)]
 pub struct OwnApp {
-    /// The app's ID (Microsoft's "Application (client) ID"), a GUID.
+    /// The app's ID: Microsoft's "Application (client) ID" (a GUID), or Slack's or Google's
+    /// client ID.
     pub app_id: String,
-    /// The organization it is registered in: its domain (`contoso.com`) or its ID (a GUID).
-    pub tenant: String,
+    /// Microsoft 365 only: the organization it is registered in, its domain (`contoso.com`) or
+    /// its ID (a GUID).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub tenant: Option<String>,
+    /// Google only: its secret is kept in the Vault (never here).
+    #[serde(default)]
+    pub secret_kept: bool,
 }
 
 /// One connection, as Guard's settings keep it. Its sign-in is only in the Vault.
@@ -408,6 +448,39 @@ pub fn is_domain(s: &str) -> bool {
         })
 }
 
+/// A Slack channel's ID (`C0123ABCD`, or `G…` for older private channels): fixed for the
+/// channel's life and never reused, so it can be on a **Send without asking to** list
+/// (ADR-070 §1). Direct messages (`D…`) cannot: their people decide.
+pub fn is_slack_channel(s: &str) -> bool {
+    let mut chars = s.chars();
+    matches!(chars.next(), Some('C' | 'G'))
+        && (9..=13).contains(&s.len())
+        && chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+}
+
+/// A Slack app's client ID: two numbers joined by a dot (`1234567890.9876543210`).
+pub fn is_slack_client_id(s: &str) -> bool {
+    s.len() <= 60
+        && s.split_once('.').is_some_and(|(a, b)| {
+            !a.is_empty()
+                && !b.is_empty()
+                && (a.chars().chain(b.chars())).all(|c| c.is_ascii_digit())
+        })
+}
+
+/// A Google app's client ID: `<digits>-<letters and digits>.apps.googleusercontent.com`.
+pub fn is_google_client_id(s: &str) -> bool {
+    s.len() <= 200
+        && s.strip_suffix(".apps.googleusercontent.com")
+            .and_then(|head| head.split_once('-'))
+            .is_some_and(|(n, rest)| {
+                !n.is_empty()
+                    && n.chars().all(|c| c.is_ascii_digit())
+                    && !rest.is_empty()
+                    && rest.chars().all(|c| c.is_ascii_alphanumeric())
+            })
+}
+
 /// An email address, simply: `name@domain`.
 pub fn is_address(s: &str) -> bool {
     let Some((name, domain)) = s.rsplit_once('@') else {
@@ -417,18 +490,32 @@ pub fn is_address(s: &str) -> bool {
         && name.len() <= 64
         && name
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "._%+-'".contains(c))
+            .all(|c| c.is_ascii_alphanumeric() || ADDRESS_MARKS.contains(c))
+        && !name.starts_with('.')
+        && !name.ends_with('.')
+        && !name.contains("..")
         && is_domain(domain)
 }
 
-/// One entry of a **Send without asking to** list, as kept: an address or an `@domain`, in lower
-/// case. `Err`: why it is not one. Channels cannot be on the list: a channel is known only by
-/// names anyone can reuse (a team and a channel with the same names), so posting in a channel
-/// always asks (as built, part 20A).
-pub fn send_entry(entry: &str) -> Result<String, String> {
+/// The marks an address may have before its `@` besides letters and digits (RFC 5322's
+/// "atext" and the dot): `dana=40x.com@lists.org` and `bounce+id@mail.co` are real addresses.
+/// Never a space, comma, quotation mark, angle bracket, or line break.
+const ADDRESS_MARKS: &str = ".!#$%&'*+-/=?^_`{|}~";
+
+/// One entry of a `service`'s **Send without asking to** list, as kept: an address or an
+/// `@domain`, in lower case, or — Slack only — a channel's ID, in capitals. `Err`: why it is not
+/// one. A Teams channel cannot be on a list: it is known only by names anyone can reuse, so
+/// posting in one always asks (as built, part 20A). A Slack channel can, by its ID, which never
+/// changes and is never reused (ADR-070 §1).
+pub fn send_entry(entry: &str, service: Service) -> Result<String, String> {
     let e = entry.trim();
     if e.is_empty() || e.chars().count() > 200 || e.chars().any(char::is_control) {
         return Err("each entry must be one line of 1–200 characters".into());
+    }
+    // As Slack shows it, in capitals: a channel's name is in small letters, so "companynews"
+    // is a name, never taken for an ID.
+    if service == Service::Slack && is_slack_channel(e) {
+        return Ok(e.to_owned());
     }
     let lower = e.to_lowercase();
     if let Some(domain) = lower.strip_prefix('@') {
@@ -447,6 +534,13 @@ pub fn send_entry(entry: &str) -> Result<String, String> {
             Err(format!("{e:?} is not an email address"))
         };
     }
+    if service == Service::Slack {
+        return Err(format!(
+            "{e:?} is not an email address, an @domain, or a Slack channel's ID (write it like \
+             dana@clientco.com, @clientco.com, or C0123ABCD in capitals, as Slack shows it: in \
+             Slack, click the channel's name; its ID is at the bottom of About)"
+        ));
+    }
     if e.starts_with('#') || e.contains('›') {
         return Err(format!(
             "{e:?} is a channel: posting in a channel always asks you, so it cannot be on this list"
@@ -456,6 +550,16 @@ pub fn send_entry(entry: &str) -> Result<String, String> {
         "{e:?} is not an email address or an @domain (write it like dana@clientco.com or \
          @clientco.com)"
     ))
+}
+
+/// Whether `recipient` of a send through a `service` connection is on `list`: a real email address
+/// (as [`listed`]), or — Slack only — a channel's ID that is on the list exactly.
+pub fn listed_for(service: Service, list: &[String], recipient: &str) -> bool {
+    let r = recipient.trim();
+    if service == Service::Slack && is_slack_channel(r) {
+        return list.iter().any(|e| e == r);
+    }
+    listed(list, r)
 }
 
 /// Whether `recipient` is on `list`. Only a real email address can be: an address entry matches
@@ -597,7 +701,9 @@ pub fn check(c: &ConnectionCheck<'_>) -> ConnectionVerdict {
     }
     let all_listed = c.kind == ToolKind::Send
         && !c.recipients.is_empty()
-        && c.recipients.iter().all(|r| listed(&conn.send_list, r));
+        && c.recipients
+            .iter()
+            .all(|r| listed_for(conn.service, &conn.send_list, r));
     ConnectionVerdict::Go {
         sensitive: c.kind.sensitive(),
         all_listed,
@@ -734,6 +840,42 @@ impl Guard {
         self.update("connection.changed", OWNER, |c| {
             let conn = c.set_connection_own_app(id, app)?;
             Ok(Some((change_payload(&conn, "app"), conn)))
+        })?
+        .ok_or_else(|| crate::GuardError::Invalid("nothing changed".into()))
+    }
+
+    /// Use the owner's own Slack or Google app, or none (ADR-070 §3–§4). Records
+    /// `connection.changed` (the client ID, never a secret).
+    pub fn set_connection_client_app(
+        &self,
+        id: &str,
+        client_id: Option<&str>,
+        secret_kept: bool,
+    ) -> crate::Result<Connection> {
+        self.update("connection.changed", OWNER, |c| {
+            let conn = c.set_connection_client_app(id, client_id, secret_kept)?;
+            Ok(Some((change_payload(&conn, "app"), conn)))
+        })?
+        .ok_or_else(|| crate::GuardError::Invalid("nothing changed".into()))
+    }
+
+    /// Add another account of `service` (Slack's workspaces). Records `connection.changed`.
+    pub fn add_connection(&self, service: Service) -> crate::Result<Connection> {
+        self.update("connection.changed", OWNER, |c| {
+            let conn = c.add_connection(service)?;
+            Ok(Some((change_payload(&conn, "added"), conn)))
+        })?
+        .ok_or_else(|| crate::GuardError::Invalid("nothing changed".into()))
+    }
+
+    /// Remove a card that is not connected. Records `connection.removed`.
+    pub fn remove_connection(&self, id: &str) -> crate::Result<Connection> {
+        self.update("connection.removed", OWNER, |c| {
+            let conn = c.remove_connection(id)?;
+            Ok(Some((
+                json!({ "connectionId": conn.id, "service": conn.service.label() }),
+                conn,
+            )))
         })?
         .ok_or_else(|| crate::GuardError::Invalid("nothing changed".into()))
     }
@@ -981,18 +1123,21 @@ mod tests {
 
     #[test]
     fn list_entries_are_addresses_or_domains_never_channels() {
-        assert_eq!(send_entry(" @8WestIT.com ").unwrap(), "@8westit.com");
+        let m = Service::Microsoft365;
+        assert_eq!(send_entry(" @8WestIT.com ", m).unwrap(), "@8westit.com");
         assert_eq!(
-            send_entry("Client@Example.com").unwrap(),
+            send_entry("Client@Example.com", m).unwrap(),
             "client@example.com"
         );
-        // Channels: posting in one always asks.
+        // Channels: posting in one always asks (Microsoft 365 and Google).
         for channel in ["Sales › General", "#general"] {
             assert!(
-                send_entry(channel).unwrap_err().contains("always asks"),
+                send_entry(channel, m).unwrap_err().contains("always asks"),
                 "{channel}"
             );
         }
+        assert!(send_entry("C0100000001", m).is_err());
+        assert!(send_entry("C0100000001", Service::Google).is_err());
         for bad in [
             "",
             "@",
@@ -1001,9 +1146,108 @@ mod tests {
             "not an address",
             "a\nb",
             "@-x.com",
+            "a,b@x.com",
+            "\"a\"@x.com",
+            "<a@x.com>",
+            ".a@x.com",
+            "a..b@x.com",
         ] {
-            assert!(send_entry(bad).is_err(), "{bad:?}");
+            assert!(send_entry(bad, m).is_err(), "{bad:?}");
         }
+        // Real addresses with marks before the @ (a mailing list's, a bounce address).
+        for good in [
+            "dana=40clientco.com@lists.org",
+            "bounce+x&y@mail.co",
+            "o'neil@x.com",
+        ] {
+            assert_eq!(send_entry(good, m).unwrap(), good);
+            assert!(is_address(good), "{good}");
+        }
+    }
+
+    #[test]
+    fn a_slack_channel_is_on_a_slack_list_by_its_id_only() {
+        let s = Service::Slack;
+        assert_eq!(send_entry(" C0100000001 ", s).unwrap(), "C0100000001");
+        assert_eq!(send_entry("G0400000004", s).unwrap(), "G0400000004");
+        assert_eq!(
+            send_entry("dana@ClientCo.com", s).unwrap(),
+            "dana@clientco.com"
+        );
+        // A name, a direct message's ID, or something close is not a channel ID. A name in
+        // small letters that is shaped like an ID is still a name.
+        for bad in [
+            "#general",
+            "general",
+            "companynews",
+            "c0100000001",
+            "D0300000003",
+            "C01",
+            "C0100000001X9Z",
+            "C01-0000001",
+        ] {
+            let err = send_entry(bad, s).unwrap_err();
+            assert!(err.contains("channel's ID"), "{bad}: {err}");
+        }
+        let list = vec!["C0100000001".to_owned(), "@8westit.com".to_owned()];
+        assert!(listed_for(s, &list, "C0100000001"));
+        assert!(listed_for(s, &list, "alex@8westit.com"));
+        // Another channel, a name that looks like the ID, or a lower-case copy: not listed.
+        assert!(!listed_for(s, &list, "C0200000002"));
+        assert!(!listed_for(s, &list, "c0100000001"));
+        assert!(!listed_for(s, &list, "#general (C0100000001)"));
+        // A channel ID never counts for Microsoft 365 or Google.
+        assert!(!listed_for(Service::Microsoft365, &list, "C0100000001"));
+        assert!(!listed_for(Service::Google, &list, "C0100000001"));
+        // A Slack send to a listed channel goes without asking only with the switch (the engine).
+        let mut c = Connection::new("slack", s);
+        c.state = ConnectionState::Connected;
+        c.parts.insert(Part::Channels, PartLevel::FullAccess);
+        c.send_list = list;
+        let ConnectionVerdict::Go { all_listed, .. } =
+            verdict(&c, Part::Channels, ToolKind::Send, &["C0100000001"])
+        else {
+            panic!()
+        };
+        assert!(all_listed);
+        let ConnectionVerdict::Go { all_listed, .. } = verdict(
+            &c,
+            Part::Channels,
+            ToolKind::Send,
+            &["dana (no email address in Slack)"],
+        ) else {
+            panic!()
+        };
+        assert!(!all_listed);
+    }
+
+    #[test]
+    fn app_ids_and_parts_of_slack_and_google() {
+        assert!(is_slack_client_id("1234567890.9876543210"));
+        for bad in ["", "1234567890", ".1", "1.", "1.2.3", "a.b", "12 34.5"] {
+            assert!(!is_slack_client_id(bad), "{bad:?}");
+        }
+        assert!(is_google_client_id(
+            "123456789012-abcdef123.apps.googleusercontent.com"
+        ));
+        for bad in [
+            "",
+            "abc-def.apps.googleusercontent.com",
+            "123-.apps.googleusercontent.com",
+            "123-abc.apps.googleusercontent.com.evil.example",
+            "123-abc/x.apps.googleusercontent.com",
+        ] {
+            assert!(!is_google_client_id(bad), "{bad:?}");
+        }
+        assert!(Service::Slack.built() && Service::Google.built());
+        assert!(!Service::Hubspot.built());
+        assert!(Service::Slack.many() && !Service::Google.many());
+        assert!(!Part::Search.has_full_access());
+        assert!(Part::Channels.has_full_access());
+        assert_eq!(
+            Service::Google.parts(),
+            [Part::Gmail, Part::Calendar, Part::Drive]
+        );
     }
 
     #[test]
@@ -1080,7 +1324,7 @@ mod tests {
         };
         assert!(decide(&no_parts).unwrap_err().contains("at least one part"));
         let later = ConnectionRequest {
-            connection_id: "slack",
+            connection_id: "hubspot",
             ..ok.clone()
         };
         assert!(decide(&later).unwrap_err().contains("later update"));
@@ -1090,7 +1334,7 @@ mod tests {
         };
         assert!(decide(&unknown).unwrap_err().contains("no connection"));
         // Disconnecting is never refused for a known connection, built or not.
-        for id in ["microsoft365", "slack"] {
+        for id in ["microsoft365", "slack", "hubspot"] {
             let off = ConnectionRequest {
                 connection_id: id,
                 action: ConnectionAction::Disconnect,

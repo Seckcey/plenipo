@@ -318,6 +318,7 @@ export type { ConnectionCard } from "./generated/ConnectionCard";
 export type { ConnectionState } from "./generated/ConnectionState";
 export type { ConnectionsPage } from "./generated/ConnectionsPage";
 export type { OwnApp } from "./generated/OwnApp";
+export type { AppInput } from "./generated/AppInput";
 export type { Part } from "./generated/Part";
 export type { PartCard } from "./generated/PartCard";
 export type { PartLevel } from "./generated/PartLevel";

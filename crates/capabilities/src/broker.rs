@@ -321,6 +321,12 @@ struct Grant {
     /// (connection ID, capability) → the level this step was given through each connection
     /// (Phase 20, ADR-062 §3).
     connection_levels: BTreeMap<(String, Capability), Level>,
+    /// (connection ID, tool) → offered to this step: a Slack tool may be offered for one
+    /// workspace and not another.
+    connection_tools: std::collections::BTreeSet<(String, &'static str)>,
+    /// Connection ID → its name on screen ("Slack (Client Co)"), for the permissions the owner
+    /// sees.
+    connection_names: BTreeMap<String, String>,
     /// Plenipo's note about its connections.
     connection_note: String,
     /// What it read through connections in this step ("email", "files"), in the order first
@@ -328,10 +334,11 @@ struct Grant {
     read_outside: Vec<&'static str>,
 }
 
-/// "Read Microsoft 365" or "Write in Microsoft 365": a step's use of one connection, in the
+/// "Read Microsoft 365" or "Write in Slack (Client Co)": a step's use of one connection, in the
 /// permissions the owner sees.
-fn connection_permission_label(id: &str, capability: Capability) -> String {
-    let service = plenipo_guard::connections::service_of(id).map_or(id, |s| s.label());
+fn connection_permission_label(id: &str, name: Option<&str>, capability: Capability) -> String {
+    let service = name
+        .unwrap_or_else(|| plenipo_guard::connections::service_of(id).map_or(id, |s| s.label()));
     if capability == Capability::ConnectionsWrite {
         format!("Write in {service}")
     } else {
@@ -370,7 +377,11 @@ impl Grant {
                         .filter(|(_, l)| **l != Level::Blocked)
                         .map(|((id, c), l)| GrantPermission {
                             capability: *c,
-                            label: connection_permission_label(id, *c),
+                            label: connection_permission_label(
+                                id,
+                                self.connection_names.get(id).map(String::as_str),
+                                *c,
+                            ),
                             level: *l,
                         }),
                 )
@@ -1100,6 +1111,8 @@ impl Broker {
             ssh: Arc::default(),
             stop_reason: None,
             connection_levels: offers.levels,
+            connection_tools: offers.pairs,
+            connection_names: offers.names,
             connection_note: offers.note,
             read_outside: Vec::new(),
         };
@@ -1615,11 +1628,7 @@ impl Broker {
             .filter_map(|name| tools::find(name))
             .map(|t| {
                 let level = match connecting::connection_tool(t.name) {
-                    Some(c) => g
-                        .connection_levels
-                        .get(&(c.service.id().to_owned(), t.capability))
-                        .copied()
-                        .unwrap_or_default(),
+                    Some(_) => connecting::offered_level(g, t),
                     None => g.levels.get(&t.capability).copied().unwrap_or_default(),
                 };
                 let mut description = t.description.to_owned();

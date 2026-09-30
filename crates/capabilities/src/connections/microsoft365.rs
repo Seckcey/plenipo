@@ -68,6 +68,7 @@ pub fn permissions(part: Part, level: PartLevel) -> &'static [&'static str] {
             "ChannelMessage.Send",
             "Chat.Create",
         ],
+        _ => &[],
     }
 }
 
@@ -125,6 +126,7 @@ pub fn part_words(part: Part) -> (&'static str, &'static str) {
             "Send chat messages and start chats (asks you, unless everyone is on your list), and \
              post in channels (always asks you).",
         ),
+        _ => ("", ""),
     }
 }
 
@@ -155,13 +157,7 @@ pub fn scopes(conn: &Connection, kind: AccountKind) -> Vec<&'static str> {
 /// The parts that need a new sign-in to work as set: turned on, or up to Full access, since the
 /// last one (a part turned down works with what Microsoft already allowed).
 pub fn parts_to_reconnect(conn: &Connection) -> Vec<Part> {
-    conn.service
-        .parts()
-        .iter()
-        .copied()
-        .filter(|p| conn.part(*p) != PartLevel::Off)
-        .filter(|p| allowed_level(conn, *p) < conn.part(*p))
-        .collect()
+    super::parts_to_reconnect(conn)
 }
 
 /// What a renewal of the sign-in asks for: only permissions Microsoft already granted (asking for
@@ -190,19 +186,7 @@ pub fn refresh_scopes(conn: &Connection, kind: AccountKind) -> Vec<String> {
 /// A part's level as far as Microsoft allowed it at the last sign-in: a part turned on, or up to
 /// Full access, since then works at what Microsoft granted until the owner reconnects.
 pub fn allowed_level(conn: &Connection, part: Part) -> PartLevel {
-    let granted = |level: PartLevel| {
-        let need = permissions(part, level);
-        !need.is_empty()
-            && need
-                .iter()
-                .all(|p| conn.granted.iter().any(|g| g.eq_ignore_ascii_case(p)))
-    };
-    match conn.part(part) {
-        PartLevel::Off => PartLevel::Off,
-        PartLevel::FullAccess if granted(PartLevel::FullAccess) => PartLevel::FullAccess,
-        _ if granted(PartLevel::ReadOnly) || granted(PartLevel::FullAccess) => PartLevel::ReadOnly,
-        _ => PartLevel::Off,
-    }
+    super::allowed_level(conn, part)
 }
 
 // ---- Signing in --------------------------------------------------------------------------------
@@ -211,7 +195,7 @@ pub fn allowed_level(conn: &Connection, part: Part) -> PartLevel {
 /// app registered in it.
 pub fn authority(kind: AccountKind, own_app: Option<&OwnApp>) -> String {
     match (own_app, kind) {
-        (Some(app), _) => app.tenant.clone(),
+        (Some(app), _) => app.tenant.clone().unwrap_or_else(|| "organizations".into()),
         (None, AccountKind::Work) => "organizations".into(),
         (None, AccountKind::Personal) => "consumers".into(),
     }
@@ -374,7 +358,7 @@ pub fn pct(s: &str) -> String {
 }
 
 /// `?k=v&…`, values percent-encoded (the keys are Plenipo's own, such as `$top`).
-fn query(pairs: &[(&str, String)]) -> String {
+pub(crate) fn query(pairs: &[(&str, String)]) -> String {
     if pairs.is_empty() {
         return String::new();
     }
@@ -402,11 +386,7 @@ fn drive_path(path: &str) -> String {
 
 // ---- The tools ----------------------------------------------------------------------------------
 
-/// A Microsoft 365 tool: its definition, and the part it belongs to.
-pub struct Tool {
-    pub def: ToolDef,
-    pub part: Part,
-}
+pub use super::Tool;
 
 fn id_prop(what: &str) -> Value {
     json!({ "type": "string", "description": what })
@@ -740,12 +720,12 @@ pub fn tool(name: &str) -> Option<&'static Tool> {
 
 // ---- Reading arguments strictly ----------------------------------------------------------------
 
-struct Args<'a> {
+pub(crate) struct Args<'a> {
     map: &'a Map<String, Value>,
 }
 
 impl<'a> Args<'a> {
-    fn new(args: &'a Value, allowed: &[&str]) -> Result<Self, String> {
+    pub(crate) fn new(args: &'a Value, allowed: &[&str]) -> Result<Self, String> {
         static EMPTY: std::sync::OnceLock<Map<String, Value>> = std::sync::OnceLock::new();
         let map = match args {
             Value::Null => EMPTY.get_or_init(Map::new),
@@ -758,7 +738,7 @@ impl<'a> Args<'a> {
         Ok(Self { map })
     }
 
-    fn opt(&self, key: &str, max: usize) -> Result<Option<String>, String> {
+    pub(crate) fn opt(&self, key: &str, max: usize) -> Result<Option<String>, String> {
         match self.map.get(key) {
             None | Some(Value::Null) => Ok(None),
             Some(Value::String(s)) if s.trim().is_empty() => Ok(None),
@@ -768,13 +748,13 @@ impl<'a> Args<'a> {
         }
     }
 
-    fn text(&self, key: &str, max: usize) -> Result<String, String> {
+    pub(crate) fn text(&self, key: &str, max: usize) -> Result<String, String> {
         self.opt(key, max)?
             .ok_or_else(|| format!("\"{key}\" (text) is required"))
     }
 
     /// An ID from Microsoft: 1–512 characters, no spaces or control characters.
-    fn id(&self, key: &str) -> Result<String, String> {
+    pub(crate) fn id(&self, key: &str) -> Result<String, String> {
         let id = self.text(key, 512)?;
         // Only dots would mean "this folder" or "the folder above" in a web address.
         if id.chars().any(|c| c.is_whitespace() || c.is_control()) || id.chars().all(|c| c == '.') {
@@ -783,14 +763,14 @@ impl<'a> Args<'a> {
         Ok(id)
     }
 
-    fn opt_id(&self, key: &str) -> Result<Option<String>, String> {
+    pub(crate) fn opt_id(&self, key: &str) -> Result<Option<String>, String> {
         if self.map.get(key).is_none_or(Value::is_null) {
             return Ok(None);
         }
         self.id(key).map(Some)
     }
 
-    fn flag(&self, key: &str) -> Result<bool, String> {
+    pub(crate) fn flag(&self, key: &str) -> Result<bool, String> {
         match self.map.get(key) {
             None | Some(Value::Null) => Ok(false),
             Some(Value::Bool(b)) => Ok(*b),
@@ -798,7 +778,7 @@ impl<'a> Args<'a> {
         }
     }
 
-    fn limit(&self) -> Result<u64, String> {
+    pub(crate) fn limit(&self) -> Result<u64, String> {
         match self.map.get("limit") {
             None | Some(Value::Null) => Ok(10),
             Some(v) => v
@@ -809,7 +789,7 @@ impl<'a> Args<'a> {
     }
 
     /// A list of email addresses, lower case, at most `max`.
-    fn addresses(&self, key: &str, max: usize) -> Result<Vec<String>, String> {
+    pub(crate) fn addresses(&self, key: &str, max: usize) -> Result<Vec<String>, String> {
         let list = match self.map.get(key) {
             None | Some(Value::Null) => return Ok(Vec::new()),
             Some(Value::Array(items)) => items,
@@ -872,7 +852,7 @@ fn file_path(args: &Args<'_>, key: &str, required: bool) -> Result<Option<String
 
 /// A time the worker gives: `YYYY-MM-DD` (this PC's midnight), `YYYY-MM-DDTHH:MM[:SS]` (this PC's
 /// time), or a full time with its offset.
-fn when(text: &str) -> Result<DateTime<Utc>, String> {
+pub(crate) fn when(text: &str) -> Result<DateTime<Utc>, String> {
     let t = text.trim();
     if let Ok(d) = DateTime::parse_from_rfc3339(t) {
         return Ok(d.with_timezone(&Utc));
@@ -897,12 +877,12 @@ fn when(text: &str) -> Result<DateTime<Utc>, String> {
     ))
 }
 
-fn iso(t: DateTime<Utc>) -> String {
+pub(crate) fn iso(t: DateTime<Utc>) -> String {
     t.format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 /// Today, midnight to midnight, on this PC's clock.
-fn today() -> (DateTime<Utc>, DateTime<Utc>) {
+pub(crate) fn today() -> (DateTime<Utc>, DateTime<Utc>) {
     let now = Local::now();
     let start = Local
         .from_local_datetime(&now.date_naive().and_hms_opt(0, 0, 0).unwrap_or_default())
@@ -915,7 +895,7 @@ fn today() -> (DateTime<Utc>, DateTime<Utc>) {
 }
 
 /// A Graph time (`2026-09-28T16:00:00.0000000` in UTC, or with an offset) on this PC's clock.
-fn shown(graph_time: &str) -> String {
+pub(crate) fn shown(graph_time: &str) -> String {
     let t = graph_time.trim();
     let utc = DateTime::parse_from_rfc3339(t)
         .map(|d| d.with_timezone(&Utc))
@@ -1045,7 +1025,7 @@ pub enum DraftKind {
 }
 
 /// The longest words a worker writes in one call.
-const MAX_WORDS: usize = 20_000;
+pub(crate) const MAX_WORDS: usize = 20_000;
 
 /// Read a call's arguments, strictly.
 pub fn parse(name: &str, args: &Value) -> Result<Call, String> {
@@ -1304,46 +1284,45 @@ pub fn parse(name: &str, args: &Value) -> Result<Call, String> {
 
 // ---- Planning: what Guard is told ---------------------------------------------------------------
 
-/// A call, worked out before Guard decides: its part and kind, words for the owner, and for a
-/// send, everyone it reaches (as Microsoft has them, never as the worker said).
-#[derive(Debug, Clone)]
-pub struct Planned {
-    pub part: Part,
-    pub kind: ToolKind,
-    /// "send the email \"Invoice\" to 2 people".
-    pub summary: String,
-    /// What the approval card and the record show (for a send: its recipients, subject, and the
-    /// worker's own words).
-    pub detail: String,
-    pub recipients: Vec<String>,
-    pub call: Call,
-    /// A draft as it was approved (its recipients and subject), checked again just before it is
-    /// sent.
-    pub approved_as: Option<(Vec<String>, String)>,
-}
+/// A Microsoft 365 call, worked out before Guard decides (everyone a send reaches as Microsoft has
+/// them, never as the worker said).
+pub type Planned = super::Plan<Call>;
 
-/// A call carried out.
-pub struct Done {
-    /// For the worker: fenced wherever it holds other people's words.
-    pub text: String,
-    /// Plenipo's own short summary, kept in the record.
-    pub summary: String,
-    /// IDs, links, counts, and (for what a worker writes or sends) recipients and the subject.
-    pub record: Value,
-    /// What the worker read ("email", "chat messages"), for the approval cards that follow.
-    pub read: Option<&'static str>,
-}
+pub use super::Done;
 
-fn words_kept(text: &str) -> String {
-    let t: String = text.chars().take(MAX_WORDS_KEPT).collect();
-    if text.chars().count() > MAX_WORDS_KEPT {
-        format!("{t}…")
-    } else {
-        t
+/// A worker's own words for an approval card and the record: up to `MAX_WORDS_KEPT` characters
+/// (the owner's choice 7). What is cut is said, so nothing is sent unseen without a word.
+pub(crate) fn words_kept(text: &str) -> String {
+    let total = text.chars().count();
+    if total <= MAX_WORDS_KEPT {
+        return text.to_owned();
     }
+    let t: String = text.chars().take(MAX_WORDS_KEPT).collect();
+    format!(
+        "{t}…\n({} more characters are not shown here, and are sent too.)",
+        total - MAX_WORDS_KEPT
+    )
 }
 
-fn subject_kept(subject: &str) -> String {
+/// A draft's own words for a send card, and a note when lines that look like a quoted earlier
+/// message were left out: they are sent too, so the card says so.
+pub(crate) fn own_words_kept((own, left_out): (&str, usize), place: &str) -> String {
+    let mut out = words_kept(own.trim());
+    if left_out > 0 {
+        out.push_str(&format!(
+            "\n\n(Below this, {} that look like a quoted earlier message are not shown here, \
+             and are sent too. Open the draft in {place} to read them.)",
+            if left_out == 1 {
+                "1 more line".to_owned()
+            } else {
+                format!("{left_out} more lines")
+            }
+        ));
+    }
+    out
+}
+
+pub(crate) fn subject_kept(subject: &str) -> String {
     let s: String = subject.chars().take(80).collect();
     if subject.chars().count() > 80 {
         format!("{s}…")
@@ -1352,7 +1331,7 @@ fn subject_kept(subject: &str) -> String {
     }
 }
 
-fn people(n: usize) -> String {
+pub(crate) fn people(n: usize) -> String {
     if n == 1 {
         "1 person".into()
     } else {
@@ -1395,21 +1374,26 @@ const NO_ADDRESS: &str = "(someone Outlook gave no address for)";
 /// always sees everyone a send reaches.
 const MAX_CARD_HEAD: usize = 1400;
 
-fn card_head_fits(head: &str) -> Result<(), String> {
+pub(crate) fn card_head_fits(head: &str) -> Result<(), String> {
+    head_fits(head, "Outlook or Teams")
+}
+
+/// Whether an approval card's first lines fit; if not, the owner can send it from `place`.
+pub(crate) fn head_fits(head: &str, place: &str) -> Result<(), String> {
     if head.len() > MAX_CARD_HEAD {
-        Err(
+        Err(format!(
             "it goes to more people than one approval card can show; the owner can send it from \
-             Outlook or Teams"
-                .into(),
-        )
+             {place}"
+        ))
     } else {
         Ok(())
     }
 }
 
 /// A draft's own words: Outlook's "unique body" should leave out the earlier messages quoted
-/// under a reply, but may not; cut at the lines Outlook puts above a quoted message.
-fn own_words(text: &str) -> &str {
+/// under a reply, but may not; cut at the lines Outlook puts above a quoted message. With the
+/// number of lines (not blank) left out.
+fn own_words(text: &str) -> (&str, usize) {
     let mut cut = text.len();
     let mut offset = 0;
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
@@ -1430,7 +1414,8 @@ fn own_words(text: &str) -> &str {
         }
         offset += line.len();
     }
-    text[..cut].trim_end()
+    let left_out = text[cut..].lines().filter(|l| !l.trim().is_empty()).count();
+    (text[..cut].trim_end(), left_out)
 }
 
 fn recipients_of(message: &Value) -> Vec<String> {
@@ -1620,7 +1605,7 @@ pub(crate) async fn plan(g: &Graph<'_>, call: Call) -> Result<Planned, String> {
                 head.push_str(&format!("Open the draft in Outlook: {link}\n"));
             }
             card_head_fits(&head)?;
-            let detail = format!("{head}\n{}", words_kept(own.trim()));
+            let detail = format!("{head}\n{}", own_words_kept(own, "Outlook"));
             Planned {
                 part: Part::Mail,
                 kind: ToolKind::Send,
@@ -1885,7 +1870,7 @@ pub(crate) async fn plan(g: &Graph<'_>, call: Call) -> Result<Planned, String> {
 
 // ---- Carrying out -----------------------------------------------------------------------------
 
-fn clip_text(text: &str, max: usize) -> (String, bool) {
+pub(crate) fn clip_text(text: &str, max: usize) -> (String, bool) {
     if text.chars().count() <= max {
         return (text.to_owned(), false);
     }
@@ -1912,7 +1897,7 @@ fn from_line(m: &Value) -> String {
     }
 }
 
-fn record(ids: &[String], links: &[String], count: usize) -> Value {
+pub(crate) fn record(ids: &[String], links: &[String], count: usize) -> Value {
     json!({ "count": count, "ids": ids, "links": links })
 }
 
@@ -3111,25 +3096,44 @@ mod tests {
     fn a_drafts_own_words_stop_where_the_earlier_message_starts() {
         let reply = "Hi Dana, attached.\nAlex\n\n________________________________\n\
                      From: Dana <dana@clientco.com>\nSent: Monday\nSubject: Quote\n\nby Friday";
-        assert_eq!(own_words(reply), "Hi Dana, attached.\nAlex");
+        assert_eq!(own_words(reply), ("Hi Dana, attached.\nAlex", 5));
         assert_eq!(
             own_words("Yes.\n-----Original Message-----\nFrom: x\nold"),
-            "Yes."
+            ("Yes.", 3)
         );
         assert_eq!(
             own_words("Ok\n\nFrom: Dana <d@c.com>\nSent: Monday\n\nold words"),
-            "Ok"
+            ("Ok", 3)
         );
         // Another language's header, under Outlook's line.
         assert_eq!(
             own_words("Danke.\n________________________________\nVon: Dana\nGesendet: Montag\nalt"),
-            "Danke."
+            ("Danke.", 4)
         );
         // "From:" in the worker's own words, with no header after it, stays.
         assert_eq!(
             own_words("From: the team\nThanks"),
-            "From: the team\nThanks"
+            ("From: the team\nThanks", 0)
         );
+    }
+
+    /// Nothing a worker wrote is sent unseen without a word: what the card leaves out is said.
+    #[test]
+    fn a_send_card_says_what_it_leaves_out() {
+        let hidden = own_words_kept(
+            own_words("Thanks.\n-----Original Message-----\nthe files"),
+            "Outlook",
+        );
+        assert!(hidden.starts_with("Thanks."), "{hidden}");
+        assert!(
+            hidden.contains("2 more lines that look like a quoted earlier message are not shown here, and are sent too. Open the draft in Outlook"),
+            "{hidden}"
+        );
+        assert_eq!(own_words_kept(("Thanks.", 0), "Outlook"), "Thanks.");
+        let long = "a".repeat(MAX_WORDS_KEPT + 30);
+        let kept = words_kept(&long);
+        assert!(kept.ends_with("…\n(30 more characters are not shown here, and are sent too.)"));
+        assert_eq!(words_kept("short"), "short");
     }
 
     #[test]

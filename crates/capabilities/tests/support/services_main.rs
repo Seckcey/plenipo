@@ -1,13 +1,19 @@
 //! Test helper: the stand-ins for the connections' services as a program, for the Phase 20
-//! end-to-end tests. Never shipped. Part 20A has Microsoft's (`support/microsoft.rs`): its
-//! sign-in and Microsoft Graph, each at `http://127.0.0.1:<port>/<real host><path>`.
+//! end-to-end tests. Never shipped: Microsoft's sign-in and Microsoft Graph
+//! (`support/microsoft.rs`, part 20A), and Slack's and Google's sign-ins and APIs
+//! (`support/slack.rs`, `support/google.rs`, part 20B), each at
+//! `http://127.0.0.1:<port>/<real host><path>`.
 //!
 //! `plenipo-test-services [--port N]` prints `{"port":…}` on one line, then serves on 127.0.0.1
 //! until it is stopped. Tests read and change it over HTTP: `GET /_control/world`,
 //! `POST /_control/knobs`.
 
+#[path = "google.rs"]
+mod google;
 #[path = "microsoft.rs"]
 mod microsoft;
+#[path = "slack.rs"]
+mod slack;
 
 #[tokio::main]
 async fn main() {

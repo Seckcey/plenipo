@@ -1,4 +1,13 @@
-import type { AccessLevel, Account, AccountKind, ConnectionState, PartLevel } from "@plenipo/types";
+import type {
+  AccessLevel,
+  Account,
+  AccountKind,
+  Connection,
+  ConnectionState,
+  PartLevel,
+  Service,
+  ServiceCard,
+} from "@plenipo/types";
 import type { Status } from "@plenipo/ui";
 
 /** Where a connection stands, in plain words (docs/design/vocabulary.md). */
@@ -47,6 +56,35 @@ export function accountLine(
   const who = account.address || account.name;
   return about.length > 0 ? `${who} (${about.join(", ")})` : who;
 }
+
+/**
+ * A card's heading: the service's name; for a Slack workspace, its name once connected, or which
+ * card it is before ("Slack", "Slack — 8 West IT", "Slack — workspace 2").
+ */
+export function cardTitle(service: ServiceCard, c: Connection): string {
+  if (c.service !== "slack") return service.label;
+  const workspace = c.account?.organization;
+  if (workspace) return `${service.label} — ${workspace}`;
+  const n = /^slack-(\d+)$/.exec(c.id)?.[1];
+  return n ? `${service.label} — workspace ${n}` : service.label;
+}
+
+/** A copy of Plenipo with no app to sign in to `service` with, in plain words. */
+export function noAppWords(service: Service): string | null {
+  switch (service) {
+    case "microsoft365":
+      return "This copy of Plenipo has no Microsoft app ID yet, so it cannot sign in. Your organization can use its own app ID under Advanced below.";
+    case "slack":
+      return "This copy of Plenipo has no Slack app yet, so it cannot sign in with 8 West's. Your workspace can use its own Slack app under Advanced below.";
+    default:
+      // Google's own app is asked for on its card.
+      return null;
+  }
+}
+
+/** Slack's limit on 8 West's app while it is outside Slack's Marketplace (ADR-070 §3). */
+export const SLACK_SLOW =
+  "With 8 West's Slack app, Slack lets Plenipo read one channel or thread a minute, 15 messages at a time. Your workspace's own Slack app (Advanced) reads at Slack's normal speed.";
 
 /** "Mail, Calendar, and Teams". */
 export function andList(items: readonly string[]): string {

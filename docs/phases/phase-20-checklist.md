@@ -1,7 +1,8 @@
 # Phase 20 — Implementation Checklist
 
 **Status:** design approved (2026-09-28); **part 20A delivered as v1.13.0** (2026-09-28;
-[acceptance report](phase-20-acceptance-report.md)); parts 20B (v1.13.1) and 20C (v1.13.2) next
+[acceptance report](phase-20-acceptance-report.md)); **part 20B delivered as v1.14.1**
+(2026-09-29; [acceptance report](phase-20b-acceptance-report.md)); part 20C (a later 1.14.x, ADR-080) next
 (ADR-067). Builds on v1.12.0 (Phase 19). Below, "[x]" is done; an item that spans the parts says
 which part is done.
 
@@ -18,11 +19,15 @@ in the order of work since ADR-061), and the records written for it:
 - [ADR-067 (Phase 20 in three parts)](../adr/ADR-067-phase-20-in-three-parts.md)
 - [ADR-068 (Connections and add-on tools are part of Pro)](../adr/ADR-068-connections-are-pro.md) —
   the owner's direction while approving the design
+- [ADR-070 (Slack and Google: the owner's choices, and what their sign-ins need)](../adr/ADR-070-slack-and-google-choices.md) —
+  the owner's answers before part 20B; **accepted**
 - [Registering Plenipo with Microsoft](phase-20-microsoft-app-registration.md) — click-by-click
   steps for 8 West, and a page for clients' admins
+- [Setting up your Slack and Google apps](phase-20-slack-and-google-apps.md) — click-by-click steps
+  for 8 West's Slack app, a workspace's own Slack app, and your own Google app (part 20B)
 
-**Numbers:** ADR-061 to ADR-068. `main` ends at ADR-060 (usage, "plan left", and new models,
-accepted 2026-09-28), so the next free number is 061. **No new Ledger layout** (it stays at 11):
+**Numbers:** ADR-061 to ADR-068, and ADR-070 for part 20B. `main` ends at ADR-060 (usage, "plan
+left", and new models, accepted 2026-09-28), so the next free number is 061. **No new Ledger layout** (it stays at 11):
 connections are kept in Guard's settings, like servers, and their sign-ins in the Vault.
 
 Dates are Pacific time.
@@ -89,6 +94,25 @@ Then, before building: "Connecting tools is a Pro version feature though." Asked
 the owner chose each as recommended (ADR-068): Connections work for everyone until Phase 11A adds
 the license key; when Pro ends, Connections pause (nothing deleted, running tasks finish,
 **Disconnect** always works); add-on tools are Pro too. GitHub's tools stay Free.
+
+### Before part 20B (2026-09-29)
+
+The design was checked against what 20A built and against Slack's and Google's own pages. The
+owner answered four questions ([ADR-070](../adr/ADR-070-slack-and-google-choices.md)):
+
+1. **Slack channels on "Send without asking to":** "Allow a Slack channel by its ID."
+2. **Slack people on that list:** "Add the permission" (`users:read.email`, asked only while a
+   part can send).
+3. **Which Slack app:** "Both. This app needs to be able to be used by other people and orgs. Not
+   just me and 8 West." — 8 West's app, and each workspace's own under **Advanced**.
+4. **Google:** "Go with whatever you recommend" — your own Google app; its client ID in the
+   settings, its secret only in the Vault, through the new command `save_connection_app`.
+
+The check also found what the design had to fit (ADR-070 §5): Slack's sign-in addresses are
+`oauth/v2/authorize` and `oauth.v2.access`; Slack needs a fixed port (47211–47213); Slack's parts
+follow Off, Read only, and Full access (Posting is Full access on Channels and Direct messages);
+Google Calendar at Read only asks `calendar.events.readonly`; and more than one Slack workspace
+needs `add_connection` and `remove_connection`.
 
 ## Choices for you (as asked, 2026-09-28)
 
@@ -529,8 +553,10 @@ The part each belongs to, if the owner splits the phase (choice 1), is in bracke
 - [x] **Read and write kept apart:** reading is a permission; sending, posting, deleting, and
       paying ask the owner by default (the switches from ADR-023 apply). [20A]
 - [x] **Microsoft 365:** Outlook mail, Outlook calendar, OneDrive, SharePoint, Teams. [20A]
-- [ ] **Slack.** [20B]
-- [ ] **Google:** Gmail, Google Calendar, Google Drive. [20B]
+- [x] **Slack.** [20B] Any workspace, more than one; Channels, Direct messages, and Search; 7
+      tools (ADR-064 §3, ADR-070).
+- [x] **Google:** Gmail, Google Calendar, Google Drive. [20B] Your own Google app; 10 tools
+      (ADR-064 §4, ADR-070).
 - [ ] **HubSpot** (then Phase 9 uses it). [20C]
 - [ ] **Stripe.** [20C]
 - [ ] **WordPress and WooCommerce.** [20C]
@@ -541,11 +567,11 @@ The part each belongs to, if the owner splits the phase (choice 1), is in bracke
 
 ## Technical implementation (plan)
 
-- [x] (20A: Microsoft 365 built into Plenipo) Connections live in Plenipo; each is built into Plenipo or the service's official MCP server
+- [x] (20A: Microsoft 365; 20B: Slack and Google — each built into Plenipo) Connections live in Plenipo; each is built into Plenipo or the service's official MCP server
       run as a supervised, approved program; every call passes through Plenipo's tool server and
       Guard; no unofficial servers by default; chosen per connection in this phase's ADR
       (ADR-064).
-- [x] (20A) Sign-in to each service in the owner's browser; the service's sign-in token is kept in the
+- [x] (20A, 20B) Sign-in to each service in the owner's browser; the service's sign-in token is kept in the
       Vault; never in the Ledger, a prompt, or a log (ADR-063).
 - [x] Untrusted content: email, chat, and documents are marked as untrusted when they reach a
       worker; an instruction inside an email is never obeyed as the owner's (ADR-062 §6).
@@ -563,9 +589,9 @@ The part each belongs to, if the owner splits the phase (choice 1), is in bracke
 Each at the level that proves it: Guard's units, the broker's integration tests against each
 stand-in, the desktop IPC tests, Vitest, and the end-to-end tests in the real app.
 
-- [x] (20A done: Microsoft 365) Per connection, against a fake of the service: connect, read,
-      write with approval, disconnect. — Microsoft 365 [20A] · Slack, Google [20B] · HubSpot, Stripe, WordPress and
-      WooCommerce, an add-on program [20C]
+- [x] (20A: Microsoft 365; 20B: Slack, Google) Per connection, against a fake of the service:
+      connect, read, write with approval, disconnect. — Microsoft 365 [20A] · Slack, Google [20B] ·
+      HubSpot, Stripe, WordPress and WooCommerce, an add-on program [20C]
 - [x] A sign-in token never appears in the Ledger, a prompt, a log, or a diagnostics file.
 - [x] Sending an email asks the owner; with the switch on for an allowed address, it doesn't.
 - [x] A worker without permission for a connection cannot see its tools.
@@ -574,7 +600,8 @@ stand-in, the desktop IPC tests, Vitest, and the end-to-end tests in the real ap
 - [x] Every AI tool that takes Plenipo's tools (Claude Code, Codex, Grok, Kimi) can use a
       connection; Ollama after its tools follow-up (ADR-017).
 - [x] Disconnecting removes the token from the Vault.
-- [x] End-to-end tests in the real app, with screenshots in `evidence/phase-20/`.
+- [x] End-to-end tests in the real app, with screenshots in `evidence/phase-20/` (20A) and
+      `evidence/phase-20b/` (20B).
 
 Also tested (the owner's rules and this design): paying always asks, even with "Buying and paying
 (without asking)" on; a tool that was not offered is refused by name; the new commands are the
@@ -600,7 +627,8 @@ by a released copy.
 - [x] Email, chat, and documents reach workers as untrusted content; the "forward all mail" case
       is tested.
 - [x] A worker without permission for a connection cannot see its tools.
-- [x] (20A: Microsoft 365) The fewest permissions (scopes) that work, for every service.
+- [x] (20A: Microsoft 365; 20B: Slack, Google) The fewest permissions (scopes) that work, for
+      every service.
 - [x] The Ledger keeps IDs, links, and short summaries, never copies of mailboxes, drives, or
       chats.
 - [x] Nothing loads code into Plenipo while it runs (ADR-014); add-on programs are approved
@@ -609,17 +637,21 @@ by a released copy.
       (IPC tests).
 - [x] Logs and diagnostics files never hold secrets, tokens, or anything typed in the terminal.
 - [x] No model names in commits, branch names, or pull requests.
-- [x] Version 1.13.0 (or 1.13.x per part), with the row in `docs/development/versioning.md`.
+- [x] Version 1.13.0 (or 1.13.x per part), with the row in `docs/development/versioning.md`
+      (1.13.0 for 20A, 1.14.1 for 20B: planned as 1.13.1, moved by ADR-080).
 - [x] Release notes, the plan's Phase 20 status line and its state in the order of work, this
-      checklist, the acceptance report with screenshots in `evidence/phase-20/`, "As built" in the
-      ADRs, and the word list — in Pacific time.
+      checklist, the acceptance report with screenshots in `evidence/phase-20/` (and, for 20B,
+      `phase-20b-acceptance-report.md` with `evidence/phase-20b/`), "As built" in the ADRs, and the
+      word list — in Pacific time.
 - [x] A review across several areas, with a second reviewer checking each finding, before the
-      final push; each confirmed finding fixed with a test, or recorded as a design limit.
+      final push; each confirmed finding fixed with a test, or recorded as a design limit (20A:
+      its report; 20B: [its report, section 6](phase-20b-acceptance-report.md#6-defects-found-and-fixed-during-part-20b)).
 - [x] Before each push: `pnpm check`, `cargo fmt --all -- --check`,
       `cargo clippy --workspace --all-targets --locked -- -D warnings`,
       `cargo test --workspace --locked`, `pnpm bindings` with no diff (documentation-only pushes:
       `pnpm docs:check`).
-- [x] Every GitHub check green, Windows included (pull request #96, 2026-09-28).
+- [x] Every GitHub check green, Windows included (20A: pull request #96, 2026-09-28; 20B: pull
+      request #100, 2026-09-30, as 1.14.1 after merging Phase 16's first wave).
 
 ## Left for the owner (on Windows and outside Plenipo)
 
@@ -631,9 +663,12 @@ by a released copy.
   worker reads today's calendar and the unread mail from one client, drafts a reply in Outlook, and
   the reply is sent only after you approve it; the same worker on another AI tool does the same;
   the Activity trail shows every call, with no copy of the mail.
-- **Part 20B and 20C setup** (their own steps, written when those parts start): the Slack and
-  Google apps, and the keys for HubSpot, Stripe, and the website — typed into Settings, never into
-  chat.
+- **Part 20B setup:** [Setting up your Slack and Google apps](phase-20-slack-and-google-apps.md)
+  — 8 West's Slack app (then the GitHub variable `PLENIPO_SLACK_CLIENT_ID`), and your own Google
+  app (its client ID and secret typed into the Google card, never into chat). Then the walk-through
+  in the [20B acceptance report](phase-20b-acceptance-report.md#7-left-for-the-owner).
+- **Part 20C setup** (its own steps, written when it starts): the keys for HubSpot, Stripe, and the
+  website — typed into Settings, never into chat.
 
 ## Sources (checked 2026-09-28)
 

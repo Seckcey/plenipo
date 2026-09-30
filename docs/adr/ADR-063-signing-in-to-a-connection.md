@@ -204,3 +204,39 @@ Built as written, with these details:
   connection was.
 - **Copies built for the tests** use a stand-in browser that follows the sign-in on this computer;
   the Release workflow sets the stand-in empty and refuses the tests' app ID.
+
+## As built (v1.14.1, part 20B: Slack and Google)
+
+Built as written for Slack and Google, with these details
+([ADR-070 (Slack and Google: the owner's choices)](ADR-070-slack-and-google-choices.md) §5):
+
+- **Slack comes back to a fixed port.** Slack sends the sign-in only to an address written into
+  its app, port included, so Slack's listener uses the first of `http://localhost:47211`, `47212`,
+  and `47213` free on this computer (on both `127.0.0.1` and `[::1]`); if all three are taken, the
+  card says so. Microsoft 365 keeps `http://localhost:<any port>`; Google uses
+  `http://127.0.0.1:<any port>`, as its desktop sign-in asks.
+- **Slack:** `slack.com/oauth/v2/authorize` with user permissions only and PKCE; the code is traded,
+  and the sign-in renewed, at `oauth.v2.access` with no secret. With token rotation (Plenipo's app
+  description turns it on), the long-lived sign-in is Slack's refresh token, replaced at each
+  renewal and read back to check it; a workspace app without rotation gives a sign-in that does
+  not expire, kept in the Vault the same way. A sign-in Slack no longer accepts is renewed once,
+  then, if Slack still refuses it, forgotten, and the card says to sign in again.
+- **Google:** `accounts.google.com/o/oauth2/v2/auth` with PKCE, `access_type=offline`, and
+  `prompt=consent`; the code is traded at `oauth2.googleapis.com/token` with the owner's own app's
+  client ID and secret. The secret is read from the Vault only for that request and each renewal.
+- **One Slack workspace per card:** a sign-in to a workspace already connected on another card is
+  refused, and nothing is kept.
+- **Disconnect cancels the sign-in at the service.** Plenipo stops the tools, removes the sign-in
+  from the Vault, then calls Slack's `auth.revoke` or Google's revoke address, waiting at most 15
+  seconds. With token rotation Slack cancels only the token it is given, so Plenipo cancels the
+  long-lived renewal itself, then the short-lived sign-in if one is still in memory and has not run
+  out; it never renews just to cancel. A service that cannot be reached leaves a note on the card
+  saying how to remove Plenipo there.
+- **Reconnect stays with the card's account** (found in the review): a sign-in to another Slack
+  workspace, or another Google or Microsoft account, on a connected card is refused and nothing is
+  kept — its lists were made for its own account. Disconnect first to switch. The check that a
+  Slack workspace is on one card only is made again as the sign-in is kept, so two sign-ins at
+  once cannot both win.
+- **The owner's Google app's secret** (`connection-google-app-secret`) is kept only in the Vault,
+  read back when saved, hidden in every text Plenipo records, never returned by a command, and
+  removed with the app or by uninstalling with "delete my data".

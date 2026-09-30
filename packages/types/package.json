@@ -1,6 +1,6 @@
 {
   "name": "@plenipo/types",
-  "version": "1.14.0",
+  "version": "1.14.1",
   "private": true,
   "description": "TypeScript DTOs shared with the Rust backend. Generated from crates/core via ts-rs.",
   "type": "module",

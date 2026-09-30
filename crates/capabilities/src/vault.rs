@@ -37,6 +37,16 @@ pub struct OsSecretStore {
 }
 
 impl OsSecretStore {
+    /// Get the store ready for every thread. Call once, first thing on the main thread, before
+    /// any other thread starts. On Linux the kernel keyring is reached through each thread's own
+    /// session keyring: a thread started before the process first used it cannot use it at all
+    /// (a value saved on one thread was then missing on another). Threads started after this
+    /// share the main thread's. Nothing to do on Windows or macOS.
+    pub fn prepare() {
+        #[cfg(target_os = "linux")]
+        let _ = keyring::Entry::new("plenipo", "plenipo-vault");
+    }
+
     pub fn new(service: impl Into<String>) -> Self {
         Self {
             service: service.into(),
@@ -258,21 +268,9 @@ pub fn stored_ids_in(settings: &serde_json::Value) -> Vec<String> {
                 .iter()
                 .flat_map(|s| crate::broker::servers::vault_ids(s)),
         )
-        .chain({
-            // Each kept connection's, and each service's own, in case a sign-in was kept
-            // before its connection was.
-            let mut conns: Vec<String> = ids("connections")
-                .iter()
-                .map(|c| crate::connections::vault_id(c))
-                .collect();
-            for s in plenipo_guard::Service::ALL {
-                let id = crate::connections::vault_id(s.id());
-                if !conns.contains(&id) {
-                    conns.push(id);
-                }
-            }
-            conns
-        })
+        .chain(crate::connections::vault_ids_of(
+            ids("connections").iter().map(String::as_str),
+        ))
         .collect()
 }
 

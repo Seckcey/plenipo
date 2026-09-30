@@ -29,9 +29,11 @@ import type {
   PaymentMethod,
   Access,
   AccountKind,
+  AppInput,
   ConnectionsPage,
   OwnApp,
   Part,
+  Service,
   PartLevel,
   AgentSessionDetail,
   AppInfo,
@@ -1130,4 +1132,25 @@ export function setConnectionOwnApp(
   app: OwnApp | null,
 ): Promise<ConnectionsPage> {
   return call<ConnectionsPage>("set_connection_own_app", { connectionId, app });
+}
+
+/**
+ * The owner's own Slack app (its client ID) or Google app (its client ID and secret), or none
+ * (`null`). A Google app's secret goes straight to the Vault; nothing ever sends it back.
+ */
+export function saveConnectionApp(
+  connectionId: string,
+  app: AppInput | null,
+): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("save_connection_app", { connectionId, app });
+}
+
+/** Add another account of a service that may have more than one (a Slack workspace). */
+export function addConnection(service: Service): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("add_connection", { service });
+}
+
+/** Remove a card that is not connected (a Slack workspace). */
+export function removeConnection(connectionId: string): Promise<ConnectionsPage> {
+  return call<ConnectionsPage>("remove_connection", { connectionId });
 }

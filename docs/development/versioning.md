@@ -63,6 +63,7 @@ After the MVP:
 | Phase 19 — The AI tools page (ADR-058 to ADR-060)                  | `1.12.0` |
 | Phase 20A — Connections: Microsoft 365 (ADR-061 to ADR-068)        | `1.13.0` |
 | Phase 16 Wave 1 — Who made each model; Antigravity (ADR-080–082)   | `1.14.0` |
+| Phase 20B — Connections: Slack and Google (ADR-070)                | `1.14.1` |
 
 ## Releasing
 

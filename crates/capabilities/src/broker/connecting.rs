@@ -1,25 +1,26 @@
-//! Connections in the broker (Phase 20; ADR-062, ADR-063, ADR-065): which connection tools a
+//! Connections in the broker (Phase 20; ADR-062 to ADR-065, ADR-070): which connection tools a
 //! worker's step is offered — none unless the connection's **Who may use it** list allows the
 //! worker, the connection is connected, and the part is on — Guard's decision on each call, the
 //! owner's approval when Guard asks, the call itself, and its record (IDs, links, counts, and
 //! Plenipo's own summary; never the text read).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 
 use plenipo_guard::engine::Scope;
 use plenipo_guard::{
-    evaluate, level_for_connection, AccountKind, Capability, ConnectionAction, ConnectionCheck,
-    ConnectionRequest, ConnectionState, Decision, GrantState, GuardConfig, Layer, Level, OwnApp,
-    Part, PartLevel, Request, Service, ToolKind, Verdict,
+    evaluate, level_for_connection, AccountKind, Capability, Connection, ConnectionAction,
+    ConnectionCheck, ConnectionRequest, ConnectionState, Decision, GrantState, GuardConfig, Layer,
+    Level, OwnApp, Part, PartLevel, Request, Service, ToolKind, Verdict,
 };
 use plenipo_ledger::{ApprovalState, NewEvent};
 use serde_json::{json, Value};
 
-use super::{cap, CallResult, NotAsked, Prepared, Work, MAX_DETAIL};
-use crate::connections::microsoft365::{self, Planned};
-use crate::connections::{ConnectionsPage, Graph, Opener};
+use super::{CallResult, Grant, NotAsked, Prepared, Work, MAX_DETAIL};
+use crate::connections::{
+    self, google, microsoft365, slack, AppInput, ConnectionsPage, Done, Graph, Opener,
+};
 use crate::error::{BrokerError, Result};
 use crate::tools::ToolDef;
 use crate::Broker;
@@ -33,19 +34,43 @@ pub(crate) struct ConnTool {
 
 /// The connection tool called `name`, if it is one.
 pub(crate) fn connection_tool(name: &str) -> Option<ConnTool> {
-    microsoft365::tool(name).map(|t| ConnTool {
+    connections::tool(name).map(|(service, t)| ConnTool {
         def: &t.def,
-        service: Service::Microsoft365,
+        service,
         part: t.part,
     })
+}
+
+/// The level a step was given for a connection tool: the least strict of the connections that
+/// offer it (a Slack tool may be offered for more than one workspace).
+pub(super) fn offered_level(g: &Grant, tool: &ToolDef) -> Level {
+    g.connection_tools
+        .iter()
+        .filter(|(_, name)| *name == tool.name)
+        .filter_map(|(id, _)| {
+            g.connection_levels
+                .get(&(id.clone(), tool.capability))
+                .copied()
+        })
+        .filter(|l| *l != Level::Blocked)
+        .min_by_key(|l| match l {
+            Level::Allowed => 0,
+            _ => 1,
+        })
+        .unwrap_or_default()
 }
 
 /// What a worker's step is offered through connections.
 #[derive(Default)]
 pub(super) struct Offers {
+    /// Every connection tool offered, once each.
     pub tools: Vec<&'static str>,
+    /// (connection ID, tool) → offered.
+    pub pairs: BTreeSet<(String, &'static str)>,
     /// (connection ID, capability) → the level the grant took.
     pub levels: BTreeMap<(String, Capability), Level>,
+    /// Connection ID → its name on screen ("Slack (Client Co)").
+    pub names: BTreeMap<String, String>,
     /// Lines for Plenipo's note to the worker.
     pub note: String,
     /// For the record of the grant.
@@ -67,6 +92,46 @@ struct Context {
     runtime_id: String,
     worker: String,
     read_outside: Vec<&'static str>,
+}
+
+/// A call worked out for Guard, with its service's own plan.
+enum Planned {
+    Microsoft365(microsoft365::Planned),
+    Slack(slack::Planned),
+    Google(google::Planned),
+}
+
+impl Planned {
+    /// Its part, kind, summary, detail, and recipients.
+    fn head(&self) -> (Part, ToolKind, &str, &str, &[String]) {
+        macro_rules! head {
+            ($p:expr) => {
+                (
+                    $p.part,
+                    $p.kind,
+                    $p.summary.as_str(),
+                    $p.detail.as_str(),
+                    $p.recipients.as_slice(),
+                )
+            };
+        }
+        match self {
+            Self::Microsoft365(p) => head!(p),
+            Self::Slack(p) => head!(p),
+            Self::Google(p) => head!(p),
+        }
+    }
+}
+
+/// A connection's name on screen, with its Slack workspace: "Slack (8 West IT)".
+fn shown_name(conn: &Connection) -> String {
+    match (
+        &conn.service,
+        conn.account.as_ref().and_then(|a| a.organization.as_ref()),
+    ) {
+        (Service::Slack, Some(workspace)) => format!("Slack ({workspace})"),
+        _ => conn.label().to_owned(),
+    }
 }
 
 impl Broker {
@@ -93,14 +158,12 @@ impl Broker {
             offers
                 .levels
                 .insert((conn.id.clone(), Capability::ConnectionsWrite), write);
+            offers.names.insert(conn.id.clone(), shown_name(conn));
             let mut names = Vec::new();
-            for t in microsoft365::TOOLS
-                .iter()
-                .filter(|_| conn.service == Service::Microsoft365)
-            {
-                // As far as Microsoft allowed it at the last sign-in (a part turned on or up since
-                // then waits for Reconnect).
-                let part = microsoft365::allowed_level(conn, t.part);
+            for t in connections::tools_of(conn.service) {
+                // As far as the service allowed it at the last sign-in (a part turned on or up
+                // since then waits for Reconnect).
+                let part = connections::allowed_level(conn, t.part);
                 let level = if t.def.capability == Capability::ConnectionsRead {
                     read
                 } else {
@@ -122,17 +185,22 @@ impl Broker {
                 .service
                 .parts()
                 .iter()
-                .map(|p| (p, microsoft365::allowed_level(conn, *p)))
+                .map(|p| (p, connections::allowed_level(conn, *p)))
                 .filter(|(_, level)| *level != PartLevel::Off)
                 .map(|(p, level)| format!("{} ({})", p.label(), level.words()))
                 .collect();
+            let workspace = if conn.service == Service::Slack {
+                format!(" — workspace \"{}\"", conn.id)
+            } else {
+                String::new()
+            };
             notes.push(format!(
-                "You may use {} ({}), signed in as the owner: its tools start with \"{}\". You may \
-                 {}. Sending, posting, inviting, and replacing files wait for the owner's approval \
-                 unless the owner lets them go ahead to the people on their list.",
-                conn.label(),
+                "You may use {}{workspace} ({}), signed in as the owner: its tools start with \
+                 \"{}\". You may {}. Sending, posting, inviting, and replacing files wait for the \
+                 owner's approval unless the owner lets them go ahead to the people on their list.",
+                shown_name(conn),
                 parts.join(", "),
-                "m365_",
+                connections::tool_prefix(conn.service),
                 if write == Level::Blocked {
                     "only read"
                 } else {
@@ -143,7 +211,31 @@ impl Broker {
                 conn.id.clone(),
                 json!({ "read": read, "write": write, "tools": names.len() }),
             );
-            offers.tools.extend(names);
+            for n in names {
+                offers.pairs.insert((conn.id.clone(), n));
+                if !offers.tools.contains(&n) {
+                    offers.tools.push(n);
+                }
+            }
+        }
+        let slack: Vec<&String> = offers
+            .pairs
+            .iter()
+            .filter(|(id, _)| plenipo_guard::connections::service_of(id) == Some(Service::Slack))
+            .map(|(id, _)| id)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if slack.len() > 1 {
+            notes.push(format!(
+                "You may use more than one Slack workspace: give each Slack tool its \
+                 \"workspace\" ({}).",
+                slack
+                    .iter()
+                    .map(|s| format!("\"{s}\""))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
         if !notes.is_empty() {
             notes.push(OTHER_PEOPLES_WORDS.into());
@@ -206,12 +298,14 @@ impl Broker {
         self.connections_page()
     }
 
-    /// Disconnect: its tools stop at once, and its sign-in leaves the Vault (ADR-063 §5).
-    pub fn disconnect_connection(&self, id: &str) -> Result<ConnectionsPage> {
+    /// Disconnect: its tools stop at once, its sign-in leaves the Vault, and the service cancels
+    /// it where it can (ADR-063 §5, ADR-070 §5.8).
+    pub async fn disconnect_connection(&self, id: &str) -> Result<ConnectionsPage> {
         self.check_owner(id, ConnectionAction::Disconnect, true)?;
         self.inner
             .connections
             .disconnect(id)
+            .await
             .map_err(BrokerError::Invalid)?;
         self.connections_page()
     }
@@ -242,12 +336,7 @@ impl Broker {
         self.connections_page()
     }
 
-    pub fn set_connection_own_app(
-        &self,
-        id: &str,
-        app: Option<&OwnApp>,
-    ) -> Result<ConnectionsPage> {
-        self.check_owner(id, ConnectionAction::Change, true)?;
+    fn not_while_signing_in(&self, id: &str) -> Result<()> {
         // A sign-in waiting in the browser belongs to the app it started with.
         if self.inner.connections.signing_in(id) {
             return Err(BrokerError::Invalid(
@@ -256,7 +345,56 @@ impl Broker {
                     .into(),
             ));
         }
+        Ok(())
+    }
+
+    pub fn set_connection_own_app(
+        &self,
+        id: &str,
+        app: Option<&OwnApp>,
+    ) -> Result<ConnectionsPage> {
+        self.check_owner(id, ConnectionAction::Change, true)?;
+        self.not_while_signing_in(id)?;
         self.inner.guard.set_connection_own_app(id, app)?;
+        self.connections_page()
+    }
+
+    /// Keep the owner's own Slack or Google app (its client ID, and a Google app's secret,
+    /// which goes straight to the Vault), or remove it (ADR-070 §3–§4).
+    pub fn save_connection_app(&self, id: &str, app: Option<&AppInput>) -> Result<ConnectionsPage> {
+        self.check_owner(id, ConnectionAction::Change, true)?;
+        self.not_while_signing_in(id)?;
+        self.inner
+            .connections
+            .save_app(id, app)
+            .map_err(BrokerError::Invalid)?;
+        self.connections_page()
+    }
+
+    /// Add another account of a service that may have more than one (a Slack workspace).
+    pub fn add_connection(&self, service: Service) -> Result<ConnectionsPage> {
+        if !service.built() {
+            return Err(BrokerError::Invalid(format!(
+                "{} comes in a later update of Plenipo.",
+                service.label()
+            )));
+        }
+        self.inner.guard.add_connection(service)?;
+        self.connections_page()
+    }
+
+    /// Remove a card that is not connected (a Slack workspace).
+    pub fn remove_connection(&self, id: &str) -> Result<ConnectionsPage> {
+        self.check_owner(id, ConnectionAction::Change, true)?;
+        if self.inner.connections.signing_in(id) {
+            return Err(BrokerError::Invalid(
+                "A sign-in is waiting in your browser: finish it, or press Cancel, first.".into(),
+            ));
+        }
+        self.inner
+            .connections
+            .remove(id)
+            .map_err(BrokerError::Invalid)?;
         self.connections_page()
     }
 
@@ -267,15 +405,61 @@ impl Broker {
 
     // ---- A worker's call -----------------------------------------------------------------------
 
-    fn connection_context(&self, grant_id: &str, tool: &ConnTool) -> Option<Context> {
+    /// The connection a call is for: the service's own, or — Slack, which may have more than
+    /// one — the workspace the worker named, or the only one offered to it.
+    fn connection_for(
+        &self,
+        grant_id: &str,
+        tool: &ConnTool,
+        args: &Value,
+    ) -> std::result::Result<String, String> {
+        if tool.service != Service::Slack {
+            return Ok(tool.service.id().to_owned());
+        }
+        let s = self.state();
+        let offered: Vec<String> = s
+            .grants
+            .get(grant_id)
+            .map(|g| {
+                g.connection_tools
+                    .iter()
+                    .filter(|(_, n)| *n == tool.def.name)
+                    .map(|(id, _)| id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        match args.get("workspace") {
+            None | Some(Value::Null) => match offered.as_slice() {
+                [one] => Ok(one.clone()),
+                [] => Ok(tool.service.id().to_owned()),
+                many => Err(format!(
+                    "say which Slack workspace: \"workspace\" is one of {}",
+                    many.iter()
+                        .map(|m| format!("\"{m}\""))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )),
+            },
+            Some(Value::String(w))
+                if plenipo_guard::connections::service_of(w) == Some(Service::Slack) =>
+            {
+                Ok(w.clone())
+            }
+            Some(_) => {
+                Err("\"workspace\" is not a Slack workspace's ID (like slack or slack-2)".into())
+            }
+        }
+    }
+
+    fn connection_context(&self, grant_id: &str, id: &str, tool: &ConnTool) -> Option<Context> {
         let s = self.state();
         s.grants.get(grant_id).map(|g| Context {
             scope: g.scope.clone(),
             revoked: g.revoked,
-            offered: g.tools.contains(&tool.def.name),
+            offered: g.connection_tools.contains(&(id.to_owned(), tool.def.name)),
             grant_level: g
                 .connection_levels
-                .get(&(tool.service.id().to_owned(), tool.def.capability))
+                .get(&(id.to_owned(), tool.def.capability))
                 .copied()
                 .unwrap_or_default(),
             task_id: g.task_id.clone(),
@@ -292,7 +476,14 @@ impl Broker {
         tool: ConnTool,
         args: Value,
     ) -> CallResult {
-        let Some(cx) = self.connection_context(grant_id, &tool) else {
+        if !self.state().grants.contains_key(grant_id) {
+            return CallResult::error("This task step has ended; its tools are closed.");
+        }
+        let id = match self.connection_for(grant_id, &tool, &args) {
+            Ok(id) => id,
+            Err(e) => return CallResult::error(format!("{}: {e}", tool.def.name)),
+        };
+        let Some(cx) = self.connection_context(grant_id, &id, &tool) else {
             return CallResult::error("This task step has ended; its tools are closed.");
         };
         let refuse = |reason: String, layer: Layer, detail: &str| {
@@ -316,7 +507,8 @@ impl Broker {
                 None,
             )
         };
-        // A tool that was not offered is refused by name (ADR-062 §4).
+        // A tool that was not offered is refused by name (ADR-062 §4) — for Slack, not offered
+        // for that workspace.
         if !cx.offered {
             return refuse(
                 format!("Blocked: {} is not offered to you.", tool.def.name),
@@ -324,7 +516,12 @@ impl Broker {
                 "",
             );
         }
-        let call = match microsoft365::parse(tool.def.name, &args) {
+        let parsed = match tool.service {
+            Service::Microsoft365 => microsoft365::parse(tool.def.name, &args).map(Call::M),
+            Service::Slack => slack::parse(tool.def.name, &args).map(Call::S),
+            _ => google::parse(tool.def.name, &args).map(Call::G),
+        };
+        let call = match parsed {
             Ok(c) => c,
             Err(e) => return CallResult::error(format!("{}: {e}", tool.def.name)),
         };
@@ -336,8 +533,7 @@ impl Broker {
                 ))
             }
         };
-        let id = tool.service.id();
-        let conn = match config.connection_or_new(id) {
+        let conn = match config.connection_or_new(&id) {
             Ok(c) => c,
             Err(e) => return CallResult::error(e.to_string()),
         };
@@ -362,16 +558,50 @@ impl Broker {
         if first.verdict == Verdict::Deny {
             return refuse(first.reason, first.layer, "");
         }
+        let me = conn
+            .account
+            .as_ref()
+            .map(|a| a.address.to_lowercase())
+            .unwrap_or_default();
         let graph = Graph {
             conns: &self.inner.connections,
-            id: id.to_owned(),
-            me: conn
+            id: id.clone(),
+            me: me.clone(),
+        };
+        let slack_api = slack::Api {
+            conns: &self.inner.connections,
+            id: id.clone(),
+            workspace: conn
                 .account
                 .as_ref()
-                .map(|a| a.address.to_lowercase())
+                .and_then(|a| a.organization.clone())
+                .unwrap_or_else(|| "Slack".into()),
+            team: conn
+                .account
+                .as_ref()
+                .and_then(|a| a.tenant.clone())
                 .unwrap_or_default(),
+            parts_on: conn
+                .service
+                .parts()
+                .iter()
+                .copied()
+                .filter(|p| connections::allowed_level(&conn, *p) != PartLevel::Off)
+                .collect(),
         };
-        let planned: Planned = match microsoft365::plan(&graph, call).await {
+        let google_api = google::Api {
+            conns: &self.inner.connections,
+            id: id.clone(),
+            me,
+        };
+        let planned = match call {
+            Call::M(c) => microsoft365::plan(&graph, c)
+                .await
+                .map(Planned::Microsoft365),
+            Call::S(c) => slack::plan(&slack_api, c).await.map(Planned::Slack),
+            Call::G(c) => google::plan(&google_api, c).await.map(Planned::Google),
+        };
+        let planned = match planned {
             Ok(p) => p,
             Err(e) => {
                 return CallResult::error(format!(
@@ -380,20 +610,14 @@ impl Broker {
                 ))
             }
         };
+        let (part, kind, summary, planned_detail, recipients) = planned.head();
         let decision = evaluate(
             &config,
-            &request(
-                &tool,
-                &planned.summary,
-                planned.kind,
-                &conn,
-                planned.part,
-                &planned.recipients,
-            ),
+            &request(&tool, summary, kind, &conn, part, recipients),
             &current,
             grant,
         );
-        let mut detail = planned.detail.clone();
+        let mut detail = planned_detail.to_owned();
         let mut approval_id = None;
         match decision.verdict {
             Verdict::Deny => {
@@ -402,7 +626,7 @@ impl Broker {
                     &cx.task_id,
                     &cx.worker,
                     tool.def,
-                    &planned.summary,
+                    summary,
                     &detail,
                     &decision,
                     None,
@@ -410,19 +634,20 @@ impl Broker {
             }
             Verdict::Ask => {
                 // The card says when outside words were read in this step (ADR-062 §6).
-                if !cx.read_outside.is_empty() {
-                    let line = format!(
+                let line = if cx.read_outside.is_empty() {
+                    String::new()
+                } else {
+                    format!(
                         "\n\nThis worker read {} in this step. Check that the recipients and \
                          the words are what you want.",
                         and_list(&cx.read_outside)
-                    );
-                    let room = MAX_DETAIL.saturating_sub(line.len() + "…".len());
-                    detail = cap(&detail, room) + &line;
-                }
+                    )
+                };
+                detail = cap_said(&detail, MAX_DETAIL.saturating_sub(line.len())) + &line;
                 let prepared = Prepared {
                     capability: tool.def.capability,
                     risk: tool.def.risk,
-                    summary: planned.summary.clone(),
+                    summary: summary.to_owned(),
                     detail: detail.clone(),
                     files: Vec::new(),
                     writes_git_dir: false,
@@ -479,28 +704,25 @@ impl Broker {
         // decided stops it here. (The owner's approval answers an "ask"; only a refusal stops it.)
         if approval_id.is_some() {
             let verdict = self.inner.guard.config().ok().and_then(|config| {
-                let now = config.connection(id).cloned()?;
+                let now = config.connection(&id).cloned()?;
                 let level = level_for_connection(&config, &cx.scope, &now, tool.def.capability);
-                let still = request(
-                    &tool,
-                    &planned.summary,
-                    planned.kind,
-                    &now,
-                    planned.part,
-                    &planned.recipients,
-                );
+                let still = request(&tool, summary, kind, &now, part, recipients);
                 Some(evaluate(&config, &still, &level, grant).verdict)
             });
             if verdict.is_none_or(|v| v == Verdict::Deny) {
                 return CallResult::error(format!(
                     "Not done: {} or your permissions changed while the owner decided ({}).",
-                    conn.label(),
+                    shown_name(&conn),
                     tool.def.name
                 ));
             }
         }
-        let outcome = microsoft365::carry_out(&graph, &planned).await;
-        let (text, ok, summary, record) = match outcome {
+        let outcome: std::result::Result<Done, String> = match &planned {
+            Planned::Microsoft365(p) => microsoft365::carry_out(&graph, p).await,
+            Planned::Slack(p) => slack::carry_out(&slack_api, p).await,
+            Planned::Google(p) => google::carry_out(&google_api, p).await,
+        };
+        let (text, ok, result, record) = match outcome {
             Ok(done) => {
                 if let Some(what) = done.read {
                     if let Some(g) = self.state().grants.get_mut(grant_id) {
@@ -529,17 +751,17 @@ impl Broker {
                 "worker": cx.worker,
                 "tool": tool.def.name,
                 "capability": tool.def.capability,
-                "summary": self.redact(&planned.summary),
-                "detail": cap(&self.redact(&detail), MAX_DETAIL),
+                "summary": self.redact(summary),
+                "detail": cap_said(&self.redact(&detail), MAX_DETAIL),
                 "ok": ok,
                 // Plenipo's own words, never the text the service sent (ADR-062 §7).
-                "result": self.redact(&summary),
+                "result": self.redact(&result),
                 "approvalId": approval_id,
                 "connection": {
                     "id": id,
                     "service": conn.label(),
-                    "part": planned.part.label(),
-                    "kind": planned.kind,
+                    "part": part.label(),
+                    "kind": kind,
                     "record": record,
                 },
             }),
@@ -551,6 +773,13 @@ impl Broker {
             CallResult::error(text)
         }
     }
+}
+
+/// A call's arguments, read by its service.
+enum Call {
+    M(microsoft365::Call),
+    S(slack::Call),
+    G(google::Call),
 }
 
 /// "email", "email and files", "email, files, and chat messages".
@@ -592,4 +821,18 @@ fn request<'a>(
             recipients,
         }),
     }
+}
+
+/// A connection card's detail cut to `max` bytes. What a worker wrote is sent whole, so the card
+/// never cuts it without saying so.
+fn cap_said(text: &str, max: usize) -> String {
+    const REST: &str = "…\n(The rest is not shown here, and is sent too.)";
+    if text.len() <= max {
+        return text.to_owned();
+    }
+    let mut end = max.saturating_sub(REST.len());
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}{REST}", &text[..end])
 }

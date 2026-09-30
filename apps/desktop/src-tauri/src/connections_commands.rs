@@ -4,17 +4,19 @@
 //! the main window's alone (capabilities/default.json): the sign window and web pages are
 //! refused.
 //!
-//! None takes a password, a key, a token, a program, or an address: a sign-in happens on the
-//! service's own page in the owner's browser, and its token goes only into the Vault. Guard
-//! decides each action and records it (never the token, never the account's address).
+//! None takes a password, a token, a program, or an address: a sign-in happens on the service's
+//! own page in the owner's browser, and its token goes only into the Vault. The one secret any
+//! of them takes — the owner's own Google app's secret (ADR-070 §4) — goes straight to the Vault
+//! and never comes back out. Guard decides each action and records it (never a token or a
+//! secret, never the account's address).
 
 use std::collections::BTreeMap;
 
-use plenipo_capabilities::connections::ConnectionsPage;
+use plenipo_capabilities::connections::{AppInput, ConnectionsPage, MAX_APP_SECRET};
 use plenipo_capabilities::Broker;
 use plenipo_core::CommandError;
 use plenipo_guard::connections::{service_of, MAX_ACCESS, MAX_SEND_LIST};
-use plenipo_guard::{Access, AccountKind, OwnApp, Part, PartLevel, Who};
+use plenipo_guard::{Access, AccountKind, OwnApp, Part, PartLevel, Service, Who};
 use tauri::State;
 
 use crate::commands::{bounded, validate_id, with_broker};
@@ -71,14 +73,19 @@ pub async fn cancel_connection_sign_in(
     .await
 }
 
-/// Disconnect: its tools stop at once, and its sign-in leaves the Vault. Always allowed.
+/// Disconnect: its tools stop at once, its sign-in leaves the Vault, and the service cancels it
+/// where it can (Slack, Google). Always allowed.
 #[tauri::command]
 pub async fn disconnect_connection(
     broker: State<'_, Broker>,
     connection_id: String,
 ) -> Result<ConnectionsPage, CommandError> {
     validate_connection_id(&connection_id)?;
-    with_broker(&broker, move |b| b.disconnect_connection(&connection_id)).await
+    let broker = broker.inner().clone();
+    broker
+        .disconnect_connection(&connection_id)
+        .await
+        .map_err(crate::commands::broker_error)
 }
 
 /// Each part: Off, Read only, or Full access.
@@ -152,12 +159,54 @@ pub async fn set_connection_own_app(
     validate_connection_id(&connection_id)?;
     if let Some(a) = &app {
         bounded("the app ID", &a.app_id)?;
-        bounded("the organization", &a.tenant)?;
+        if let Some(t) = &a.tenant {
+            bounded("the organization", t)?;
+        }
     }
     with_broker(&broker, move |b| {
         b.set_connection_own_app(&connection_id, app.as_ref())
     })
     .await
+}
+
+/// The owner's own Slack app (its client ID) or Google app (its client ID and secret), or none
+/// (`null`). A Google app's secret goes straight to the Vault; nothing returns it.
+#[tauri::command]
+pub async fn save_connection_app(
+    broker: State<'_, Broker>,
+    connection_id: String,
+    app: Option<AppInput>,
+) -> Result<ConnectionsPage, CommandError> {
+    validate_connection_id(&connection_id)?;
+    if let Some(a) = &app {
+        bounded("the client ID", &a.client_id)?;
+        if a.secret.as_ref().is_some_and(|s| s.len() > MAX_APP_SECRET) {
+            return Err(CommandError::invalid_input("that secret is too long"));
+        }
+    }
+    with_broker(&broker, move |b| {
+        b.save_connection_app(&connection_id, app.as_ref())
+    })
+    .await
+}
+
+/// Add another account of a service that may have more than one (a Slack workspace).
+#[tauri::command]
+pub async fn add_connection(
+    broker: State<'_, Broker>,
+    service: Service,
+) -> Result<ConnectionsPage, CommandError> {
+    with_broker(&broker, move |b| b.add_connection(service)).await
+}
+
+/// Remove a card that is not connected (a Slack workspace).
+#[tauri::command]
+pub async fn remove_connection(
+    broker: State<'_, Broker>,
+    connection_id: String,
+) -> Result<ConnectionsPage, CommandError> {
+    validate_connection_id(&connection_id)?;
+    with_broker(&broker, move |b| b.remove_connection(&connection_id)).await
 }
 
 #[cfg(test)]
@@ -174,7 +223,7 @@ mod tests {
             .skip(1)
             .map(|rest| rest.lines().next().unwrap_or_default())
             .collect();
-        assert_eq!(commands.len(), 8, "{commands:?}");
+        assert_eq!(commands.len(), 11, "{commands:?}");
         for line in commands {
             assert!(line.starts_with("pub async fn "), "not async: {line}");
         }

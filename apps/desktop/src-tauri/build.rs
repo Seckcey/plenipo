@@ -93,6 +93,10 @@ const COMMANDS: &[&str] = &[
     "set_connection_access",
     "set_connection_send_list",
     "set_connection_own_app",
+    // Phase 20 part 20B: the owner's own Slack or Google app, and more than one Slack workspace.
+    "save_connection_app",
+    "add_connection",
+    "remove_connection",
     "hire_position",
     "fill_position",
     "vacate_position",
@@ -179,6 +183,8 @@ fn main() {
     // stand-in for the connections' services in copies built for the end-to-end tests
     // (Phase 20, ADR-065 §6).
     println!("cargo:rerun-if-env-changed=PLENIPO_MICROSOFT_APP_ID");
+    // 8 West's Slack app's client ID (public, not a secret; ADR-070 §3).
+    println!("cargo:rerun-if-env-changed=PLENIPO_SLACK_CLIENT_ID");
     println!("cargo:rerun-if-env-changed=PLENIPO_CONNECTIONS_STAND_IN");
     let windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
