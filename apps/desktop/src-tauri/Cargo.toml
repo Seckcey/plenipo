@@ -38,12 +38,14 @@ tauri-plugin-notification = "~2.4"
 # Start with Windows (HKCU Run) and one Plenipo at a time (Phase 13, ADR-036). Their own
 # commands are granted to no window.
 tauri-plugin-autostart = "~2.5"
+# One change to an organization at a time (Phase 21, ADR-094): an async lock, on every system.
+tokio = { version = "1", features = ["sync"] }
 
 [target.'cfg(windows)'.dependencies]
 tauri-plugin-single-instance = "~2.4"
 
 [target.'cfg(unix)'.dependencies]
-tokio = { version = "1", features = ["signal", "sync"] }
+tokio = { version = "1", features = ["signal"] }
 
 # Let the organization's window open its pop-out panels (Phase 21, ADR-092): WebKitGTK's own
 # setting, the version Tauri uses.
