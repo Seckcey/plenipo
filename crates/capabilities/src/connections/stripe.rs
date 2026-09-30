@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 use super::http::{Body, Reply};
 use super::keyed::Cred;
 use super::microsoft365::{clip_text, query, record, Args, MAX_ITEMS};
-use super::{Connections, Done, Plan, Tool, MAX_ANSWER};
+use super::{card_only, Connections, Done, Plan, Tool, MAX_ANSWER};
 use crate::fence::{self, Source};
 use crate::tools::ToolDef;
 
@@ -970,7 +970,12 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<(Planned, Vec<Stri
                 if description.is_empty() {
                     String::new()
                 } else {
-                    format!(" · \"{description}\" (the payment's own description)")
+                    format!(
+                        " · {}",
+                        card_only(&format!(
+                            "\"{description}\" (the payment's own description)"
+                        ))
+                    )
                 },
             );
             if let Some(r) = reason {
@@ -1059,7 +1064,7 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<(Planned, Vec<Stri
                  the customer{}.{}",
                 if status == "draft" { "Finalize and send" } else { "Send again" },
                 money(amount, &cur),
-                lines.join("\n"),
+                card_only(&lines.join("\n")),
                 api.mode_line(),
                 if api.live { "" } else { " (in test mode, Stripe sends no email)" },
                 if status == "draft" {

@@ -19,7 +19,7 @@ use super::http::{Body, Reply};
 use super::keyed::{wordpress_code, Cred};
 use super::microsoft365::{clip_text, query, record, words_kept, Args, MAX_ITEMS};
 use super::text::html_to_text;
-use super::{Connections, Done, Plan, Tool, MAX_ANSWER};
+use super::{card_only, Connections, Done, Plan, Tool, MAX_ANSWER};
 use crate::fence::{self, Source};
 use crate::tools::ToolDef;
 
@@ -898,7 +898,7 @@ pub(crate) async fn plan(api: &Api<'_>, call: Call) -> Result<Planned, String> {
                 "Publish the {} \"{title}\" ({id}) on {site}\nEveryone who visits the site can \
                  see it.\n\n{}",
                 kind.one(),
-                words_kept(words.trim())
+                card_only(&words_kept(words.trim()))
             );
             Planned {
                 part: Part::Posts,

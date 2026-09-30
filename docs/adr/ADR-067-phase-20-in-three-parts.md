@@ -71,3 +71,11 @@ Part 20B (Slack and Google) is version 1.14.1 (planned as 1.13.1; Phase 16's fir
 [ADR-070 (Slack and Google: the owner's choices)](ADR-070-slack-and-google-choices.md). Part 20C
 (HubSpot, Stripe, WordPress and WooCommerce, and add-on tools, a later 1.14.x) is next; Phase 20 stays
 **In progress** in the order of work until it is merged (ADR-080).
+
+## As built (v1.14.2, part 20C)
+
+Part 20C (HubSpot, Stripe, WordPress and WooCommerce, and add-on tools) is version 1.14.2 (planned
+as 1.13.2; it follows 1.14.1, as ADR-080 on building Phase 16's first wave beside Phase 20 says),
+with its own acceptance report (`docs/phases/phase-20c-acceptance-report.md`) and release notes.
+Its choices are [ADR-071 (HubSpot, Stripe, the website, and add-on tools: the owner's choices)](ADR-071-keys-website-and-add-on-choices.md).
+With it merged, **Phase 20 is delivered**.

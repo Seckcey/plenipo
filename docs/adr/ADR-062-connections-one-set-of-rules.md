@@ -345,3 +345,29 @@ Slack and Google follow these rules as Microsoft 365 does, with these difference
 seen by the people it is shared with, and adding it does not ask (as OneDrive; keep Drive at Read
 only where that matters). Approvals → Workers using permissions now names each Slack workspace
 ("Read Slack (Client Co)").
+
+## As built (v1.14.2, part 20C: HubSpot, Stripe, and the website)
+
+HubSpot, Stripe, and WordPress and WooCommerce follow these rules as the others do, with these
+differences ([ADR-071 (HubSpot, Stripe, the website, and add-on tools: the owner's choices)](ADR-071-keys-website-and-add-on-choices.md)):
+
+- **Money always asks.** A Stripe refund, finalizing and sending a Stripe invoice, and a
+  WooCommerce refund are **Pay**: Guard asks every time, whatever the switches and lists say (Guard
+  `stripe_money_always_asks_whatever_the_switches_and_lists_say`). The card shows the amount, the
+  currency, the customer, and, for Stripe, **Test mode** or **LIVE MODE**. Just before acting,
+  Plenipo reads the payment, invoice, or order again and stops if any of those changed.
+- **Who a send reaches** (§5): a change to an order's status, and a note the customer sees, reach
+  the order's customer by the email address on the order, so the switch and the list can let them
+  go ahead. Publishing, or changing anything already published, reaches "(everyone who visits
+  <site>)", which no list entry can match: it always asks. HubSpot's and Stripe's cards have no
+  **Send without asking to** list (nothing they do is a send).
+- **Other people's words** (§6): a HubSpot record and its notes, a Stripe payment's description, a
+  WordPress post or page and its comments, and a WooCommerce order's notes reach workers fenced,
+  each named ("CRM records", "payment records", "posts", "store orders"). The approval card says
+  "This worker read CRM records and payment records in this step" when it did.
+- **What is recorded** (§7): IDs, record links, counts, amounts, and Plenipo's own summary
+  ("refunded USD 25.00 (Test mode)"); never a contact's, customer's, or order's details, a note, a
+  comment, or a post's words.
+- **A key has no Reconnect:** a part turned up works at once, as far as the key allows; a call the
+  key is not allowed is refused by the service, and Plenipo names the permission to add. The
+  card lists the key's permissions for the parts that are on.

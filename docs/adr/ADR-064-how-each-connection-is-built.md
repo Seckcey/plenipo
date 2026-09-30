@@ -239,3 +239,32 @@ fits recorded in [ADR-070 (Slack and Google: the owner's choices)](ADR-070-slack
 - **Guard's gate:** Slack only `slack.com`; Google only `accounts.google.com`,
   `oauth2.googleapis.com`, `gmail.googleapis.com`, and `www.googleapis.com`; https only. The
   short-lived sign-in is sent to Slack's API and to Gmail, Calendar, and Drive only.
+
+## As built (v1.14.2, part 20C: HubSpot, Stripe, WordPress and WooCommerce)
+
+Part 20C built all three into Plenipo as §5–§7 say, with the owner's answers and the fits in
+[ADR-071 (HubSpot, Stripe, the website, and add-on tools: the owner's choices)](ADR-071-keys-website-and-add-on-choices.md):
+
+- **HubSpot** (`api.hubapi.com` only): the dated addresses `crm/objects/2026-09/…`, never
+  `/crm/v3/…`. Parts **Contacts**, **Companies**, and **Deals**, each Off, Read only, or Full
+  access. **12 tools:** `hubspot_contacts_search`, `hubspot_companies_search`,
+  `hubspot_deals_search`, `hubspot_contact_read`, `hubspot_company_read`, `hubspot_deal_read`
+  (each with its latest notes), `hubspot_contact_save`, `hubspot_company_save`,
+  `hubspot_deal_save` (create or change; Write), and `hubspot_contact_note`,
+  `hubspot_company_note`, `hubspot_deal_note` (Write). No emails, sequences, or deleting.
+- **Stripe** (`api.stripe.com` only): a restricted key only (`rk_test_…`, `rk_live_…`); the web
+  interface's version pinned (`Stripe-Version: 2026-08-26.dahlia`). Parts **Payments**,
+  **Customers** (Read only), and **Invoices**. **11 tools:** `stripe_balance`, `stripe_payments`,
+  `stripe_payouts`, `stripe_customers`, `stripe_customer`, `stripe_invoices`, `stripe_invoice`,
+  `stripe_subscriptions` (Read); `stripe_invoice_draft` (Write: a draft that Stripe does not send,
+  with only its own lines); `stripe_refund` and `stripe_invoice_send` (finalize, check the total
+  again, then send) (**Pay**). Every change carries an idempotency key made when the call was
+  planned. A refund Stripe holds for its own approval is reported as "waiting for your approval
+  in Stripe's Dashboard" and never sent again. No charges, payouts, or payment links.
+- **WordPress and WooCommerce** (only the host saved on the card, `https`): `/wp-json/wp/v2/…` with
+  the Application Password; `/wp-json/wc/v3/…` with the WooCommerce key when one is kept, else the
+  password. Parts **Posts and pages** and **Store**. **13 tools:** `wp_posts`, `wp_post` (with its
+  comments), `wp_orders`, `wp_order` (with its notes), `wp_products`, `wp_customers` (Read);
+  `wp_save_draft`, `wp_order_private_note` (Write); `wp_publish`, `wp_change_published`,
+  `wp_order_status`, `wp_order_customer_note` (Send, asks); `wp_refund` (**Pay**: sent with
+  `api_refund: true`, never retried).

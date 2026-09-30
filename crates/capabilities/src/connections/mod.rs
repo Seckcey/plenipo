@@ -241,13 +241,47 @@ pub struct Plan<C> {
     /// "send the email \"Invoice\" to 2 people".
     pub summary: String,
     /// What the approval card and the record show (for a send: its recipients, subject, and the
-    /// worker's own words).
+    /// worker's own words). A part made with [`card_only`] is shown on the card, not recorded.
     pub detail: String,
     pub recipients: Vec<String>,
     pub call: C,
     /// A send as it was approved (its recipients and subject), checked again just before it is
     /// sent.
     pub approved_as: Option<(Vec<String>, String)>,
+}
+
+/// Mark the start and the end of a part of a card's detail that is [`card_only`].
+const CARD_ONLY: [char; 2] = ['\u{1e}', '\u{1f}'];
+
+/// The service's own words on an approval card (a payment's description, an invoice's lines, a
+/// post's words): the owner sees them to decide, and `capability.used` keeps "(not kept)" in
+/// their place, never a copy of a record (ADR-062 §7).
+pub(crate) fn card_only(text: &str) -> String {
+    let text: String = text.chars().filter(|c| !CARD_ONLY.contains(c)).collect();
+    format!("{}{text}{}", CARD_ONLY[0], CARD_ONLY[1])
+}
+
+/// A detail as its card shows it.
+pub(crate) fn as_shown(detail: &str) -> String {
+    detail.chars().filter(|c| !CARD_ONLY.contains(c)).collect()
+}
+
+/// A detail as the record keeps it: each [`card_only`] part becomes "(not kept)".
+pub(crate) fn as_kept(detail: &str) -> String {
+    let mut out = String::with_capacity(detail.len());
+    let mut inside = false;
+    for c in detail.chars() {
+        match c {
+            c if c == CARD_ONLY[0] && !inside => {
+                inside = true;
+                out.push_str("(not kept)");
+            }
+            c if c == CARD_ONLY[1] => inside = false,
+            c if inside || c == CARD_ONLY[0] => {}
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// A call carried out.
@@ -2201,5 +2235,31 @@ impl Graph<'_> {
             )
             .await?
             .json())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_services_own_words_are_shown_on_the_card_and_not_kept() {
+        let detail = format!(
+            "Refund: USD 25.00\nPayment: pi_1 · {}\nMode: Test mode",
+            card_only("\"Tune-up\u{1f} for Alex\u{1e}\" (the payment's own description)")
+        );
+        assert_eq!(
+            as_shown(&detail),
+            "Refund: USD 25.00\nPayment: pi_1 · \"Tune-up for Alex\" (the payment's own \
+             description)\nMode: Test mode"
+        );
+        // A marker inside the service's words cannot end the part early.
+        assert_eq!(
+            as_kept(&detail),
+            "Refund: USD 25.00\nPayment: pi_1 · (not kept)\nMode: Test mode"
+        );
+        // A detail with none is kept as it is.
+        assert_eq!(as_kept("To: dana@clientco.com"), "To: dana@clientco.com");
+        assert_eq!(as_kept(&card_only("a")), "(not kept)");
     }
 }

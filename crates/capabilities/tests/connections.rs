@@ -4470,6 +4470,19 @@ async fn stripe_connect_read_refund_invoice_with_approval_and_disconnect() {
     let payments = result_of(&text, "stripe_payments");
     let inside = inside_fence(&payments, "records", STRIPE_TEST, "the service").join("\n");
     assert!(inside.contains(stripe::PLANTED), "{inside}");
+    // The card showed the payment's own description; the record keeps "(not kept)" instead.
+    assert!(a.detail.contains(&stripe::PLANTED[..40]), "{}", a.detail);
+    let refund = h
+        .events(&task, "capability.used")
+        .into_iter()
+        .find(|e| e["tool"] == "stripe_refund")
+        .unwrap();
+    let kept = refund["detail"].as_str().unwrap();
+    assert!(
+        kept.contains("Payment: pi_3TestAlexRivera01") && kept.contains("(not kept)"),
+        "{kept}"
+    );
+    assert!(!kept.contains(&stripe::PLANTED[..40]), "{kept}");
     assert!(
         text.contains("Tool stripe_invoice_draft: Draft invoice in_"),
         "{text}"
@@ -4531,6 +4544,18 @@ async fn stripe_connect_read_refund_invoice_with_approval_and_disconnect() {
     assert!(h
         .text(&task)
         .contains("Invoice in_1TestDraft0001 for USD 300.00 sent (Test mode)."));
+    // The invoice's lines were on the card, not in the record.
+    let sent = h
+        .events(&task, "capability.used")
+        .into_iter()
+        .find(|e| e["tool"] == "stripe_invoice_send")
+        .unwrap();
+    let kept = sent["detail"].as_str().unwrap();
+    assert!(
+        kept.contains("USD 300.00") && kept.contains("(not kept)"),
+        "{kept}"
+    );
+    assert!(!kept.contains("Website support"), "{kept}");
     let changes = h.ms.world().stripe.changes.clone();
     assert!(changes
         .iter()
@@ -4855,6 +4880,15 @@ async fn website_connect_read_write_publish_refund_and_disconnect() {
         text.contains("Tool wp_publish: The post 11 is published (publish)."),
         "{text}"
     );
+    // The card showed the post's words; the record keeps "(not kept)" instead.
+    let published = h
+        .events(&task, "capability.used")
+        .into_iter()
+        .find(|e| e["tool"] == "wp_publish")
+        .unwrap();
+    let kept = published["detail"].as_str().unwrap();
+    assert!(kept.contains("(not kept)"), "{kept}");
+    assert!(!kept.contains("Draft words."), "{kept}");
     let done = h.ms.world().wordpress.done.clone();
     assert_eq!(done.len(), 1, "{done:?}");
     assert_eq!(done[0]["public"], "11");

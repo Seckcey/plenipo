@@ -259,6 +259,23 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | Its secret is kept in Windows Credential Manager                               | stored in keyring, encrypted secret                                                        |
 | cancelled at Slack / Google (on Disconnect)                                    | token revoked, grant revoked                                                               |
 | Slack lets Plenipo read one channel or thread a minute                         | rate limit, non-Marketplace throttling, tier limit                                         |
+| Its key / Save and check / Replace the key (the box hides what you type)       | API key field, credentials, validate token, rotate key                                     |
+| Needs a new key                                                                | 401 Unauthorized, key revoked, invalid API key                                             |
+| Contacts / Companies / Deals (HubSpot's parts)                                 | CRM objects, object types, scopes                                                          |
+| Payments / Customers / Invoices (Stripe's parts)                               | Stripe resources, restricted-key permissions                                               |
+| Test mode / Live mode: moves real money (Stripe)                               | sandbox, livemode, test environment                                                        |
+| waiting for your approval in Stripe's Dashboard                                | approval_required, agent approval rule                                                     |
+| Posts and pages / Store (the website's parts)                                  | wp/v2, wc/v3, REST namespaces                                                              |
+| Your site's address / WordPress user name / Application Password               | site URL, base URL, REST credentials, basic auth                                           |
+| WooCommerce key (optional) / Consumer key / Consumer secret                    | REST API key, ck/cs pair                                                                   |
+| everyone who visits the site (who publishing reaches)                          | public audience, anonymous users                                                           |
+| WooCommerce asks the payment company to send the money back                    | api_refund, gateway refund                                                                 |
+| Add-on tools / Add a program / Look at its tools                               | MCP servers, custom MCP, tools/list                                                        |
+| Switch on / Switch off (an add-on)                                             | enable / disable server                                                                    |
+| Off / Reading / Changing (an add-on's tool)                                    | tool annotations, readOnlyHint, destructiveHint                                            |
+| Changed — look again (an add-on's tool)                                        | tool drift, schema change, rug pull                                                        |
+| the program's words (what an add-on says)                                      | tool description, untrusted tool output                                                    |
+| Stored secrets to give it (an add-on)                                          | environment variables, secret injection                                                    |
 
 ## Where technical words may stay
 

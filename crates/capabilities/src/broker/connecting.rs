@@ -697,7 +697,9 @@ impl Broker {
             &current,
             grant,
         );
-        let mut detail = planned_detail.to_owned();
+        // The card shows the service's own words; the record keeps "(not kept)" instead.
+        let mut detail = crate::connections::as_shown(planned_detail);
+        let kept = crate::connections::as_kept(planned_detail);
         let mut approval_id = None;
         match decision.verdict {
             Verdict::Deny => {
@@ -707,7 +709,7 @@ impl Broker {
                     &cx.worker,
                     tool.def,
                     summary,
-                    &detail,
+                    &kept,
                     &decision,
                     None,
                 )
@@ -835,7 +837,7 @@ impl Broker {
                 "tool": tool.def.name,
                 "capability": tool.def.capability,
                 "summary": self.redact(summary),
-                "detail": cap_said(&self.redact(&detail), MAX_DETAIL),
+                "detail": cap_said(&self.redact(&kept), MAX_DETAIL),
                 "ok": ok,
                 // Plenipo's own words, never the text the service sent (ADR-062 §7).
                 "result": self.redact(&result),

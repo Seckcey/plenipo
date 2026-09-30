@@ -240,3 +240,23 @@ Built as written for Slack and Google, with these details
 - **The owner's Google app's secret** (`connection-google-app-secret`) is kept only in the Vault,
   read back when saved, hidden in every text Plenipo records, never returned by a command, and
   removed with the app or by uninstalling with "delete my data".
+
+## As built (v1.14.2, part 20C: keys)
+
+HubSpot, Stripe, and the website have no sign-in page ([ADR-071 (HubSpot, Stripe, the website, and add-on tools: the owner's choices)](ADR-071-keys-website-and-add-on-choices.md) §1):
+
+- **A key typed into the card** (boxes that hide what is typed) goes through the new command
+  `save_connection_key`. Plenipo makes one reading call with it through Guard's gate, and keeps it
+  only if the service accepts it: in the Vault as `connection-<id>-token` (the key, or the website's
+  user name and Application Password), and `connection-<id>-store-key` (an optional WooCommerce
+  key and secret), each read back to check it. It is never returned, never shown again, and
+  hidden in every text Plenipo records — even a key the service refused, and the forms a key can
+  take in a request (the website's password with or without spaces, and in its sign-in header).
+- **Replace the key** keeps the card connected only for the same account; anything else needs
+  **Disconnect** first. The website's address is kept on the card (it is not a secret) and cannot
+  change while connected.
+- **Needs a new key:** a key the service stops accepting is erased from the Vault, the tools stop,
+  and the card asks for a new one.
+- **Disconnect** erases every value the card kept. At the website, Plenipo also revokes the
+  Application Password it used (WordPress tells Plenipo which one); HubSpot and Stripe cannot
+  cancel a key from outside, so the card says where to delete it.

@@ -131,3 +131,25 @@ add-ons; installing programs for the owner.
 
 Not built in part 20A: add-on tools come in part 20C
 ([ADR-067 (Phase 20 in three parts)](ADR-067-phase-20-in-three-parts.md)).
+
+## As built (v1.14.2, part 20C)
+
+Built as decided, with the owner's answers in [ADR-071 (HubSpot, Stripe, the website, and add-on tools: the owner's choices)](ADR-071-keys-website-and-add-on-choices.md) (§2, §3, and §6 item 9):
+
+- **Adding:** the program is typed (a name Plenipo finds on PATH, or a full path); there is no file
+  picker. Refused: shells and code downloaders (`npx`, `pnpx`, `bunx`, `uvx`, `mshta`, and `npm
+exec`, `npm x`, `pnpm dlx`, `yarn dlx`, `bun x`, `pipx run`, `uv tool run`). Stored secrets are
+  picked by name from Settings → Secrets (each needs its environment variable's name) and reach
+  only that add-on's program, as that variable. At most 20 add-ons, 100 tools each.
+- **Switching on** looks at its tools first; an add-on whose tools were never looked at cannot be
+  on. Changing its program or arguments switches it off and clears its tools.
+- **Tools:** each starts **Off**; named `addon_<add-on>_<tool>` (at most 50 characters, shortened
+  with a check code). A tool whose description or input changed since it was marked is not called,
+  goes back to **Off**, and says **Changed — look again**.
+- **A call:** `mcp.invoke` is granted through the add-on's own **Who may use it** (the registry
+  stays at 18 permissions). A **Changing** tool always asks (Guard, whatever the switches say). The
+  program starts on first use in a worker's step, with a 30-second start, and is stopped when the
+  step's tools close or are revoked (at most 12 hours). One request at a time; a call waits at most
+  10 minutes. A request from the program to Plenipo is refused. The answer is cut to 64 KB of text,
+  fenced as "add-on output" from "the program", hidden of secrets, and recorded as
+  `capability.used` with the add-on and tool, never the answer's text.
