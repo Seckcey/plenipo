@@ -1989,3 +1989,301 @@ async fn the_development_template_sets_up_a_department_project_and_team() {
     bad.project.allowed_runtimes = vec!["codex".into()];
     assert!(refusal(h.workforce.set_up_development(&bad)).contains("allowed AI tools"));
 }
+
+// ---- Free and Pro (Phase 11A) -----------------------------------------------------------------
+
+/// What is live in the tests' one organization, counted the way the app counts it for the PC.
+struct LedgerUsage(Arc<Ledger>);
+
+impl plenipo_licensing::Usage for LedgerUsage {
+    fn organizations(&self) -> u32 {
+        1
+    }
+    fn departments(&self) -> u32 {
+        self.0.live_departments().unwrap()
+    }
+    fn projects(&self) -> u32 {
+        self.0.live_projects().unwrap()
+    }
+    fn workers_on_the_job(&self) -> Vec<String> {
+        self.0.tasks_on_the_job().unwrap()
+    }
+}
+
+impl H {
+    /// Give the Workforce the PC's Free or Pro, counting this organization.
+    fn edition(&self, edition: plenipo_licensing::Edition) -> Arc<plenipo_licensing::Entitlements> {
+        let e = plenipo_licensing::Entitlements::new(edition);
+        e.set_usage(Arc::new(LedgerUsage(Arc::clone(&self.ledger))));
+        self.workforce.set_entitlements(e.clone());
+        e
+    }
+
+    fn new_department(&self, name: &str) -> Result<OrgSnapshot, WorkforceError> {
+        self.workforce.create_department(&DepartmentInput {
+            name: name.into(),
+            description: format!("{name} work"),
+            head: Some(lead(
+                &self.role("Manager"),
+                &format!("{name} Manager"),
+                "claude-code",
+            )),
+            reports_to: None,
+            active: None,
+        })
+    }
+
+    fn new_project(&self, department: &str, name: &str) -> Result<OrgSnapshot, WorkforceError> {
+        self.workforce.create_project(&ProjectInput {
+            department_id: Some(department.into()),
+            coordinator: Some(lead(
+                &self.role("Supervisor"),
+                &format!("{name} Supervisor"),
+                "claude-code",
+            )),
+            ..project_input(name, &["claude-code"])
+        })
+    }
+}
+
+/// The plain-words refusal a Free limit gives, and which limit it was.
+fn part_of_pro<T: std::fmt::Debug>(r: Result<T, WorkforceError>) -> plenipo_licensing::Limit {
+    match r {
+        Err(WorkforceError::PartOfPro(b)) => {
+            let e = WorkforceError::PartOfPro(b.clone());
+            assert!(e.is_caller_error());
+            assert_eq!(e.to_string(), plenipo_licensing::words::message(b.limit));
+            assert!(e.to_string().contains("Settings → License"));
+            b.limit
+        }
+        other => panic!("expected Part of Pro, got {other:?}"),
+    }
+}
+
+fn dev_input(name: &str) -> plenipo_workforce::DevelopmentInput {
+    plenipo_workforce::DevelopmentInput {
+        project: ProjectInput {
+            capability_profile: None,
+            ..project_input(name, &["claude-code", "codex"])
+        },
+        runtime_id: Some("claude-code".into()),
+    }
+}
+
+/// Phase 11A: Free has one department and one project; the second of each is refused in plain
+/// words naming what Pro adds, and nothing is made.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn free_allows_one_department_and_one_project_and_refuses_the_second() {
+    use plenipo_licensing::{Edition, Limit};
+    let h = harness().await;
+    h.edition(Edition::Free);
+    let (dept, _) = h.department("Development", "Development Manager", "claude-code");
+    assert_eq!(part_of_pro(h.new_department("Sales")), Limit::Departments);
+    h.new_project(&dept, "Cloudline").unwrap();
+    assert_eq!(
+        part_of_pro(h.new_project(&dept, "Waypoint")),
+        Limit::Projects
+    );
+    let s = h.snapshot();
+    assert_eq!(s.departments.len(), 1);
+    assert_eq!(s.projects.len(), 1);
+}
+
+/// Phase 11A: Pro has no limit on departments or projects.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pro_makes_as_many_departments_and_projects_as_you_want() {
+    let h = harness().await;
+    h.edition(plenipo_licensing::Edition::Pro);
+    let (dept, _) = h.department("Development", "Development Manager", "claude-code");
+    for name in ["Sales", "Operations", "Support"] {
+        h.new_department(name).unwrap();
+    }
+    for name in ["Cloudline", "Waypoint", "Harbor"] {
+        h.new_project(&dept, name).unwrap();
+    }
+    let s = h.snapshot();
+    assert_eq!(s.departments.len(), 4);
+    assert_eq!(s.projects.len(), 3);
+}
+
+/// Phase 11A: the Development setup is checked whole before anything is made, so a Free copy
+/// never ends up with half a team.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn free_sets_up_development_once_and_never_half_a_team() {
+    use plenipo_licensing::{Edition, Limit};
+    let h = harness().await;
+    h.edition(Edition::Free);
+    h.workforce
+        .set_up_development(&dev_input("Website"))
+        .unwrap();
+    let before = h.snapshot();
+    assert_eq!(
+        part_of_pro(h.workforce.set_up_development(&dev_input("Cloudline"))),
+        Limit::Projects
+    );
+    let after = h.snapshot();
+    assert_eq!(after.projects.len(), 1);
+    assert_eq!(after.positions.len(), before.positions.len());
+    // Another Free copy with a plain department of its own: no second department, no project.
+    let h = harness().await;
+    h.edition(Edition::Free);
+    h.new_department("Marketing").unwrap();
+    assert_eq!(
+        part_of_pro(h.workforce.set_up_development(&dev_input("Website"))),
+        Limit::Departments
+    );
+    let s = h.snapshot();
+    assert_eq!(s.departments.len(), 1);
+    assert!(s.projects.is_empty());
+}
+
+/// Phase 11A (ADR-114): a department set up from a business template is part of Pro; nothing is
+/// made on Free.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_business_template_is_part_of_pro() {
+    use plenipo_licensing::{Edition, Limit};
+    use plenipo_workforce::templates::TeamTemplate;
+    const SALES: TeamTemplate = TeamTemplate {
+        department: "Sales",
+        description: "Sells.",
+        head: ("Sales VP", "VP"),
+        supervisor_role: "Supervisor",
+        team: &[("Senior Developer", "Senior Developer")],
+        business: true,
+    };
+    assert!(!plenipo_workforce::templates::DEVELOPMENT.business);
+    let h = harness().await;
+    let e = h.edition(Edition::Free);
+    assert_eq!(
+        part_of_pro(h.workforce.set_up_team(&SALES, &dev_input("Leads"))),
+        Limit::BusinessDepartment
+    );
+    assert!(h.snapshot().departments.is_empty());
+    e.set_edition(Edition::Pro);
+    let s = h
+        .workforce
+        .set_up_team(&SALES, &dev_input("Leads"))
+        .unwrap();
+    assert_eq!(s.departments[0].name, "Sales");
+}
+
+/// Phase 11A: when Pro ends, every department and project stays — listed, readable, and
+/// changeable; only making a new one past a Free limit is refused. Bringing one back from the
+/// archive counts as making it live again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn when_pro_ends_nothing_is_lost_and_only_new_ones_are_refused() {
+    use plenipo_licensing::{Edition, Limit};
+    let h = harness().await;
+    let e = h.edition(Edition::Pro);
+    let (dept, _) = h.department("Development", "Development Manager", "claude-code");
+    h.new_department("Operations").unwrap();
+    let ops = h
+        .snapshot()
+        .departments
+        .into_iter()
+        .find(|d| d.name == "Operations")
+        .unwrap();
+    for name in ["Cloudline", "Waypoint", "Harbor"] {
+        h.new_project(&dept, name).unwrap();
+    }
+    e.set_edition(Edition::Free);
+    let s = h.snapshot();
+    assert_eq!(s.departments.len(), 2);
+    assert_eq!(s.projects.len(), 3);
+    // Still changeable, and archiving still works.
+    h.workforce
+        .update_department(
+            &ops.id,
+            &DepartmentInput {
+                name: "Operations".into(),
+                description: "Keeps the servers running.".into(),
+                head: None,
+                reports_to: None,
+                active: None,
+            },
+        )
+        .unwrap();
+    let harbor = s
+        .projects
+        .iter()
+        .find(|p| p.name == "Harbor")
+        .unwrap()
+        .id
+        .clone();
+    h.workforce.archive_project(&harbor).unwrap();
+    // New ones are refused; so is bringing one back.
+    assert_eq!(part_of_pro(h.new_department("Sales")), Limit::Departments);
+    assert_eq!(part_of_pro(h.new_project(&dept, "Beacon")), Limit::Projects);
+    assert_eq!(
+        part_of_pro(h.workforce.bring_back_project(&harbor)),
+        Limit::Projects
+    );
+    // Pro back: the same things work again.
+    e.set_edition(Edition::Pro);
+    h.workforce.bring_back_project(&harbor).unwrap();
+    assert_eq!(h.snapshot().projects.len(), 3);
+}
+
+/// Phase 11A (ADR-112): on Free, lessons pause — none are written, none are used, and the owner's
+/// learning choices and kept lessons stay; with Pro back they work again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn lessons_pause_on_free_and_come_back_with_pro() {
+    use plenipo_ledger::LessonState;
+    use plenipo_licensing::{Edition, Entitlements};
+    use plenipo_workforce::EntitlementsCell;
+    let h = harness().await;
+    let org = h.development();
+    let e = h.edition(Edition::Free);
+    let supervisor = h.role("Supervisor");
+    let answer = |lesson: &str| {
+        let script = serde_json::json!({
+            "Cloudline Coordinator": [
+                { "say": format!("Done.\n```plenipo-lesson\n- {lesson}\n```") }
+            ]
+        });
+        let dir = h.dir.path().join("home").join(".plenipo-fake-agent");
+        let _ = std::fs::remove_dir_all(dir.join("script-used"));
+        std::fs::write(dir.join("script.json"), script.to_string()).unwrap();
+    };
+    let waiting = || {
+        h.ledger
+            .lessons(LessonState::Waiting, Some(&supervisor), 20)
+            .unwrap()
+            .len()
+    };
+    // No "how to write a lesson" note, and no kept lessons, in a Free worker's instructions.
+    let identity = |edition| {
+        WorkforceDirectory::with_entitlements(
+            Arc::clone(&h.ledger),
+            h.router.clone(),
+            EntitlementsCell::new(Entitlements::fixed(edition)),
+        )
+        .team(&serde_json::json!({ "positionId": org.coordinator, "projectId": org.project }))
+        .unwrap()
+        .identity
+    };
+    assert!(!identity(Edition::Free).contains("plenipo-lesson"));
+    assert!(identity(Edition::Pro).contains("plenipo-lesson"));
+    // A lesson in a Free task's answer is not written down.
+    answer("Read the release notes before planning.");
+    let task = h.objective(&org.coordinator, "Plan the release.").await;
+    h.finished(&task).await;
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(waiting(), 0);
+    assert!(
+        h.workforce.learning().unwrap().enabled,
+        "the owner's choice is kept"
+    );
+    // Pro back: the next task's lesson is.
+    e.set_edition(Edition::Pro);
+    answer("Ask QA before the release.");
+    let task = h
+        .objective(&org.coordinator, "Plan the next release.")
+        .await;
+    h.finished(&task).await;
+    let deadline = Instant::now() + WAIT;
+    while waiting() == 0 {
+        assert!(Instant::now() < deadline, "the lesson never came");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}

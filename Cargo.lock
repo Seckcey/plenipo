@@ -4150,6 +4150,7 @@ dependencies = [
  "plenipo-guard",
  "plenipo-ledger",
  "plenipo-liaison",
+ "plenipo-licensing",
  "plenipo-router",
  "plenipo-runtime",
  "plenipo-workforce",
@@ -4221,6 +4222,7 @@ version = "1.17.0"
 dependencies = [
  "dunce",
  "plenipo-ledger",
+ "plenipo-licensing",
  "regex",
  "serde",
  "serde_json",
@@ -4312,6 +4314,7 @@ dependencies = [
  "log",
  "plenipo-ledger",
  "plenipo-liaison",
+ "plenipo-licensing",
  "plenipo-router",
  "plenipo-runtime",
  "png 0.18.1",

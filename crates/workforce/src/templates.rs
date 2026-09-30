@@ -520,6 +520,8 @@ pub struct TeamTemplate {
     pub supervisor_role: &'static str,
     /// On-call members of the project's team: title and role template.
     pub team: &'static [(&'static str, &'static str)],
+    /// A business department (Sales on HubSpot, and those after it): part of Pro (ADR-114).
+    pub business: bool,
 }
 
 /// The Development department (the plan's Development Superintendent and project coordinators)
@@ -535,6 +537,7 @@ pub const DEVELOPMENT: TeamTemplate = TeamTemplate {
         ("QA Engineer", "QA Engineer"),
         ("Documentation Writer", "Documentation Writer"),
     ],
+    business: false,
 };
 
 /// Built-in roles whose workers end their answers with a verdict (Phase 8).

@@ -21,11 +21,39 @@ use crate::view::{OrgView, TeamMember};
 pub struct WorkforceDirectory {
     ledger: Arc<Ledger>,
     router: Router,
+    /// The PC's Free or Pro: lessons are part of Pro (ADR-112).
+    entitlements: crate::service::EntitlementsCell,
 }
 
 impl WorkforceDirectory {
     pub fn new(ledger: Arc<Ledger>, router: Router) -> Self {
-        Self { ledger, router }
+        Self::with_entitlements(ledger, router, crate::service::EntitlementsCell::default())
+    }
+
+    pub fn with_entitlements(
+        ledger: Arc<Ledger>,
+        router: Router,
+        entitlements: crate::service::EntitlementsCell,
+    ) -> Self {
+        Self {
+            ledger,
+            router,
+            entitlements,
+        }
+    }
+
+    /// What the position's role has learned, unless lessons are off for this copy (Free) or
+    /// for it.
+    fn learned(&self, view: &OrgView<'_>, p: &Position, project_id: Option<&str>) -> String {
+        if !self
+            .entitlements
+            .get()
+            .check(plenipo_licensing::Limit::Lessons)
+            .is_allowed()
+        {
+            return String::new();
+        }
+        learned(&self.ledger, view, p, project_id)
     }
 
     /// A request to a full-time member (a VP's Supervisor, a manager's Supervisor): the member
@@ -61,7 +89,7 @@ impl WorkforceDirectory {
             }),
             workforce,
             identity: member_identity(view, &org_name(&self.ledger), target, has_team)
-                + &learned(&self.ledger, view, target, plan.project_id.as_deref()),
+                + &self.learned(view, target, plan.project_id.as_deref()),
             project_id: plan.project_id,
         })
     }
@@ -258,7 +286,7 @@ impl Directory for WorkforceDirectory {
                 .as_str()
                 .unwrap_or_default();
             worker_identity(&view, &name, me, None, sees_images(&planner, model))
-        } + &learned(&self.ledger, &view, me, workforce["projectId"].as_str());
+        } + &self.learned(&view, me, workforce["projectId"].as_str());
         Some(Team {
             identity,
             reminder: view
@@ -391,7 +419,7 @@ impl Directory for WorkforceDirectory {
                 target,
                 member.oversight.map(|o| (lead, o.kind)),
                 sees_images(&planner, &choice.model_id),
-            ) + &learned(&self.ledger, &view, target, project_id.as_deref()),
+            ) + &self.learned(&view, target, project_id.as_deref()),
             project_id,
         })
     }
