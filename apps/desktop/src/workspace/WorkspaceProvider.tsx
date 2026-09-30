@@ -53,6 +53,14 @@ function makeParking(): HTMLElement {
   return el;
 }
 
+/** Plenipo's own keys, which a pop-out passes on to its page: Ctrl+` (the terminal) and
+ * Ctrl+Shift+E (Files). */
+function shortcut(e: KeyboardEvent): boolean {
+  if (!e.ctrlKey || e.altKey || e.metaKey) return false;
+  if (e.code === "Backquote" || e.key === "`") return !e.shiftKey;
+  return e.shiftKey && e.key.toLowerCase() === "e";
+}
+
 /**
  * An organization window's panels (Phase 21, ADR-092): the layout (kept on this computer), the
  * docks' sizes, and the pop-out windows. Each panel is drawn once, into its own element, and
@@ -127,8 +135,8 @@ export function WorkspaceProvider({
   const popUpsRef = useRef(new Map<L.PanelId, PopUp>());
   const [popUps, setPopUps] = useState<PopUp[]>([]);
   const syncPopUps = () => setPopUps([...popUpsRef.current.values()]);
-  /** Panels whose window Plenipo is closing itself (their "closed" notice changes nothing). */
-  const closing = useRef(new Set<L.PanelId>());
+  /** Pop-out windows open one at a time: each takes the window Plenipo was told to expect. */
+  const opening = useRef<Promise<unknown>>(Promise.resolve());
 
   /** The window each panel is drawn in: its pop-out's while it is popped out, else this one. */
   const hosts = useMemo(() => {
@@ -159,25 +167,24 @@ export function WorkspaceProvider({
     }
   }, [layout, slotCount, popUps, containerOf, parking]);
 
-  /** A pop-out window is gone: its panel's element comes home, and (unless Plenipo closed it
-   * on purpose) the panel goes back to its dock. */
+  /** A pop-out window is gone: its panel's element comes home, and the panel goes back to its
+   * dock. A window Plenipo closed on purpose is already forgotten, so its notice changes
+   * nothing. */
   const onClosed = useCallback(
     (panel: L.PanelId) => {
       const popUp = popUpsRef.current.get(panel);
-      if (popUp) {
-        popUpsRef.current.delete(panel);
-        popUp.stop();
-        parking.appendChild(containerOf(panel));
-        syncPopUps();
-      }
-      if (closing.current.delete(panel)) return;
+      if (!popUp) return;
+      popUpsRef.current.delete(panel);
+      popUp.stop();
+      parking.appendChild(containerOf(panel));
+      syncPopUps();
       setLayout((l) => (l.panels[panel].popped ? L.putBack(l, panel) : l));
     },
     [containerOf, parking, setLayout],
   );
 
   /** Open a panel's window and move the panel into it. `false` if it could not open. */
-  const openWindow = useCallback(
+  const openWindowNow = useCallback(
     async (panel: L.PanelId, place?: WindowPlace): Promise<boolean> => {
       if (popUpsRef.current.has(panel)) {
         void focusPopOut(panel).catch(() => undefined);
@@ -192,15 +199,39 @@ export function WorkspaceProvider({
       const win = window.open("about:blank", "_blank");
       const doc = win ? await whenReady(win) : null;
       if (!win || !doc) {
+        const open = win !== null && !win.closed;
         try {
           win?.close();
         } catch {
           // Already gone.
         }
+        // Its page closed; Plenipo closes the window too, so none is left behind empty.
+        if (open) void closePopOut(panel).catch(() => undefined);
         setProblem(`Plenipo could not open a window for ${L.PANEL_TITLES[panel]}.`);
         return false;
       }
-      const { root, stop } = dressWindow(doc, `Plenipo · ${L.PANEL_TITLES[panel]}`);
+      const { root, stop: undress } = dressWindow(doc, `Plenipo · ${L.PANEL_TITLES[panel]}`);
+      // Plenipo's own keys work in a pop-out too: Ctrl+` and Ctrl+Shift+E reach the page.
+      const forward = (e: KeyboardEvent) => {
+        if (!shortcut(e)) return;
+        e.preventDefault();
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: e.key,
+            code: e.code,
+            ctrlKey: e.ctrlKey,
+            shiftKey: e.shiftKey,
+            altKey: e.altKey,
+            metaKey: e.metaKey,
+            cancelable: true,
+          }),
+        );
+      };
+      win.addEventListener("keydown", forward);
+      const stop = () => {
+        undress();
+        win.removeEventListener("keydown", forward);
+      };
       const header = doc.createElement("div");
       header.className = "popout__header";
       const body = doc.createElement("div");
@@ -217,6 +248,14 @@ export function WorkspaceProvider({
     },
     [onClosed],
   );
+  const openWindow = useCallback(
+    (panel: L.PanelId, place?: WindowPlace): Promise<boolean> => {
+      const run = opening.current.then(() => openWindowNow(panel, place));
+      opening.current = run.catch(() => undefined);
+      return run;
+    },
+    [openWindowNow],
+  );
 
   const popOut = useCallback(
     (panel: L.PanelId, place?: WindowPlace) => {
@@ -232,7 +271,6 @@ export function WorkspaceProvider({
     (panel: L.PanelId) => {
       const popUp = popUpsRef.current.get(panel);
       if (!popUp) return;
-      closing.current.add(panel);
       popUpsRef.current.delete(panel);
       parking.appendChild(containerOf(panel));
       popUp.stop();

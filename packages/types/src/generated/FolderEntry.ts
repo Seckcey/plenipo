@@ -11,4 +11,8 @@ path: string, folder: boolean, size: number | null, modified: number | null,
 /**
  * Workers may not touch it (Settings → Permissions → blocked files).
  */
-blocked: boolean, };
+blocked: boolean, 
+/**
+ * A program or a script: it opens in Plenipo as text only, never in another program.
+ */
+runs: boolean, };

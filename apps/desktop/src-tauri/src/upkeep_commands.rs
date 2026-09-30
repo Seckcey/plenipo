@@ -45,6 +45,12 @@ fn tool_names(agents: Option<&AgentRuntime>) -> impl Fn(&str) -> String {
     }
 }
 
+/// The window shows the first organization (a window with no organization of its own is the
+/// first one's).
+fn shows_first(stack: Option<&crate::orgs::OrgStack>) -> bool {
+    stack.is_none_or(|s| s.id() == crate::orgs::FIRST)
+}
+
 /// What recovery has to tell window `label` (its organization's; none: the first one's).
 fn recovery_status<R: Runtime>(
     app: &AppHandle<R>,
@@ -56,12 +62,17 @@ fn recovery_status<R: Runtime>(
         |s| s.ledger.clone(),
     );
     let state = app.state::<Arc<RecoveryState>>();
-    let problems = app
-        .state::<SettingsProblems>()
-        .0
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .clone();
+    // Settings Plenipo could not read are checked in the first organization only (ADR-094,
+    // limits): only its windows say so, and only there can they be reset.
+    let problems = if shows_first(stack.as_deref()) {
+        app.state::<SettingsProblems>()
+            .0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    } else {
+        Vec::new()
+    };
     let agents = stack
         .as_ref()
         .map(|s| s.agents.clone())
@@ -164,13 +175,20 @@ pub async fn dismiss_window_recovery<R: Runtime>(
 
 /// The window's page is alive (every few seconds; ADR-037 item 3). `visible`: the page can be
 /// seen (WebView2 may slow a hidden page down).
+///
+/// Only Plenipo's own window is watched: another organization's window saying it is alive
+/// never hides that this one stopped.
 #[tauri::command]
-pub async fn window_alive(
+pub async fn window_alive<R: Runtime>(
+    window: tauri::WebviewWindow<R>,
     watch: State<'_, Arc<WindowWatch>>,
     state: State<'_, Arc<RecoveryState>>,
     ledger: State<'_, Arc<Ledger>>,
     visible: bool,
 ) -> Result<(), CommandError> {
+    if window.label() != crate::workspace_windows::MAIN {
+        return Ok(());
+    }
     if let Some(reopened) = watch.alive(visible, plenipo_ledger::now_ms()) {
         let (ledger, state) = (Arc::clone(&ledger), Arc::clone(&state));
         tauri::async_runtime::spawn_blocking(move || {
@@ -192,6 +210,11 @@ pub async fn reset_settings<R: Runtime>(
 ) -> Result<RecoveryStatus, CommandError> {
     if key.len() > 64 {
         return Err(CommandError::invalid_input("unknown settings"));
+    }
+    if !shows_first(crate::orgs::stack_of(&app, window.label()).as_deref()) {
+        return Err(CommandError::invalid_input(
+            "Reset these settings from your first organization's window.",
+        ));
     }
     let (l, g, k) = (Arc::clone(&ledger), guard.inner().clone(), key.clone());
     tauri::async_runtime::spawn_blocking(move || settings_health::reset(&l, &g, &k))
@@ -253,7 +276,13 @@ pub async fn set_start_and_close<R: Runtime>(
 /// The Ledger's file: the open one's, or, when Plenipo runs on a temporary Ledger because it
 /// could not open its own (one from a newer Plenipo, after going back to an older version), that
 /// file, so its backups can still be listed and restored.
-fn ledger_file<R: Runtime>(app: &AppHandle<R>, ledger: &Ledger) -> Option<std::path::PathBuf> {
+///
+/// Always the file of window `label`'s own organization, never another's (ADR-094 §10).
+fn ledger_file<R: Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+    ledger: &Ledger,
+) -> Option<std::path::PathBuf> {
     if let Some(path) = ledger.path() {
         return Some(path.to_owned());
     }
@@ -261,9 +290,15 @@ fn ledger_file<R: Runtime>(app: &AppHandle<R>, ledger: &Ledger) -> Option<std::p
         app.try_state::<Persistence>().as_deref(),
         Some(Persistence::AppData)
     );
-    kept.then(|| crate::ledger_host::ledger_path(app).ok())
-        .flatten()
-        .filter(|p| p.exists())
+    let own = match crate::orgs::stack_of(app, label) {
+        Some(stack) => stack
+            .place
+            .folder
+            .as_deref()
+            .map(crate::ledger_host::ledger_file),
+        None => crate::ledger_host::ledger_path(app).ok(),
+    };
+    kept.then_some(own).flatten().filter(|p| p.exists())
 }
 
 fn overview(file: Option<&std::path::Path>) -> Result<LedgerBackups, plenipo_ledger::LedgerError> {
@@ -281,9 +316,10 @@ fn overview(file: Option<&std::path::Path>) -> Result<LedgerBackups, plenipo_led
 #[tauri::command]
 pub async fn list_ledger_backups<R: Runtime>(
     app: AppHandle<R>,
+    window: tauri::WebviewWindow<R>,
     ledger: Org<'_, Arc<Ledger>>,
 ) -> Result<LedgerBackups, CommandError> {
-    let file = ledger_file(&app, &ledger);
+    let file = ledger_file(&app, window.label(), &ledger);
     with_ledger(&ledger, move |_| overview(file.as_deref())).await
 }
 
@@ -293,6 +329,7 @@ pub async fn list_ledger_backups<R: Runtime>(
 #[tauri::command]
 pub async fn restore_ledger_backup<R: Runtime>(
     app: AppHandle<R>,
+    window: tauri::WebviewWindow<R>,
     ledger: Org<'_, Arc<Ledger>>,
     name: String,
 ) -> Result<LedgerBackups, CommandError> {
@@ -301,7 +338,7 @@ pub async fn restore_ledger_backup<R: Runtime>(
             "that is not one of the Ledger's backups",
         ));
     }
-    let file = ledger_file(&app, &ledger);
+    let file = ledger_file(&app, window.label(), &ledger);
     let overview = with_ledger(&ledger, move |l| {
         let path = file.as_deref().ok_or_else(|| {
             plenipo_ledger::LedgerError::InvalidInput(
@@ -327,9 +364,10 @@ pub async fn restore_ledger_backup<R: Runtime>(
 #[tauri::command]
 pub async fn cancel_ledger_restore<R: Runtime>(
     app: AppHandle<R>,
+    window: tauri::WebviewWindow<R>,
     ledger: Org<'_, Arc<Ledger>>,
 ) -> Result<LedgerBackups, CommandError> {
-    let file = ledger_file(&app, &ledger);
+    let file = ledger_file(&app, window.label(), &ledger);
     with_ledger(&ledger, move |_| {
         if let Some(path) = file.as_deref() {
             plenipo_ledger::backups::cancel_restore(path)?;

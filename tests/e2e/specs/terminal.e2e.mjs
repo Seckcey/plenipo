@@ -70,7 +70,8 @@ let sshd;
 // ---- Helpers -----------------------------------------------------------------------------------
 
 const PANEL = 'section[aria-label="Terminal"]';
-const HANDLE = `${PANEL} [role="separator"][aria-label="Resize the terminal panel"]`;
+// The terminal sits in the bottom dock (Phase 21): the dock's edge resizes it.
+const HANDLE = '[role="separator"][aria-label="Resize the panels on the bottom"]';
 const ALL_EVENTS = 'ol[aria-label="All events"]';
 
 const textOf = (browser, selector) =>
@@ -92,11 +93,21 @@ const waitForText = async (browser, selector, needle, timeoutMs) => {
 const exists = (browser, selector) =>
   browser.execute((s) => document.querySelector(s) !== null, selector);
 
+/** The terminal is shown: in a dock that is showing (Phase 21's panels). */
 const panelOpen = (browser) =>
-  browser.execute((s) => {
-    const panel = document.querySelector(s);
-    return panel !== null && !panel.hidden;
-  }, PANEL);
+  browser.execute(
+    (s) => document.querySelector(`section[data-dock]:not([hidden]) ${s}`) !== null,
+    PANEL,
+  );
+/** Pick a panel menu's choice ("Terminal panel" → "Move to the right"). */
+async function panelMenu(browser, panel, choice) {
+  await clickButton(browser, `${panel} panel`);
+  const item = await browser.$(
+    `//button[@role="menuitem"][.//span[normalize-space()="${choice}"]]`,
+  );
+  await item.waitForClickable({ timeout: 10_000 });
+  await item.click();
+}
 
 const field = (browser, form, label, tag = "input") =>
   browser.$(`//form[@aria-label="${form}"]//label[.//span[normalize-space()="${label}"]]//${tag}`);
@@ -192,10 +203,10 @@ describe("Phase 12 terminal panel (real app, synthetic SSH server)", () => {
     );
     await screenshot(browser, "terminal-this-pc");
 
-    await clickButton(browser, "Move the terminal to the right");
+    await panelMenu(browser, "Terminal", "Move to the right");
     await waitUntil(() => exists(browser, ".terminal-panel--right"), "the panel on the right");
     await screenshot(browser, "terminal-right");
-    await clickButton(browser, "Move the terminal to the bottom");
+    await panelMenu(browser, "Terminal", "Move to the bottom");
     await waitUntil(() => exists(browser, ".terminal-panel--bottom"), "the panel at the bottom");
 
     // Ctrl+` hides it, and shows it again; the terminal is still there.
@@ -219,7 +230,9 @@ describe("Phase 12 terminal panel (real app, synthetic SSH server)", () => {
     // The panel's place is kept in the page's storage; give the webview time to write it.
     await waitUntil(
       () =>
-        browser.execute(() => JSON.parse(localStorage.getItem("plenipo.terminal") ?? "{}").open),
+        browser.execute(
+          () => JSON.parse(localStorage.getItem("plenipo.layout") ?? "{}").docks?.bottom?.open,
+        ),
       "the panel's place saved",
     );
     await browser.pause(1500);

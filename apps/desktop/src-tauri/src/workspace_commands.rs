@@ -57,6 +57,10 @@ pub fn focus_pop_out<R: Runtime>(
     else {
         return Ok(false);
     };
+    // Its organization's window is in the tray: the pop-out stays there with it.
+    if !window.is_visible().unwrap_or(true) {
+        return Ok(true);
+    }
     let _ = popout.unminimize();
     let _ = popout.show();
     let _ = popout.set_focus();

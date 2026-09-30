@@ -192,10 +192,6 @@ fn kept(tx: &Connection, p: &Position) -> Result<(Value, Vec<String>, Option<Str
 /// reviewed" in a worker's instructions (ADR-050).
 const KEPT_ON_ITS_OWN: &str = "plenipo";
 
-/// Position `position_id` (just created, on `project_id`) hires saved agent `saved_id` again: its
-/// experience carries on, its lessons its role no longer has come back as kept (by the owner, or
-/// on their own and unreviewed, as they were) for its project, and it leaves the Workforce.
-#[allow(clippy::too_many_arguments)]
 /// A saved agent came into (`in`) or left (`out`) this Ledger's Workforce for another
 /// organization's (Phase 21, ADR-094 §5): every window showing the Workforce reads it again.
 fn moved(
@@ -214,6 +210,10 @@ fn moved(
     )
 }
 
+/// Position `position_id` (just created, on `project_id`) hires saved agent `saved_id` again: its
+/// experience carries on, its lessons its role no longer has come back as kept (by the owner, or
+/// on their own and unreviewed, as they were) for its project, and it leaves the Workforce.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn adopt(
     tx: &Connection,
     out: &mut Vec<LedgerEvent>,

@@ -85,7 +85,61 @@ the owner's walk-through (section 6).
 
 ## 5. Review
 
-REVIEW_PLACEHOLDER
+Four areas were reviewed. A second reviewer then checked every finding against the code. Each
+confirmed finding was fixed with a test, and each new test was run on the code before its fix to
+show it fails there.
+
+| Area                                   | Found | Confirmed | Fixed with a test | Limit |
+| -------------------------------------- | ----- | --------- | ----------------- | ----- |
+| Files and the editor                   | 10    | 10        | 10                | 1     |
+| Copying an organization, and Workforce | 9     | 9         | 9                 | 0     |
+| Panels and pop-outs                    | 6     | 6         | 6                 | 0     |
+| Keeping organizations apart            | 11    | 11        | 11                | 0     |
+
+**Files and the editor.** A worker's change made while you edit is never saved over without
+asking (the editor keeps the file's fingerprint from when you started); what you typed is kept
+when you leave the page; a failed save leaves the file as it was; a file reached through another
+project's folder is read-only while a worker writes there; more kinds of programs are known, and
+Files never offers another program for them; a file with a comma in its path opens in Plenipo
+only. Files on an objective: blocked files never go, nothing goes while a worker uses the screen,
+a change not committed yet is copied (the working copy would not have it), and git leaves the
+`attachments` folder out so the copies are never committed. _Limit:_ a file with mixed line
+endings is saved with its main one everywhere. Tests: `Files.test.tsx`, `CodeEditor.test.tsx`,
+the `owner_files` unit tests,
+`a_file_reached_through_another_projects_folder_is_read_only_while_a_worker_writes_there`, and
+`files_on_an_objective_are_named_or_copied_and_reach_its_working_copy_once`.
+
+**Copying an organization, and your Workforce.** A copy never carries experience a worker
+brought back from your Workforce; a shared agent is taken out before it is hired, so two
+organizations never both hire it, and it goes back if the hire fails; an agent kept in an
+organization's own Workforce can be deleted there, moves home when it can, and is named when its
+organization is deleted; experience a worker brought counts when saving it; each worker is saved
+once; a position number from another organization is never kept; your tile and your Workforce
+update live in every window. Tests: `an_agent_in_the_shared_workforce_moves_whole_and_once`,
+`a_copy_leaves_out_experience_brought_back_from_the_workforce`,
+`an_organization_is_archived_brought_back_and_deleted_for_good`,
+`your_tile_set_in_one_organizations_window_is_told_to_every_window`, and `owner.test.tsx`.
+
+**Panels and pop-outs.** Pop-out windows open one at a time (two restored after a restart each
+get their own); a panel put back and popped out again comes back when its window is closed; a
+window whose page never loads is closed, never left empty; Ctrl+`and Ctrl+Shift+E work inside a
+pop-out; a pop-out stays hidden while Plenipo starts in the tray; an AI tool's sign-in tab opening
+by itself never brings a hidden terminal forward. Tests: four new ones in`Workspace.test.tsx`,
+one in `TerminalPanel.test.tsx`, and `a_pop_out_is_hidden_while_its_organizations_window_is`.
+
+**Keeping organizations apart.** The tray's Stop buttons stop every organization's work; an
+archived or deleted organization's tool server and daily backup stop (nothing is written into a
+deleted organization's folder again); archiving, bringing back, and deleting happen one at a
+time; an organization never shows in two windows; settings Plenipo could not read are shown and
+reset in the first organization's window only; each window's backups, page watch, terminals,
+file opening, and folder list are its own organization's; an AI tool's update holds every free
+organization even while one is busy. Tests:
+`each_organization_shows_in_one_window_and_changes_one_at_a_time`,
+`what_is_the_first_organizations_or_the_main_windows_stays_there`,
+`a_stopped_tool_server_takes_no_new_connection`,
+`a_stopped_organizations_daily_backup_writes_nothing`,
+`an_organization_using_the_tool_never_stops_the_others_being_held`, and
+`each_organization_lists_its_own_folders_and_the_pcs_logs`.
 
 ## 6. For the owner to try on a real Windows PC
 

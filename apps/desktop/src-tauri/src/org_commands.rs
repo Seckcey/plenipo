@@ -291,7 +291,11 @@ pub fn open_organization_window<R: Runtime>(
         focus(&app, &other);
         return Ok(OrgOpened::Focused);
     }
-    let label = orgs::window_label(&id);
+    // Its usual window may show another organization now (switched there): a new one, then.
+    let mut label = orgs::window_label(&id);
+    if app.get_webview_window(&label).is_some() || orgs.org_of_window(&label).is_some() {
+        label = orgs::window_label(&orgs::new_id());
+    }
     orgs.bind(&label, &id);
     match workspace_windows::build_org_window(&app, &label, true) {
         Ok(new) => {
@@ -318,6 +322,7 @@ pub async fn archive_organization<R: Runtime>(
     id: String,
 ) -> Result<OrgListing, CommandError> {
     let label = org_window(&window)?;
+    let _changing = orgs.changing().await;
     let e = entry(&orgs, &id)?;
     if id == FIRST {
         return Err(CommandError::invalid_input(
@@ -340,6 +345,19 @@ pub async fn archive_organization<R: Runtime>(
     if let Some(shown) = orgs.window_of(&id) {
         if shown == MAIN {
             leave(&app, &orgs, MAIN, "its organization was archived");
+            // The first organization shows in one window only: one of its own closes.
+            if let Some(other) = orgs.window_of(FIRST).filter(|w| w != MAIN) {
+                leave(
+                    &app,
+                    &orgs,
+                    &other,
+                    "its organization shows in Plenipo's window again",
+                );
+                orgs.unbind(&other);
+                if let Some(w) = app.get_webview_window(&other) {
+                    let _ = w.destroy();
+                }
+            }
             orgs.bind(MAIN, FIRST);
             if let Some(main) = app.get_webview_window(MAIN) {
                 set_title(&main, &orgs, FIRST);
@@ -377,6 +395,7 @@ pub async fn bring_back_organization<R: Runtime>(
     id: String,
 ) -> Result<OrgListing, CommandError> {
     let label = org_window(&window)?;
+    let _changing = orgs.changing().await;
     let e = entry(&orgs, &id)?;
     if e.archived_at.is_none() {
         return Ok(listing(&orgs, &label));
@@ -564,6 +583,7 @@ pub async fn delete_organization_for_good<R: Runtime>(
         .into_iter()
         .filter(|p| seen.insert(p.clone()))
         .collect();
+    let _changing = orgs.changing().await;
     let orgs2 = orgs.inner().clone();
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), CommandError> {

@@ -148,12 +148,15 @@ organization's secrets under that organization's name". ADR-091 lists what the c
 - **The first organization cannot be archived or deleted.** It holds the PC's shared record (your
   Workforce, your tile, the AI tools page, and your choices for the PC). Moving that record to a
   file of its own is left for later.
-- **An agent whose role only another organization has** stays in that organization's Workforce.
+- **An agent whose role only another organization has** stays in that organization's Workforce,
+  where it can be hired and deleted. It moves to your Workforce once your first organization has
+  the role; deleting its organization for good says it goes with it.
 - **An AI tool's update does not wait for other organizations' workers** already using the tool;
   it holds their new work only (§4). **Signing in to an AI tool** holds the first organization's
   new work only. Both are the AI tools page's own rules, which this phase leaves alone (ADR-090).
 - **Settings Plenipo could not read** are checked in the first organization only (Phase 13's
-  notice); another organization's damaged settings show on the pages that use them.
+  notice), shown and reset from its window only; another organization's damaged settings show on
+  the pages that use them.
 - **A page listening for every window's updates would hear another organization's.** Tauri sends
   an event meant for one window to any page that asks for every window's; Plenipo's pages always
   ask for their own window's only (§12), and a test holds them to it.
@@ -190,9 +193,22 @@ Built on 2026-09-30 (v1.16.0) as decided, with the limits above. Where the build
   role and specialty found by name; a folder a file still holds open is removed at the next start.
 - **Each window's own place:** the first organization keeps the page's remembered names; another
   organization's add its ID (`plenipo.place@<id>`), so each remembers its own page, map, and panels.
+- **Found in review and fixed:** the tray's Stop buttons stop every organization's work; an
+  organization archived or deleted closes its tool server and its daily backup; archiving,
+  bringing back, and deleting happen one at a time (a double click starts nothing twice); an
+  organization never shows in two windows; each window's backups, heartbeat, terminal list, file
+  opening, and folders in Settings are its own organization's; an AI tool's update holds every
+  free organization even while one is busy. A copy never carries experience a worker brought back
+  from your Workforce; a shared agent is taken before it is hired (two organizations never hire
+  it both) and goes back if the hire fails; each worker is saved once when its organization is
+  deleted, with the experience it brought; your tile and your Workforce update live in every
+  window.
 - **Checked:** `two_organizations_in_two_windows_never_cross`,
   `an_organization_is_archived_brought_back_and_deleted_for_good`, and
-  `a_new_organization_starts_from_scratch_a_copy_or_not_yet_a_template` (IPC);
+  `a_new_organization_starts_from_scratch_a_copy_or_not_yet_a_template`,
+  `each_organization_shows_in_one_window_and_changes_one_at_a_time`,
+  `what_is_the_first_organizations_or_the_main_windows_stays_there`, and
+  `your_tile_set_in_one_organizations_window_is_told_to_every_window` (IPC);
   `each_organizations_backups_are_its_own`; the copy and shared-Workforce tests in
   `crates/workforce/tests/owner_control.rs`; the uninstaller's test; `Organizations.test.tsx`,
   `events.test.ts`; and `organizations.e2e.mjs` in the real app.

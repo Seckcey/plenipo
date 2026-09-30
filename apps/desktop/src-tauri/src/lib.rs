@@ -305,7 +305,7 @@ pub fn configure<R: Runtime>(
             app.manage(files_commands::Drops::default());
             // Opening the owner's files in another program, or in File Explorer (Phase 21).
             app.manage(files_commands::Outside(Arc::new(
-                files_commands::SystemFileOpener::new(supervisor.clone()),
+                files_commands::SystemFileOpener,
             )));
             // The AI tools page (Phase 19): sign-in tabs, updates, usage, and models; the PC's,
             // kept with the first organization (ADR-094 §4).
@@ -948,6 +948,7 @@ mod ipc_boundary_tests {
     impl files_commands::FileOpener for NoOpener {
         fn open(
             &self,
+            _: plenipo_runtime::Supervisor,
             _: std::path::PathBuf,
             _: bool,
         ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>
@@ -5360,6 +5361,174 @@ mod ipc_boundary_tests {
         assert!(events
             .iter()
             .any(|e| e.event_type == "organization.deleted"));
+    }
+
+    /// Phase 21 review: what belongs to the first organization, or to Plenipo's own window,
+    /// stays there; each window's paths, terminals, and heartbeat are its own.
+    #[test]
+    fn what_is_the_first_organizations_or_the_main_windows_stays_there() {
+        let app = app();
+        let main = window(&app, "main");
+        let (_, client) = second_organization(&app, &main, "Client Co");
+        // Settings Plenipo could not read: shown and reset in the first organization only.
+        app.state::<SettingsProblems>()
+            .0
+            .lock()
+            .unwrap()
+            .push(plenipo_core::SettingsProblem {
+                key: "routing".into(),
+                label: "AI model choices".into(),
+                message: "They could not be read.".into(),
+            });
+        let mine: plenipo_core::RecoveryStatus = body(invoke(&main, "get_recovery_status"));
+        assert_eq!(mine.settings_problems.len(), 1);
+        let theirs: plenipo_core::RecoveryStatus = body(invoke(&client, "get_recovery_status"));
+        assert!(theirs.settings_problems.is_empty());
+        let refused = invoke_json(
+            &client,
+            "reset_settings",
+            serde_json::json!({ "key": "routing" }),
+        )
+        .unwrap_err();
+        assert!(
+            refused.to_string().contains("first organization"),
+            "{refused}"
+        );
+        assert_eq!(app.state::<SettingsProblems>().0.lock().unwrap().len(), 1);
+        // Only Plenipo's own window keeps the page watch going.
+        let watch = app
+            .state::<Arc<window_watch::WindowWatch>>()
+            .inner()
+            .clone();
+        invoke_json(
+            &client,
+            "window_alive",
+            serde_json::json!({ "visible": true }),
+        )
+        .unwrap();
+        assert_eq!(
+            watch.last_alive(),
+            0,
+            "another window's heartbeat is not the main one's"
+        );
+        invoke_json(
+            &main,
+            "window_alive",
+            serde_json::json!({ "visible": true }),
+        )
+        .unwrap();
+        assert!(watch.last_alive() > 0);
+        // Another window's AI tool sign-in terminal is not this window's to type in or close.
+        let orgs = app.state::<Arc<orgs::Orgs>>().inner().clone();
+        let terminal = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        orgs.own_ai_terminal(terminal, client.label());
+        for (cmd, args) in [
+            (
+                "write_terminal",
+                serde_json::json!({ "terminalId": terminal, "data": "x" }),
+            ),
+            (
+                "resize_terminal",
+                serde_json::json!({ "terminalId": terminal, "cols": 80, "rows": 24 }),
+            ),
+            (
+                "close_terminal",
+                serde_json::json!({ "terminalId": terminal }),
+            ),
+        ] {
+            let refused = invoke_json(&main, cmd, args).unwrap_err();
+            assert!(
+                refused.to_string().contains("another window"),
+                "{cmd}: {refused}"
+            );
+        }
+        assert_eq!(
+            orgs.ai_terminal_window(terminal).as_deref(),
+            Some(client.label())
+        );
+    }
+
+    /// Phase 21 review: one window per organization, and one change to an organization at a
+    /// time.
+    #[test]
+    fn each_organization_shows_in_one_window_and_changes_one_at_a_time() {
+        let app = app();
+        let main = window(&app, "main");
+        let orgs = app.state::<Arc<orgs::Orgs>>().inner().clone();
+        let (b, b_window) = second_organization(&app, &main, "Client Co");
+        let c: plenipo_core::OrgSummary = body(invoke_json(
+            &main,
+            "create_organization",
+            serde_json::json!({ "name": "Shop", "start": { "kind": "scratch" } }),
+        ));
+        // The client's window shows the shop now; the client opens in a window of its own.
+        body::<plenipo_core::OrgOpened>(invoke_json(
+            &b_window,
+            "switch_organization",
+            serde_json::json!({ "id": c.id }),
+        ));
+        body::<plenipo_core::OrgOpened>(invoke_json(
+            &main,
+            "open_organization_window",
+            serde_json::json!({ "id": b }),
+        ));
+        assert_eq!(
+            orgs.org_of_window(b_window.label()).as_deref(),
+            Some(c.id.as_str())
+        );
+        let b_now = orgs.window_of(&b).expect("the client has a window");
+        assert_ne!(b_now, b_window.label());
+
+        // Plenipo's window shows a lab; the first organization opens in its own window.
+        // Archiving the lab brings the first organization back to Plenipo's window, and closes
+        // its other one: never two windows for one organization.
+        let d: plenipo_core::OrgSummary = body(invoke_json(
+            &main,
+            "create_organization",
+            serde_json::json!({ "name": "Lab", "start": { "kind": "scratch" } }),
+        ));
+        body::<plenipo_core::OrgOpened>(invoke_json(
+            &main,
+            "switch_organization",
+            serde_json::json!({ "id": d.id }),
+        ));
+        body::<plenipo_core::OrgOpened>(invoke_json(
+            &main,
+            "open_organization_window",
+            serde_json::json!({ "id": orgs::FIRST }),
+        ));
+        let first_window = orgs.window_of(orgs::FIRST).expect("the first has a window");
+        assert_ne!(first_window, "main");
+        body::<plenipo_core::OrgListing>(invoke_json(
+            &main,
+            "archive_organization",
+            serde_json::json!({ "id": d.id }),
+        ));
+        assert_eq!(orgs.window_of(orgs::FIRST).as_deref(), Some("main"));
+        assert_eq!(orgs.org_of_window(&first_window), None);
+
+        // Brought back by two clicks at once: its services start once, on its own Ledger.
+        body::<plenipo_core::OrgListing>(invoke_json(
+            &main,
+            "archive_organization",
+            serde_json::json!({ "id": b }),
+        ));
+        std::thread::scope(|s| {
+            for _ in 0..2 {
+                s.spawn(|| {
+                    let _ = invoke_json(
+                        &main,
+                        "bring_back_organization",
+                        serde_json::json!({ "id": b }),
+                    );
+                });
+            }
+        });
+        let stack = orgs.stack(&b).expect("brought back");
+        let events = stack.ledger.recent_events(50).unwrap();
+        let count = |kind: &str| events.iter().filter(|e| e.event_type == kind).count();
+        assert_eq!(count("organization.archived"), 1, "its own Ledger");
+        assert_eq!(count("organization.brought_back"), 1);
     }
 
     #[test]

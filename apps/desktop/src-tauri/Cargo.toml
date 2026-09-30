@@ -43,7 +43,7 @@ tauri-plugin-autostart = "~2.5"
 tauri-plugin-single-instance = "~2.4"
 
 [target.'cfg(unix)'.dependencies]
-tokio = { version = "1", features = ["signal"] }
+tokio = { version = "1", features = ["signal", "sync"] }
 
 # Let the organization's window open its pop-out panels (Phase 21, ADR-092): WebKitGTK's own
 # setting, the version Tauri uses.

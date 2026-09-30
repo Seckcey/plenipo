@@ -27,12 +27,13 @@ const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
 /// owner's Approvals page; none is refused for waiting.
 pub const MAX_CALLS_AT_ONCE: usize = 4;
 
-/// Bind to a free port on the loopback address and serve `broker`'s grants. Returns the port.
-pub async fn start(broker: Broker) -> std::io::Result<u16> {
+/// Bind to a free port on the loopback address and serve `broker`'s grants. Returns the port,
+/// and what stops the server.
+pub async fn start(broker: Broker) -> std::io::Result<(u16, tokio::task::AbortHandle)> {
     let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await?;
     let local = listener.local_addr()?;
     let port = local.port();
-    tokio::spawn(async move {
+    let accepting = tokio::spawn(async move {
         loop {
             match listener.accept().await {
                 Ok((stream, peer)) => {
@@ -47,7 +48,7 @@ pub async fn start(broker: Broker) -> std::io::Result<u16> {
             }
         }
     });
-    Ok(port)
+    Ok((port, accepting.abort_handle()))
 }
 
 /// Read one line of at most `max` bytes (`None` at the end of the stream). A longer line is

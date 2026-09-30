@@ -184,11 +184,26 @@ Built on 2026-09-30 (v1.16.0) as decided. Where the build adds to the decision:
 - **§5, the editor page** keeps each open file's unsaved text while you move between pages; it is
   lost when Plenipo quits (a limit).
 - **§7, Save** writes a new copy beside the file and swaps it in; where the swap cannot happen
-  (a file another program holds open on Windows), it writes in place.
+  (a file another program holds open on Windows), it writes the whole new copy in place. A copy
+  that could not be written whole (a full disk) leaves the file as it was. The editor keeps the
+  file's fingerprint from when you started editing, so a worker's change in between is never
+  saved over without asking.
+- **§10, one writer:** a file is read-only while a worker writes in any folder that holds it,
+  through whichever project's folder you reached it (a project folder inside another).
+- **§18, programs and scripts** include Windows' newer kinds too (OneNote files, app installers,
+  certificates, and more); Files never offers another program for them. **A file whose name or
+  folder has a comma** opens in Plenipo only: File Explorer would read the comma as the end of
+  its name.
+- **Lines:** the editor keeps a lone carriage return inside a line as it is. **A file with mixed
+  line endings** is saved with its main one everywhere (a limit).
 - **§20, File Explorer drops:** Plenipo keeps each drop's paths behind a ticket for that window
   (an hour at most, 64 drops), and the page only sends the ticket and each file's number back.
 - **§21:** files are delivered into an `attachments` folder of the working copy when the
-  objective's first worker starts, once.
+  objective's first worker starts, once, and git leaves that folder out (`info/exclude`), so the
+  copies are never committed or pushed. A file in the project folder is named only when the
+  working copy has it as it is (committed and unchanged); otherwise it is copied. A blocked file
+  never goes on an objective, and nothing does while a worker uses the screen, mouse, and
+  keyboard.
 - **Checked:** `owner_files` and `attachments` unit tests, `crates/capabilities/tests/development.rs`
   (one writer, Watch naming its working copy, files on an objective), `Files.test.tsx`, the IPC
   tests, and `workspace.e2e.mjs` (edit and save README.md, a file outside refused, a working copy

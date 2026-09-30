@@ -113,6 +113,15 @@ if wanted."
       the uninstaller forgets every organization's secrets
       (`deleting_my_data_forgets_every_organizations_secrets_under_its_own_name`)
 
+## Review (four areas, each finding checked by a second reviewer)
+
+- [x] **Files and the editor:** 10 findings; 9 confirmed and fixed with a test, 1 (a comma in a
+      file's name) fixed as a rule with a test; mixed line endings recorded as a limit
+- [x] **Copying an organization and your Workforce:** 9 findings, all confirmed and fixed with tests
+- [x] **Panels and pop-outs:** 6 findings, all confirmed and fixed with tests
+- [x] **Keeping organizations apart:** 11 findings, all confirmed and fixed with tests
+- [x] Each new test fails on the code before its fix (checked)
+
 ## Pre-push checks
 
 - [x] `pnpm check`
@@ -133,6 +142,10 @@ if wanted."
 - An AI tool's update does not wait for other organizations' workers already using it, and signing
   in holds the first organization's work only (the AI tools page's own rules; ADR-094).
 - Restoring any organization's backup restarts all of Plenipo (ADR-094 §10).
+- A file with mixed line endings is saved with its main one everywhere; a file whose name or
+  folder has a comma opens in Plenipo only (ADR-093).
+- Settings Plenipo could not read are checked, shown, and reset in the first organization only
+  (ADR-094).
 
 ## Still to try on a real Windows PC
 

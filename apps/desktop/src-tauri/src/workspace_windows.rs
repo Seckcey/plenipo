@@ -181,6 +181,15 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// A pop-out shows when its organization's window does (a window that cannot say, shows).
+fn shown_with<R: Runtime>(app: &AppHandle<R>, parent: &str) -> bool {
+    parent_shown(app.get_webview_window(parent).map(|w| w.is_visible()))
+}
+
+fn parent_shown(parent: Option<tauri::Result<bool>>) -> bool {
+    parent.is_none_or(|v| v.unwrap_or(true))
+}
+
 /// What an organization's window does when its page asks for a new window: open the pop-out it
 /// asked for, or refuse.
 pub fn on_new_window<R: Runtime>(
@@ -220,6 +229,10 @@ pub fn on_new_window<R: Runtime>(
         WebviewUrl::External("about:blank".parse().expect("a fixed address")),
     )
     .window_features(features)
+    // Its organization's window in the tray (started with Windows): hidden with it until it
+    // shows (ADR-092 §10).
+    .visible(shown_with(app, parent))
+    .focused(shown_with(app, parent))
     .title(format!("Plenipo · {}", panel.title()))
     .min_inner_size(SMALLEST.0, SMALLEST.1)
     .inner_size(FIRST_SIZE.0, FIRST_SIZE.1);
@@ -416,6 +429,15 @@ fn allow_pop_outs<R: Runtime>(_window: &WebviewWindow<R>) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pop_out_is_hidden_while_its_organizations_window_is() {
+        assert!(!parent_shown(Some(Ok(false))), "in the tray: hidden too");
+        assert!(parent_shown(Some(Ok(true))));
+        // A window that cannot say, or none: it shows.
+        assert!(parent_shown(Some(Err(tauri::Error::WindowNotFound))));
+        assert!(parent_shown(None));
+    }
 
     #[test]
     fn labels_name_the_panel_and_its_window() {

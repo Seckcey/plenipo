@@ -642,6 +642,7 @@ pub async fn get_task_record(
 #[tauri::command]
 pub async fn get_local_paths<R: Runtime>(
     app: AppHandle<R>,
+    window: tauri::WebviewWindow<R>,
     ledger: Org<'_, Arc<Ledger>>,
     persistence: State<'_, Persistence>,
 ) -> Result<Vec<LocalPath>, CommandError> {
@@ -656,12 +657,21 @@ pub async fn get_local_paths<R: Runtime>(
         .app_local_data_dir()
         .ok()
         .filter(|_| *persistence == Persistence::AppData);
+    // This window's organization's own folder (the first one's is Plenipo's; ADR-094 §8).
+    let own = match crate::orgs::stack_of(&app, window.label()) {
+        Some(stack) => stack
+            .place
+            .folder
+            .clone()
+            .filter(|_| *persistence == Persistence::AppData),
+        None => data.clone(),
+    };
     let mut paths = vec![LocalPath {
         label: "Plenipo's own files".into(),
         path: data.as_deref().map_or_else(temporary, shown),
         kept: data.is_some(),
     }];
-    let (ledger_file, backups, kept) = match (ledger.path(), &data) {
+    let (ledger_file, backups, kept) = match (ledger.path(), &own) {
         (Some(file), _) => (
             shown(file),
             ledger.backups_dir().as_deref().map(shown),
@@ -691,32 +701,47 @@ pub async fn get_local_paths<R: Runtime>(
         kept: backups.is_some(),
         path: backups.unwrap_or_else(temporary),
     });
-    if let Some(data) = data {
-        for (label, folder) in [
+    for (label, folder) in kept_folders(own.as_deref(), data.as_deref()) {
+        paths.push(LocalPath {
+            label: label.into(),
+            path: shown(&folder),
+            kept: true,
+        });
+    }
+    Ok(paths)
+}
+
+/// The folders Settings lists: the organization's own (`own`: working copies, screenshots, its
+/// browser, scratch folders), and Plenipo's (`data`: logs and diagnostics, one set for the PC).
+fn kept_folders(
+    own: Option<&std::path::Path>,
+    data: Option<&std::path::Path>,
+) -> Vec<(&'static str, std::path::PathBuf)> {
+    let mut folders = Vec::new();
+    if let Some(own) = own {
+        folders.extend([
             (
                 "Working copies of your projects",
-                data.join("working-copies"),
+                own.join("working-copies"),
             ),
-            ("Screenshots workers kept", data.join("screenshots")),
+            ("Screenshots workers kept", own.join("screenshots")),
             (
                 "Plenipo's browser (its own profile)",
-                data.join("browser-profile"),
+                own.join("browser-profile"),
             ),
             (
                 "Workers' scratch folders",
-                data.join("runtime").join("agent-workspaces"),
+                own.join("runtime").join("agent-workspaces"),
             ),
+        ]);
+    }
+    if let Some(data) = data {
+        folders.extend([
             ("Plenipo's log files", data.join("logs")),
             ("Diagnostics files you saved", data.join("diagnostics")),
-        ] {
-            paths.push(LocalPath {
-                label: label.into(),
-                path: shown(&folder),
-                kept: true,
-            });
-        }
+        ]);
     }
-    Ok(paths)
+    folders
 }
 
 // ---- Notices (Phase 12) ------------------------------------------------------------------
@@ -1591,21 +1616,43 @@ pub async fn stop_all_control<R: Runtime>(
     app: AppHandle<R>,
     broker: State<'_, Broker>,
 ) -> Result<ControlStatus, CommandError> {
-    let broker = broker.inner().clone();
-    // Every organization's workers (Phase 21, ADR-094 §7): the PC's one record stops them all,
-    // and each organization's Ledger records its own part.
-    let others: Vec<Broker> = crate::orgs::all_stacks(&app)
+    stop_control_everywhere(&app, broker.inner().clone())
+        .await
+        .map_err(broker_error)
+}
+
+/// The emergency stop, from a window or the tray: every organization's browser, desktop, and
+/// server work halts at once (Phase 21, ADR-094 §7). The PC's one record stops them all, and
+/// each organization's Ledger records its own part.
+pub async fn stop_control_everywhere<R: Runtime>(
+    app: &AppHandle<R>,
+    broker: Broker,
+) -> Result<ControlStatus, plenipo_capabilities::BrokerError> {
+    let brokers: Vec<Broker> = crate::orgs::all_stacks(app)
         .iter()
         .map(|s| s.broker.clone())
         .collect();
-    if others.len() <= 1 {
-        return broker.stop_all_control(OWNER).await.map_err(broker_error);
+    if brokers.len() <= 1 {
+        return broker.stop_all_control(OWNER).await;
     }
     let stopped = broker.control_center().stop_all();
-    for b in &others {
-        b.stopped_all(&stopped, OWNER).await.map_err(broker_error)?;
+    for b in &brokers {
+        b.stopped_all(&stopped, OWNER).await?;
     }
     Ok(broker.control_status())
+}
+
+/// Every organization's supervisor (the first's alone before any is open).
+pub fn every_supervisor<R: Runtime>(app: &AppHandle<R>) -> Vec<Supervisor> {
+    use tauri::Manager as _;
+    let stacks = crate::orgs::all_stacks(app);
+    if stacks.is_empty() {
+        return app
+            .try_state::<Supervisor>()
+            .map(|s| vec![s.inner().clone()])
+            .unwrap_or_default();
+    }
+    stacks.iter().map(|s| s.supervisor.clone()).collect()
 }
 
 /// Take over a worker's use of the browser or the mouse and keyboard, or disconnect it from its
@@ -1807,10 +1854,37 @@ const MAX_TERMINAL_INPUT: usize = 64 * 1024;
 
 /// Settings → Terminal: the shell for this PC, the choices, and the terminals open now.
 #[tauri::command]
-pub async fn get_terminal_settings(
-    broker: State<'_, Broker>,
+pub async fn get_terminal_settings<R: Runtime>(
+    app: AppHandle<R>,
+    window: tauri::WebviewWindow<R>,
+    orgs: State<'_, Arc<crate::orgs::Orgs>>,
+    broker: Org<'_, Broker>,
 ) -> Result<TerminalSettings, CommandError> {
-    with_broker(&broker, Broker::terminal_settings).await
+    let label = window.label().to_owned();
+    let orgs = orgs.inner().clone();
+    // An AI tool's sign-in terminal runs in the first organization's broker for every window:
+    // each window lists its own only.
+    let first = crate::orgs::stack_of(&app, &label)
+        .filter(|s| !s.place.is_first())
+        .and_then(|_| orgs.first())
+        .map(|f| f.broker.clone());
+    with_broker(&broker, move |b| {
+        let mut settings = b.terminal_settings()?;
+        settings
+            .open
+            .retain(|t| orgs.ai_terminal_window(&t.id).is_none_or(|w| w == label));
+        if let Some(first) = first {
+            let mine = orgs.ai_terminals_of(&label);
+            settings.open.extend(
+                first
+                    .open_terminals()
+                    .into_iter()
+                    .filter(|t| mine.contains(&t.id)),
+            );
+        }
+        Ok(settings)
+    })
+    .await
 }
 
 /// Choose the shell a new terminal on this PC starts. A choice, never a path.
@@ -1884,25 +1958,28 @@ pub fn write_terminal<R: Runtime>(
             "that is too much to paste at once",
         ));
     }
-    terminal_broker(&window, &orgs, &broker, &terminal_id)
+    terminal_broker(&window, &orgs, &broker, &terminal_id)?
         .write_terminal(&terminal_id, data.as_bytes())
         .map_err(broker_error)
 }
 
 /// The broker running terminal `id` for this window: its organization's, or, for an AI tool's
-/// sign-in this window opened, the first organization's (the PC's AI tools, Phase 21). Never
-/// another window's.
+/// sign-in this window opened, the first organization's (the PC's AI tools, Phase 21). Another
+/// window's sign-in terminal is refused.
 fn terminal_broker<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
     orgs: &crate::orgs::Orgs,
     broker: &Broker,
     id: &str,
-) -> Broker {
+) -> Result<Broker, CommandError> {
     match orgs.ai_terminal_window(id) {
-        Some(label) if label == window.label() => orgs
+        Some(label) if label == window.label() => Ok(orgs
             .first()
-            .map_or_else(|| broker.clone(), |f| f.broker.clone()),
-        _ => broker.clone(),
+            .map_or_else(|| broker.clone(), |f| f.broker.clone())),
+        Some(_) => Err(CommandError::invalid_input(
+            "That terminal is another window's.",
+        )),
+        None => Ok(broker.clone()),
     }
 }
 
@@ -1917,7 +1994,7 @@ pub fn resize_terminal<R: Runtime>(
     rows: u16,
 ) -> Result<(), CommandError> {
     validate_id("terminal", &terminal_id)?;
-    terminal_broker(&window, &orgs, &broker, &terminal_id)
+    terminal_broker(&window, &orgs, &broker, &terminal_id)?
         .resize_terminal(&terminal_id, cols, rows)
         .map_err(broker_error)
 }
@@ -1931,7 +2008,7 @@ pub fn close_terminal<R: Runtime>(
     terminal_id: String,
 ) -> Result<(), CommandError> {
     validate_id("terminal", &terminal_id)?;
-    let result = terminal_broker(&window, &orgs, &broker, &terminal_id)
+    let result = terminal_broker(&window, &orgs, &broker, &terminal_id)?
         .close_terminal(&terminal_id, "you closed it")
         .map_err(broker_error);
     orgs.forget_ai_terminal(&terminal_id);
@@ -1966,6 +2043,25 @@ pub(crate) fn to_command_error(e: RuntimeError) -> CommandError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_organization_lists_its_own_folders_and_the_pcs_logs() {
+        let data = std::path::Path::new("/data");
+        let own = data.join("organizations").join("abc");
+        let folders = kept_folders(Some(&own), Some(data));
+        let of = |label: &str| folders.iter().find(|(l, _)| *l == label).unwrap().1.clone();
+        assert_eq!(
+            of("Working copies of your projects"),
+            own.join("working-copies")
+        );
+        assert_eq!(of("Screenshots workers kept"), own.join("screenshots"));
+        assert_eq!(
+            of("Plenipo's browser (its own profile)"),
+            own.join("browser-profile")
+        );
+        assert_eq!(of("Plenipo's log files"), data.join("logs"));
+        assert!(kept_folders(None, None).is_empty());
+    }
 
     #[test]
     fn app_info_uses_supplied_version() {

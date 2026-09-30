@@ -24,10 +24,12 @@ use crate::orgs::Org;
 /// The most text Save takes (the broker checks the file's own limit too).
 const MAX_SAVE_CHARS: usize = 6 * 1024 * 1024;
 
-/// Opens a file with the program Windows uses for it, or shows it in its folder.
+/// Opens a file with the program Windows uses for it, or shows it in its folder, through the
+/// supervisor of the organization whose window asked (recorded in its own Ledger).
 pub trait FileOpener: Send + Sync + 'static {
     fn open(
         &self,
+        supervisor: Supervisor,
         path: PathBuf,
         reveal: bool,
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>;
@@ -39,23 +41,15 @@ pub struct Outside(pub Arc<dyn FileOpener>);
 /// Windows' own File Explorer (`xdg-open` elsewhere, for development), started through the
 /// supervisor with no shell. Opening a file lets Windows pick its program; Plenipo refuses
 /// programs and scripts before this (the broker's `owner_file_path`).
-pub struct SystemFileOpener {
-    supervisor: Supervisor,
-}
-
-impl SystemFileOpener {
-    pub fn new(supervisor: Supervisor) -> Self {
-        Self { supervisor }
-    }
-}
+pub struct SystemFileOpener;
 
 impl FileOpener for SystemFileOpener {
     fn open(
         &self,
+        supervisor: Supervisor,
         path: PathBuf,
         reveal: bool,
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> {
-        let supervisor = self.supervisor.clone();
         Box::pin(async move {
             let (executable, args) = if cfg!(windows) {
                 let root = std::env::var_os("SystemRoot")
@@ -202,6 +196,7 @@ pub async fn save_file(
 #[tauri::command]
 pub async fn open_file_outside(
     broker: Org<'_, Broker>,
+    supervisor: Org<'_, Supervisor>,
     outside: State<'_, Outside>,
     root: String,
     path: String,
@@ -211,7 +206,7 @@ pub async fn open_file_outside(
     let file = blocking(&broker, move |b| b.owner_file_path(&root, &path, true)).await?;
     outside
         .0
-        .open(file, false)
+        .open(supervisor.inner().clone(), file, false)
         .await
         .map_err(|e| CommandError::internal(format!("Plenipo could not open it: {e}")))
 }
@@ -220,6 +215,7 @@ pub async fn open_file_outside(
 #[tauri::command]
 pub async fn show_in_folder(
     broker: Org<'_, Broker>,
+    supervisor: Org<'_, Supervisor>,
     outside: State<'_, Outside>,
     root: String,
     path: String,
@@ -229,7 +225,7 @@ pub async fn show_in_folder(
     let file = blocking(&broker, move |b| b.owner_file_path(&root, &path, false)).await?;
     outside
         .0
-        .open(file, true)
+        .open(supervisor.inner().clone(), file, true)
         .await
         .map_err(|e| CommandError::internal(format!("Plenipo could not show it: {e}")))
 }

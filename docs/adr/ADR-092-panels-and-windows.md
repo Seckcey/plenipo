@@ -155,9 +155,14 @@ Built on 2026-09-30 (v1.16.0) as decided. Where the build adds to the decision:
 - **§8, the terminal in a pop-out:** xterm.js opens again in the new window's page and keeps its
   running shell and scrollback; on Linux, WebKitGTK is told to let the page open the windows
   Plenipo allows.
+- **Found in review and fixed:** pop-out windows open one at a time (two restored at once each
+  get their own window); a panel put back and popped out again comes back when its window is
+  closed; a window whose page never loads is closed, never left empty; Ctrl+` and Ctrl+Shift+E
+  work inside a pop-out (§13); a pop-out opened while Plenipo starts in the tray stays hidden with
+  it, and an AI tool's sign-in tab opening by itself never brings a hidden terminal forward (§10).
 - **Checked:** `workspace.e2e.mjs` (dock, resize, pop out and put back, no window unless asked,
-  the same layout after a restart, Reset layout), `Workspace.test.tsx`, `layout.test.ts`, and the
-  per-window IPC tests.
+  the same layout after a restart, Reset layout), `Workspace.test.tsx`, `layout.test.ts`,
+  `TerminalPanel.test.tsx`, and the per-window IPC tests.
 
 ## Alternatives considered
 

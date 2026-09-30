@@ -30,17 +30,38 @@ let notify: (n: PopOutNotice) => void = () => undefined;
 /** A stand-in for the window `window.open` gives: its own document, and whether it closed. */
 function fakeWindow() {
   const doc = document.implementation.createHTMLDocument("");
-  const listeners = new Map<string, () => void>();
+  const listeners = new Map<string, (e?: Event) => void>();
   const win = {
     document: doc,
     closed: false,
     close: vi.fn(() => {
       win.closed = true;
     }),
-    addEventListener: (name: string, fn: () => void) => listeners.set(name, fn),
-    fire: (name: string) => listeners.get(name)?.(),
+    addEventListener: (name: string, fn: (e?: Event) => void) => listeners.set(name, fn),
+    removeEventListener: (name: string) => listeners.delete(name),
+    fire: (name: string, e?: Event) => listeners.get(name)?.(e),
   };
   return win;
+}
+
+/** A layout kept from before, with these panels popped out. */
+function keptWith(popped: { terminal?: boolean; files?: boolean }) {
+  localStorage.setItem(
+    LAYOUT_KEY,
+    JSON.stringify({
+      version: 1,
+      panels: {
+        terminal: { dock: "bottom", popped: popped.terminal ?? false },
+        files: { dock: "left", popped: popped.files ?? false },
+      },
+      order: ["terminal", "files"],
+      docks: {
+        left: { open: false, size: 280, active: "files" },
+        right: { open: false, size: 420, active: null },
+        bottom: { open: false, size: 260, active: "terminal" },
+      },
+    }),
+  );
 }
 
 function Buttons() {
@@ -174,6 +195,97 @@ describe("panels in docks and windows (Phase 21, ADR-092)", () => {
       document.querySelector('section[data-dock="bottom"] .panel-host--terminal'),
     ).not.toBeNull();
   });
+
+  it("puts a panel back when its window is closed after it was put back and popped out again", async () => {
+    const user = userEvent.setup();
+    const first = fakeWindow();
+    const again = fakeWindow();
+    vi.spyOn(window, "open")
+      .mockReturnValueOnce(first as unknown as Window)
+      .mockReturnValueOnce(again as unknown as Window);
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "Pop it out" }));
+    await waitFor(() => expect(first.document.querySelector(".popout-bar")).not.toBeNull());
+    const putBack = [...first.document.querySelectorAll(".popout-bar button")].find(
+      (b) => b.textContent === "Put back",
+    ) as HTMLButtonElement;
+    act(() => putBack.click());
+    await waitFor(() => expect(kept().panels.terminal.popped).toBe(false));
+    // Out again, then closed with the window's X: back in its dock.
+    await user.click(screen.getByRole("button", { name: "Pop it out" }));
+    await waitFor(() =>
+      expect(again.document.querySelector(".panel-host--terminal")).not.toBeNull(),
+    );
+    act(() => notify({ kind: "closed", panel: "terminal" }));
+    await waitFor(() => expect(kept().panels.terminal.popped).toBe(false));
+    expect(
+      document.querySelector('section[data-dock="bottom"] .panel-host--terminal'),
+    ).not.toBeNull();
+  });
+
+  it("opens two popped-out panels' windows one at a time after a restart", async () => {
+    keptWith({ terminal: true, files: true });
+    const steps: string[] = [];
+    api.preparePopOut.mockImplementation((panel) => {
+      steps.push(`ask for ${panel}`);
+      return Promise.resolve();
+    });
+    const wins = [fakeWindow(), fakeWindow()];
+    vi.spyOn(window, "open").mockImplementation(() => {
+      steps.push("open");
+      return wins[steps.filter((s) => s === "open").length - 1] as unknown as Window;
+    });
+    render(<Harness />);
+    await waitFor(() => expect(wins[1]!.document.querySelector(".panel-host")).not.toBeNull());
+    expect(steps).toEqual(["ask for terminal", "open", "ask for files", "open"]);
+    expect(wins[0]!.document.querySelector(".panel-host--terminal")).not.toBeNull();
+    expect(wins[1]!.document.querySelector(".panel-host--files")).not.toBeNull();
+  });
+
+  it("passes Ctrl+` and Ctrl+Shift+E pressed in a pop-out on to Plenipo's page", async () => {
+    const user = userEvent.setup();
+    const win = fakeWindow();
+    vi.spyOn(window, "open").mockReturnValue(win as unknown as Window);
+    const heard: string[] = [];
+    const onKey = (e: KeyboardEvent) => heard.push(`${e.ctrlKey ? "Ctrl+" : ""}${e.key}`);
+    window.addEventListener("keydown", onKey);
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "Pop it out" }));
+    await waitFor(() => expect(kept().panels.terminal.popped).toBe(true));
+    const backquote = new KeyboardEvent("keydown", {
+      key: "`",
+      code: "Backquote",
+      ctrlKey: true,
+      cancelable: true,
+    });
+    win.fire("keydown", backquote);
+    win.fire(
+      "keydown",
+      new KeyboardEvent("keydown", { key: "E", ctrlKey: true, shiftKey: true, cancelable: true }),
+    );
+    win.fire("keydown", new KeyboardEvent("keydown", { key: "a", cancelable: true }));
+    window.removeEventListener("keydown", onKey);
+    expect(heard).toEqual(["Ctrl+`", "Ctrl+E"]);
+    expect(backquote.defaultPrevented).toBe(true);
+  });
+
+  it("closes a window whose page never became ready, so none is left behind empty", async () => {
+    const user = userEvent.setup();
+    const win = fakeWindow();
+    Object.defineProperty(win, "document", {
+      get() {
+        throw new Error("not reachable");
+      },
+    });
+    vi.spyOn(window, "open").mockReturnValue(win as unknown as Window);
+    render(<Harness />);
+    await user.click(screen.getByRole("button", { name: "Pop it out" }));
+    await waitFor(() => expect(api.closePopOut).toHaveBeenCalledWith("terminal"), {
+      timeout: 6000,
+    });
+    expect(win.close).toHaveBeenCalled();
+    expect(kept()?.panels.terminal.popped ?? false).toBe(false);
+  }, 10_000);
 
   it("says so, and keeps the panel docked, when its window cannot open", async () => {
     const user = userEvent.setup();

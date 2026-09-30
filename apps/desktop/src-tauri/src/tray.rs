@@ -78,9 +78,9 @@ pub fn create<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
 fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     match event.id().as_ref() {
         "show" => show_main_window(app),
+        // Every organization's programs (Phase 21, ADR-094 §7).
         "stop_all" => {
-            if let Some(sup) = app.try_state::<Supervisor>() {
-                let sup = sup.inner().clone();
+            for sup in crate::commands::every_supervisor(app) {
                 tauri::async_runtime::spawn(async move {
                     for record in sup.overview().executions {
                         if !record.state.is_terminal() {
@@ -90,12 +90,14 @@ fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
                 });
             }
         }
-        // The emergency stop (Phase 10): all browser, desktop, and server work halts at once.
+        // The emergency stop (Phase 10): all browser, desktop, and server work halts at once, in
+        // every organization.
         "stop_control" => {
             if let Some(broker) = app.try_state::<Broker>() {
                 let broker = broker.inner().clone();
+                let app = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Err(e) = broker.stop_all_control("owner").await {
+                    if let Err(e) = crate::commands::stop_control_everywhere(&app, broker).await {
                         log::warn!("could not stop control: {e}");
                     }
                 });

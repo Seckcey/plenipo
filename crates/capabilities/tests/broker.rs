@@ -462,6 +462,30 @@ fn git(dir: &Path, args: &[&str]) -> String {
 
 // ---- Plan tests -----------------------------------------------------------------------------
 
+/// Phase 21 (review): an organization archived or deleted closes its tool server, which takes
+/// no new connection.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stopped_tool_server_takes_no_new_connection() {
+    let h = harness().await;
+    let port = h.broker.port().expect("the tool server runs");
+    assert!(tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .is_ok());
+    h.broker.stop_server();
+    assert_eq!(h.broker.port(), None);
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .is_ok()
+    {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "still taking connections"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn plan_allowed_read_and_denied_write() {
     let h = harness().await;

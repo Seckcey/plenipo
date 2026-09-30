@@ -6,6 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as commands from "../api/commands";
 import * as events from "../api/events";
 import { sampleServer, sampleServers } from "../test/serverFixtures";
+import { WorkspaceContext, type WorkspaceApi } from "../workspace/context";
+import { TerminalContext, type TerminalApi } from "./context";
 import { TerminalButton, TerminalPanel } from "./TerminalPanel";
 import { TerminalProvider } from "./TerminalProvider";
 
@@ -183,6 +185,41 @@ beforeEach(() => {
 });
 
 describe("the terminal panel", () => {
+  it("opens a waiting AI tool's tab by itself, never bringing a popped-out terminal forward", async () => {
+    const show = vi.fn();
+    const ws = {
+      layout: {
+        panels: {
+          terminal: { dock: "bottom", popped: true },
+          files: { dock: "left", popped: false },
+        },
+      },
+      show,
+      toggle: vi.fn(),
+      shown: () => true,
+      hideDock: vi.fn(),
+    } as unknown as WorkspaceApi;
+    let terminal: TerminalApi | null = null;
+    render(
+      <WorkspaceContext.Provider value={ws}>
+        <TerminalProvider>
+          <TerminalContext.Consumer>
+            {(t) => {
+              terminal = t;
+              return null;
+            }}
+          </TerminalContext.Consumer>
+        </TerminalProvider>
+      </WorkspaceContext.Provider>,
+    );
+    act(() => terminal!.waitForAiTool("codex", "Codex", "signIn"));
+    await waitFor(() => expect(terminal!.tabs.length).toBe(1), { timeout: 3000 });
+    expect(show).not.toHaveBeenCalled();
+    // Opened by the owner, it does come forward.
+    act(() => terminal!.openAiTool("codex", "Codex", "signOut"));
+    expect(show).toHaveBeenCalledWith("terminal");
+  });
+
   it("shows and hides with the Terminal button and Ctrl+`", async () => {
     // Where it is, its size, and a restart are the window's layout (workspace/Workspace.test).
     const user = userEvent.setup();

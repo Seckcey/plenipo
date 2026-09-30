@@ -2240,12 +2240,15 @@ async fn files_on_an_objective_are_named_or_copied_and_reach_its_working_copy_on
     );
     let refused = h
         .broker
-        .stage_files(&h.project, &[outside.clone()])
+        .stage_files(&h.project, std::slice::from_ref(&outside))
         .unwrap_err()
         .to_string();
     assert!(refused.contains("Take over"), "{refused}");
     h.broker.control_center().end(&desktop.id);
-    assert!(h.broker.stage_files(&h.project, &[outside.clone()]).is_ok());
+    assert!(h
+        .broker
+        .stage_files(&h.project, std::slice::from_ref(&outside))
+        .is_ok());
     // Too many or too large files are refused before anything is given.
     let many: Vec<PathBuf> = (0..21).map(|_| outside.clone()).collect();
     assert!(h.broker.stage_files(&h.project, &many).is_err());

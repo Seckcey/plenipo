@@ -167,11 +167,13 @@ pub fn build<R: Runtime>(
     }
     // What the last run left unfinished is recorded as recovered (Phase 13).
     recovery::record(&ledger, how.previous, &before, how.version);
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
     if how.run {
         let busy = supervisor.clone();
-        backup_host::start_daily(&ledger, move || busy.active_count() > 0);
+        backup_host::start_daily(&ledger, stopped.clone(), move || busy.active_count() > 0);
     }
     Arc::new(OrgStack {
+        stopped,
         place,
         ledger,
         supervisor,
@@ -211,7 +213,11 @@ pub fn preferences_changed(stacks: &[Arc<OrgStack>]) {
 /// handing out work, its terminals end, then its AI tool turns and programs stop. Returns how
 /// many programs were stopped.
 pub async fn stop(stack: &OrgStack, why: &str, grace: Duration) -> usize {
+    stack
+        .stopped
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     stack.liaison.shutdown();
+    stack.broker.stop_server();
     stack.broker.close_all_terminals(why);
     let deadline = std::time::Instant::now() + Duration::from_secs(4);
     while !stack.broker.open_terminals().is_empty() && std::time::Instant::now() < deadline {

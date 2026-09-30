@@ -134,6 +134,8 @@ pub struct OrgStack {
     pub workforce: Workforce,
     pub notices: Arc<crate::notices::Notices>,
     pub watchers: WatchSubscribers,
+    /// Set when its work stops for good (archived, deleted, Quit): its daily backup ends.
+    pub stopped: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl OrgStack {
@@ -169,6 +171,9 @@ pub struct Orgs {
     /// AI tools' sign-in terminals (the first organization's broker runs them for every
     /// window): terminal ID → the window that shows it.
     ai_terminals: Mutex<HashMap<String, String>>,
+    /// Held while an organization is archived, brought back, or deleted: one at a time, so a
+    /// second click never starts a second set of its services.
+    changing: tokio::sync::Mutex<()>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -176,6 +181,12 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl Orgs {
+    /// Wait for any archive, bring back, or delete going on, and hold off others until the
+    /// guard goes.
+    pub async fn changing(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.changing.lock().await
+    }
+
     /// Read the list in `data` (none: the tests, nothing kept). The first organization is
     /// always in it.
     pub fn load(data: Option<&Path>) -> Self {
@@ -225,6 +236,7 @@ impl Orgs {
             windows: Mutex::new(HashMap::new()),
             control: ControlCenter::default(),
             ai_terminals: Mutex::new(HashMap::new()),
+            changing: tokio::sync::Mutex::new(()),
         }
     }
 

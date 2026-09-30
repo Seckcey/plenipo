@@ -110,6 +110,16 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     openRef.current = true;
     setUnseen(0);
   }, []);
+  /** Shown by itself (an AI tool's sign-in tab opened on its own): a popped-out terminal's
+   * window is left as it is, never brought forward or out of the tray. */
+  const showQuietly = useCallback(() => {
+    if (workspaceRef.current?.layout.panels.terminal.popped) {
+      openRef.current = true;
+      setUnseen(0);
+      return;
+    }
+    show();
+  }, [show]);
   const hide = useCallback(() => {
     const ws = workspaceRef.current;
     if (ws) {
@@ -236,10 +246,11 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       ownersRef.current = [...ownersRef.current, added];
       setOwners((all) => [...all, added]);
       setActive(id);
-      show();
+      if (tab.quiet) showQuietly();
+      else show();
       return id;
     },
-    [show],
+    [show, showQuietly],
   );
 
   /**
@@ -258,7 +269,8 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       );
       if (running) {
         setActive(running.id);
-        show();
+        if (quiet) showQuietly();
+        else show();
         return null;
       }
       return openOwner({
@@ -268,7 +280,7 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
         ...(quiet ? { quiet } : {}),
       });
     },
-    [openOwner, show],
+    [openOwner, show, showQuietly],
   );
 
   /** Pressed on the AI tools page: the tab opens now, and the tool's wait (if any) is over. */

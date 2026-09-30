@@ -1,7 +1,8 @@
 //! An AI tool's update and every organization (Phase 21, ADR-094 §4). The AI tools page (the
 //! first organization's) updates a tool once for the PC and waits for the first organization's
-//! workers; this holds every other organization's new work for that tool while the update runs,
-//! and refuses an update you start while another organization's workers are using the tool.
+//! workers; this holds every other organization's new work for that tool while the update runs:
+//! at once where the tool is free, and in an organization whose workers are using it as soon as
+//! they are done (the update itself does not wait for them; ADR-094, limits).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -27,27 +28,32 @@ impl UpdateHolds {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Hold `runtime_id` in every organization but the first. `Err`: the name of an
-    /// organization whose workers are using it now (nothing is held then).
-    pub fn hold_all(&self, stacks: &[Arc<OrgStack>], runtime_id: &str) -> Result<(), String> {
-        let mut made = Vec::new();
-        for s in stacks.iter().filter(|s| !s.place.is_first()) {
-            let key = (s.id().to_owned(), runtime_id.to_owned());
-            if self.lock().contains_key(&key) {
-                continue;
-            }
-            match s.agents.hold_if_free(runtime_id, HoldFor::Update) {
-                Ok(hold) => made.push((key, hold)),
-                // Already held (its own sign-in tab): its work waits anyway.
-                Err(NotFree::Held(_)) => {}
-                Err(NotFree::Tasks(_)) => return Err(orgs::name_in(&s.ledger)),
-            }
-        }
+    /// Hold `runtime_id` in every organization but the first where it is free. `Err`: the
+    /// names of the organizations whose workers are using it now (held once they are done);
+    /// every other one is held.
+    pub fn hold_all(&self, stacks: &[Arc<OrgStack>], runtime_id: &str) -> Result<(), Vec<String>> {
+        let tries = stacks
+            .iter()
+            .filter(|s| !s.place.is_first())
+            .map(|s| ((s.id().to_owned(), runtime_id.to_owned()), s))
+            .filter(|(key, _)| !self.lock().contains_key(key))
+            .map(|(key, s)| {
+                (
+                    key,
+                    s.agents.hold_if_free(runtime_id, HoldFor::Update),
+                    orgs::name_in(&s.ledger),
+                )
+            });
+        let (made, busy) = sort_out(tries);
         let mut held = self.lock();
         for (key, hold) in made {
             held.insert(key, hold);
         }
-        Ok(())
+        if busy.is_empty() {
+            Ok(())
+        } else {
+            Err(busy)
+        }
     }
 
     /// Keep the holds to the updates going on now: a new one (an update by itself) is held where
@@ -60,6 +66,23 @@ impl UpdateHolds {
             let _ = self.hold_all(stacks, tool);
         }
     }
+}
+
+/// Each organization's try to hold a tool: the holds made, and the names of the organizations
+/// whose workers are using it. One busy organization never stops the others being held.
+fn sort_out<K, H>(
+    tries: impl IntoIterator<Item = (K, Result<H, NotFree>, String)>,
+) -> (Vec<(K, H)>, Vec<String>) {
+    let (mut made, mut busy) = (Vec::new(), Vec::new());
+    for (key, tried, name) in tries {
+        match tried {
+            Ok(hold) => made.push((key, hold)),
+            // Already held (its own sign-in tab): its work waits anyway.
+            Err(NotFree::Held(_)) => {}
+            Err(NotFree::Tasks(_)) => busy.push(name),
+        }
+    }
+    (made, busy)
 }
 
 /// The AI tools being updated now (waiting, updating, or checking after).
@@ -101,4 +124,28 @@ pub fn watch<R: Runtime>(app: &AppHandle<R>) {
             }
             holds.follow(&stacks, &updating(&tools));
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_organization_using_the_tool_never_stops_the_others_being_held() {
+        let (made, busy) = sort_out([
+            (
+                "b",
+                Err(NotFree::Tasks(vec!["t1".into()])),
+                "Client Co".to_owned(),
+            ),
+            ("c", Ok(()), "Shop".to_owned()),
+            ("d", Err(NotFree::Held(HoldFor::SignIn)), "Lab".to_owned()),
+            ("e", Ok(()), "Studio".to_owned()),
+        ]);
+        assert_eq!(
+            made.iter().map(|(k, ())| *k).collect::<Vec<_>>(),
+            vec!["c", "e"]
+        );
+        assert_eq!(busy, vec!["Client Co".to_owned()]);
+    }
 }

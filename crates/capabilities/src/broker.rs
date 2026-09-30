@@ -445,6 +445,8 @@ struct Inner {
     store: Arc<dyn SecretStore>,
     config: BrokerConfig,
     port: Mutex<Option<u16>>,
+    /// Stops the tool server.
+    server: Mutex<Option<tokio::task::AbortHandle>>,
     handle: Mutex<Option<Handle>>,
     state: Mutex<State>,
     redactor: Arc<RwLock<Redactor>>,
@@ -747,6 +749,7 @@ impl Broker {
                 supervisor,
                 store,
                 port: Mutex::new(None),
+                server: Mutex::new(None),
                 handle: Mutex::new(None),
                 state: Mutex::new(State::default()),
                 redactor: Arc::new(RwLock::new(Redactor::default())),
@@ -793,9 +796,21 @@ impl Broker {
     /// Open the tool server (on this async runtime).
     pub async fn start(&self) -> std::io::Result<u16> {
         *lock(&self.inner.handle) = Some(Handle::current());
-        let port = crate::server::start(self.clone()).await?;
+        let (port, server) = crate::server::start(self.clone()).await?;
         *lock(&self.inner.port) = Some(port);
+        if let Some(old) = lock(&self.inner.server).replace(server) {
+            old.abort();
+        }
         Ok(port)
+    }
+
+    /// Close the tool server (its organization was archived or deleted; Phase 21): no new
+    /// connection is taken, and it no longer holds this broker.
+    pub fn stop_server(&self) {
+        if let Some(server) = lock(&self.inner.server).take() {
+            server.abort();
+        }
+        *lock(&self.inner.port) = None;
     }
 
     fn ledger(&self) -> &Arc<Ledger> {
