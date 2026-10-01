@@ -1,6 +1,8 @@
 # Phase 22 — Implementation Checklist
 
-**Status: Phase 22 built, not live** (2026-09-30; [acceptance report](phase-22-acceptance-report.md)).
+**Status: Phase 22 built and running in Stripe test mode, not live** (2026-10-01;
+[acceptance report](phase-22-acceptance-report.md)). The owner's own key works; two test purchases
+went through end to end. Live mode waits for the security review.
 The 8 West account service lives in its own private repository,
 `Seckcey/plenipo-account` (draft pull request 1 there). None of its code is in this repository
 ([ADR-101](../adr/ADR-101-account-service-repository-name.md), the account service's own
@@ -29,8 +31,12 @@ Dates are Pacific time.
   KMS, and the private key never leaves the vault.
 - **8 West's admin page** sits behind Cloudflare Access, with a password and a passkey. It covers
   customers, subscriptions, keys (switch off and on), refunds, and a record of every action.
-- **Not done yet: going live.** That waits for the secrets, the security review, and the attorney
-  (see "Left for the owner").
+- **Running in test mode since 2026-10-01** on its own server, at `account.getplenipo.com`. The
+  owner has a complimentary Partner Unlimited key in Plenipo, checked in and "active". Two test
+  purchases (one by a script with Stripe's test card, one by the owner through sign-up and Stripe
+  Checkout) each got a key by email within seconds.
+- **Not done yet: going live.** That waits for the security review and the owner's word, plus
+  backups, monitoring, and a few Stripe settings (see "Left for the owner").
 
 ## Deliverables
 
@@ -43,8 +49,10 @@ Dates are Pacific time.
   - delete my account
   - passwords kept as Argon2id hashes, and checked against leaked ones by a range lookup
     (ADR-118)
-- [x] Buying Pro with Stripe Checkout, monthly ($9) or yearly ($99). Prices are found by lookup key
-      (`plenipo_pro_monthly`, `plenipo_pro_yearly`), never by Stripe's IDs.
+- [x] Buying Pro or a Partner plan with Stripe Checkout, monthly or yearly, at the prices in
+      ADR-119. Prices are found by lookup key (for example `plenipo_pro_monthly`), never by Stripe's
+      IDs. Each plan is its own Stripe product, because Stripe's customer portal allows one monthly
+      and one yearly price per product (2026-10-01).
 - [x] Stripe's customer portal: the card, invoices, switching plans, and cancelling at the end of
       the paid period.
 - [x] Licenses, all driven by Stripe's notices:
@@ -64,16 +72,20 @@ Dates are Pacific time.
       for getplenipo.com (2026-09-30).
 - [x] The admin page, for 8 West: customers, subscriptions, keys, refunds, and the audit record
       (ADR-107).
-- [x] The privacy notice and the terms of sale, marked "Draft for attorney review" (ADR-111).
+- [x] The privacy notice and the terms of sale (ADR-111). Approved by 8 West's attorney; the
+      draft labels came off on 2026-10-01 (the owner's confirmation).
 - [x] Hosting, backups, and monitoring decided (ADR-103). The server is made (a `t4g.micro` in AWS),
       with its deployment and backup scripts in the repository.
 
 ## Tests (the plan's list)
 
 - [ ] **Buy monthly and yearly in Stripe's test mode; the key is issued, emailed, and accepted by
-      Plenipo.** The service's side is tested offline ("issues one signed key when the first invoice
-      is paid…"), and the app accepts the contract's keys. The run against real Stripe test mode, on a
-      test copy on Coastline, waits for the owner's Stripe test key in that copy's settings file.
+      Plenipo.** Monthly: done twice on the running service in test mode (2026-10-01, seen): Stripe's
+      notices were verified, a Pro key was issued, and the key email arrived within seconds
+      ([the email](evidence/phase-22/key-email-after-test-purchase.png),
+      [Stripe's record](evidence/phase-22/stripe-sandbox-two-test-subscriptions.png)). Accepted by
+      Plenipo: seen with the owner's complimentary key, which the app checked in with ("active");
+      a bought key was not entered (it would have replaced the owner's). Yearly: not bought yet.
 - [x] A notice not signed by Stripe is refused ("refuses a notice with no signature…", "refuses a
       forged signature and a changed body").
 - [x] The same Stripe notice sent twice issues one key, not two ("the same notice sent twice
@@ -100,18 +112,19 @@ Dates are Pacific time.
 Values go only where each line says. Never in chat, and never in either repository.
 
 - [x] **AWS KMS:** the two production signing keys and the test key (made 2026-09-30).
-- [ ] **AWS:** the server's instance role, the S3 backup bucket, and the settings in SSM Parameter
-      Store under `/plenipo-account/production/` (the list is in the acceptance report and in the
-      service's `docs/secrets.md`).
-- [ ] **Stripe (sandbox now, live before launch):**
-  - Stripe Tax's head office address
-  - the webhook endpoint and its signing secret
-  - a restricted key for the service
-  - the privacy and terms links on Checkout and the portal
-  - the custom email domain
-- [ ] **Microsoft Entra:** the app registration that sends from hello@getplenipo.com, locked to that
-      one mailbox (RBAC for Applications). Its secret goes in SSM.
-- [ ] **Cloudflare:** the tunnel to the server, and Access for the admin page.
+- [x] **AWS:** the server's instance role, the S3 backup bucket, and the settings in SSM Parameter
+      Store (2026-09-30 and 2026-10-01; each checked, see the service's `docs/deploy.md`).
+- [ ] **AWS, still to do:** the nightly encrypted backups (their key pair is not made yet), and the
+      alarms for memory, disk, and failed signatures.
+- [x] **Stripe sandbox:** Stripe Tax's head office address, the webhook endpoint and its signing
+      secret, a restricted key for the service, and the customer portal with the privacy and terms
+      links (2026-10-01).
+- [ ] **Stripe, still to do:** branding (logo and color), the custom email domain, Billing's retry and
+      email settings, and turning off quantity changes in the portal. Then the same in live mode.
+- [x] **Microsoft Entra:** the app registration that sends from hello@getplenipo.com, locked to that
+      one mailbox (RBAC for Applications). Its secret is in SSM (2026-10-01).
+- [x] **Cloudflare:** the tunnel to the server, Access for the admin page with an emailed code, and
+      the one rate rule the free plan allows (2026-10-01).
 - [ ] **UptimeRobot:** the check address, every 5 minutes.
-- [ ] **An attorney:** the terms of sale and the privacy notice.
+- [x] **An attorney:** the terms of sale and the privacy notice (approved; 2026-10-01).
 - [ ] **The security review, then live mode.**
