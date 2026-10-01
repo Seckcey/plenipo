@@ -206,6 +206,7 @@ pub async fn reset_settings<R: Runtime>(
     window: tauri::WebviewWindow<R>,
     ledger: Org<'_, Arc<Ledger>>,
     guard: Org<'_, Guard>,
+    agents: Org<'_, AgentRuntime>,
     key: String,
 ) -> Result<RecoveryStatus, CommandError> {
     if key.len() > 64 {
@@ -221,6 +222,10 @@ pub async fn reset_settings<R: Runtime>(
         .await
         .map_err(|e| CommandError::internal(e.to_string()))?
         .map_err(CommandError::invalid_input)?;
+    // A spending caps reset switches paid AI keys off: the paid AI tools say so at once.
+    if key == settings_health::SPENDING {
+        crate::spending_commands::recheck_paid_tools(&agents);
+    }
     app.state::<SettingsProblems>()
         .0
         .lock()

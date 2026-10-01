@@ -1666,6 +1666,37 @@ mod tests {
     }
 
     #[test]
+    fn a_department_cap_holds_its_work_with_no_business_cap() {
+        let l = ledger();
+        let dept = l
+            .create_department("Operations", "", None, "owner")
+            .unwrap();
+        l.set_spending_cap(
+            &CapCovers::Department {
+                id: dept.id.clone(),
+            },
+            10 * D,
+            "owner",
+            OCT_15,
+        )
+        .unwrap();
+        assert!(!l.has_business_cap().unwrap());
+        let in_dept = PaidTask {
+            department: Some((dept.id.clone(), "Operations".into())),
+            ..task(8 * D)
+        };
+        fits(l.set_aside_spending(&in_dept, OCT_15).unwrap());
+        assert_eq!(
+            l.spending_room(Some(&dept.id), None, OCT_15).unwrap(),
+            Some(2 * D)
+        );
+        refused(l.set_aside_spending(&in_dept, OCT_15).unwrap());
+        // Work outside the department has no cap over it: no dollar limit.
+        fits(l.set_aside_spending(&task(8 * D), OCT_15).unwrap());
+        assert_eq!(l.spending_room(None, None, OCT_15).unwrap(), Some(u64::MAX));
+    }
+
+    #[test]
     fn the_business_cap_can_always_be_removed() {
         let l = ledger();
         let cap = l

@@ -692,7 +692,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 if choice.paid {
                     reason.push_str(
                         " It costs money: it is paid per use with your key, within your spending \
-                         caps.",
+                         caps if you set any.",
                     );
                 }
                 if text_only(&t.info) {

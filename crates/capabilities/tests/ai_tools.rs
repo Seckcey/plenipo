@@ -1033,7 +1033,8 @@ async fn what_plenipo_keeps_but_cannot_read_is_never_written_over() {
 /// once, kept only in the Vault, hidden everywhere, and removed from the Vault when removed. A
 /// key the service refuses changes nothing.
 #[tokio::test]
-async fn a_paid_key_is_kept_only_in_the_vault_and_only_with_the_switch_and_the_business_cap() {
+async fn a_paid_key_is_kept_only_in_the_vault_and_only_with_the_switch_with_no_spending_cap_needed()
+{
     let h = harness("subscription").await;
     let key = "sk-or-v1-test-key-not-real-abcdef012345";
     let card = |page: &plenipo_capabilities::ai_tools::AiToolsPage| {

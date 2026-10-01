@@ -48,7 +48,14 @@ pub fn not_allowed(broker: &Broker) -> Option<String> {
              AI keys."
                 .into(),
         ),
-        Ok(_) => None,
+        // No cap is needed, but caps the owner set must be readable to be kept: unreadable,
+        // nothing paid is offered (the Router moves on to the next route) and nothing starts.
+        Ok(_) => match broker.guard().ledger().has_business_cap() {
+            Ok(_) => None,
+            Err(e) => Some(format!(
+                "Plenipo could not read your spending caps, so no paid key is used ({e})."
+            )),
+        },
     }
 }
 
@@ -98,7 +105,7 @@ impl PaidGate for Gate {
         };
         // The position doing the work, and the team it counts for (the team it is lent to while
         // on loan), from the task's own record. A record that cannot be read stops the task:
-        // only the business's cap would count otherwise.
+        // the department's and the position's caps would not count otherwise.
         let workforce = ledger
             .task(&charge.task_id)
             .map_err(unread)?

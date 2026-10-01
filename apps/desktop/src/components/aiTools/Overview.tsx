@@ -216,7 +216,11 @@ function PayPerUse({
         {label} itself keeps using your subscription.
       </p>
       {keyCard.tool.paidKey && (
-        <KeyCheck info={keyCard.info} tool={keyCard.tool} checking={false} />
+        <KeyCheck
+          info={keyCard.info}
+          tool={keyCard.tool}
+          checking={keyCard.tool.checking || keyCard.info.auth.state === "checking"}
+        />
       )}
       {/* A new instance for each saved key, as on the paid AI tool's own card. */}
       <PaidKey
@@ -225,6 +229,7 @@ function PayPerUse({
         tool={keyCard.tool}
         onApply={onApply}
         go={go}
+        place={`${label}'s card`}
       />
     </div>
   );

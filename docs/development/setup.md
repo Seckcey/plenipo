@@ -59,8 +59,9 @@ No `.env` file, API keys, or provider logins are required to build or launch.
 
 The **Workers** view runs tasks on the Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, and
 GitHub Copilot tools that are already installed **and signed in with your subscription** on this computer. Plenipo never asks
-for a password or API key, and refuses API-key sign-ins (no pay-per-use API billing). The desktop
-apps do not need to be open.
+for a password, and refuses an AI tool signed in with its own API key outside Plenipo (its costs
+would skip your spending caps). To pay per use instead, put your own key in the key box on an AI
+tool's card (see Spending caps and paid AI keys below). The desktop apps do not need to be open.
 
 | AI tool        | Install (PowerShell)                                                      | Sign in (once, in a terminal)                                                  |
 | -------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |

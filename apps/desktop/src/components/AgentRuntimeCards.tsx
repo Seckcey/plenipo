@@ -49,8 +49,12 @@ export function AgentRuntimeCards({
     }
   }
 
-  // Going straight to a card: it scrolls into view and takes the keyboard, once it is shown.
-  const shown = focusId !== null && state.runtimes.some((r) => r.id === focusId);
+  // Going straight to a card: it scrolls into view and takes the keyboard, once it is shown in
+  // its own list (a paid AI tool moves to its part of the page when the page's part arrives).
+  const shown =
+    focusId !== null &&
+    state.runtimes.some((r) => r.id === focusId) &&
+    (page !== null || ai.error !== null);
   const handled = useRef<string | null>(null);
   useEffect(() => {
     if (!focusId) {
@@ -136,9 +140,11 @@ export function AgentRuntimeCards({
           <Button
             size="sm"
             variant="quiet"
-            onClick={() =>
-              document.getElementById("paid-ai-tools")?.scrollIntoView?.({ block: "start" })
-            }
+            onClick={() => {
+              const heading = document.getElementById("paid-ai-tools");
+              heading?.scrollIntoView?.({ block: "start" });
+              heading?.focus({ preventScroll: true });
+            }}
           >
             Go to the AI tools paid per use
           </Button>
@@ -165,7 +171,9 @@ export function AgentRuntimeCards({
       {paid.length > 0 && (
         <>
           <div className="section-header">
-            <h2 id="paid-ai-tools">Paid per use with your key</h2>
+            <h2 id="paid-ai-tools" tabIndex={-1}>
+              Paid per use with your key
+            </h2>
           </div>
           <p className="muted">
             These come with Plenipo: OpenRouter, which reaches hundreds of models from many AI

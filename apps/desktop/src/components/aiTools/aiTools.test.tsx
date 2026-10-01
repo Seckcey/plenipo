@@ -1431,9 +1431,12 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(within(paid).queryByRole("listitem", { name: "Codex AI tool" })).toBeNull();
     expect(screen.getByRole("heading", { name: "Paid per use with your key" })).toBeVisible();
     const scroll = vi.fn();
-    document.getElementById("paid-ai-tools")!.scrollIntoView = scroll;
+    const heading = document.getElementById("paid-ai-tools")!;
+    heading.scrollIntoView = scroll;
     await user.click(screen.getByRole("button", { name: "Go to the AI tools paid per use" }));
     expect(scroll).toHaveBeenCalledTimes(1);
+    // The keyboard goes there too.
+    expect(heading).toHaveFocus();
   });
 
   it("a card you sign in to has a key box that saves its AI company's own key", async () => {
@@ -1463,10 +1466,14 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     );
     expect(box).toHaveTextContent("Claude Code itself keeps using your subscription.");
     expect(box).toHaveTextContent("it is not required");
-    const form = within(box).getByRole("form", { name: "Add a key for Anthropic" });
+    const form = within(box).getByRole("form", {
+      name: "Add a key for Anthropic on Claude Code's card",
+    });
     await user.type(within(form).getByLabelText("Anthropic key"), KEY);
     await user.click(within(form).getByRole("button", { name: "Save and check" }));
-    // The Anthropic AI tool's key: the same one its own card shows.
+    // The Anthropic AI tool's key, once: the same one its own card shows. Claude Code never
+    // gets it.
+    expect(api.savePaidKey).toHaveBeenCalledTimes(1);
     expect(api.savePaidKey).toHaveBeenCalledWith("anthropic-key", "Anthropic key", KEY);
     await waitFor(() => expect(box).toHaveTextContent("Key saved: Anthropic key"));
     expect(card("Anthropic")).toHaveTextContent("Key saved: Anthropic key");
@@ -1476,15 +1483,30 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
   });
 
   it("Ollama and GitHub Copilot offer an OpenRouter key, which reaches the same kinds of models", async () => {
-    withOpenRouter();
+    const tools = withOpenRouter();
+    api.savePaidKey.mockResolvedValue(
+      aiPage(tools.map((t) => (t.runtimeId === "openrouter" ? { ...t, paidKey: SAVED } : t))),
+    );
     await show();
+    const user = userEvent.setup();
     for (const label of ["Ollama", "GitHub Copilot"]) {
       const box = within(card(label)).getByRole("group", { name: "Pay per use instead" });
       expect(box).toHaveTextContent(
         `${label} has no key of its own for paying per use; an OpenRouter key reaches the same kinds of models, and many more.`,
       );
-      expect(within(box).getByRole("form", { name: "Add a key for OpenRouter" })).toBeVisible();
+      expect(
+        within(box).getByRole("form", { name: `Add a key for OpenRouter on ${label}'s card` }),
+      ).toBeVisible();
     }
+    // Each form has its own name: the three OpenRouter forms are told apart.
+    expect(screen.getAllByRole("form", { name: /^Add a key for OpenRouter/ })).toHaveLength(3);
+    const box = within(card("Ollama")).getByRole("group", { name: "Pay per use instead" });
+    await user.type(within(box).getByLabelText("OpenRouter key"), KEY);
+    await user.click(within(box).getByRole("button", { name: "Save and check" }));
+    expect(api.savePaidKey).toHaveBeenCalledTimes(1);
+    expect(api.savePaidKey).toHaveBeenCalledWith("openrouter", "OpenRouter key", KEY);
+    await waitFor(() => expect(card("OpenRouter")).toHaveTextContent("Key saved: Office key"));
+    expect(card("GitHub Copilot")).toHaveTextContent("Key saved: Office key");
   });
 
   it("a saved key works: Replace opens the form, and Remove asks first", async () => {

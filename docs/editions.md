@@ -22,7 +22,7 @@ business departments you can create.
 | Development department (developer, reviewer, QA, docs)                                  | Yes            | Yes                                |
 | Sales department on HubSpot, and business departments after it                          | No             | Yes                                |
 | AI tools: Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, GitHub Copilot           | All            | All                                |
-| Your own sign-ins, or paid AI keys with spending caps (Phase 16)                        | Yes            | Yes                                |
+| Your own sign-ins, or your own paid AI keys; spending caps optional (Phase 16)          | Yes            | Yes                                |
 | Which AI model each role gets, and how hard it thinks                                   | Yes            | Yes                                |
 | Permissions, Guard, folder limits, and your approval                                    | Yes            | Yes                                |
 | Plenipo's own browser, and the screen, mouse, and keyboard                              | Yes            | Yes                                |

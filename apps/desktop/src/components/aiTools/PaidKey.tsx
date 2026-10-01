@@ -25,15 +25,19 @@ export function PaidKey({
   tool,
   onApply,
   go,
+  place,
 }: {
   info: AgentRuntimeInfo;
   tool: AiToolState;
   onApply: (page: AiToolsPage) => void;
+  /** Shown on another AI tool's card ("Ollama's card"): named so, so each form's name is its own. */
+  place?: string | undefined;
   /** Opens Settings → Switches or Spending caps; absent: the words say where. */
   go?: Go | undefined;
 }) {
   const label = info.label;
   const saved = tool.paidKey;
+  const on = place ? ` on ${place}` : "";
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [name, setName] = useState(saved?.name ?? `${label} key`);
@@ -92,7 +96,11 @@ export function PaidKey({
           </p>
           <SpendingLimit go={go} />
           {confirming ? (
-            <div className="ai-tool__buttons" role="group" aria-label={`Remove ${saved.name}?`}>
+            <div
+              className="ai-tool__buttons"
+              role="group"
+              aria-label={`Remove ${saved.name}?${place ? ` (${place})` : ""}`}
+            >
               <span>
                 Remove {saved.name}? Paid work on {label} stops until you add a key again.
               </span>
@@ -115,7 +123,7 @@ export function PaidKey({
               <Button
                 size="sm"
                 disabled={pending || blocked !== null}
-                aria-label={`Replace key for ${label}`}
+                aria-label={`Replace key for ${label}${on}`}
                 onClick={() => {
                   clear();
                   setName(saved.name);
@@ -128,7 +136,7 @@ export function PaidKey({
                 size="sm"
                 variant="quiet"
                 disabled={pending}
-                aria-label={`Remove key for ${label}`}
+                aria-label={`Remove key for ${label}${on}`}
                 onClick={() => {
                   clear();
                   setConfirming(true);
@@ -143,7 +151,7 @@ export function PaidKey({
       {(!saved || editing) && (
         <form
           className="paid-key__form"
-          aria-label={saved ? `Replace key for ${label}` : `Add a key for ${label}`}
+          aria-label={saved ? `Replace key for ${label}${on}` : `Add a key for ${label}${on}`}
           onSubmit={submit}
         >
           <label className="field">
