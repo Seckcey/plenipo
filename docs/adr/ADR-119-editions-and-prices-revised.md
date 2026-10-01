@@ -109,3 +109,15 @@ new is sent to 8 West. Free does not change.
   number of organizations in each key, and swaps the key when a customer changes plan (the old key
   keeps working for 14 days). Partners' free internal-use copies are complimentary keys made on the
   admin page.
+- **Review fixes (2026-09-30):**
+  - Making organizations at the same moment waits its turn, so two windows never pass the plan's
+    number together.
+  - Settings → License follows organization changes at once.
+  - The plan line says "Pro" or "Partner" without the billing period, which can change at 8 West
+    while the key stays the same.
+  - A key replaced by a plan change says "If you changed plans, enter the new key 8 West emailed
+    you".
+  - The service: subscriptions on an old price are still followed after a price change; a key
+    switched off stays off across a plan change; and set-up checks each price's billing interval.
+- **Limit:** switching between two keys while blocking the check can stretch the 30 days (ADR-022
+  as built), as deleting the license record already could.

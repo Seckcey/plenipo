@@ -165,7 +165,10 @@ pub async fn create_organization<R: Runtime>(
     let label = org_window(&window)?;
     let name = plenipo_ledger::workforce::clean_line("the organization's name", &name, MAX_NAME)
         .map_err(ledger_error)?;
-    // Free has one organization (Phase 11A, ADR-110).
+    // One change to the list at a time (as archive, bring back, and delete), held until this one
+    // is in the list: two made at once never both pass the plan's number (ADR-110, ADR-119).
+    let _changing = orgs.changing().await;
+    // Free has one organization; a Pro or Partner key covers its number (ADR-110, ADR-119).
     app.state::<Arc<LicenseHost>>()
         .allow(plenipo_licensing::Limit::Organizations)?;
     let source = match &start {

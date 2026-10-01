@@ -102,5 +102,6 @@ Three ways out were considered, and are recorded in **Alternatives considered** 
   **Remove the key**. Removing the key asks first.
 - **Limit: the 30 days are kept on the PC.** Deleting the license record starts a new 30 days for
   that key. Removing the key and entering it again does not, and neither does typing it in again or
-  a restart. As this record decided, there is no anti-tamper; the licence covers working around the
-  check.
+  a restart. Entering a different key (after a plan change, 8 West sends a new one) starts that
+  key's own 30 days, so someone who blocks the check could switch between an old and a new key. As
+  this record decided, there is no anti-tamper; the licence covers working around the check.

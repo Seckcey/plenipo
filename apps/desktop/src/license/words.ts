@@ -1,4 +1,4 @@
-import type { FreeLimits, LicenseView, Plan, SubscriptionState } from "@plenipo/types";
+import type { FreeLimits, LicenseView, SubscriptionState } from "@plenipo/types";
 
 /**
  * Words for Free and Pro (Phase 11A, ADR-021, ADR-022): Settings → License, the "part of Pro"
@@ -31,16 +31,18 @@ export function editionName(view: Pick<LicenseView, "edition" | "keyEdition">): 
   return view.keyEdition === "partner" ? "Plenipo Partner" : "Plenipo Pro";
 }
 
-export const PLAN_WORDS: Record<Plan, string> = {
-  monthly: "Monthly",
-  yearly: "Yearly",
-};
+/**
+ * The plan a key is for: "Pro" or "Partner" (ADR-119). Monthly or yearly is left out: it can
+ * change at 8 West while the key stays the same.
+ */
+export function planLine(view: Pick<LicenseView, "keyEdition">): string | null {
+  if (!view.keyEdition) return null;
+  return view.keyEdition === "partner" ? "Partner" : "Pro";
+}
 
-/** The plan a key was bought on: "Pro, yearly" or "Partner, monthly" (ADR-119). */
-export function planLine(view: Pick<LicenseView, "keyEdition" | "plan">): string | null {
-  if (!view.plan) return null;
-  const edition = view.keyEdition === "partner" ? "Partner" : "Pro";
-  return `${edition}, ${PLAN_WORDS[view.plan].toLowerCase()}`;
+/** "Pro" or "Partner", for the sentences about a key's subscription. */
+function keyWord(view: Pick<LicenseView, "keyEdition">): string {
+  return view.keyEdition === "partner" ? "Partner" : "Pro";
 }
 
 /** Organizations in use against what is covered: "2 of 3", or "2 (no limit)". */
@@ -71,13 +73,13 @@ export function reasonWords(view: LicenseView, now: number = Date.now()): string
         ? `Pro is paid through ${day(view.paidThrough)}.`
         : "Pro is paid.";
     case "cancelling":
-      return `Pro was cancelled and stays on until ${
+      return `${keyWord(view)} on this key stays on until ${
         view.endsAt ? day(view.endsAt) : "the end of the paid period"
-      }. Then Plenipo goes back to Free, and nothing you made is taken away.`;
+      }. If you changed plans, enter the new key 8 West emailed you. Otherwise Plenipo goes back to Free then, and nothing you made is taken away.`;
     case "ended":
-      return `Your Pro subscription ended${
+      return `${keyWord(view)} on this key ended${
         view.endsAt ? ` on ${day(view.endsAt)}` : ""
-      }, so Plenipo is on Free. Everything you made is still here. Renew Pro at ${WHERE_TO_BUY}, and the same key works again.`;
+      }, so Plenipo is on Free. Everything you made is still here. Enter the newest key 8 West emailed you, or buy again at ${WHERE_TO_BUY}.`;
     case "noCheck":
       return "Plenipo is on Free for now: it hasn't reached 8 West for 30 days. It keeps trying, and Pro comes back by itself when a check goes through. Everything you made is still here.";
   }

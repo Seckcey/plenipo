@@ -236,7 +236,7 @@ describe("Phase 11A Free and Pro (real app)", () => {
     const { browser } = app;
     service.state = "ended";
     await clickButton(browser, "Check now");
-    await waitForText(browser, ".settings-license", "Your Pro subscription ended");
+    await waitForText(browser, ".settings-license", "Pro on this key ended");
     assert.equal(service.seen.length, 2);
     const license = (await invoke(browser, "get_license")).ok;
     assert.equal(license.edition, "free");

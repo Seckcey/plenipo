@@ -6230,8 +6230,31 @@ mod ipc_boundary_tests {
             "enter_license_key",
             serde_json::json!({ "key": contract_key("valid.txt") }),
         ));
-        second_organization(&app, &main, "Client One");
-        second_organization(&app, &main, "Client Two");
+        // Review finding: made at the same moment, never past the plan's number.
+        let made = std::thread::scope(|scope| {
+            let tries: Vec<_> = (1..=4)
+                .map(|n| {
+                    let main = main.clone();
+                    scope.spawn(move || {
+                        invoke_json(
+                            &main,
+                            "create_organization",
+                            serde_json::json!({
+                                "name": format!("Client {n}"),
+                                "start": { "kind": "scratch" },
+                            }),
+                        )
+                        .is_ok()
+                    })
+                })
+                .collect();
+            tries
+                .into_iter()
+                .map(|t| t.join().unwrap_or(false))
+                .filter(|ok| *ok)
+                .count()
+        });
+        assert_eq!(made, 2, "1 + 2 = the 3 a Pro key covers");
         let err = invoke_json(
             &main,
             "create_organization",

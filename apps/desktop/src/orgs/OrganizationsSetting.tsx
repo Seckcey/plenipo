@@ -34,11 +34,13 @@ function where(o: OrgSummary): string {
 export function OrganizationsSetting() {
   const license = useLicense().view;
   const onFree = license?.edition === "free";
+  const { listing, error: listError, apply } = useOrganizations();
+  // Counted from the list, which follows every change at once (ADR-119).
+  const inUse = listing?.organizations.filter((o) => !o.archived).length ?? 0;
   const atPlanLimit =
     license?.edition === "pro" &&
     license.organizationsCovered !== null &&
-    license.organizationsInUse >= license.organizationsCovered;
-  const { listing, error: listError, apply } = useOrganizations();
+    inUse >= license.organizationsCovered;
   const org = useOrganization();
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<OrgDeletePreview | null>(null);

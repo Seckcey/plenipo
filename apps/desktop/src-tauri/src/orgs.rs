@@ -550,6 +550,8 @@ pub fn list_changed<R: Runtime>(app: &AppHandle<R>) {
     if let Err(e) = app.emit(ORGANIZATIONS_EVENT, ()) {
         log::warn!("failed to emit {ORGANIZATIONS_EVENT}: {e}");
     }
+    // Settings → License counts the organizations in use (ADR-119).
+    crate::license_host::changed(app);
 }
 
 // ---- A command's own organization ----------------------------------------------------------

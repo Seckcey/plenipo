@@ -134,7 +134,7 @@ describe("Settings → License", () => {
     render(<LicenseSettings />);
     expect(await screen.findByText(KEY_ID)).toBeTruthy();
     expect(screen.getByText("Frank's Garage")).toBeTruthy();
-    expect(screen.getByText("Pro, yearly")).toBeTruthy();
+    expect(screen.getByText("Pro")).toBeTruthy();
     expect(screen.getByText("2 of 3")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Check now" }));
     expect(api.checkLicenseNow).toHaveBeenCalled();
@@ -172,7 +172,7 @@ describe("Settings → License", () => {
       }),
     );
     render(<LicenseSettings />);
-    expect(await screen.findByText("Partner, monthly")).toBeTruthy();
+    expect(await screen.findByText("Partner")).toBeTruthy();
     expect(screen.getByText("14 (no limit)")).toBeTruthy();
     expect(screen.getAllByText("Plenipo Partner").length).toBeGreaterThan(0);
   });
@@ -192,11 +192,12 @@ describe("license words", () => {
     );
     expect(reasonWords(pro(), NOW)).toMatch(/^Pro is paid through /);
     expect(reasonWords(pro({ reason: "cancelling", endsAt: NOW + 5 * DAY }), NOW)).toMatch(
-      /stays on until .* nothing you made is taken away/,
+      /^Pro on this key stays on until .* If you changed plans, enter the new key/,
     );
-    expect(reasonWords(free({ reason: "ended", keyId: KEY_ID }), NOW)).toMatch(
-      /Everything you made is still here/,
-    );
+    const ended = reasonWords(free({ reason: "ended", keyId: KEY_ID, keyEdition: "partner" }), NOW);
+    expect(ended).toMatch(/^Partner on this key ended/);
+    expect(ended).toMatch(/Everything you made is still here/);
+    expect(ended).not.toMatch(/same key/);
     expect(reasonWords(free({ reason: "noCheck", keyId: KEY_ID }), NOW)).toMatch(
       /hasn't reached 8 West for 30 days/,
     );
