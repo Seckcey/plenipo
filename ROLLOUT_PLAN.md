@@ -19,9 +19,11 @@
 
 **Added after Phase 11 (v1.6.0), at the owner's direction (2026-09-27):** a terminal panel the owner can hide, with a watch tab for each worker using a server (Phase 12); Windows servers, Server 2016 and newer, since every 8 West IT client runs them (Phase 15); and, later still and not a priority, a connection to Milepost, 8 West IT's own RMM, as another way to reach client servers (Phase 15).
 
-## Order of work (owner's direction, 2026-09-28, ADR-039; Phase 20 moved ahead of Phase 16 by ADR-061)
+**The final push, at the owner's direction (2026-10-01), ADR-132 (the final push: Phase 14, then Mac and Linux, then Community):** after Phase 22's go-live is done, the work is exactly three phases, in this order: **1. Phase 14** (Plenipo on your phone), **2. Phase 23** (Mac and Linux), **3. Phase 24** (Community). Phase 16's Wave 4, Phase 15, and Phase 9 are **parked**: they stay in this plan, as written, with no place in the order until the owner schedules them. No session starts a parked phase on its own.
 
-Phases keep their numbers, because many documents point at them; this list sets the order. Rule §8.3, "work only on the earliest incomplete phase", means the earliest incomplete phase **in this list**. On 2026-09-28, after Phase 19, the owner chose to build Phase 20 (Connections) before Phase 16 (every AI model worth having): ADR-061 (doing Connections before new AI models). On 2026-09-29, after Phase 20A, the owner told Plenipo's builder to build Phase 16's first wave now, beside Phase 20, as rule §8.3 allows when the owner says so: ADR-080 (building Phase 16's first wave alongside Phase 20). Waves 2 to 4 still come after Phase 20.
+## Order of work (owner's direction, 2026-09-28, ADR-039; Phase 20 moved ahead of Phase 16 by ADR-061; the final push set by ADR-132, 2026-10-01)
+
+Phases keep their numbers, because many documents point at them; this list sets the order. Rule §8.3, "work only on the earliest incomplete phase", means the earliest incomplete phase **in this list**; since ADR-132, after Phase 22's go-live that is the earliest incomplete phase of the **final push**, and a **parked** phase is never the earliest incomplete phase. On 2026-09-28, after Phase 19, the owner chose to build Phase 20 (Connections) before Phase 16 (every AI model worth having): ADR-061 (doing Connections before new AI models). On 2026-09-29, after Phase 20A, the owner told Plenipo's builder to build Phase 16's first wave now, beside Phase 20, as rule §8.3 allows when the owner says so: ADR-080 (building Phase 16's first wave alongside Phase 20). Waves 2 to 4 still come after Phase 20.
 
 | Order | Phase | What | State |
 |---|---|---|---|
@@ -30,16 +32,17 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 3 | 18 | The organization canvas, and watching workers write code as it happens | Delivered (v1.11.0) |
 | 4 | 19 | The AI tools page: sign-in, usage, and updates | Delivered (v1.12.0) |
 | 5 | 20 | Connections: Microsoft 365, Slack, Google, and more | Delivered: part 20A (Microsoft 365) in v1.13.0, part 20B (Slack, Google) in v1.14.1, part 20C (HubSpot, Stripe, WordPress and WooCommerce, add-on tools) in v1.14.2 (ADR-067, ADR-071) |
-| 6 | 16 | Every AI model worth having | In progress: Wave 1 delivered in v1.14.0 (ADR-080, ADR-081, ADR-082), more Ollama models when the paid plan starts; Wave 2 delivered in v1.15.0 (ADR-083, GitHub Copilot; ADR-084, Cursor's agent waits); Wave 3 delivered in v1.17.0 (ADR-085, paid AI keys with spending caps; ADR-086, OpenRouter through a Plenipo helper; ADR-087, direct keys for every AI company); Wave 4 next: Plenipo's own tools for workers on Ollama, OpenRouter, and direct keys, then specialist jobs, instead of Hermes Agent (ADR-131) |
+| 6 | 16 | Every AI model worth having | Waves 1 to 3 delivered; **Wave 4 parked** (ADR-132). Wave 1 delivered in v1.14.0 (ADR-080, ADR-081, ADR-082), more Ollama models when the paid plan starts; Wave 2 delivered in v1.15.0 (ADR-083, GitHub Copilot; ADR-084, Cursor's agent waits); Wave 3 delivered in v1.17.0 (ADR-085, paid AI keys with spending caps; ADR-086, OpenRouter through a Plenipo helper; ADR-087, direct keys for every AI company), with a fix in v1.18.1; Wave 4, Plenipo's own tools for workers on Ollama, OpenRouter, and direct keys, then specialist jobs, instead of Hermes Agent (ADR-131), waits until the owner schedules it |
 | 7 | 21 | Workspace: panels, windows, files, and more than one organization | Delivered (v1.16.0), built beside Phase 16's Wave 2 (ADR-090 to ADR-094) |
-| 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | In progress: the check and the owner's answers are recorded (ADR-100 to ADR-118); Phase 22 in its own private repository, `plenipo-account` (ADR-101); selling starts once the app is finished |
-| 9 | 14 | Plenipo on your phone: a web interface built from scratch | Planned |
-| 10 | 15 | Additional providers, departments, Windows servers, and Milepost | Planned |
-| 11 | 9 | Sales department on HubSpot | Postponed (ADR-018); after Connections |
-| 12 | 23 | Mac and Linux | Planned |
-| 13 | 24 | Community | Planned |
+| 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | 11A delivered (v1.18.0). Phase 22 is built and **its go-live is being finished in its own session**: a practice purchase in Stripe's test mode, the owner's secret settings, an attorney's read of the terms, and a second security review; its code is in the private repository `plenipo-account` (ADR-101). The final push starts when it is live |
+| Final push 1 | 14 | Plenipo on your phone: a web interface built from scratch | **Next after Phase 22 goes live** (ADR-132) |
+| Final push 2 | 23 | Mac and Linux | After Phase 14 (ADR-132) |
+| Final push 3 | 24 | Community | After Phase 23; last (ADR-132) |
+| Parked | 16, Wave 4 | Tools for any model, then specialist jobs | No place in the order until the owner schedules it (ADR-131, ADR-132) |
+| Parked | 15 | Additional providers, departments, Windows servers, and Milepost | No place in the order until the owner schedules it (ADR-132) |
+| Parked | 9 | Sales department on HubSpot | Postponed (ADR-018), parked by ADR-132 |
 
-Phases 0–8, 10, 11, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered. In progress: Phase 16 (Wave 3 delivered in v1.17.0; Wave 4 next, changed by ADR-131).
+Phases 0–8, 10, 11, 11A, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered, and Phase 16's Waves 1 to 3. In progress: Phase 22's go-live (its own session). After it: **Phase 14, then Phase 23, then Phase 24** (the final push, ADR-132). Parked: Phase 16's Wave 4, Phase 15, and Phase 9.
 
 ---
 
@@ -992,6 +995,8 @@ Phases 0-7 complete.
 
 **Status: postponed** (owner direction, 2026-09-27; ADR-018). Paperclip will not be integrated: its Sales department was never working. When the owner schedules this phase, Plenipo builds a new Sales department from scratch, with the owner's existing HubSpot account as its CRM. Detail the phase in its own checklist before starting; the items below are a starting sketch.
 
+**Parked (owner's direction, 2026-10-01; ADR-132):** this phase is not part of the final push and has no place in the order of work until the owner schedules it. No session starts it on its own.
+
 **Order (ADR-039, 2026-09-28):** after Phase 20. HubSpot is built first as a Connection, with its sign-in in the Vault and its calls through Guard, and the Sales department then uses it.
 
 ## Goal
@@ -1547,6 +1552,8 @@ Core product behavior stable.
 
 # Phase 14 — Plenipo on Your Phone: a Web Interface Built From Scratch
 
+**First in the final push (owner's direction, 2026-10-01; ADR-132).** This is the next phase once Phase 22's go-live is done. It does not start until the owner says Phase 22 is live. Phase 23 (Mac and Linux) and then Phase 24 (Community) follow it.
+
 **Changed at the owner's direction (2026-09-27; ADR-040).** Plenipo gets its own web interface, built from scratch, that the owner opens in a phone's browser or on another device. Plenipo on the PC stays in charge, and Guard decides. It reaches the PC through the relay 8 West already runs for Milepost, it can send notices to a phone even when the page is closed, the owner can **approve and allow right from a notice** as well as in the web interface, and it is a **Pro** feature. The phone does as much as it safely can.
 
 ## Goal
@@ -1621,6 +1628,8 @@ Phase 13 (Plenipo installed, living in the tray, and able to start with Windows)
 ---
 
 # Phase 15 — Additional Providers and Department Expansion
+
+**Parked (owner's direction, 2026-10-01; ADR-132):** this phase is not part of the final push and has no place in the order of work until the owner schedules it. No session starts it on its own. What it describes below stands as written, including Windows servers and the Milepost connection.
 
 ## Goal
 
@@ -1705,7 +1714,7 @@ Stable production architecture. Windows servers build on Phase 11. The Milepost 
 
 # Phase 16 — Every AI Model Worth Having
 
-**Added at the owner's direction (2026-09-27), after reading how Paperclip connects its models.** Decision: ADR-036 (every AI model worth having: API keys with spending caps, models by maker and by app, and more than one route to a model). It was added last; **since 2026-09-28 (ADR-039) it runs after Phase 19**, whose AI tools page gives each AI tool the payment-method switch this phase fills in, **and since ADR-061 (doing Connections before new AI models, 2026-09-28) after Phase 20**. **Since 2026-09-29, Wave 1 is built beside Phase 20** at the owner's direction (ADR-080, building Phase 16's first wave alongside Phase 20); Waves 2 to 4 waited for Phase 20, which was delivered in v1.14.2: **they are next**. **Wave 1 delivered in v1.14.0** (ADR-081, who made each model; ADR-082, Antigravity as an AI tool), except more Ollama cloud models, which wait for the owner's paid plan. **Wave 2 delivered in v1.15.0** (checklist and acceptance report in `docs/phases/phase-16-wave-2-*`): GitHub Copilot joined, checked before every task over its two-way link, with either the owner's Copilot sign-in or the GitHub CLI's and paid extra use off, text answers only (ADR-083, GitHub Copilot as an AI tool); Cursor's agent got a written finding, because nothing a program can run says whether Cursor may charge for on-demand use (ADR-084, Cursor's agent waits). **Wave 3 delivered in v1.17.0** (checklist and acceptance report in `docs/phases/phase-16-wave-3-*`): monthly spending caps for the business, a department, and a position, with the most a paid task could cost set aside before it starts, so the hard stop never goes over, and a record of every paid task (ADR-085, paid AI keys with spending caps); the switch **Let workers use paid AI keys**, off by default; paid keys typed only into Plenipo's own screen and kept in the Vault; paid routes used only where the owner lists them; OpenRouter through Plenipo's own helper (ADR-086, OpenRouter through a Plenipo helper); and each AI company's own service with the owner's key, ten of them (ADR-087, direct keys for every AI company). Built beside Phase 21, whose organizations each keep their own caps (ADR-094). Wave 4 is next. **On 2026-09-30 the owner changed Wave 4** (ADR-131, Plenipo's own tools for any model, and specialist jobs, instead of Hermes Agent): Hermes is dropped; workers on Ollama, OpenRouter, and direct keys get Plenipo's own tools through Guard, then Plenipo gets ready-made specialist jobs.
+**Added at the owner's direction (2026-09-27), after reading how Paperclip connects its models.** Decision: ADR-036 (every AI model worth having: API keys with spending caps, models by maker and by app, and more than one route to a model). It was added last; **since 2026-09-28 (ADR-039) it runs after Phase 19**, whose AI tools page gives each AI tool the payment-method switch this phase fills in, **and since ADR-061 (doing Connections before new AI models, 2026-09-28) after Phase 20**. **Since 2026-09-29, Wave 1 is built beside Phase 20** at the owner's direction (ADR-080, building Phase 16's first wave alongside Phase 20); Waves 2 to 4 waited for Phase 20, which was delivered in v1.14.2; Waves 2 and 3 are delivered, and Wave 4 is parked (ADR-132). **Wave 1 delivered in v1.14.0** (ADR-081, who made each model; ADR-082, Antigravity as an AI tool), except more Ollama cloud models, which wait for the owner's paid plan. **Wave 2 delivered in v1.15.0** (checklist and acceptance report in `docs/phases/phase-16-wave-2-*`): GitHub Copilot joined, checked before every task over its two-way link, with either the owner's Copilot sign-in or the GitHub CLI's and paid extra use off, text answers only (ADR-083, GitHub Copilot as an AI tool); Cursor's agent got a written finding, because nothing a program can run says whether Cursor may charge for on-demand use (ADR-084, Cursor's agent waits). **Wave 3 delivered in v1.17.0** (checklist and acceptance report in `docs/phases/phase-16-wave-3-*`): monthly spending caps for the business, a department, and a position, with the most a paid task could cost set aside before it starts, so the hard stop never goes over, and a record of every paid task (ADR-085, paid AI keys with spending caps); the switch **Let workers use paid AI keys**, off by default; paid keys typed only into Plenipo's own screen and kept in the Vault; paid routes used only where the owner lists them; OpenRouter through Plenipo's own helper (ADR-086, OpenRouter through a Plenipo helper); and each AI company's own service with the owner's key, ten of them (ADR-087, direct keys for every AI company). Built beside Phase 21, whose organizations each keep their own caps (ADR-094). **Wave 4 is parked** (owner's direction, 2026-10-01; ADR-132): it is not part of the final push and has no place in the order of work until the owner schedules it. **On 2026-09-30 the owner changed Wave 4** (ADR-131, Plenipo's own tools for any model, and specialist jobs, instead of Hermes Agent): Hermes is dropped; workers on Ollama, OpenRouter, and direct keys get Plenipo's own tools through Guard, then Plenipo gets ready-made specialist jobs.
 
 ## Goal
 
@@ -2120,7 +2129,7 @@ Phase 13 (backups per Ledger), Phase 8 (working copies, ADR-016). Phase 11A's ed
 
 **Status: built, not live** (checklist and acceptance report in `docs/phases/phase-22-*`; the code is in the private repository `plenipo-account`, ADR-101). Decisions: ADR-101 to ADR-109, ADR-111, and ADR-118. Stripe is in test mode only; Stripe sends every billing email (ADR-106). A security review, each finding checked by a second reviewer and fixed with tests, is in the acceptance report. Before launch: the owner's server, Stripe, Microsoft 365, and Cloudflare settings (listed in the report), the buying test against Stripe's test mode, the attorney's review of the terms, and a second security review.
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Eighth in the order of work, **together with Phase 11A**: selling Pro starts once the app is finished.
+**Added at the owner's direction (2026-09-28), ADR-039.** Eighth in the order of work, **together with Phase 11A**: selling Pro starts once the app is finished. **Its go-live is being finished in its own session** (a practice purchase in Stripe's test mode, the owner's secret settings, an attorney's read of the terms, and a second security review). The final push (Phase 14, then Phase 23, then Phase 24; ADR-132) starts when it is live.
 
 ## Goal
 
@@ -2194,7 +2203,7 @@ Phase 11A's request and response contract. A Stripe account for Plenipo, with St
 
 # Phase 23 — Mac and Linux
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Twelfth in the order of work.
+**Added at the owner's direction (2026-09-28), ADR-039.** Second in the final push (ADR-132, 2026-10-01), after Phase 14 and before Phase 24.
 
 ## Goal
 
@@ -2250,7 +2259,7 @@ Phase 13 (installer and updates on Windows as the model). A Mac to test on.
 
 # Phase 24 — Community
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Last in the order of work.
+**Added at the owner's direction (2026-09-28), ADR-039.** Third and last in the final push (ADR-132, 2026-10-01), after Phase 23.
 
 ## Goal
 
@@ -2574,7 +2583,7 @@ When using this document as the implementation driver:
 
 1. Read the full rollout plan before making architectural changes.
 2. Determine the current completed phase from repository evidence, not assumptions.
-3. Work only on the earliest incomplete phase unless explicitly instructed otherwise.
+3. Work only on the earliest incomplete phase unless explicitly instructed otherwise. "Earliest" means in the order-of-work list at the top of this plan: after Phase 22's go-live, the final push (Phase 14, then 23, then 24); parked phases are skipped (ADR-132).
 4. Create a short phase implementation checklist before coding.
 5. Preserve provider-neutral abstractions.
 6. Prefer small, reviewable commits.

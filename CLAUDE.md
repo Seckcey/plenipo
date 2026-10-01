@@ -17,6 +17,11 @@
   don't remember records by number.
 - **Work the plan:** `ROLLOUT_PLAN.md` phase by phase, with a checklist and an acceptance report
   in `docs/phases/`, and an ADR in `docs/adr/` for any deviation.
+- **The final push (ADR-132, the owner's order, 2026-10-01).** After Phase 22's go-live (done in
+  its own session), the work is exactly three phases, in this order: **1. Phase 14** (Plenipo on
+  your phone), **2. Phase 23** (Mac and Linux), **3. Phase 24** (Community). Do not start Phase
+  14 until the owner says Phase 22 is live. Phase 16's Wave 4, Phase 15, and Phase 9 are
+  **parked**: never start one on your own; only the owner can schedule it.
 - **Before pushing** (see `docs/development/setup.md`):
   - `pnpm check`
   - `cargo fmt --all -- --check`

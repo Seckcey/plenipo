@@ -20,7 +20,7 @@ business departments you can create.
 | Projects                                                                                | 1              | Unlimited                          |
 | Workers on the job at the same time (the next one waits its turn)                       | 3              | 4 in each organization             |
 | Development department (developer, reviewer, QA, docs)                                  | Yes            | Yes                                |
-| Sales department on HubSpot, and business departments after it                          | No             | Yes                                |
+| Sales department on HubSpot, and business departments after it (planned, Phase 9)       | No             | Yes                                |
 | AI tools: Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, GitHub Copilot           | All            | All                                |
 | Your own sign-ins, or your own paid AI keys; spending caps optional (Phase 16)          | Yes            | Yes                                |
 | Which AI model each role gets, and how hard it thinks                                   | Yes            | Yes                                |
