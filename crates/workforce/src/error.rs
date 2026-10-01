@@ -15,6 +15,9 @@ pub enum WorkforceError {
     Invalid(String),
     #[error("{0}")]
     Internal(String),
+    /// A Free limit reached (Phase 11A): what Free has, what Pro adds, and where to enter a key.
+    #[error("{0}")]
+    PartOfPro(plenipo_licensing::Blocked),
 }
 
 impl WorkforceError {
@@ -24,7 +27,7 @@ impl WorkforceError {
             Self::Ledger(e) => e.is_caller_error(),
             Self::Runtime(e) => e.is_caller_error(),
             Self::Router(e) => e.is_caller_error(),
-            Self::Invalid(_) => true,
+            Self::Invalid(_) | Self::PartOfPro(_) => true,
             Self::Internal(_) => false,
         }
     }

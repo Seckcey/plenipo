@@ -89,3 +89,12 @@ copy can use them for now; disconnecting always works." Phase 11A adds the lock.
 As decided: HubSpot, Stripe, the website, and add-on tools are under the same "part of Plenipo Pro"
 line on Settings → Connections, with no lock yet. Phase 11A adds the lock; **Disconnect** and
 **Remove** (an add-on) always work.
+
+## As built (v1.18.0, Phase 11A)
+
+On Free, **Connect**, saving a key, adding another account, and **Add a program** are refused with
+plain words naming what Pro adds. **Disconnect** and **Remove** always work, and Settings still shows
+every connection, with a "Part of Plenipo Pro" note that opens Settings → License. A task keeps the
+edition it started with: one that started on Pro keeps its connection and add-on tools until it
+finishes. A task that started on Free gets none, and its worker's note says they are paused. With
+Pro back, the same connections work again with no new sign-in.

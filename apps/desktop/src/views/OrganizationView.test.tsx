@@ -46,6 +46,7 @@ vi.mock("../api/commands", async (importOriginal) => {
   };
 });
 vi.mock("../api/events", () => ({
+  subscribeLicense: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeLedgerEvents: vi.fn(),
   subscribeAgentUpdates: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeControl: vi.fn(() => Promise.resolve(() => undefined)),

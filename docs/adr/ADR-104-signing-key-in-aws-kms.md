@@ -67,3 +67,21 @@ sign, and every signature is logged. Plenipo carries two public keys: the one in
 - **A HashiCorp Vault that 8 West runs itself.** Not chosen: one more service to run and guard.
 - **Sending a replacement key inside the weekly answer**, so customers never paste a new one. Not
   chosen for now: it changes the contract, and replacing the key should be rare.
+
+## As built (v1.18.0)
+
+- **In the app.** A key reads `plenipo1.<contents>.<signature>`. Both parts are base64url. The key is
+  signed with Ed25519 over `plenipo-license-key.v1.` and its contents, and checked on the PC at
+  every start and on entry.
+- **Test key.** The contract's test key (`test-1`) is trusted only by copies built for the tests
+  (the `license-test-keys` build option, used by CI's end-to-end job). A released copy never
+  trusts it.
+- **A key signed by a key Plenipo no longer trusts** (§3 retires an at-risk key once 8 West has
+  emailed new keys) says so on Settings → License, and its record is kept for the new key.
+- **The production keys.** The owner made the three KMS keys on 2026-09-30 (us-west-1). The
+  app trusts the public halves of `alias/plenipo-license-current` as `prod-1` and
+  `alias/plenipo-license-spare` as `prod-2`, the names the account service signs with; a test checks
+  both, so the spare works after a key change. `alias/plenipo-license-test` is for test copies of the
+  service only, and no released copy of Plenipo trusts it.
+- **In the service** (`plenipo-account`). It signs with `ED25519_SHA_512` over the raw message, and
+  checks every signature against the vault key's public half before sending it.

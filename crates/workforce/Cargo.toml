@@ -20,6 +20,7 @@ base64 = "0.22"
 log = "0.4"
 png = "0.18"
 plenipo-ledger = { path = "../ledger" }
+plenipo-licensing = { path = "../licensing" }
 plenipo-liaison = { path = "../liaison" }
 plenipo-router = { path = "../router" }
 plenipo-runtime = { path = "../runtime" }

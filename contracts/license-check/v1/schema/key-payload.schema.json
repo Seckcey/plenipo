@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://account.getplenipo.com/contracts/license-check/v1/key-payload.schema.json",
+  "title": "What a license key says",
+  "description": "The key is plenipo1.<this JSON in base64url>.<Ed25519 signature over \"plenipo-license-key.v1.\" followed by that base64url text>. Plenipo also refuses a key whose paid_through is before its issued_at (a rule this schema cannot say).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "edition",
+    "organizations",
+    "key_id",
+    "holder",
+    "plan",
+    "paid_through",
+    "issued_at",
+    "signer"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "edition": {
+      "enum": ["pro", "partner"]
+    },
+    "organizations": {
+      "description": "How many organizations the key covers on the PC (ADR-119).",
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "const": "unlimited"
+        }
+      ]
+    },
+    "key_id": {
+      "type": "string",
+      "pattern": "^lk_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "holder": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f]*$"
+    },
+    "plan": {
+      "enum": ["monthly", "yearly"]
+    },
+    "paid_through": {
+      "type": "integer"
+    },
+    "issued_at": {
+      "type": "integer",
+      "exclusiveMinimum": 0
+    },
+    "signer": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    }
+  }
+}

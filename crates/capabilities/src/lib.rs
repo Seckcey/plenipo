@@ -20,6 +20,7 @@ mod error;
 pub mod fence;
 pub mod files;
 pub mod github;
+pub mod license_check;
 pub mod mcp;
 pub mod paid;
 mod process;

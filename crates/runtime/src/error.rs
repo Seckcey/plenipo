@@ -31,6 +31,10 @@ pub enum RuntimeError {
     /// Persisting agent session state failed.
     #[error("could not record agent activity: {0}")]
     Store(String),
+    /// A Free limit (Phase 11A, ADR-113): what Free has, what Pro adds, and where to enter a
+    /// key, in plain words.
+    #[error("{0}")]
+    PartOfPro(String),
 }
 
 impl RuntimeError {

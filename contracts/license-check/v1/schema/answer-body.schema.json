@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://account.getplenipo.com/contracts/license-check/v1/answer-body.schema.json",
+  "title": "The weekly license check's answer body",
+  "description": "The payload (answer-payload.schema.json) in base64url, and its Ed25519 signature over \"plenipo-license-answer.v1.\" followed by that base64url text.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["answer", "signature"],
+  "properties": {
+    "answer": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+    "signature": { "type": "string", "pattern": "^[A-Za-z0-9_-]{86}$" }
+  }
+}

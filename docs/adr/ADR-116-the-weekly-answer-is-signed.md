@@ -60,3 +60,22 @@ them.
 - **An unsigned answer over HTTPS.** Not chosen: a fake server with its own certificate installed on
   the PC could answer anything, forever.
 - **A new key in every answer.** Not chosen for now; see ADR-104.
+
+## As built (v1.18.0)
+
+- **Signing.** Answers are signed with Ed25519 over `plenipo-license-answer.v1.` and the answer's
+  contents.
+- **What Plenipo keeps.** It keeps the newest signed answer, and checks it again at every start.
+  The record's other times are believed only within limits: a time entered in the future is not.
+  Deleting the record starts a new 30 days (ADR-022's limit).
+- **Plenipo's "now".** The latest of: the PC's clock, the latest clock time Plenipo has seen, and
+  the answer's own time. So winding the clock back never extends the 30 days.
+- **What does not count.** An "unknown" answer counts as a failed check, and an older answer than
+  the one kept is ignored.
+- **A clock set ahead** is the owner's to fix, never a reason to stay on Free: 8 West's next newer
+  answer puts Plenipo's time back, a check is due as soon as the clock is put right, and Settings →
+  License says how many days ahead the clock is.
+- **A clock held back** while Plenipo runs does not stop its time: a clock that only moves forward
+  while Plenipo runs carries it on.
+- **Limit:** a clock set back while Plenipo is closed holds Plenipo's time where it was until the
+  clock catches up, so the 30 days can last longer by at most the days it was set back.

@@ -102,7 +102,7 @@ architecture must be recorded here.
 | [100](ADR-100-phase-11a-22-owners-answers.md)            | Phase 11A and 22: what the check found, and the owner's answers; ADR-100 to 129 for them      | Accepted |
 | [101](ADR-101-account-service-repository-name.md)        | The account service's repository is `plenipo-account`, with its own rules                     | Accepted |
 | [102](ADR-102-account-service-repository-private.md)     | The account service's repository is private                                                   | Accepted |
-| [103](ADR-103-account-service-hosting.md)                | Hosting, backups, and monitoring for the account service (server size proposed)               | Accepted |
+| [103](ADR-103-account-service-hosting.md)                | Hosting, backups, and monitoring for the account service                                      | Accepted |
 | [104](ADR-104-signing-key-in-aws-kms.md)                 | The license signing key lives in AWS KMS; license keys stay Ed25519 (carries out 039 §2.14)   | Accepted |
 | [105](ADR-105-domain-and-web-address.md)                 | Plenipo's own domain is getplenipo.com; the account service at account.getplenipo.com         | Accepted |
 | [106](ADR-106-account-email.md)                          | Stripe sends billing email; account email goes through Microsoft 365                          | Accepted |
@@ -118,5 +118,6 @@ architecture must be recorded here.
 | [116](ADR-116-the-weekly-answer-is-signed.md)            | The weekly check's answer is signed, and its time decides the grace (adds to 022)             | Accepted |
 | [117](ADR-117-paid-ai-keys-are-free.md)                  | Paid AI keys are in the Free edition (amends 021)                                             | Accepted |
 | [118](ADR-118-customer-accounts.md)                      | Customer accounts: signing in, and deleting an account                                        | Accepted |
+| [119](ADR-119-editions-and-prices-revised.md)            | Editions and prices, revised: Pro $19 with 3 organizations; Partner plans by organizations    | Accepted |
 | [130](ADR-130-website-domain-migration.md)               | The public website moves to getplenipo.com; old and www addresses preserve paths in redirects | Accepted |
 | [131](ADR-131-tools-for-any-model.md)                    | Wave 4: Plenipo's own tools for any model, then specialist jobs; no Hermes (changes 036)      | Accepted |

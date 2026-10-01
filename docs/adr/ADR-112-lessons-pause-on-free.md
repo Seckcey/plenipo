@@ -55,3 +55,10 @@ experience. When Pro comes back, lessons work again.
 - **Keep using lessons already kept, and only stop new ones.** Not chosen: lessons are an ongoing
   benefit, like Connections, and the pause loses nothing.
 - **Hide lessons on Free.** Rejected: lapsing never hides anything (ADR-022 §6).
+
+## As built (v1.18.0)
+
+A task that started on Free records no lessons and gets no kept ones; a task that started on Pro
+keeps them until it finishes. **Worker learning** in Settings → Switches, and each role's kept
+lessons, say "part of Pro" on a Free copy. Every kept lesson stays listed, and can still be
+removed.

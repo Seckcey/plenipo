@@ -7,6 +7,11 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+# Copies built for the end-to-end tests also trust the license contract's test signing key
+# (Phase 11A, ADR-104). The Release workflow never enables it.
+license-test-keys = ["plenipo-licensing/test-keys"]
+
 [lib]
 name = "plenipo_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -20,6 +25,8 @@ plenipo-core = { path = "../../../crates/core" }
 plenipo-guard = { path = "../../../crates/guard" }
 plenipo-ledger = { path = "../../../crates/ledger" }
 plenipo-liaison = { path = "../../../crates/liaison" }
+# Free and Pro, the license key, and the weekly check (Phase 11A).
+plenipo-licensing = { path = "../../../crates/licensing" }
 plenipo-router = { path = "../../../crates/router" }
 plenipo-runtime = { path = "../../../crates/runtime" }
 plenipo-workforce = { path = "../../../crates/workforce" }
@@ -57,5 +64,9 @@ workspace = true
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test", "tray-icon"] }
+# The tests enter the license contract's test key (Phase 11A).
+plenipo-licensing = { path = "../../../crates/licensing", features = ["test-keys"] }
+# A stand-in for 8 West's license check in the tests (Phase 11A).
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util"] }
 tempfile = "3"
 rusqlite = { version = "0.40", features = ["bundled"] }

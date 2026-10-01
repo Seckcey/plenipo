@@ -27,4 +27,4 @@ pub use error::{Result, WorkforceError};
 pub use learning::{LearningSettings, LearningSnapshot};
 pub use outcome::ObjectiveReport;
 pub use owner::{Mood, OwnerProfile, OwnerProfileInput, OwnerStatus, PictureChange};
-pub use service::{Workforce, OWNER, PLENIPO};
+pub use service::{EntitlementsCell, Workforce, OWNER, PLENIPO};

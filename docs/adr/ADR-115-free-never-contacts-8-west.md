@@ -52,3 +52,16 @@ up, and the AI tools' own traffic.
 
 - **No outbound requests at all on Free.** Not chosen: it would switch off update notices and the AI
   tool version check for every Free owner, against ADR-038.
+
+## As built (v1.18.0)
+
+- **No key, no request.** With no key, Plenipo never builds a check. Its regular look and **Check
+  now** send nothing.
+- **Guard.** The weekly license check's purpose allows only the check's one address.
+- **Test copies.** Only a copy built with the test key trusted can point the check at a stand-in on
+  the PC (`PLENIPO_LICENSE_STAND_IN` at build time).
+- **Tested three ways.**
+  - A unit test runs a Free copy for weeks of clock time, and its stand-in receives nothing.
+  - Guard's test refuses every other address.
+  - Two real-app tests: the Development flow runs start to finish on Free while a stand-in listens,
+    and the license test checks Free, then a key, then Pro. In both, a Free copy sends nothing.

@@ -5,6 +5,8 @@ import { addConnection } from "../../api/commands";
 import { Refusal } from "../../components/models/shared";
 import type { Go } from "../../components/views";
 import { useRun } from "../../guard/useRun";
+import { PartOfPro } from "../../license/PartOfPro";
+import { useOnFree } from "../../license/useLicense";
 import { AddOnTools } from "./AddOnTools";
 import { ConnectionCard } from "./ConnectionCard";
 import { useConnections } from "./useConnections";
@@ -16,9 +18,12 @@ import { LATER } from "./words";
  * Vault and never sees your password. For each connection: its parts (Off, Read only, or Full
  * access), who may use it, and the people it may send to without asking you. HubSpot, Stripe,
  * and your website connect with a key typed into their cards. **Add-on tools** come last.
+ * Connections and add-on tools are part of Pro (ADR-068): on Free the page says so, and every
+ * connection is still shown.
  */
 export function ConnectionsSettings({ go }: { go: Go }) {
   const { page, error, apply } = useConnections();
+  const onFree = useOnFree();
   if (!page) {
     return (
       <p className={error ? "form-error" : "muted"} role={error ? "alert" : undefined}>
@@ -55,10 +60,16 @@ export function ConnectionsSettings({ go }: { go: Go }) {
           Connections cannot be connected until it is.
         </p>
       )}
-      <p className="muted">
-        Connections are part of Plenipo Pro. Every copy can use them for now; disconnecting always
-        works.
-      </p>
+      {onFree ? (
+        <PartOfPro go={go}>
+          Connections and add-on tools are paused on Free: nothing is deleted, your sign-ins are
+          kept, and Disconnect always works. With Pro, they work again with no new sign-in.
+        </PartOfPro>
+      ) : (
+        <p className="muted">
+          Connections and add-on tools are part of Plenipo Pro. Disconnecting always works.
+        </p>
+      )}
       <ul className="connection-list" aria-label="Services">
         {page.services.map((s) => (
           <ServiceItem key={s.service} service={s} page={page} onApply={apply} go={go} />

@@ -10,6 +10,9 @@ pub enum BrokerError {
     /// The request is not acceptable; the message says why.
     #[error("{0}")]
     Invalid(String),
+    /// A Free limit reached (Phase 11A): what Free has, what Pro adds, and where to enter a key.
+    #[error("{0}")]
+    PartOfPro(plenipo_licensing::Blocked),
 }
 
 impl BrokerError {
@@ -18,7 +21,7 @@ impl BrokerError {
         match self {
             Self::Guard(e) => e.is_caller_error(),
             Self::Ledger(e) => e.is_caller_error(),
-            Self::Invalid(_) => true,
+            Self::Invalid(_) | Self::PartOfPro(_) => true,
         }
     }
 }
