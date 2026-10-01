@@ -9,10 +9,12 @@ use ed25519_dalek::SigningKey;
 
 use crate::answer::{self, AnswerPayload, SubscriptionState};
 use crate::codec;
-use crate::key::{self, KeyError, KeyPayload, Plan};
+use crate::key::{self, KeyEdition, KeyError, KeyPayload, Organizations, Plan};
 use crate::trust;
 
 pub const KEY_ID: &str = "lk_01J9XW3T5B8K2M4N6P7Q8R9S0T";
+/// A Partner key's ID (ADR-119).
+pub const PARTNER_KEY_ID: &str = "lk_01J9XW3T5B8K2M4N6P7Q8R9S0V";
 pub const APP_VERSION: &str = "1.18.0";
 const ISSUED_AT: i64 = 1_790_000_000;
 const PAID_THROUGH: i64 = 1_822_400_000;
@@ -27,6 +29,7 @@ fn key_payload() -> KeyPayload {
     KeyPayload {
         v: 1,
         edition: "pro".into(),
+        organizations: Organizations::Up(3),
         key_id: KEY_ID.into(),
         holder: "Contoso IT".into(),
         plan: Plan::Yearly,
@@ -71,6 +74,18 @@ fn files() -> Vec<(&'static str, Vec<u8>)> {
         let b64 = codec::encode(&serde_json::to_vec(&p).unwrap());
         format!("{}{b64}.{sig}", key::KEY_PREFIX)
     };
+    // A Partner key covering any number of organizations (ADR-119).
+    let partner = key::mint(
+        &KeyPayload {
+            edition: "partner".into(),
+            organizations: Organizations::UNLIMITED,
+            key_id: PARTNER_KEY_ID.into(),
+            holder: "Fabrikam Managed IT".into(),
+            plan: Plan::Monthly,
+            ..key_payload()
+        },
+        &test,
+    );
     let unknown_signer = {
         let mut p = key_payload();
         p.signer = "prod-9".into();
@@ -94,6 +109,7 @@ fn files() -> Vec<(&'static str, Vec<u8>)> {
         ("request.json", answer::request_body(KEY_ID, APP_VERSION)),
         ("test-signing-key.json", test_key),
         ("keys/valid.txt", valid.into_bytes()),
+        ("keys/partner-unlimited.txt", partner.into_bytes()),
         ("keys/tampered.txt", tampered.into_bytes()),
         ("keys/unknown-signer.txt", unknown_signer.into_bytes()),
         ("answers/active.json", body(SubscriptionState::Active)),
@@ -133,11 +149,15 @@ fn the_contracts_examples_mean_what_they_say() {
         request,
         serde_json::json!({ "key_id": KEY_ID, "app_version": APP_VERSION })
     );
-    // The keys.
-    assert_eq!(
-        key::parse(&text("keys/valid.txt")).unwrap().key_id(),
-        KEY_ID
-    );
+    // The keys: a Pro key for 3 organizations, and a Partner key for any number.
+    let valid = key::parse(&text("keys/valid.txt")).unwrap();
+    assert_eq!(valid.key_id(), KEY_ID);
+    assert_eq!(valid.edition(), KeyEdition::Pro);
+    assert_eq!(valid.organizations(), Some(3));
+    let partner = key::parse(&text("keys/partner-unlimited.txt")).unwrap();
+    assert_eq!(partner.key_id(), PARTNER_KEY_ID);
+    assert_eq!(partner.edition(), KeyEdition::Partner);
+    assert_eq!(partner.organizations(), None);
     assert_eq!(
         key::parse(&text("keys/tampered.txt")),
         Err(KeyError::Damaged)

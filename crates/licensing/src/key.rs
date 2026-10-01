@@ -1,8 +1,9 @@
 //! The license key (ADR-104 §6): `plenipo1.<payload>.<signature>`.
 //!
-//! The payload is JSON in base64url: the format version, the edition, the key ID, the holder
-//! (the buyer's name or company, never their email), the plan, the paid-through date, when it was
-//! issued, and which signing key signed it. The signature covers [`KEY_CONTEXT`] followed by the
+//! The payload is JSON in base64url: the format version, the edition (Pro or Partner), how many
+//! organizations it covers (ADR-119), the key ID, the holder (the buyer's name or company, never
+//! their email), the plan, the paid-through date, when it was issued, and which signing key signed
+//! it. The signature covers [`KEY_CONTEXT`] followed by the
 //! payload's base64 text. Plenipo checks it on the owner's own PC, with no network.
 
 use std::fmt;
@@ -29,14 +30,54 @@ pub enum Plan {
     Yearly,
 }
 
+/// Which paid edition a key is for (ADR-119): Pro for one owner's own business, Partner for
+/// companies that run Plenipo for clients. Both are Pro inside Plenipo; they differ in how many
+/// organizations they cover.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum KeyEdition {
+    Pro,
+    Partner,
+}
+
+/// How many organizations a key covers on the PC (ADR-119): a number, or `"unlimited"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Organizations {
+    Up(u32),
+    Unlimited(UnlimitedWord),
+}
+
+/// The word `"unlimited"`, and nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UnlimitedWord {
+    Unlimited,
+}
+
+impl Organizations {
+    pub const UNLIMITED: Self = Self::Unlimited(UnlimitedWord::Unlimited);
+
+    /// The most organizations covered (`None`: no limit).
+    pub fn most(self) -> Option<u32> {
+        match self {
+            Self::Up(n) => Some(n),
+            Self::Unlimited(_) => None,
+        }
+    }
+}
+
 /// What a license key says.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeyPayload {
     /// Format version: 1.
     pub v: u32,
-    /// `pro`.
+    /// `pro` or `partner`.
     pub edition: String,
+    /// How many organizations it covers (ADR-119): Pro 3; Partner 10, 25, or `"unlimited"`.
+    pub organizations: Organizations,
     /// `lk_` and 26 letters and digits: the only thing the weekly check sends about the key.
     pub key_id: String,
     /// The buyer's name or company, as they typed it.
@@ -70,6 +111,20 @@ impl LicenseKey {
     pub fn key_id(&self) -> &str {
         &self.payload.key_id
     }
+
+    /// Pro or Partner (checked when the key was read).
+    pub fn edition(&self) -> KeyEdition {
+        if self.payload.edition == "partner" {
+            KeyEdition::Partner
+        } else {
+            KeyEdition::Pro
+        }
+    }
+
+    /// The most organizations it covers (`None`: no limit).
+    pub fn organizations(&self) -> Option<u32> {
+        self.payload.organizations.most()
+    }
 }
 
 impl fmt::Debug for LicenseKey {
@@ -95,7 +150,7 @@ pub enum KeyError {
     UnknownSigner,
     #[error("This key has been changed or damaged. Copy it again from the email 8 West sent you.")]
     Damaged,
-    #[error("This key isn't a Plenipo Pro key.")]
+    #[error("This key isn't a Plenipo Pro or Partner key.")]
     NotPro,
 }
 
@@ -146,8 +201,11 @@ pub fn parse(text: &str) -> Result<LicenseKey, KeyError> {
             SignError::BadSignature => KeyError::Damaged,
         },
     )?;
-    if payload.edition != "pro" {
+    if payload.edition != "pro" && payload.edition != "partner" {
         return Err(KeyError::NotPro);
+    }
+    if payload.organizations == Organizations::Up(0) {
+        return Err(KeyError::Malformed);
     }
     if !is_key_id(&payload.key_id)
         || !holder_ok(&payload.holder)
@@ -178,6 +236,7 @@ pub(crate) mod tests {
         KeyPayload {
             v: 1,
             edition: "pro".into(),
+            organizations: Organizations::Up(3),
             key_id: KEY_ID.into(),
             holder: "Contoso IT".into(),
             plan: Plan::Yearly,
@@ -205,6 +264,58 @@ pub(crate) mod tests {
         let (a, b) = text.split_at(60);
         let wrapped = format!("  {a}\r\n  {b}\n");
         assert_eq!(parse(&wrapped).unwrap().text(), text);
+    }
+
+    /// ADR-119: a key says Pro or Partner, and how many organizations it covers: a number, or
+    /// "unlimited". A key that says neither, or zero, is refused.
+    #[test]
+    fn a_key_says_its_edition_and_how_many_organizations_it_covers() {
+        let signer = trust::test_signing_key();
+        let key = parse(&valid_key()).unwrap();
+        assert_eq!(key.edition(), KeyEdition::Pro);
+        assert_eq!(key.organizations(), Some(3));
+        let mut p = payload();
+        p.edition = "partner".into();
+        p.organizations = Organizations::UNLIMITED;
+        let partner = parse(&mint(&p, &signer)).unwrap();
+        assert_eq!(partner.edition(), KeyEdition::Partner);
+        assert_eq!(partner.organizations(), None);
+        let json = String::from_utf8(
+            codec::decode(
+                partner
+                    .text()
+                    .strip_prefix(KEY_PREFIX)
+                    .unwrap()
+                    .split('.')
+                    .next()
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(json.contains(r#""organizations":"unlimited""#), "{json}");
+        p.organizations = Organizations::Up(0);
+        assert_eq!(parse(&mint(&p, &signer)), Err(KeyError::Malformed));
+        // A key with no number of organizations is refused (never read as unlimited).
+        let mut raw = serde_json::to_value(payload()).unwrap();
+        raw.as_object_mut().unwrap().remove("organizations");
+        let b64 = codec::encode(&serde_json::to_vec(&raw).unwrap());
+        let sig = codec::sign(KEY_CONTEXT, &b64, &signer);
+        assert_eq!(
+            parse(&format!("{KEY_PREFIX}{b64}.{sig}")),
+            Err(KeyError::Malformed)
+        );
+        for word in [r#""Unlimited""#, r#""lots""#, "-1", "3.5"] {
+            let mut raw = serde_json::to_value(payload()).unwrap();
+            raw["organizations"] = serde_json::from_str(word).unwrap();
+            let b64 = codec::encode(&serde_json::to_vec(&raw).unwrap());
+            let sig = codec::sign(KEY_CONTEXT, &b64, &signer);
+            assert_eq!(
+                parse(&format!("{KEY_PREFIX}{b64}.{sig}")),
+                Err(KeyError::Malformed),
+                "{word}"
+            );
+        }
     }
 
     #[test]

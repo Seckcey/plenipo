@@ -80,16 +80,17 @@ The key is `plenipo1.<payload>.<signature>`, with both parts in base64url.
 
 The payload is JSON with exactly these fields:
 
-| Field          | Type   | Meaning                                                                     |
-| -------------- | ------ | --------------------------------------------------------------------------- |
-| `v`            | number | `1`                                                                         |
-| `edition`      | string | `pro`                                                                       |
-| `key_id`       | string | `lk_` and 26 characters of Crockford base 32, capitals (no I, L, O, U)      |
-| `holder`       | string | The buyer's name or company as they typed it; 1–120 characters; never email |
-| `plan`         | string | `monthly` or `yearly`                                                       |
-| `paid_through` | number | Unix seconds                                                                |
-| `issued_at`    | number | Unix seconds                                                                |
-| `signer`       | string | Which signing key signed it                                                 |
+| Field           | Type             | Meaning                                                                                                           |
+| --------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `v`             | number           | `1`                                                                                                               |
+| `edition`       | string           | `pro` or `partner` (ADR-119)                                                                                      |
+| `organizations` | number or string | How many organizations it covers: a whole number from 1 up (Pro 3; Partner 10 or 25), or `"unlimited"`. Required. |
+| `key_id`        | string           | `lk_` and 26 characters of Crockford base 32, capitals (no I, L, O, U)                                            |
+| `holder`        | string           | The buyer's name or company as they typed it; 1–120 characters; never email                                       |
+| `plan`          | string           | `monthly` or `yearly`                                                                                             |
+| `paid_through`  | number           | Unix seconds                                                                                                      |
+| `issued_at`     | number           | Unix seconds                                                                                                      |
+| `signer`        | string           | Which signing key signed it                                                                                       |
 
 The signature is Ed25519 over `plenipo-license-key.v1.` followed by the payload's base64url
 text. The two context strings keep a key from ever passing as an answer, and the other way
@@ -106,14 +107,15 @@ for the tests trust it, never a release build.
 
 ## The example files
 
-| File                                                                          | What it is                                                  |
-| ----------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| [`request.json`](request.json)                                                | The exact body Plenipo sends                                |
-| [`keys/valid.txt`](keys/valid.txt)                                            | A valid key (the test key signed it)                        |
-| [`keys/tampered.txt`](keys/tampered.txt)                                      | A changed payload under the valid key's signature: refused  |
-| [`keys/unknown-signer.txt`](keys/unknown-signer.txt)                          | Signed by a key Plenipo doesn't trust: refused              |
-| [`answers/active.json`](answers/active.json), `cancelled`, `ended`, `unknown` | Signed answers, one per state                               |
-| [`answers/wrong-signature.json`](answers/wrong-signature.json)                | Signed by another key claiming the test key: refused        |
-| [`schema/`](schema)                                                           | JSON Schemas for the request, the answer body, and payloads |
+| File                                                                          | What it is                                                   |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| [`request.json`](request.json)                                                | The exact body Plenipo sends                                 |
+| [`keys/valid.txt`](keys/valid.txt)                                            | A valid Pro key for 3 organizations (the test key signed it) |
+| [`keys/partner-unlimited.txt`](keys/partner-unlimited.txt)                    | A valid Partner key for any number of organizations          |
+| [`keys/tampered.txt`](keys/tampered.txt)                                      | A changed payload under the valid key's signature: refused   |
+| [`keys/unknown-signer.txt`](keys/unknown-signer.txt)                          | Signed by a key Plenipo doesn't trust: refused               |
+| [`answers/active.json`](answers/active.json), `cancelled`, `ended`, `unknown` | Signed answers, one per state                                |
+| [`answers/wrong-signature.json`](answers/wrong-signature.json)                | Signed by another key claiming the test key: refused         |
+| [`schema/`](schema)                                                           | JSON Schemas for the request, the answer body, and payloads  |
 
 A change to this contract is a new folder (`v2`), never an edit to `v1` once released.
