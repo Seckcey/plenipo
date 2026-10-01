@@ -34,15 +34,15 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 5 | 20 | Connections: Microsoft 365, Slack, Google, and more | Delivered: part 20A (Microsoft 365) in v1.13.0, part 20B (Slack, Google) in v1.14.1, part 20C (HubSpot, Stripe, WordPress and WooCommerce, add-on tools) in v1.14.2 (ADR-067, ADR-071) |
 | 6 | 16 | Every AI model worth having | Waves 1 to 3 delivered; **Wave 4 parked** (ADR-132). Wave 1 delivered in v1.14.0 (ADR-080, ADR-081, ADR-082), more Ollama models when the paid plan starts; Wave 2 delivered in v1.15.0 (ADR-083, GitHub Copilot; ADR-084, Cursor's agent waits); Wave 3 delivered in v1.17.0 (ADR-085, paid AI keys with spending caps; ADR-086, OpenRouter through a Plenipo helper; ADR-087, direct keys for every AI company), with a fix in v1.18.1; Wave 4, Plenipo's own tools for workers on Ollama, OpenRouter, and direct keys, then specialist jobs, instead of Hermes Agent (ADR-131), waits until the owner schedules it |
 | 7 | 21 | Workspace: panels, windows, files, and more than one organization | Delivered (v1.16.0), built beside Phase 16's Wave 2 (ADR-090 to ADR-094) |
-| 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | 11A delivered (v1.18.0). Phase 22 is built and **its go-live is being finished in its own session**: a practice purchase in Stripe's test mode, the owner's secret settings, an attorney's read of the terms, and a second security review; its code is in the private repository `plenipo-account` (ADR-101). The final push starts when it is live |
-| Final push 1 | 14 | Plenipo on your phone: a web interface built from scratch | **Next after Phase 22 goes live** (ADR-132) |
+| 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | 11A delivered (v1.18.0). Phase 22 built in the private repository `plenipo-account` (ADR-101), and **live** (the owner's word, 2026-10-01); its go-live was finished in its own session |
+| Final push 1 | 14 | Plenipo on your phone: a web interface built from scratch | **In progress** (started 2026-10-01): its decisions are proposed (ADR-140 to ADR-146) and wait for the owner's answers; three parts, 14A to 14C (ADR-140) |
 | Final push 2 | 23 | Mac and Linux | After Phase 14 (ADR-132) |
 | Final push 3 | 24 | Community | After Phase 23; last (ADR-132) |
 | Parked | 16, Wave 4 | Tools for any model, then specialist jobs | No place in the order until the owner schedules it (ADR-131, ADR-132) |
 | Parked | 15 | Additional providers, departments, Windows servers, and Milepost | No place in the order until the owner schedules it (ADR-132) |
 | Parked | 9 | Sales department on HubSpot | Postponed (ADR-018), parked by ADR-132 |
 
-Phases 0–8, 10, 11, 11A, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered, and Phase 16's Waves 1 to 3. In progress: Phase 22's go-live (its own session). After it: **Phase 14, then Phase 23, then Phase 24** (the final push, ADR-132). Parked: Phase 16's Wave 4, Phase 15, and Phase 9.
+Phases 0–8, 10, 11, 11A, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered, and Phase 16's Waves 1 to 3. Phase 22 is live (the owner's word, 2026-10-01). In progress: **Phase 14**, the first of the final push; then **Phase 23**, then **Phase 24** (ADR-132). Parked: Phase 16's Wave 4, Phase 15, and Phase 9.
 
 ---
 
@@ -1552,7 +1552,9 @@ Core product behavior stable.
 
 # Phase 14 — Plenipo on Your Phone: a Web Interface Built From Scratch
 
-**First in the final push (owner's direction, 2026-10-01; ADR-132).** This is the next phase once Phase 22's go-live is done. It does not start until the owner says Phase 22 is live. Phase 23 (Mac and Linux) and then Phase 24 (Community) follow it.
+**First in the final push (owner's direction, 2026-10-01; ADR-132).** Phase 23 (Mac and Linux) and then Phase 24 (Community) follow it.
+
+**Status: in progress** (started 2026-10-01, when the owner said Phase 22 is live). Checklist: `docs/phases/phase-14-checklist.md`. Its decisions are **proposed** and wait for the owner: ADR-140 (Phase 14 starts: numbers 140 to 149, and three parts, 14A to 14C), ADR-141 (pairing a phone), ADR-142 (the phone proves it is you), ADR-143 (the relay and the lock), ADR-144 (notices on your phone), ADR-145 (what a phone may ask, and what stays on the PC), and ADR-146 (where the phone's page lives). The relay's change is written as a request for its own repository (`docs/phases/phase-14-relay-change-request.md`), for the owner to approve there.
 
 **Changed at the owner's direction (2026-09-27; ADR-040).** Plenipo gets its own web interface, built from scratch, that the owner opens in a phone's browser or on another device. Plenipo on the PC stays in charge, and Guard decides. It reaches the PC through the relay 8 West already runs for Milepost, it can send notices to a phone even when the page is closed, the owner can **approve and allow right from a notice** as well as in the web interface, and it is a **Pro** feature. The phone does as much as it safely can.
 

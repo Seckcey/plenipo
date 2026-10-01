@@ -122,3 +122,10 @@ architecture must be recorded here.
 | [130](ADR-130-website-domain-migration.md)               | The public website moves to getplenipo.com; old and www addresses preserve paths in redirects | Accepted |
 | [131](ADR-131-tools-for-any-model.md)                    | Wave 4: Plenipo's own tools for any model, then specialist jobs; no Hermes (changes 036)      | Accepted |
 | [132](ADR-132-the-final-push.md)                         | The final push: Phase 14, then Mac and Linux, then Community; Wave 4, 15, and 9 parked        | Accepted |
+| [140](ADR-140-phase-14-starts.md)                        | Phase 14 starts: numbers 140 to 149, what the check found, three parts                        | Proposed |
+| [141](ADR-141-pairing-a-phone.md)                        | Pairing a phone: a picture code or a typed code, shown on your PC                             | Proposed |
+| [142](ADR-142-the-phone-proves-it-is-you.md)             | The phone proves it is you: a passkey, checked by your PC                                     | Proposed |
+| [143](ADR-143-the-relay-and-the-lock.md)                 | The relay and the lock: sealed end to end, no copies, wrong tries                             | Proposed |
+| [144](ADR-144-notices-on-your-phone.md)                  | Notices on your phone, sealed for it (amends 040 if accepted)                                 | Proposed |
+| [145](ADR-145-what-a-phone-may-ask.md)                   | The fixed list of what a phone may ask; what stays on your PC                                 | Proposed |
+| [146](ADR-146-where-the-phone-page-lives.md)             | Where the phone's page lives: its own address, never the relay                                | Proposed |
