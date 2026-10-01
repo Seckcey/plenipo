@@ -258,7 +258,8 @@ impl Planner {
         let paid = self.tool(runtime_id).is_some_and(|t| t.paid);
         if paid {
             reason.push_str(
-                " It costs money: it is paid per use with your key, within your spending caps.",
+                " It costs money: it is paid per use with your key, within your spending caps \
+                 if you set any.",
             );
         }
         if self

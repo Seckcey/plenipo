@@ -70,6 +70,7 @@ After the MVP:
 | Phase 21 — Panels, files, and more than one organization (ADR-091–094)               | `1.16.0` |
 | Phase 16 Wave 3 — Paid AI keys, spending caps, OpenRouter, direct keys (ADR-085–087) | `1.17.0` |
 | Phase 11A — Free and Pro editions and the license key (ADR-021, 022, 100–118)        | `1.18.0` |
+| Fix — A key box on every AI tool card; no spending cap needed (ADR-085)              | `1.18.1` |
 
 ## Releasing
 

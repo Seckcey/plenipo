@@ -115,6 +115,13 @@ const FACTS: Record<
     signIn: null,
     signOut: null,
   },
+  "anthropic-key": {
+    label: "Anthropic",
+    provider: "anthropic",
+    providerLabel: "Anthropic",
+    signIn: null,
+    signOut: null,
+  },
 };
 
 export const AI_TOOL_IDS = [
@@ -131,7 +138,7 @@ export const AI_TOOL_IDS = [
 const OTHER_MAKERS = new Set(["ollama", "antigravity", "copilot", "openrouter"]);
 
 /** The paid AI tools (ADR-085): they come with Plenipo and are paid per use with a key. */
-const PAID = new Set(["openrouter"]);
+const PAID = new Set(["openrouter", "anthropic-key"]);
 
 /** An AI tool's check: installed at `version`, signed in with a subscription. */
 export function aiRuntime(
@@ -207,9 +214,12 @@ export function aiTool(id: string, patch: Partial<AiToolState> = {}): AiToolStat
     paidKey: null,
     paidBlocked: null,
     keyKeptIn: PAID.has(id) ? "Windows Credential Manager" : null,
-    paidNote: PAID.has(id)
-      ? "Plenipo has not checked OpenRouter with a real key yet. Its models and prices come from OpenRouter's own list before each task; make a key at openrouter.ai → Keys."
-      : null,
+    paidNote:
+      id === "openrouter"
+        ? "Plenipo has not checked OpenRouter with a real key yet. Its models and prices come from OpenRouter's own list before each task; make a key at openrouter.ai → Keys."
+        : PAID.has(id)
+          ? `Make a key in ${FACTS[id]!.label}'s console.`
+          : null,
     hasModelList: id !== "claude-code",
     modelsCheckLeavesATrace: id === "kimi",
     checking: false,

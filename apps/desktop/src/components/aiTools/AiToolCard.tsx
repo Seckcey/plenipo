@@ -21,6 +21,9 @@ import { midnight, MOVING } from "./words";
 
 type CardTab = "overview" | "usage" | "models";
 
+/** The paid AI tool whose key a subscription AI tool's card offers, with its check and page part. */
+export type KeyCard = { info: AgentRuntimeInfo; tool: AiToolState };
+
 /**
  * A check that started this long before the sign-in tab's end was seen still counts as the check
  * after it (Plenipo starts it the moment the program ends).
@@ -43,7 +46,7 @@ function cardStatus(
   // Until the page's own part arrives, a card cannot tell a paid AI tool from another.
   if (!tool && !info.ready) return { status: "offline", label: "Loading…" };
   // A paid AI tool is not signed in to: it has a key in use, or not (ADR-085). Paid keys
-  // switched off (or no business cap) count even before the next check says so.
+  // switched off count even before the next check says so.
   if (tool?.payment === "paidKey" && (!info.ready || tool.paidBlocked !== null)) {
     return { status: PILL_TONE.warn, label: tool.paidKey ? "Key not in use" : "No key yet" };
   }
@@ -64,6 +67,7 @@ export function AiToolCard({
   onApply,
   onRouting,
   go,
+  keyCard,
 }: {
   info: AgentRuntimeInfo;
   tool: AiToolState | undefined;
@@ -73,6 +77,8 @@ export function AiToolCard({
   onRouting: (snapshot: RoutingSnapshot) => void;
   /** Opens another page (a paid AI tool's Settings links). */
   go?: Go | undefined;
+  /** A subscription AI tool's key box: the paid AI tool whose key it saves. */
+  keyCard?: KeyCard | undefined;
 }) {
   const [tab, setTab] = useState<CardTab>("overview");
   const terminal = useTerminalIfAny();
@@ -129,6 +135,7 @@ export function AiToolCard({
             onApply={onApply}
             onRouting={onRouting}
             go={go}
+            keyCard={keyCard}
           />
         )}
         {tab === "usage" && <UsageTab label={info.label} usage={usage} />}

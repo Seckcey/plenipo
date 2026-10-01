@@ -159,13 +159,15 @@ describe("words", () => {
 });
 
 describe("Settings → Spending caps", () => {
-  it("asks for the business's cap first, and sets it in millionths of a dollar", async () => {
+  it("says no cap means no dollar limit, and sets one in millionths of a dollar", async () => {
     api.getSpending.mockResolvedValue(page());
     api.setSpendingCap.mockResolvedValue(page({ hasBusinessCap: true, caps: [cap()] }));
     const user = userEvent.setup();
     const { container } = inPage(<SpendingSettings go={go} />);
     expect(
-      await screen.findByText("No paid AI key works until you set the business's monthly cap."),
+      await screen.findByText(
+        "No cap for the business: paid AI keys have no dollar limit. Set one below if you want.",
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("November 1 (Pacific time)")).toBeInTheDocument();
     const amount = screen.getByLabelText("The business: monthly cap in dollars");

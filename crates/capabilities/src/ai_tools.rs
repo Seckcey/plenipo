@@ -189,8 +189,8 @@ pub struct AiToolState {
     pub payment: PaymentMethod,
     /// A paid AI tool's saved key, by name (never the key; ADR-085).
     pub paid_key: Option<plenipo_guard::PaidKeyInfo>,
-    /// Why a paid AI tool's key cannot be saved or used now (paid keys switched off, or no
-    /// business cap), in plain words.
+    /// Why a paid AI tool's key cannot be saved or used now (paid keys switched off), in plain
+    /// words. A spending cap is never needed.
     pub paid_blocked: Option<String>,
     /// Where a paid AI tool's key is kept, as the screen names it ("Windows Credential
     /// Manager"); none for a subscription AI tool.

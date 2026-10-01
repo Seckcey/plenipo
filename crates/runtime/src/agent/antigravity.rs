@@ -165,8 +165,8 @@ impl RuntimeAdapter for Antigravity {
 
     fn login_hint(&self) -> &'static str {
         "Choose Sign in: Antigravity opens in a terminal tab. Sign in with the Google account \
-         that has your Google AI plan, then type /exit. Plenipo never asks for your password or \
-         an API key. Then choose Re-check."
+         that has your Google AI plan, then type /exit. Plenipo never sees your password. Then \
+         choose Re-check."
     }
 
     fn executable_name(&self) -> &'static str {

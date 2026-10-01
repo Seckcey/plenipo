@@ -19,7 +19,8 @@ pub const SPENDING: &str = plenipo_ledger::spending::SETTING;
 /// The settings that cannot be read now.
 pub fn problems(guard: &Guard, router: &Router) -> Vec<SettingsProblem> {
     let mut out = Vec::new();
-    // The spending caps (Phase 16 Wave 3, ADR-085): unreadable, no paid task starts.
+    // The spending caps (Phase 16 Wave 3, ADR-085): unreadable, no paid task starts (a cap is
+    // never needed, but caps the owner set must be readable to be kept).
     if let Err(e) = guard.ledger().has_business_cap() {
         log::error!("the spending caps cannot be read: {e}");
         out.push(SettingsProblem {
@@ -27,7 +28,9 @@ pub fn problems(guard: &Guard, router: &Router) -> Vec<SettingsProblem> {
             label: "Spending caps".into(),
             message: "Plenipo could not read your spending caps, so no paid AI key can be used \
                       until this is fixed. What was spent is kept either way. Restore a backup of \
-                      the Ledger from Diagnostics, or reset spending caps and set them again."
+                      the Ledger from Diagnostics, or reset spending caps: that removes every cap \
+                      and switches paid AI keys off, so set your caps again before you turn them \
+                      back on."
                 .into(),
         });
     }
@@ -62,8 +65,9 @@ pub fn reset(ledger: &Ledger, guard: &Guard, key: &str) -> Result<Option<String>
     let fresh = match key {
         GUARD => GuardConfig::with_defaults().to_value(),
         ROUTING => serde_json::to_value(RoutingConfig::default()).map_err(|e| e.to_string())?,
-        // No caps: every paid task is refused until the owner sets the business's cap again.
-        // What was spent stays in the spending records, which a reset never touches.
+        // No caps, and (below) paid AI keys switched off: with no cap, paid work would have no
+        // dollar limit, so nothing paid runs until the owner sets caps again and turns paid keys
+        // back on. What was spent stays in the spending records, which a reset never touches.
         SPENDING => json!({}),
         _ => return Err("Those are not settings Plenipo can reset.".into()),
     };
@@ -94,6 +98,23 @@ pub fn reset(ledger: &Ledger, guard: &Guard, key: &str) -> Result<Option<String>
         guard
             .seed_template_roles()
             .map_err(|e| format!("The built-in roles did not get their permissions back ({e})."))?;
+    }
+    if key == SPENDING {
+        // Unreadable permission settings already stop every paid task (Guard fails closed).
+        if let Ok(config) = guard.config() {
+            if config.switches.paid_ai_keys {
+                let switches = plenipo_guard::dto::Switches {
+                    paid_ai_keys: false,
+                    ..config.switches.clone()
+                };
+                guard.set_switches(&switches).map_err(|e| {
+                    format!(
+                        "The spending caps were reset, but paid AI keys could not be switched \
+                         off ({e}): turn off Settings → Switches → Let workers use paid AI keys."
+                    )
+                })?;
+            }
+        }
     }
     log::warn!("the {key} settings were reset to their starting values");
     Ok(backup)
@@ -162,10 +183,18 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].key, SPENDING);
         assert!(found[0].message.contains("no paid AI key can be used"));
-        // Reset: no caps, so paid work waits until the owner sets the business's cap again.
+        assert!(found[0].message.contains("switches paid AI keys off"));
+        // Reset: no caps, and paid AI keys switched off, so nothing paid runs with no limit.
+        guard
+            .set_switches(&plenipo_guard::dto::Switches {
+                paid_ai_keys: true,
+                ..plenipo_guard::dto::Switches::default()
+            })
+            .unwrap();
         reset(&ledger, &guard, SPENDING).unwrap();
         assert!(problems(&guard, &router).is_empty());
         assert!(!ledger.has_business_cap().unwrap());
+        assert!(!guard.config().unwrap().switches.paid_ai_keys);
         assert!(!ledger
             .events_of_types(&["spending.settings_reset"], 5)
             .unwrap()

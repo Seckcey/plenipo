@@ -31,8 +31,9 @@ function relevant(eventType: string): boolean {
 /**
  * Settings → Spending caps (Phase 16 Wave 3, ADR-085; ADR-036 §2): the monthly caps for the
  * business, each department, and single positions, what this month has used of each, and the
- * month's paid tasks. No paid AI key works without the business's cap. Money is set aside before
- * a paid task starts, so a cap is never passed: work stops a little before 100% instead.
+ * month's paid tasks. Caps are the owner's choice, never needed (2026-09-30): without one, paid
+ * work has no dollar limit and is still priced and listed. Money is set aside before a paid task
+ * starts, so a cap is never passed: work stops a little before 100% instead.
  */
 export function SpendingSettings({ go }: { go: Go }) {
   const live = useLive<SpendingPage>(
@@ -89,11 +90,13 @@ export function SpendingSettings({ go }: { go: Go }) {
   return (
     <div className="spending">
       <p className="notice-box" role="note">
-        <strong>Paid AI keys spend real money.</strong> Before a paid task starts, Plenipo sets
-        aside the most it could cost, and never starts one that could pass a cap. At 80% of a cap
-        you get a warning; at the cap, paid work stops until the month starts over or you raise the
-        cap. Your subscriptions are never counted here. Workers use paid keys only when{" "}
-        <strong>Let workers use paid AI keys</strong> is on in Settings → Switches.{" "}
+        <strong>Paid AI keys spend real money.</strong> Caps are up to you: without one, paid work
+        has no dollar limit, and every paid task is still priced and listed below. Before a paid
+        task starts, Plenipo sets aside the most it could cost, and never starts one that could pass
+        a cap you set. At 80% of a cap you get a warning; at the cap, paid work stops until the
+        month starts over or you raise the cap. Your subscriptions are never counted here. Workers
+        use paid keys only when <strong>Let workers use paid AI keys</strong> is on in Settings →
+        Switches.{" "}
         <Button variant="quiet" size="sm" onClick={() => go({ view: "settings", id: "switches" })}>
           Open Switches
         </Button>
@@ -127,7 +130,7 @@ export function SpendingSettings({ go }: { go: Go }) {
         <h3 id="spending-business">The business</h3>
         {!page.hasBusinessCap && (
           <p className="notice-box" role="note">
-            No paid AI key works until you set the business&apos;s monthly cap.
+            No cap for the business: paid AI keys have no dollar limit. Set one below if you want.
           </p>
         )}
         <CapEditor

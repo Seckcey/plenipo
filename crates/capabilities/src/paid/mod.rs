@@ -1,8 +1,9 @@
 //! Paid AI keys (Phase 16 Wave 3, ADR-085, paid AI keys with spending caps).
 //!
 //! - [`Gate`] is what the agent runtime asks before a paid task: the key (from the Vault, only
-//!   while "Let workers use paid AI keys" is on and the business's spending cap exists), and the
-//!   spending caps (the most the task could cost set aside in the Ledger, and its bill recorded).
+//!   while "Let workers use paid AI keys" is on), and the spending caps (the most the task could
+//!   cost set aside in the Ledger, and its bill recorded). A cap is the owner's choice, never
+//!   needed (2026-09-30): with none, paid work has no dollar limit and is still recorded.
 //! - [`save_key`] and [`remove_key`] keep a paid key: typed only into Plenipo's own screen,
 //!   checked with one cheap read call, then kept only in the Vault (Windows Credential Manager),
 //!   never shown again, and hidden from every log and record by the secret filter.
@@ -47,13 +48,10 @@ pub fn not_allowed(broker: &Broker) -> Option<String> {
              AI keys."
                 .into(),
         ),
+        // No cap is needed, but caps the owner set must be readable to be kept: unreadable,
+        // nothing paid is offered (the Router moves on to the next route) and nothing starts.
         Ok(_) => match broker.guard().ledger().has_business_cap() {
-            Ok(true) => None,
-            Ok(false) => Some(
-                "Paid AI keys need the business's monthly spending cap first (Settings → \
-                 Spending caps)."
-                    .into(),
-            ),
+            Ok(_) => None,
             Err(e) => Some(format!(
                 "Plenipo could not read your spending caps, so no paid key is used ({e})."
             )),
@@ -82,7 +80,7 @@ impl PaidGate for Gate {
     }
 
     fn set_aside(&self, charge: &PaidCharge) -> Result<String, String> {
-        // Switched off, or the business's cap removed, since the check: nothing starts.
+        // Switched off since the check: nothing starts.
         if let Some(why) = not_allowed(&self.broker) {
             return Err(why);
         }
@@ -107,7 +105,7 @@ impl PaidGate for Gate {
         };
         // The position doing the work, and the team it counts for (the team it is lent to while
         // on loan), from the task's own record. A record that cannot be read stops the task:
-        // only the business's cap would count otherwise.
+        // the department's and the position's caps would not count otherwise.
         let workforce = ledger
             .task(&charge.task_id)
             .map_err(unread)?
@@ -213,7 +211,7 @@ fn erase_logged(store: &dyn vault::SecretStore, id: &str) -> bool {
 }
 
 /// Save the paid key for `runtime_id` (replacing one saved before), typed only into Plenipo's
-/// own screen. Refused while paid keys are off or the business's cap does not exist. The key is
+/// own screen. Refused while paid keys are off; no spending cap is needed. The key is
 /// put in the Vault, checked with one cheap read call, and kept only if the service accepts it;
 /// otherwise nothing changes. Never returns or records the key. A key is never left in the Vault
 /// with nothing pointing to it: the one being replaced stays listed with the new one until the
@@ -353,7 +351,7 @@ pub async fn remove_key(
     Ok(info)
 }
 
-/// Whether any paid key is saved (the business's cap then stays, ADR-085 §2.4).
+/// Whether any paid key is saved.
 pub fn any_key(broker: &Broker) -> bool {
     broker
         .guard()

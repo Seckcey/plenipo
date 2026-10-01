@@ -84,7 +84,7 @@ describe("Settings → Switches", () => {
     render(<SwitchSettings />);
     const paid = await screen.findByRole("switch", { name: "Let workers use paid AI keys" });
     expect(paid).toHaveAttribute("aria-checked", "false");
-    expect(paid).toHaveAccessibleDescription(/only within your spending caps/);
+    expect(paid).toHaveAccessibleDescription(/A spending limit is up to you/);
     await userEvent.setup().click(paid);
     expect(api.setSwitches).toHaveBeenCalledWith({
       ...samplePermissions().settings.switches,

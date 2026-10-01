@@ -16,23 +16,28 @@ const MAX_KEY = 400;
  * A paid AI tool's key (Phase 16 Wave 3, ADR-085): the name you gave it, Replace and Remove, or
  * the form to add one. The key is typed only here; Plenipo checks it with the AI company, keeps it
  * in the Vault (Windows Credential Manager, as the screen says) if it works, and never shows it
- * again. Paid work stays within your spending caps. Overview gives each saved key a new instance
- * (`key`), so nothing typed or asked for one key stays for the next.
+ * again. A spending limit is up to you (the owner's choice, 2026-09-30): the form and the saved
+ * key say so, and no cap is needed. Overview gives each saved key a new instance (`key`), so
+ * nothing typed or asked for one key stays for the next.
  */
 export function PaidKey({
   info,
   tool,
   onApply,
   go,
+  place,
 }: {
   info: AgentRuntimeInfo;
   tool: AiToolState;
   onApply: (page: AiToolsPage) => void;
+  /** Shown on another AI tool's card ("Ollama's card"): named so, so each form's name is its own. */
+  place?: string | undefined;
   /** Opens Settings → Switches or Spending caps; absent: the words say where. */
   go?: Go | undefined;
 }) {
   const label = info.label;
   const saved = tool.paidKey;
+  const on = place ? ` on ${place}` : "";
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [name, setName] = useState(saved?.name ?? `${label} key`);
@@ -74,19 +79,13 @@ export function PaidKey({
 
   return (
     <div className="ai-tool__block paid-key">
-      <p>
-        Paid per use with your key, within your spending caps. A worker on {label} answers in text
-        only.
-      </p>
+      <p>Paid per use with your key. A worker on {label} answers in text only.</p>
       {/* What is not checked yet, and where to make a key (ADR-087). */}
       {tool.paidNote && <p className="muted">{tool.paidNote}</p>}
       {blocked && (
         <div className="notice-box" role="note">
           <p>{blocked}</p>
-          <div className="ai-tool__buttons">
-            {open("switches", "Open Switches")}
-            {open("spending", "Open Spending caps")}
-          </div>
+          <div className="ai-tool__buttons">{open("switches", "Open Switches")}</div>
         </div>
       )}
       {saved && !editing && (
@@ -95,8 +94,13 @@ export function PaidKey({
             Key saved: <strong>{saved.name}</strong>
             <span className="muted"> · saved {when(saved.updatedAt)}</span>
           </p>
+          <SpendingLimit go={go} />
           {confirming ? (
-            <div className="ai-tool__buttons" role="group" aria-label={`Remove ${saved.name}?`}>
+            <div
+              className="ai-tool__buttons"
+              role="group"
+              aria-label={`Remove ${saved.name}?${place ? ` (${place})` : ""}`}
+            >
               <span>
                 Remove {saved.name}? Paid work on {label} stops until you add a key again.
               </span>
@@ -119,7 +123,7 @@ export function PaidKey({
               <Button
                 size="sm"
                 disabled={pending || blocked !== null}
-                aria-label={`Replace key for ${label}`}
+                aria-label={`Replace key for ${label}${on}`}
                 onClick={() => {
                   clear();
                   setName(saved.name);
@@ -132,7 +136,7 @@ export function PaidKey({
                 size="sm"
                 variant="quiet"
                 disabled={pending}
-                aria-label={`Remove key for ${label}`}
+                aria-label={`Remove key for ${label}${on}`}
                 onClick={() => {
                   clear();
                   setConfirming(true);
@@ -147,7 +151,7 @@ export function PaidKey({
       {(!saved || editing) && (
         <form
           className="paid-key__form"
-          aria-label={saved ? `Replace key for ${label}` : `Add a key for ${label}`}
+          aria-label={saved ? `Replace key for ${label}${on}` : `Add a key for ${label}${on}`}
           onSubmit={submit}
         >
           <label className="field">
@@ -178,6 +182,7 @@ export function PaidKey({
             Plenipo checks the key with {label}. If it works, it is kept in {keptIn} and never shown
             again. Plenipo sends it only to {label}. Never paste a key into a chat.
           </p>
+          <SpendingLimit go={go} />
           <div className="ai-tool__buttons">
             <Button
               type="submit"
@@ -197,5 +202,24 @@ export function PaidKey({
       )}
       <Refusal error={error} />
     </div>
+  );
+}
+
+/**
+ * A spending limit is the owner's choice, never needed (2026-09-30): said where a key is added
+ * and beside a saved key, with the way to Spending caps.
+ */
+function SpendingLimit({ go }: { go?: Go | undefined }) {
+  return (
+    <p className="muted paid-key__limit">
+      You can set a spending limit in Settings → Spending caps if you want; it is not required.
+      Without one, paid work has no dollar limit, and every paid task is still priced and listed
+      there.{" "}
+      {go && (
+        <Button size="sm" variant="quiet" onClick={() => go({ view: "settings", id: "spending" })}>
+          Open Spending caps
+        </Button>
+      )}
+    </p>
   );
 }

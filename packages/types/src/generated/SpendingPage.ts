@@ -15,7 +15,7 @@ month: string, monthStartsAt: number,
  */
 resetsAt: number, 
 /**
- * The business cap exists (no paid key works without it).
+ * The business cap exists. Not needed: without it the business has no dollar limit.
  */
 hasBusinessCap: boolean, 
 /**

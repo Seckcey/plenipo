@@ -93,7 +93,7 @@ export const AUTH_LABEL: Record<AuthState, string> = {
   checking: "Checking…",
   subscription: "Signed in (subscription)",
   unverified: "Signed in (billing unverified)",
-  apiKey: "API key — not allowed",
+  apiKey: "Own API key outside Plenipo — not used",
   thirdPartyCloud: "Third-party cloud — not allowed",
   signedOut: "Not signed in",
   unknown: "Sign-in unknown",

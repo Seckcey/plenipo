@@ -147,7 +147,7 @@ export function SwitchSettings({ learning }: { learning?: ReactNode }) {
         />
         <Toggle
           label="Let workers use paid AI keys"
-          hint="Off to start with: Plenipo uses only your subscriptions. On: workers may use the paid AI keys you save, and only within your spending caps (Settings → Spending caps). No paid key works without the business's cap."
+          hint="Off to start with: workers use only your subscriptions. On: workers may use the paid AI keys you save on the AI tools page. A spending limit is up to you (Settings → Spending caps): without one, paid work has no dollar limit, and every paid task is still priced and listed."
           checked={s.paidAiKeys}
           disabled={pending}
           onChange={flip("paidAiKeys")}

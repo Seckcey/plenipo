@@ -47,8 +47,8 @@ plan: PlanReport | null, payment: PaymentMethod,
  */
 paidKey: PaidKeyInfo | null, 
 /**
- * Why a paid AI tool's key cannot be saved or used now (paid keys switched off, or no
- * business cap), in plain words.
+ * Why a paid AI tool's key cannot be saved or used now (paid keys switched off), in plain
+ * words. A spending cap is never needed.
  */
 paidBlocked: string | null, 
 /**

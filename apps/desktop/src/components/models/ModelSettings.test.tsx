@@ -107,7 +107,7 @@ describe("Settings → AI models", () => {
     const designer = rowOf("Designer");
     expect(within(designer).getByText("None right now")).toBeInTheDocument();
     expect(within(designer).getByText(/not marked as able to make images/)).toBeInTheDocument();
-    expect(screen.getByText(/Pay-per-use API billing: Off/)).toBeInTheDocument();
+    expect(screen.getByText(/its own API key outside Plenipo is skipped/)).toBeInTheDocument();
   });
 
   it("links to the AI tools page, where the usage limits moved (Phase 19)", async () => {

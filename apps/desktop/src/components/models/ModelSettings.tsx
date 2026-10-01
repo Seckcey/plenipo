@@ -41,7 +41,7 @@ export function ModelSettings({ go }: { go: Go }) {
       <RuleSettings snapshot={s} onApply={routing.apply} />
       <RoleChoices snapshot={s} onApply={routing.apply} />
       <ModelList snapshot={s} onApply={routing.apply} />
-      <ToolsLink snapshot={s} go={go} />
+      <ToolsLink go={go} />
       <LimitChoice snapshot={s} onApply={routing.apply} />
     </div>
   );
@@ -51,7 +51,7 @@ export function ModelSettings({ go }: { go: Go }) {
  * The AI tools' usage limits, sign-in, and updates are on the AI tools page (Phase 19, ADR-060
  * §2): a line and a link take the old table's place.
  */
-function ToolsLink({ snapshot, go }: { snapshot: RoutingSnapshot; go: Go }) {
+function ToolsLink({ go }: { go: Go }) {
   return (
     <section aria-labelledby="tools-title">
       <h3 id="tools-title">AI tools</h3>
@@ -62,8 +62,9 @@ function ToolsLink({ snapshot, go }: { snapshot: RoutingSnapshot; go: Go }) {
         </Button>
       </div>
       <p className="muted">
-        <strong>Pay-per-use API billing: {snapshot.apiBilling ? "On" : "Off"}.</strong> Plenipo uses
-        each AI tool&apos;s subscription sign-in and skips a tool signed in with an API key.
+        <strong>Paid AI keys</strong> are used only while Let workers use paid AI keys is on, and
+        only for positions you list them for. An AI tool signed in with its own API key outside
+        Plenipo is skipped: its costs would skip your spending caps.
       </p>
     </section>
   );

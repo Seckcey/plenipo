@@ -756,7 +756,7 @@ describe("the AI tools page: versions and updates (ADR-059)", () => {
 });
 
 describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => {
-  it("a subscription AI tool always uses its subscription, and no card of one asks for a key", async () => {
+  it("a subscription AI tool always uses its subscription; with no paid AI tool, no card asks for a key", async () => {
     api.getAgentOverview.mockResolvedValue({
       runtimes: runtimes({
         codex: { auth: { state: "subscription", method: "ChatGPT sign-in", detail: null } },
@@ -768,9 +768,8 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     expect(card("Codex")).toHaveTextContent("Subscription (ChatGPT sign-in)");
     for (const id of AI_TOOL_IDS) {
       const label = aiRuntime(id, "1").label;
-      expect(card(label)).toHaveTextContent(
-        `${label} always uses your subscription. To pay per use, add a key to a paid AI tool (OpenRouter, or the AI company's own), within your spending caps.`,
-      );
+      expect(card(label)).toHaveTextContent(`${label} always uses your subscription.`);
+      expect(within(card(label)).queryByRole("group", { name: "Pay per use instead" })).toBeNull();
     }
     expect(screen.queryByRole("switch", { name: /Paid AI key/ })).toBeNull();
     expect(container.querySelector('input[type="password"]')).toBeNull();
@@ -1334,10 +1333,10 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
       "OpenRouter comes with Plenipo: it is updated when Plenipo is.",
     );
     expect(openRouter).toHaveTextContent(
-      "Paid per use with your key, within your spending caps. A worker on OpenRouter answers in text only.",
+      "Paid per use with your key. A worker on OpenRouter answers in text only.",
     );
     expect(openRouter).toHaveTextContent(
-      "No plan: OpenRouter is paid per use. What is left this month is under your spending caps.",
+      "No plan: OpenRouter is paid per use. A spending limit is up to you, in Spending caps.",
     );
     // What is not checked yet, and where to make a key (ADR-087).
     expect(openRouter).toHaveTextContent("Plenipo has not checked OpenRouter with a real key yet.");
@@ -1348,6 +1347,10 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(within(form).getByLabelText("Name for the key")).toHaveValue("OpenRouter key");
     expect(within(form).getByLabelText("OpenRouter key")).toHaveAttribute("type", "password");
     expect(within(form).getByRole("button", { name: "Save and check" })).toBeDisabled();
+    // A spending limit is up to you: no cap is needed to add a key (2026-09-30).
+    expect(form).toHaveTextContent(
+      "You can set a spending limit in Settings → Spending caps if you want; it is not required.",
+    );
     expect(a11yProblems(container)).toEqual([]);
   });
 
@@ -1366,6 +1369,9 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     await user.type(within(form).getByLabelText("OpenRouter key"), KEY);
     await user.click(within(form).getByRole("button", { name: "Save and check" }));
     await waitFor(() => expect(openRouter).toHaveTextContent("Key saved: Office key"));
+    expect(openRouter).toHaveTextContent(
+      "You can set a spending limit in Settings → Spending caps if you want; it is not required.",
+    );
     expect(api.savePaidKey).toHaveBeenCalledTimes(1);
     expect(api.savePaidKey).toHaveBeenCalledWith("openrouter", "Office key", KEY);
     expect(openRouter.querySelector('input[type="password"]')).toBeNull();
@@ -1394,7 +1400,7 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(screen.queryByDisplayValue(KEY)).toBeNull();
   });
 
-  it("switched off: the notice says why once, opens Switches or Spending caps, and locks the form", async () => {
+  it("switched off: the notice says why once, opens Switches, and locks the form", async () => {
     const off =
       "Paid AI keys are switched off: turn on Settings → Switches → Let workers use paid AI keys.";
     withOpenRouter(
@@ -1408,9 +1414,99 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(within(openRouter).getByLabelText("OpenRouter key")).toBeDisabled();
     await user.click(within(openRouter).getByRole("button", { name: "Open Switches" }));
     expect(go).toHaveBeenLastCalledWith({ view: "settings", id: "switches" });
+    // The spending limit's own way there, beside the form.
     await user.click(within(openRouter).getByRole("button", { name: "Open Spending caps" }));
     expect(go).toHaveBeenLastCalledWith({ view: "settings", id: "spending" });
     expect(api.savePaidKey).not.toHaveBeenCalled();
+  });
+
+  it("the paid AI tools have their own part of the page, after the ones you sign in to", async () => {
+    withOpenRouter();
+    await show();
+    const user = userEvent.setup();
+    const signedIn = screen.getByRole("list", { name: "AI tools" });
+    const paid = screen.getByRole("list", { name: "AI tools paid per use" });
+    expect(within(signedIn).queryByRole("listitem", { name: "OpenRouter AI tool" })).toBeNull();
+    expect(within(paid).getByRole("listitem", { name: "OpenRouter AI tool" })).toBeVisible();
+    expect(within(paid).queryByRole("listitem", { name: "Codex AI tool" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Paid per use with your key" })).toBeVisible();
+    const scroll = vi.fn();
+    const heading = document.getElementById("paid-ai-tools")!;
+    heading.scrollIntoView = scroll;
+    await user.click(screen.getByRole("button", { name: "Go to the AI tools paid per use" }));
+    expect(scroll).toHaveBeenCalledTimes(1);
+    // The keyboard goes there too.
+    expect(heading).toHaveFocus();
+  });
+
+  it("a card you sign in to has a key box that saves its AI company's own key", async () => {
+    const anthropic = aiRuntime("anthropic-key", "1.17.0", {
+      ready: false,
+      auth: { state: "signedOut", method: null, detail: noKey },
+    });
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [...runtimes(), anthropic],
+      sessions: [],
+      notices: [],
+    });
+    const tools = [...page().tools, aiTool("anthropic-key")];
+    api.getAiTools.mockResolvedValue(aiPage(tools));
+    const saved = { ...SAVED, runtimeId: "anthropic-key", name: "Anthropic key" };
+    api.savePaidKey.mockResolvedValue(
+      aiPage(tools.map((t) => (t.runtimeId === "anthropic-key" ? { ...t, paidKey: saved } : t))),
+    );
+    await show();
+    const user = userEvent.setup();
+    const claude = card("Claude Code");
+    expect(claude).toHaveTextContent("Claude Code always uses your subscription.");
+    const box = within(claude).getByRole("group", { name: "Pay per use instead" });
+    expect(box).toHaveTextContent("Your Anthropic key goes here.");
+    expect(box).toHaveTextContent(
+      "It is the same key as on the Anthropic card under Paid per use with your key.",
+    );
+    expect(box).toHaveTextContent("Claude Code itself keeps using your subscription.");
+    expect(box).toHaveTextContent("it is not required");
+    const form = within(box).getByRole("form", {
+      name: "Add a key for Anthropic on Claude Code's card",
+    });
+    await user.type(within(form).getByLabelText("Anthropic key"), KEY);
+    await user.click(within(form).getByRole("button", { name: "Save and check" }));
+    // The Anthropic AI tool's key, once: the same one its own card shows. Claude Code never
+    // gets it.
+    expect(api.savePaidKey).toHaveBeenCalledTimes(1);
+    expect(api.savePaidKey).toHaveBeenCalledWith("anthropic-key", "Anthropic key", KEY);
+    await waitFor(() => expect(box).toHaveTextContent("Key saved: Anthropic key"));
+    expect(card("Anthropic")).toHaveTextContent("Key saved: Anthropic key");
+    expect(screen.queryByDisplayValue(KEY)).toBeNull();
+    // Codex's AI company has no paid AI tool here: no key box.
+    expect(within(card("Codex")).queryByRole("group", { name: "Pay per use instead" })).toBeNull();
+  });
+
+  it("Ollama and GitHub Copilot offer an OpenRouter key, which reaches the same kinds of models", async () => {
+    const tools = withOpenRouter();
+    api.savePaidKey.mockResolvedValue(
+      aiPage(tools.map((t) => (t.runtimeId === "openrouter" ? { ...t, paidKey: SAVED } : t))),
+    );
+    await show();
+    const user = userEvent.setup();
+    for (const label of ["Ollama", "GitHub Copilot"]) {
+      const box = within(card(label)).getByRole("group", { name: "Pay per use instead" });
+      expect(box).toHaveTextContent(
+        `${label} has no key of its own for paying per use; an OpenRouter key reaches the same kinds of models, and many more.`,
+      );
+      expect(
+        within(box).getByRole("form", { name: `Add a key for OpenRouter on ${label}'s card` }),
+      ).toBeVisible();
+    }
+    // Each form has its own name: the three OpenRouter forms are told apart.
+    expect(screen.getAllByRole("form", { name: /^Add a key for OpenRouter/ })).toHaveLength(3);
+    const box = within(card("Ollama")).getByRole("group", { name: "Pay per use instead" });
+    await user.type(within(box).getByLabelText("OpenRouter key"), KEY);
+    await user.click(within(box).getByRole("button", { name: "Save and check" }));
+    expect(api.savePaidKey).toHaveBeenCalledTimes(1);
+    expect(api.savePaidKey).toHaveBeenCalledWith("openrouter", "OpenRouter key", KEY);
+    await waitFor(() => expect(card("OpenRouter")).toHaveTextContent("Key saved: Office key"));
+    expect(card("GitHub Copilot")).toHaveTextContent("Key saved: Office key");
   });
 
   it("a saved key works: Replace opens the form, and Remove asks first", async () => {

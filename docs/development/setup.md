@@ -59,8 +59,9 @@ No `.env` file, API keys, or provider logins are required to build or launch.
 
 The **Workers** view runs tasks on the Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, and
 GitHub Copilot tools that are already installed **and signed in with your subscription** on this computer. Plenipo never asks
-for a password or API key, and refuses API-key sign-ins (no pay-per-use API billing). The desktop
-apps do not need to be open.
+for a password, and refuses an AI tool signed in with its own API key outside Plenipo (its costs
+would skip your spending caps). To pay per use instead, put your own key in the key box on an AI
+tool's card (see Spending caps and paid AI keys below). The desktop apps do not need to be open.
 
 | AI tool        | Install (PowerShell)                                                      | Sign in (once, in a terminal)                                                  |
 | -------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -276,12 +277,13 @@ Notes:
 - Spending caps and paid AI keys (Phase 16 Wave 3, optional;
   [ADR-085](../adr/ADR-085-paid-ai-keys-with-spending-caps.md), paid AI keys with spending caps).
   Out of the box Plenipo uses only your subscriptions and spends nothing. Paid AI keys stay off
-  until you do both of these:
-  - **Settings → Spending caps:** set the business's monthly cap first (no paid key works without
-    it). You can add a cap for a department or one position too; every paid task counts against
-    its position, its department, and the business, and the smallest amount left decides. The
-    month starts over on the 1st at midnight, Pacific time.
+  until you turn them on:
   - **Settings → Switches → Let workers use paid AI keys:** off to start with.
+  - **Settings → Spending caps** (optional): a monthly cap for the business, a department, or one
+    position. Without one, paid work has no dollar limit; every paid task is still priced and
+    listed. With caps, every paid task counts against its position, its department, and the
+    business, and the smallest amount left decides. The month starts over on the 1st at midnight,
+    Pacific time.
 
   Before a paid task starts, Plenipo sets aside the most it could cost and never starts one that
   could pass a cap, so work can stop a little before a cap is used up. At 80% of a cap you get a
