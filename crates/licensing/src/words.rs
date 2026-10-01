@@ -26,7 +26,8 @@ pub fn free_has(limit: Limit) -> &'static str {
 pub fn pro_adds(limit: Limit) -> &'static str {
     match limit {
         Limit::Organizations => {
-            "Plenipo Pro adds as many organizations as you want, each in its own window."
+            "Plenipo Pro covers 3 organizations, each in its own window, and Partner plans cover \
+             10, 25, or any number."
         }
         Limit::Departments => "Plenipo Pro adds as many departments as you want.",
         Limit::Projects => "Plenipo Pro adds as many projects as you want.",
@@ -46,6 +47,16 @@ pub fn pro_adds(limit: Limit) -> &'static str {
 /// The whole message.
 pub fn message(limit: Limit) -> String {
     format!("{} {} {WHERE}", free_has(limit), pro_adds(limit))
+}
+
+/// What a Pro or Partner key says when the PC has as many organizations as it covers (ADR-119).
+pub fn plan_covers(most: u32) -> String {
+    format!(
+        "Your plan covers {most} organization{}. Plenipo Partner plans cover 10, 25, or any \
+         number, for companies that run Plenipo for clients. Change your plan in your 8 West \
+         account, then enter the new key in Settings → License.",
+        if most == 1 { "" } else { "s" }
+    )
 }
 
 #[cfg(test)]
@@ -88,8 +99,9 @@ mod tests {
         assert_eq!(
             all,
             [
-                "Free has one organization. Plenipo Pro adds as many organizations as you want, \
-                 each in its own window. Enter a license key in Settings → License.",
+                "Free has one organization. Plenipo Pro covers 3 organizations, each in its own \
+                 window, and Partner plans cover 10, 25, or any number. Enter a license key in \
+                 Settings → License.",
                 "Free has one department. Plenipo Pro adds as many departments as you want. \
                  Enter a license key in Settings → License.",
                 "Free has one project. Plenipo Pro adds as many projects as you want. Enter a \

@@ -213,14 +213,16 @@ export async function nav(browser, label) {
   await (await browser.$(`//nav//button[.//span[normalize-space()="${label}"]]`)).click();
 }
 
-/**
- * The license contract's test key (Phase 11A, ADR-104). Only copies built for the tests
- * (`license-test-keys`, CI's E2E job) accept it; a released copy never does.
- */
-export const TEST_LICENSE_KEY = readFileSync(
-  join(root, "contracts", "license-check", "v1", "keys", "valid.txt"),
-  "utf8",
-).trim();
+/** A key from the license contract (Phase 11A, ADR-104). Only copies built for the tests
+ * (`license-test-keys`, CI's E2E job) accept its signer; a released copy never does. */
+const contractKey = (file) =>
+  readFileSync(join(root, "contracts", "license-check", "v1", "keys", file), "utf8").trim();
+
+/** The suites' key: a Partner key for any number of organizations (ADR-119). */
+export const TEST_LICENSE_KEY = contractKey("partner-unlimited.txt");
+
+/** A Pro key, covering 3 organizations (ADR-119). */
+export const PRO_TEST_KEY = contractKey("valid.txt");
 
 /**
  * Plenipo Pro for this copy (Phase 11A): the contract's test key, entered as a page would, when

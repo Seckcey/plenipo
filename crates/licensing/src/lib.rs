@@ -24,7 +24,7 @@ mod contract;
 
 pub use answer::{SignedAnswer, SubscriptionState};
 pub use entitlements::{Admission, Blocked, Decision, Edition, Entitlements, Limit, Usage};
-pub use key::{KeyError, LicenseKey, Plan};
+pub use key::{KeyEdition, KeyError, LicenseKey, Organizations, Plan};
 pub use license::{CheckOutcome, FreeLimits, License, LicenseReason, LicenseView};
 pub use state::Record;
 

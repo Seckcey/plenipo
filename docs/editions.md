@@ -13,30 +13,30 @@ business departments you can create.
 
 ## What you get
 
-| What                                                                                    | Free           | Pro                    |
-| --------------------------------------------------------------------------------------- | -------------- | ---------------------- |
-| Organizations (Phase 21: yours and a client's, each in its own window)                  | 1              | Unlimited              |
-| Departments                                                                             | 1              | Unlimited              |
-| Projects                                                                                | 1              | Unlimited              |
-| Workers on the job at the same time (the next one waits its turn)                       | 3              | 4 in each organization |
-| Development department (developer, reviewer, QA, docs)                                  | Yes            | Yes                    |
-| Sales department on HubSpot, and business departments after it                          | No             | Yes                    |
-| AI tools: Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, GitHub Copilot           | All            | All                    |
-| Your own sign-ins, or paid AI keys with spending caps (Phase 16)                        | Yes            | Yes                    |
-| Which AI model each role gets, and how hard it thinks                                   | Yes            | Yes                    |
-| Permissions, Guard, folder limits, and your approval                                    | Yes            | Yes                    |
-| Plenipo's own browser, and the screen, mouse, and keyboard                              | Yes            | Yes                    |
-| Switches in Settings: what workers may use, and when they ask                           | Yes            | Yes                    |
-| Workers that learn from their work (lessons)                                            | No             | Yes                    |
-| Connections: Microsoft 365, Slack, Google, HubSpot, Stripe, and your website (Phase 20) | No             | Yes                    |
-| Add-on tools you set up (Phase 20)                                                      | No             | Yes                    |
-| GitHub's tools for the Development department                                           | Yes            | Yes                    |
-| Your servers over SSH, and the Operations Engineer role                                 | Yes            | Yes                    |
-| Plenipo on your phone, with notices (planned, Phase 14)                                 | No             | Yes                    |
-| Ledger, Activity trail, and screenshots of every step                                   | Yes            | Yes                    |
-| Ranks, titles, and the rest of Personalization                                          | Yes            | Yes                    |
-| Full source code, and the right to change it for your own use                           | Yes            | Yes                    |
-| Support                                                                                 | Issues on here | Priority               |
+| What                                                                                    | Free           | Pro                                |
+| --------------------------------------------------------------------------------------- | -------------- | ---------------------------------- |
+| Organizations (Phase 21: yours and a client's, each in its own window)                  | 1              | 3 (Partner: 10, 25, or any number) |
+| Departments                                                                             | 1              | Unlimited                          |
+| Projects                                                                                | 1              | Unlimited                          |
+| Workers on the job at the same time (the next one waits its turn)                       | 3              | 4 in each organization             |
+| Development department (developer, reviewer, QA, docs)                                  | Yes            | Yes                                |
+| Sales department on HubSpot, and business departments after it                          | No             | Yes                                |
+| AI tools: Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, GitHub Copilot           | All            | All                                |
+| Your own sign-ins, or paid AI keys with spending caps (Phase 16)                        | Yes            | Yes                                |
+| Which AI model each role gets, and how hard it thinks                                   | Yes            | Yes                                |
+| Permissions, Guard, folder limits, and your approval                                    | Yes            | Yes                                |
+| Plenipo's own browser, and the screen, mouse, and keyboard                              | Yes            | Yes                                |
+| Switches in Settings: what workers may use, and when they ask                           | Yes            | Yes                                |
+| Workers that learn from their work (lessons)                                            | No             | Yes                                |
+| Connections: Microsoft 365, Slack, Google, HubSpot, Stripe, and your website (Phase 20) | No             | Yes                                |
+| Add-on tools you set up (Phase 20)                                                      | No             | Yes                                |
+| GitHub's tools for the Development department                                           | Yes            | Yes                                |
+| Your servers over SSH, and the Operations Engineer role                                 | Yes            | Yes                                |
+| Plenipo on your phone, with notices (planned, Phase 14)                                 | No             | Yes                                |
+| Ledger, Activity trail, and screenshots of every step                                   | Yes            | Yes                                |
+| Ranks, titles, and the rest of Personalization                                          | Yes            | Yes                                |
+| Full source code, and the right to change it for your own use                           | Yes            | Yes                                |
+| Support                                                                                 | Issues on here | Priority                           |
 
 ## What stays free, always
 
@@ -53,7 +53,10 @@ business departments you can create.
 **More than one organization** is Pro ([ADR-091](adr/ADR-091-phase-21-owners-answers.md) §2, the
 owner's answer): Free keeps one organization, so it cannot step around the one-project limit by
 making one organization per project. Free's limits count across the whole PC
-([ADR-110](adr/ADR-110-one-person-any-of-their-pcs.md), one person, any of their PCs).
+([ADR-110](adr/ADR-110-one-person-any-of-their-pcs.md), one person, any of their PCs). Pro covers
+three organizations; companies that run Plenipo for clients use a **Partner** plan, which covers
+10, 25, or any number ([ADR-119](adr/ADR-119-editions-and-prices-revised.md), editions and prices).
+The number is written in the license key and counted on your PC; nothing is sent to 8 West.
 
 **Connections and add-on tools** are Pro ([ADR-068](adr/ADR-068-connections-are-pro.md),
 Connections and add-on tools are part of Pro). When Pro ends, they pause: nothing is deleted,
@@ -70,18 +73,24 @@ on it.
 
 ## What Pro costs
 
-| Plan    | Price                                                          |
-| ------- | -------------------------------------------------------------- |
-| Monthly | **$9 a month**                                                 |
-| Yearly  | **$99 a year** — that is **$8.25 a month**, and one month free |
+| Plan                  | Who it is for                                          | Organizations | Monthly          | Yearly (2 months free) |
+| --------------------- | ------------------------------------------------------ | ------------- | ---------------- | ---------------------- |
+| **Pro**               | One owner running their own business                   | 3             | **$19 a month**  | **$190 a year**        |
+| **Partner 10**        | IT companies and agencies that run Plenipo for clients | 10            | **$79 a month**  | **$790 a year**        |
+| **Partner 25**        | Same                                                   | 25            | **$149 a month** | **$1,490 a year**      |
+| **Partner Unlimited** | Same                                                   | Any number    | **$299 a month** | **$2,990 a year**      |
+
+Partner plans include everything in Pro, and are priced per technician (one person, any of their
+own PCs). A **Business** plan for companies with many staff (fleet installs, company-wide
+settings, invoices) comes later ([ADR-119](adr/ADR-119-editions-and-prices-revised.md)).
 
 Free is free, with no card and no account, and stays that way.
 
 ## How Pro is unlocked
 
 **Settings → License → Enter a license key.** The key unlocks the limits above straight away, with
-no restart. Keys come from 8 West's store at getplenipo.com, by email. One Pro license is for one
-person, on any of their own PCs, and covers every organization on that PC
+no restart. Keys come from 8 West's store at getplenipo.com, by email. One Pro or Partner license
+is for one person, on any of their own PCs, and covers its number of organizations on that PC
 ([ADR-110](adr/ADR-110-one-person-any-of-their-pcs.md)).
 
 Because Pro is a subscription, Plenipo has to be able to tell that a subscription is still running.

@@ -172,6 +172,12 @@ Dates are Pacific time. The app uses the plain words in
 - [x] Only a copy built for the tests can point the check at a stand-in:
       `a_copy_checks_only_8_wests_one_address_unless_built_for_the_tests`.
 
+- [x] **Pro and Partner** (ADR-119, the owner's pricing decision of 2026-09-30): a key says how
+      many organizations it covers (Pro 3; Partner 10, 25, or any number), and the app enforces it
+      on the PC: `a_key_says_its_edition_and_how_many_organizations_it_covers`,
+      `a_keys_organizations_are_the_only_pro_limit`, `a_pro_key_covers_three_organizations`,
+      `license.test.tsx`, `license.e2e.mjs` test 3.
+
 ## Left for the owner
 
 - [x] **The two signing keys in AWS KMS** (made 2026-09-30); the app trusts them as `prod-1` and

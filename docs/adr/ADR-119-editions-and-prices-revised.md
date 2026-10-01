@@ -93,3 +93,19 @@ new is sent to 8 West. Free does not change.
 - **A price per client organization, reported to 8 West.** Not chosen: it would send counts to 8 West,
   against ADR-115 (a Free copy never contacts 8 West) and the privacy promise.
 - **A rule by company size only** (Docker's). Kept for when Business exists.
+
+## As built (v1.18.0)
+
+- **The license key** gains `organizations` (a whole number from 1, or `"unlimited"`; required, and
+  never read as unlimited when missing), and its `edition` is `pro` or `partner`. The contract
+  (`contracts/license-check/v1`) has a Partner example key for any number of organizations.
+- **One place decides:** `Entitlements::check(Organizations)` uses Free's one organization on Free,
+  and the key's number on Pro. Past it, a new organization, a copy, or bringing one back is refused
+  with "Your plan covers 3 organizations. Plenipo Partner plans cover 10, 25, or any number…".
+  Nothing else differs between Pro and Partner.
+- **Settings → License** shows the plan ("Pro, yearly"; "Partner, monthly") and "Organizations: 2 of
+  3" (or "14 (no limit)"). Settings → Organization says when every covered organization is in use.
+- **The account service** sells the eight prices by their lookup keys, puts the edition and the
+  number of organizations in each key, and swaps the key when a customer changes plan (the old key
+  keeps working for 14 days). Partners' free internal-use copies are complimentary keys made on the
+  admin page.

@@ -25,15 +25,32 @@ export function freeLine(limits: FreeLimits): string {
   )} on the job at a time`;
 }
 
-/** "Plenipo Pro" or "Free". */
-export function editionName(view: Pick<LicenseView, "edition">): string {
-  return view.edition === "pro" ? "Plenipo Pro" : "Free";
+/** "Plenipo Pro", "Plenipo Partner", or "Free". */
+export function editionName(view: Pick<LicenseView, "edition" | "keyEdition">): string {
+  if (view.edition !== "pro") return "Free";
+  return view.keyEdition === "partner" ? "Plenipo Partner" : "Plenipo Pro";
 }
 
 export const PLAN_WORDS: Record<Plan, string> = {
   monthly: "Monthly",
   yearly: "Yearly",
 };
+
+/** The plan a key was bought on: "Pro, yearly" or "Partner, monthly" (ADR-119). */
+export function planLine(view: Pick<LicenseView, "keyEdition" | "plan">): string | null {
+  if (!view.plan) return null;
+  const edition = view.keyEdition === "partner" ? "Partner" : "Pro";
+  return `${edition}, ${PLAN_WORDS[view.plan].toLowerCase()}`;
+}
+
+/** Organizations in use against what is covered: "2 of 3", or "2 (no limit)". */
+export function organizationsLine(
+  view: Pick<LicenseView, "organizationsCovered" | "organizationsInUse">,
+): string {
+  return view.organizationsCovered === null
+    ? `${view.organizationsInUse} (no limit)`
+    : `${view.organizationsInUse} of ${view.organizationsCovered}`;
+}
 
 /** Where to buy or renew Pro. */
 export const WHERE_TO_BUY = "getplenipo.com";
@@ -42,7 +59,7 @@ export const WHERE_TO_BUY = "getplenipo.com";
 export function reasonWords(view: LicenseView, now: number = Date.now()): string {
   switch (view.reason) {
     case "noKey":
-      return `You're on Free: ${freeLine(view.freeLimits)}. Every safety feature and every AI tool is included. Plenipo Pro adds more organizations, departments, projects, and workers, business departments, lessons, Connections, and add-on tools. Get it at ${WHERE_TO_BUY}.`;
+      return `You're on Free: ${freeLine(view.freeLimits)}. Every safety feature and every AI tool is included. Plenipo Pro adds up to 3 organizations, more departments, projects, and workers, business departments, lessons, Connections, and add-on tools; Partner plans, for companies that run Plenipo for clients, cover 10, 25, or any number of organizations. Get them at ${WHERE_TO_BUY}.`;
     case "notCheckedYet":
       return view.lastTried
         ? `Pro is on. Plenipo hasn't reached 8 West yet to check the key, and keeps trying${

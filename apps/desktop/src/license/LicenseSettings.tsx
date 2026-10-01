@@ -10,7 +10,7 @@ import {
 } from "../api/commands";
 import { when } from "../pages/words";
 import { useLicense } from "./useLicense";
-import { PLAN_WORDS, WHERE_TO_BUY, day, editionName, reasonWords } from "./words";
+import { WHERE_TO_BUY, day, editionName, organizationsLine, planLine, reasonWords } from "./words";
 
 type Busy = "enter" | "check" | "remove" | null;
 
@@ -58,7 +58,7 @@ export function LicenseSettings() {
 
   const pill =
     view.edition === "pro" ? (
-      <StatusPill status="ok" label="Plenipo Pro" />
+      <StatusPill status="ok" label={editionName(view)} />
     ) : (
       <StatusPill status={hasKey ? "warn" : "offline"} label="Free" />
     );
@@ -103,7 +103,8 @@ export function LicenseSettings() {
           items={[
             { label: "Now", value: editionName(view) },
             ...(view.holder ? [{ label: "Licensed to", value: view.holder }] : []),
-            ...(view.plan ? [{ label: "Plan", value: PLAN_WORDS[view.plan] }] : []),
+            ...(planLine(view) ? [{ label: "Plan", value: planLine(view) }] : []),
+            { label: "Organizations", value: organizationsLine(view) },
             ...(view.paidThrough ? [{ label: "Paid through", value: day(view.paidThrough) }] : []),
             ...(view.endsAt ? [{ label: "Pro ends", value: day(view.endsAt) }] : []),
             { label: "Last check with 8 West", value: lastCheckWords(view) },

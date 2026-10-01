@@ -380,6 +380,7 @@ export type { Blocked } from "./generated/Blocked";
 export type { Edition } from "./generated/Edition";
 export type { FreeLimits } from "./generated/FreeLimits";
 export type { LicenseReason } from "./generated/LicenseReason";
+export type { KeyEdition } from "./generated/KeyEdition";
 export type { LicenseView } from "./generated/LicenseView";
 export type { Limit } from "./generated/Limit";
 export type { Plan } from "./generated/Plan";

@@ -17,7 +17,7 @@ import { join, resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
 
 import {
-  TEST_LICENSE_KEY,
+  PRO_TEST_KEY as TEST_LICENSE_KEY,
   clickButton,
   launch,
   makeHome,
@@ -225,6 +225,11 @@ describe("Phase 11A Free and Pro (real app)", () => {
       start: { kind: "scratch" },
     });
     assert.ok(made.ok, JSON.stringify(made));
+    // A Pro key covers 3 organizations (ADR-119).
+    const covered = (await invoke(browser, "get_license")).ok;
+    assert.equal(covered.organizationsCovered, 3);
+    assert.equal(covered.organizationsInUse, 2);
+    await waitForText(browser, ".settings-license", "2 of 3");
   });
 
   it("goes back to Free when the subscription ends, and nothing is taken away", async () => {

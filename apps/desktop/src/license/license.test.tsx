@@ -48,6 +48,9 @@ function free(patch: Partial<LicenseView> = {}): LicenseView {
     edition: "free",
     reason: "noKey",
     keyId: null,
+    keyEdition: null,
+    organizationsCovered: 1,
+    organizationsInUse: 1,
     holder: null,
     plan: null,
     paidThrough: null,
@@ -69,6 +72,9 @@ function pro(patch: Partial<LicenseView> = {}): LicenseView {
     edition: "pro",
     reason: "active",
     keyId: KEY_ID,
+    keyEdition: "pro",
+    organizationsCovered: 3,
+    organizationsInUse: 2,
     holder: "Frank's Garage",
     plan: "yearly",
     paidThrough: NOW + 300 * DAY,
@@ -128,7 +134,8 @@ describe("Settings → License", () => {
     render(<LicenseSettings />);
     expect(await screen.findByText(KEY_ID)).toBeTruthy();
     expect(screen.getByText("Frank's Garage")).toBeTruthy();
-    expect(screen.getByText("Yearly")).toBeTruthy();
+    expect(screen.getByText("Pro, yearly")).toBeTruthy();
+    expect(screen.getByText("2 of 3")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Check now" }));
     expect(api.checkLicenseNow).toHaveBeenCalled();
   });
@@ -153,6 +160,21 @@ describe("Settings → License", () => {
     );
     render(<LicenseSettings />);
     expect(await screen.findByText(/clock is 40 days ahead of 8 West/)).toBeTruthy();
+  });
+
+  it("names a Partner plan and an organization count with no limit (ADR-119)", async () => {
+    api.getLicense.mockResolvedValue(
+      pro({
+        keyEdition: "partner",
+        plan: "monthly",
+        organizationsCovered: null,
+        organizationsInUse: 14,
+      }),
+    );
+    render(<LicenseSettings />);
+    expect(await screen.findByText("Partner, monthly")).toBeTruthy();
+    expect(screen.getByText("14 (no limit)")).toBeTruthy();
+    expect(screen.getAllByText("Plenipo Partner").length).toBeGreaterThan(0);
   });
 
   it("says a test copy accepts test keys", async () => {

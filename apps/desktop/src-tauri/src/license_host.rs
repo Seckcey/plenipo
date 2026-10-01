@@ -22,7 +22,8 @@ use plenipo_core::CommandError;
 use plenipo_guard::{Guard, OutboundRules};
 use plenipo_ledger::{Ledger, NewEvent};
 use plenipo_licensing::{
-    CheckOutcome, Entitlements, License, LicenseReason, LicenseView, Limit, Record, Usage,
+    CheckOutcome, Entitlements, License, LicenseKey, LicenseReason, LicenseView, Limit, Record,
+    Usage,
 };
 use serde_json::json;
 use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
@@ -153,8 +154,10 @@ impl LicenseHost {
         let saved = read_record_bytes(record_file.as_deref());
         let record: Record = serde_json::from_slice(&saved).unwrap_or_default();
         let license = License::load(text.as_deref(), record, now);
+        let entitlements = Entitlements::new(license.edition(now));
+        entitlements.set_organizations(license.key().and_then(LicenseKey::organizations));
         let host = Arc::new(Self {
-            entitlements: Entitlements::new(license.edition(now)),
+            entitlements,
             store,
             record_file,
             version: version.to_owned(),
@@ -192,6 +195,7 @@ impl LicenseHost {
     pub fn view(&self) -> LicenseView {
         let now = self.now();
         let mut view = lock(&self.license).view(now);
+        view.organizations_in_use = self.entitlements.organizations_in_use();
         if view.problem.is_none() {
             view.problem.clone_from(&lock(&self.unreadable));
         }
@@ -366,6 +370,9 @@ impl LicenseHost {
 
     /// Follow the license's edition; the event to record when it changed.
     fn settle(&self, license: &License, now: i64) -> Option<Event> {
+        // How many organizations the key covers (ADR-119), whatever the edition.
+        self.entitlements
+            .set_organizations(license.key().and_then(LicenseKey::organizations));
         let status = license.status(now);
         let before = self.entitlements.edition();
         if !self.entitlements.set_edition(status.edition) {

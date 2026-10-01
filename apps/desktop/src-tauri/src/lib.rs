@@ -994,15 +994,21 @@ mod ipc_boundary_tests {
         app
     }
 
-    /// The license contract's test key (ADR-104): only test builds trust its signer.
-    fn test_license_key() -> String {
+    /// A license key from the contract (ADR-104): only test builds trust its signer.
+    fn contract_key(file: &str) -> String {
         std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../../contracts/license-check/v1/keys/valid.txt"),
+                .join("../../../contracts/license-check/v1/keys")
+                .join(file),
         )
         .unwrap()
         .trim()
         .to_owned()
+    }
+
+    /// The tests' key: the contract's Partner key, for any number of organizations (ADR-119).
+    fn test_license_key() -> String {
+        contract_key("partner-unlimited.txt")
     }
 
     /// Opens no file (tests never start a program).
@@ -6211,6 +6217,39 @@ mod ipc_boundary_tests {
             .organizations
             .iter()
             .any(|o| o.id == id && !o.archived));
+    }
+
+    /// ADR-119: the contract's Pro key covers 3 organizations. The third is made; the fourth is
+    /// refused in plain words, and Settings → License says 3 of 3.
+    #[test]
+    fn a_pro_key_covers_three_organizations() {
+        let app = app();
+        let main = window(&app, "main");
+        let _: plenipo_licensing::LicenseView = body(invoke_json(
+            &main,
+            "enter_license_key",
+            serde_json::json!({ "key": contract_key("valid.txt") }),
+        ));
+        second_organization(&app, &main, "Client One");
+        second_organization(&app, &main, "Client Two");
+        let err = invoke_json(
+            &main,
+            "create_organization",
+            serde_json::json!({ "name": "Client Three", "start": { "kind": "scratch" } }),
+        )
+        .expect_err("a fourth organization");
+        assert_eq!(err["kind"], "partOfPro", "{err}");
+        assert!(
+            err["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("Your plan covers 3 organizations."),
+            "{err}"
+        );
+        let view: plenipo_licensing::LicenseView = body(invoke(&main, "get_license"));
+        assert_eq!(view.organizations_covered, Some(3));
+        assert_eq!(view.organizations_in_use, 3);
+        assert_eq!(view.key_edition, Some(plenipo_licensing::KeyEdition::Pro));
     }
 
     /// A Free limit reaches the screen as "part of Pro", with its plain words.

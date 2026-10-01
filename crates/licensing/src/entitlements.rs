@@ -93,6 +93,14 @@ impl Blocked {
             message: words::message(limit),
         }
     }
+
+    /// A Pro or Partner key's organizations are all in use (ADR-119).
+    pub fn plan_covers(most: u32) -> Self {
+        Self {
+            limit: Limit::Organizations,
+            message: words::plan_covers(most),
+        }
+    }
 }
 
 impl std::fmt::Display for Blocked {
@@ -160,6 +168,8 @@ pub struct Entitlements {
     /// Always this edition (the tests, and any service not given the PC's).
     fixed: bool,
     edition: RwLock<Edition>,
+    /// How many organizations a Pro or Partner key covers (ADR-119): `None`, any number.
+    organizations: RwLock<Option<u32>>,
     usage: RwLock<Option<Arc<dyn Usage>>>,
     tasks: Mutex<TaskEditions>,
     admitted: Mutex<Vec<Admitted>>,
@@ -189,6 +199,7 @@ impl Entitlements {
         Self {
             fixed,
             edition: RwLock::new(edition),
+            organizations: RwLock::new(None),
             usage: RwLock::new(None),
             tasks: Mutex::default(),
             admitted: Mutex::default(),
@@ -210,6 +221,34 @@ impl Entitlements {
         changed
     }
 
+    /// How many organizations the PC's key covers when on Pro (`None`: any number). True when it
+    /// changed.
+    pub fn set_organizations(&self, most: Option<u32>) -> bool {
+        let mut current = self
+            .organizations
+            .write()
+            .unwrap_or_else(PoisonError::into_inner);
+        let changed = *current != most;
+        *current = most;
+        changed
+    }
+
+    /// How many organizations this PC may have open now (`None`: any number).
+    pub fn organizations_covered(&self) -> Option<u32> {
+        match self.edition() {
+            Edition::Free => Some(FREE_ORGANIZATIONS),
+            Edition::Pro => *self
+                .organizations
+                .read()
+                .unwrap_or_else(PoisonError::into_inner),
+        }
+    }
+
+    /// Organizations that are not archived, on the whole PC.
+    pub fn organizations_in_use(&self) -> u32 {
+        self.usage().map_or(0, |u| u.organizations())
+    }
+
     /// How to count what is live (the app provides it once its organizations are open).
     pub fn set_usage(&self, usage: Arc<dyn Usage>) {
         *self.usage.write().unwrap_or_else(PoisonError::into_inner) = Some(usage);
@@ -225,6 +264,14 @@ impl Entitlements {
     /// Allowed, or Blocked with plain words, for `limit` now.
     pub fn check(&self, limit: Limit) -> Decision {
         if self.edition() == Edition::Pro {
+            // Pro and Partner keys cover a number of organizations (ADR-119); nothing else.
+            if limit == Limit::Organizations {
+                if let Some(most) = self.organizations_covered() {
+                    if self.organizations_in_use() >= most {
+                        return Decision::Blocked(Blocked::plan_covers(most));
+                    }
+                }
+            }
             return Decision::Allowed;
         }
         let usage = self.usage();
@@ -413,6 +460,50 @@ pub(crate) mod tests {
             assert!(e.check(limit).is_allowed(), "{limit:?}");
         }
         assert!(e.admit_worker(None).is_ok());
+    }
+
+    /// ADR-119: a Pro key covers 3 organizations, a Partner key 10, 25, or any number. Past
+    /// that, a new organization is refused in plain words; nothing else changes.
+    #[test]
+    fn a_keys_organizations_are_the_only_pro_limit() {
+        let e = Entitlements::new(Edition::Pro);
+        let counts = |organizations| {
+            Arc::new(Counts {
+                organizations,
+                departments: 99,
+                projects: 999,
+                working: Mutex::default(),
+            })
+        };
+        e.set_organizations(Some(3));
+        e.set_usage(counts(2));
+        assert!(e.check(Limit::Organizations).is_allowed());
+        assert_eq!(e.organizations_covered(), Some(3));
+        e.set_usage(counts(3));
+        match e.check(Limit::Organizations) {
+            Decision::Blocked(b) => {
+                assert_eq!(b.limit, Limit::Organizations);
+                assert!(
+                    b.message.starts_with("Your plan covers 3 organizations."),
+                    "{b}"
+                );
+            }
+            Decision::Allowed => panic!("a fourth organization on Pro"),
+        }
+        for limit in Limit::ALL {
+            if limit != Limit::Organizations {
+                assert!(e.check(limit).is_allowed(), "{limit:?}");
+            }
+        }
+        // A Partner key for any number.
+        assert!(e.set_organizations(None));
+        e.set_usage(counts(500));
+        assert!(e.check(Limit::Organizations).is_allowed());
+        assert_eq!(e.organizations_covered(), None);
+        // On Free, Free's one organization, whatever the key said.
+        e.set_organizations(Some(25));
+        e.set_edition(Edition::Free);
+        assert_eq!(e.organizations_covered(), Some(1));
     }
 
     #[test]

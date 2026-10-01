@@ -10,7 +10,7 @@ use crate::answer::{self, SubscriptionState};
 use crate::entitlements::{
     Edition, FREE_DEPARTMENTS, FREE_ORGANIZATIONS, FREE_PROJECTS, FREE_WORKERS_AT_ONCE,
 };
-use crate::key::{self, KeyError, LicenseKey, Plan};
+use crate::key::{self, KeyEdition, KeyError, LicenseKey, Plan};
 use crate::state::{Reason, Record, Status};
 
 /// Why the edition is what it is (Settings → License says it in words).
@@ -72,6 +72,13 @@ pub struct LicenseView {
     pub reason: LicenseReason,
     /// The key's ID (what the weekly check sends).
     pub key_id: Option<String>,
+    /// Pro or Partner, from the key (ADR-119).
+    pub key_edition: Option<KeyEdition>,
+    /// How many organizations this PC may have open now: Free's one, or what the key covers
+    /// (`None`: any number).
+    pub organizations_covered: Option<u32>,
+    /// Organizations open now, on the whole PC (the app fills it in).
+    pub organizations_in_use: u32,
     pub holder: Option<String>,
     pub plan: Option<Plan>,
     #[ts(type = "number | null")]
@@ -259,6 +266,12 @@ impl License {
             edition: status.edition,
             reason: status.reason.into(),
             key_id: payload.map(|p| p.key_id.clone()),
+            key_edition: self.key.as_ref().map(LicenseKey::edition),
+            organizations_covered: match status.edition {
+                Edition::Free => Some(FREE_ORGANIZATIONS),
+                Edition::Pro => self.key.as_ref().and_then(LicenseKey::organizations),
+            },
+            organizations_in_use: 0,
             holder: payload.map(|p| p.holder.clone()),
             plan: payload.map(|p| p.plan),
             paid_through: status.paid_through.map(ms),

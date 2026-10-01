@@ -58,5 +58,7 @@ PC, one license covers every organization, and Free's limits count across the wh
 - **How Free's limits count.** Organizations that are not archived; departments and projects that are
   neither archived nor deleted, in every open organization; and the workers on the job (running, or
   waiting for an approval) in every organization.
+- **How many organizations a key covers** (ADR-119, from 2026-09-30): Pro 3; Partner 10, 25, or
+  any number, written in the key and counted on the PC.
 - **Organizations on Free.** A new organization, a copy of one, and bringing back an archived one
   are all part of Pro. An archived organization waits, kept.
