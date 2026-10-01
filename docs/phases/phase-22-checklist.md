@@ -36,7 +36,8 @@ Dates are Pacific time.
   purchases (one by a script with Stripe's test card, one by the owner through sign-up and Stripe
   Checkout) each got a key by email within seconds.
 - **Not done yet: going live.** That waits for the security review and the owner's word, plus
-  backups, monitoring, and a few Stripe settings (see "Left for the owner").
+  monitoring and a few Stripe settings (see "Left for the owner"). Nightly backups run, and a
+  restore was checked.
 
 ## Deliverables
 
@@ -114,13 +115,16 @@ Values go only where each line says. Never in chat, and never in either reposito
 - [x] **AWS KMS:** the two production signing keys and the test key (made 2026-09-30).
 - [x] **AWS:** the server's instance role, the S3 backup bucket, and the settings in SSM Parameter
       Store (2026-09-30 and 2026-10-01; each checked, see the service's `docs/deploy.md`).
-- [ ] **AWS, still to do:** the nightly encrypted backups (their key pair is not made yet), and the
-      alarms for memory, disk, and failed signatures.
+- [x] **AWS backups:** nightly, encrypted to a key pair whose private half the owner keeps printed;
+      the first backup is in the bucket, locked for 35 days, and a restore check on Coastline matched
+      the live database's counts (2026-10-01).
+- [ ] **AWS, still to do:** the alarms for memory, disk, and failed signatures.
 - [x] **Stripe sandbox:** Stripe Tax's head office address, the webhook endpoint and its signing
       secret, a restricted key for the service, and the customer portal with the privacy and terms
       links (2026-10-01).
-- [ ] **Stripe, still to do:** branding (logo and color), the custom email domain, Billing's retry and
-      email settings, and turning off quantity changes in the portal. Then the same in live mode.
+- [ ] **Stripe, still to do:** branding (logo and color), the custom email domain, and Billing's
+      retry and email settings (quantity changes in the portal are off, 2026-10-01). Then the same in
+      live mode.
 - [x] **Microsoft Entra:** the app registration that sends from hello@getplenipo.com, locked to that
       one mailbox (RBAC for Applications). Its secret is in SSM (2026-10-01).
 - [x] **Cloudflare:** the tunnel to the server, Access for the admin page with an emailed code, and
