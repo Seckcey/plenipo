@@ -311,6 +311,15 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | $3.00 a million tokens read, $15.00 a million written                          | $/Mtok, input/output pricing, per-token rate                                               |
 | also on Ollama, OpenRouter (the same model on other AI tools)                  | model alias, provider route, model mapping                                                 |
 | It costs money (a paid route) / A worker on it answers in text only            | metered route, paid fallback, no tool use                                                  |
+| Free / Plenipo Pro (Phase 11A)                                                 | edition, tier, entitlement, SKU                                                            |
+| Plenipo Partner (for companies that run Plenipo for clients)                   | MSP tier, reseller SKU, multi-tenant plan                                                  |
+| part of Pro / Part of Plenipo Pro                                              | blocked, gated, entitlement denied, upgrade required                                       |
+| license key / the key's ID                                                     | token, license token, JWT                                                                  |
+| the weekly check with 8 West                                                   | check-in, license ping, phone home, heartbeat, validation call                             |
+| Pro keeps working for 30 days between checks                                   | grace period, offline grace, fail-open                                                     |
+| Paid / Cancelled (Pro until the paid period ends) / Ended                      | subscription state, active, past_due, canceled, lapsed                                     |
+| waits its turn (Free runs 3 workers at a time)                                 | concurrency limit, slot, queued for capacity                                               |
+| paused (Connections, add-on tools, and lessons on Free)                        | disabled, deactivated, revoked                                                             |
 
 ## Where technical words may stay
 

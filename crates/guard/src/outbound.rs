@@ -26,6 +26,9 @@ pub enum Purpose {
     /// A paid task, or its key's check, on a paid AI service (Phase 16 Wave 3, ADR-085): only
     /// that service's own addresses ([`PaidService::hosts`]).
     PaidAi(PaidService),
+    /// A Pro copy's weekly license check (Phase 11A, ADR-022, ADR-115): only
+    /// [`LICENSE_CHECK_ADDRESS`], exactly. A Free copy never makes it.
+    License,
 }
 
 impl Purpose {
@@ -54,6 +57,7 @@ impl Purpose {
                 PaidService::Mistral => "the Mistral paid key",
                 PaidService::Alibaba => "the Alibaba Cloud paid key",
             },
+            Self::License => "the weekly license check",
         }
     }
 }
@@ -116,6 +120,9 @@ pub const AI_TOOL_RELEASE_LISTS: [&str; 4] = [
     "https://api.github.com/repos/ollama/ollama/releases/latest",
 ];
 
+/// The weekly license check's address (ADR-105): built into every copy, and never changed.
+pub const LICENSE_CHECK_ADDRESS: &str = plenipo_licensing::CHECK_ADDRESS;
+
 /// The GitHub repository whose releases Plenipo updates from.
 pub const RELEASES_PATH: &str = "/Seckcey/plenipo/releases/";
 /// The hosts GitHub sends release downloads to.
@@ -141,6 +148,10 @@ pub struct OutboundRules {
     /// A stand-in for the paid AI services on this computer (`127.0.0.1:<port>`, the service's
     /// host and path after it), for tests only (never a setting, never an environment variable).
     pub paid_test_port: Option<u16>,
+    /// A stand-in for 8 West's license check on this computer (`127.0.0.1:<port>/v1/check`), for
+    /// copies of Plenipo built for the tests only (never a setting, never an environment
+    /// variable).
+    pub license_test_port: Option<u16>,
 }
 
 impl OutboundRules {
@@ -157,7 +168,21 @@ impl OutboundRules {
             ai_tool_test_port: None,
             connections_test_port: None,
             paid_test_port: None,
+            license_test_port: None,
         }
+    }
+
+    /// The same rules, with a stand-in for 8 West's license check at `base`
+    /// (`http://127.0.0.1:<port>`), when this copy of Plenipo was built to use one.
+    pub fn with_license_stand_in(mut self, base: Option<&str>) -> Self {
+        self.license_test_port = base.and_then(|b| {
+            Site::parse(b).ok().and_then(|s| {
+                (s.scheme == "http" && s.host == "127.0.0.1")
+                    .then_some(s.port)
+                    .flatten()
+            })
+        });
+        self
     }
 
     /// The same rules, with a stand-in for the connections' services at `base`
@@ -216,6 +241,9 @@ impl OutboundRules {
         if let Purpose::PaidAi(service) = purpose {
             return self.check_paid(service, &site, refuse);
         }
+        if purpose == Purpose::License {
+            return self.check_license(&site, refuse);
+        }
         if let Some(port) = self.test_server_port {
             if site.scheme == "http" && site.host == "127.0.0.1" && site.port == Some(port) {
                 return Ok(site);
@@ -240,9 +268,49 @@ impl OutboundRules {
                     refuse("updates come only from Plenipo's releases on GitHub")
                 }
             }
-            Purpose::AiToolVersions | Purpose::Connection(_) | Purpose::PaidAi(_) => {
+            Purpose::AiToolVersions
+            | Purpose::Connection(_)
+            | Purpose::PaidAi(_)
+            | Purpose::License => {
                 unreachable!("checked above")
             }
+        }
+    }
+
+    /// The license check's one address, exactly, or its stand-in on this computer in a copy
+    /// built for the tests.
+    fn check_license(
+        &self,
+        site: &Site,
+        refuse: impl Fn(&str) -> Result<Site, String>,
+    ) -> Result<Site, String> {
+        let Ok(url) = url::Url::parse(&site.url) else {
+            return refuse("that is not a web address");
+        };
+        let plain = url.query().is_none()
+            && url.fragment().is_none()
+            && url.username().is_empty()
+            && url.password().is_none();
+        let path = url.path();
+        if let Some(port) = self.license_test_port {
+            if site.scheme == "http" && site.host == "127.0.0.1" && site.port == Some(port) {
+                if plain && path == "/v1/check" {
+                    return Ok(site.clone());
+                }
+                return refuse("the test stand-in serves only the license check");
+            }
+        }
+        let Ok(check) = url::Url::parse(LICENSE_CHECK_ADDRESS) else {
+            return refuse("the license check's address is not a web address");
+        };
+        let exact = site.scheme == "https"
+            && site.port.is_none()
+            && url.host_str() == check.host_str()
+            && path == check.path();
+        if plain && exact {
+            Ok(site.clone())
+        } else {
+            refuse("the license check reaches only 8 West's license check address")
         }
     }
 
@@ -698,6 +766,56 @@ mod tests {
         assert_eq!(refused.len(), 1);
         assert_eq!(refused[0].payload["host"], "evil.example");
         assert!(!refused[0].payload.to_string().contains("token=abc"));
+    }
+
+    #[test]
+    fn the_license_check_reaches_only_its_one_address() {
+        let rules = OutboundRules::default();
+        assert!(rules
+            .check(Purpose::License, "https://account.getplenipo.com/v1/check")
+            .is_ok());
+        for bad in [
+            "http://account.getplenipo.com/v1/check",
+            "https://account.getplenipo.com:8443/v1/check",
+            "https://account.getplenipo.com/v1/check?key=x",
+            "https://account.getplenipo.com/v1/check#x",
+            "https://account.getplenipo.com/v1/checks",
+            "https://account.getplenipo.com/account",
+            "https://user:pw@account.getplenipo.com/v1/check",
+            "https://getplenipo.com/v1/check",
+            "https://account.getplenipo.com.evil.example/v1/check",
+            "https://evil.example/account.getplenipo.com/v1/check",
+            "http://127.0.0.1:8768/v1/check",
+            "https://github.com/Seckcey/plenipo/releases/latest/download/latest.json",
+        ] {
+            let err = rules.check(Purpose::License, bad).expect_err(bad);
+            // An address with a user name in it is refused before any purpose is looked at.
+            if !bad.contains("user:pw") {
+                assert!(err.contains("the weekly license check"), "{err}");
+            }
+        }
+        // The license check's address is for nothing else.
+        assert!(rules
+            .check(Purpose::Updates, "https://account.getplenipo.com/v1/check")
+            .is_err());
+        // A copy built for the tests: that stand-in, for the check's path only.
+        let test = OutboundRules::default().with_license_stand_in(Some("http://127.0.0.1:8768"));
+        assert!(test
+            .check(Purpose::License, "http://127.0.0.1:8768/v1/check")
+            .is_ok());
+        for bad in [
+            "http://127.0.0.1:8768/v1/other",
+            "http://127.0.0.1:8769/v1/check",
+            "http://127.0.0.1:8768/v1/check?x=1",
+        ] {
+            assert!(test.check(Purpose::License, bad).is_err(), "{bad}");
+        }
+        assert_eq!(
+            OutboundRules::default()
+                .with_license_stand_in(Some("http://evil.example:8768"))
+                .license_test_port,
+            None
+        );
     }
 
     #[test]

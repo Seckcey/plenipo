@@ -375,3 +375,13 @@ export type { SpendingCap } from "./generated/SpendingCap";
 export type { SpendingPage } from "./generated/SpendingPage";
 export type { SpendingRecord } from "./generated/SpendingRecord";
 export type { SpendingState } from "./generated/SpendingState";
+// Free and Pro, and the license key (Phase 11A, ADR-100 to ADR-118).
+export type { Blocked } from "./generated/Blocked";
+export type { Edition } from "./generated/Edition";
+export type { FreeLimits } from "./generated/FreeLimits";
+export type { LicenseReason } from "./generated/LicenseReason";
+export type { KeyEdition } from "./generated/KeyEdition";
+export type { LicenseView } from "./generated/LicenseView";
+export type { Limit } from "./generated/Limit";
+export type { Plan } from "./generated/Plan";
+export type { SubscriptionState } from "./generated/SubscriptionState";

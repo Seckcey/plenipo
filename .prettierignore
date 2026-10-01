@@ -19,3 +19,9 @@ docs/brand/pip-brand-kit/
 
 # Output recorded on the owner's PC, kept as it came.
 docs/phases/evidence/phase-16-wave-2/owner-check/
+
+# The license check's contract: written byte for byte from the code (crates/licensing/src/contract.rs).
+contracts/license-check/*/request.json
+contracts/license-check/*/test-signing-key.json
+contracts/license-check/*/answers/
+contracts/license-check/*/keys/

@@ -53,3 +53,17 @@ runs up to four at once, which is what every copy does today, and the edition ta
 - **Refuse the fourth worker.** Not chosen: it breaks a Supervisor's normal hand-out of work.
 - **Pro unlimited now.** Not chosen: it means changing the AI tool programs during Phase 16's work,
   and too many AI tools at once can swamp a PC.
+
+## As built (v1.18.0)
+
+- **Handed-on work.** A worker past the third waits its turn. Liaison records "Waiting its turn: Free
+  runs 3 workers at a time" once, and starts the work by itself when a place frees up.
+- **Starting together.** A worker let in counts at once, until its start returns (by then the
+  Ledger counts its task), so workers starting together never pass three.
+- **A waiting task does not spin.** Liaison tries it again when something changes, or on its
+  regular pass, not over and over.
+- **Waiting for a teammate.** A worker waiting for a teammate's answer is not on the job, so a team
+  never stops itself.
+- **Limit: work the owner starts.** An objective the owner gives, or an AI tool session the owner
+  starts, past the third is refused with the same plain words, not queued. The owner starts it again
+  when one finishes.

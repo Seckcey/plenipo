@@ -24,6 +24,7 @@ mod rows;
 mod sessions;
 pub mod spending;
 mod tasks;
+mod usage;
 pub mod workforce;
 mod workspaces;
 

@@ -13,6 +13,7 @@ use plenipo_ledger::{
     TilePlace,
 };
 use plenipo_liaison::Liaison;
+use plenipo_licensing::{Entitlements, Limit};
 use plenipo_router::{ModelRule, RouteRequest, Router, RoutingSnapshot, RuleTarget};
 use plenipo_runtime::agent::{
     AgentRuntime, AgentRuntimeInfo, AgentSessionDetail, InstallState, SessionStart,
@@ -77,8 +78,40 @@ fn invalid(message: impl Into<String>) -> WorkforceError {
     WorkforceError::Invalid(message.into())
 }
 
+/// The PC's Free or Pro (Phase 11A), shared by the service, its directory, and its lesson
+/// watcher. Until the app gives the PC's, it is always Pro (the tests; ADR-068 §2's "no lock").
+#[derive(Clone)]
+pub struct EntitlementsCell(Arc<std::sync::RwLock<Arc<Entitlements>>>);
+
+impl Default for EntitlementsCell {
+    fn default() -> Self {
+        Self(Arc::new(std::sync::RwLock::new(Entitlements::unlocked())))
+    }
+}
+
+impl EntitlementsCell {
+    pub fn new(entitlements: Arc<Entitlements>) -> Self {
+        Self(Arc::new(std::sync::RwLock::new(entitlements)))
+    }
+
+    pub fn get(&self) -> Arc<Entitlements> {
+        self.0
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn set(&self, e: Arc<Entitlements>) {
+        *self
+            .0
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = e;
+    }
+}
+
 struct Inner {
     ledger: Arc<Ledger>,
+    entitlements: EntitlementsCell,
     /// Where your Workforce and your tile are kept for every organization (Phase 21, ADR-094):
     /// the first organization's Ledger. `None`: this organization's own (it is the first).
     shared: std::sync::RwLock<Option<Arc<Ledger>>>,
@@ -88,6 +121,9 @@ struct Inner {
     notices: Mutex<Vec<String>>,
     /// Held while open conversations take their new effort, one change at a time.
     refreshing: Mutex<()>,
+    /// Held from a Free limit's check to the Ledger write it allows (Phase 11A): two made at
+    /// once never both pass.
+    making: Mutex<()>,
 }
 
 /// Cheap to clone; clones share state.
@@ -147,15 +183,18 @@ impl Workforce {
         liaison: Liaison,
         router: Router,
     ) -> Self {
+        let entitlements = EntitlementsCell::default();
         let this = Self {
             inner: Arc::new(Inner {
                 ledger: Arc::clone(&ledger),
+                entitlements: entitlements.clone(),
                 shared: std::sync::RwLock::new(None),
                 runtime,
                 liaison: liaison.clone(),
                 router: router.clone(),
                 notices: Mutex::new(Vec::new()),
                 refreshing: Mutex::new(()),
+                making: Mutex::new(()),
             }),
         };
         match ledger.ensure_roles(&role_templates(), PLENIPO) {
@@ -181,9 +220,39 @@ impl Workforce {
             Err(e) => this.notice(format!("Could not add the built-in role templates: {e}")),
         }
         // Lessons from workers' answers (ADR-024).
-        crate::learning::watch(&ledger);
-        liaison.set_directory(Arc::new(WorkforceDirectory::new(ledger, router)));
+        crate::learning::watch(&ledger, entitlements.clone());
+        liaison.set_directory(Arc::new(WorkforceDirectory::with_entitlements(
+            ledger,
+            router,
+            entitlements,
+        )));
         this
+    }
+
+    // ---- Free and Pro (Phase 11A) -------------------------------------------------------------
+
+    /// Use the PC's Free or Pro for every limit this service decides.
+    pub fn set_entitlements(&self, entitlements: Arc<Entitlements>) {
+        self.inner.entitlements.set(entitlements);
+    }
+
+    /// One department or project made or brought back at a time, from its Free check to its
+    /// Ledger write.
+    fn making(&self) -> MutexGuard<'_, ()> {
+        self.inner
+            .making
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Allowed, or the plain-words reason a Free copy cannot do it.
+    fn allow(&self, limit: Limit) -> Result<()> {
+        self.inner
+            .entitlements
+            .get()
+            .check(limit)
+            .into_result()
+            .map_err(WorkforceError::PartOfPro)
     }
 
     // ---- Learning (ADR-024) ----------------------------------------------------------------
@@ -930,6 +999,13 @@ impl Workforce {
     }
 
     pub fn create_department(&self, input: &DepartmentInput) -> Result<OrgSnapshot> {
+        let _making = self.making();
+        self.allow(Limit::Departments)?;
+        self.make_department(input)
+    }
+
+    /// Make a department, its Free check done and the making lock held.
+    fn make_department(&self, input: &DepartmentInput) -> Result<OrgSnapshot> {
         let head = input
             .head
             .as_ref()
@@ -1007,6 +1083,13 @@ impl Workforce {
     }
 
     pub fn create_project(&self, input: &ProjectInput) -> Result<OrgSnapshot> {
+        let _making = self.making();
+        self.allow(Limit::Projects)?;
+        self.make_project(input)
+    }
+
+    /// Make a project, its Free check done and the making lock held.
+    fn make_project(&self, input: &ProjectInput) -> Result<OrgSnapshot> {
         let department_id = input
             .department_id
             .as_deref()
@@ -1047,7 +1130,30 @@ impl Workforce {
     /// standard team (on call, each routed by its role's model choices). Everything is checked
     /// first; each change is recorded as the owner's.
     pub fn set_up_development(&self, input: &DevelopmentInput) -> Result<OrgSnapshot> {
-        let t = &templates::DEVELOPMENT;
+        self.set_up_team(&templates::DEVELOPMENT, input)
+    }
+
+    /// Set up a department and a project team from `t` (the Development department today; the
+    /// business departments later). Every Free limit is checked before anything is made, so a
+    /// Free copy never ends up with half a team.
+    pub fn set_up_team(
+        &self,
+        t: &templates::TeamTemplate,
+        input: &DevelopmentInput,
+    ) -> Result<OrgSnapshot> {
+        let _making = self.making();
+        if t.business {
+            self.allow(Limit::BusinessDepartment)?;
+        }
+        let has_department = self
+            .ledger()
+            .list_departments()?
+            .iter()
+            .any(|d| d.status == "active" && d.name.eq_ignore_ascii_case(t.department));
+        if !has_department {
+            self.allow(Limit::Departments)?;
+        }
+        self.allow(Limit::Projects)?;
         let roles = self.ledger().list_roles()?;
         let role = |name: &str| {
             roles
@@ -1104,7 +1210,7 @@ impl Workforce {
         {
             Some(d) => d.id,
             None => {
-                let s = self.create_department(&DepartmentInput {
+                let s = self.make_department(&DepartmentInput {
                     name: t.department.into(),
                     description: t.description.into(),
                     head: Some(lead(&head_role, t.head.0.into())),
@@ -1120,7 +1226,7 @@ impl Workforce {
                     })?
             }
         };
-        let s = self.create_project(&ProjectInput {
+        let s = self.make_project(&ProjectInput {
             department_id: Some(department),
             coordinator: Some(lead(&supervisor_role, format!("{name} Supervisor"))),
             ..input.project.clone()
@@ -1330,13 +1436,19 @@ impl Workforce {
         self.snapshot()
     }
 
+    /// Bringing a project back makes it live again: on Free, only within Free's one project.
     pub fn bring_back_project(&self, id: &str) -> Result<OrgSnapshot> {
+        let _making = self.making();
+        self.allow(Limit::Projects)?;
         self.ledger()
             .bring_back_project(id, &self.providers(), OWNER)?;
         self.snapshot()
     }
 
+    /// Bringing a department back makes it live again: on Free, only within Free's one department.
     pub fn bring_back_department(&self, id: &str) -> Result<OrgSnapshot> {
+        let _making = self.making();
+        self.allow(Limit::Departments)?;
         self.ledger()
             .bring_back_department(id, &self.providers(), OWNER)?;
         self.snapshot()

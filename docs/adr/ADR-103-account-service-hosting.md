@@ -1,7 +1,7 @@
 # ADR-103: Hosting, backups, and monitoring for the account service
 
-- **Status:** Accepted (by the owner, 2026-09-30, as recommended), except the server's size
-  (decision 2). That part is **Proposed** until the owner answers.
+- **Status:** Accepted (by the owner, 2026-09-30, as recommended), including the server's size: the
+  owner had the `t4g.micro` server made on 2026-09-30.
 - **Date:** 2026-09-30
 - **Phase:** 22
 - **Part of:** [ADR-100 (Phase 11A and 22: what the check found, and the owner's answers)](ADR-100-phase-11a-22-owners-answers.md)
@@ -31,7 +31,7 @@ also saved on its Stripe subscription. An outside checker warns the owner if the
    or Logbook server. It uses Ubuntu's long-term release on an ARM (Graviton) type. Docker Compose
    runs the service and PostgreSQL. Images are built by the repository's checks, never on the
    server.
-2. **Size (Proposed).** Start on `t4g.micro`: 2 processors, 1 GB of memory, about $6 a month.
+2. **Size.** Start on `t4g.micro`: 2 processors, 1 GB of memory, about $6 a month.
    - Add 2 GB of swap (disk used as spare memory).
    - Set a memory alarm at 80%.
    - Move to `t4g.small` (2 GB, about $12 a month) if the alarm fires. Changing the size takes a few

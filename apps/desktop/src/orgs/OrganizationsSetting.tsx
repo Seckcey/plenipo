@@ -15,6 +15,7 @@ import {
 import { Field, Footer, FormError } from "../components/org/OrgDialogs";
 import { useSubmit } from "../components/org/dialogHelpers";
 import { Modal } from "../components/org/Modal";
+import { useLicense } from "../license/useLicense";
 import { useOrganization } from "../org/useOrganization";
 import { NewOrganizationDialog } from "./NewOrganizationDialog";
 import { useOrganizations } from "./useOrganizations";
@@ -31,7 +32,15 @@ function where(o: OrgSummary): string {
  * organizations — switch, open in a new window, archive, bring back, and delete for good.
  */
 export function OrganizationsSetting() {
+  const license = useLicense().view;
+  const onFree = license?.edition === "free";
   const { listing, error: listError, apply } = useOrganizations();
+  // Counted from the list, which follows every change at once (ADR-119).
+  const inUse = listing?.organizations.filter((o) => !o.archived).length ?? 0;
+  const atPlanLimit =
+    license?.edition === "pro" &&
+    license.organizationsCovered !== null &&
+    inUse >= license.organizationsCovered;
   const org = useOrganization();
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<OrgDeletePreview | null>(null);
@@ -153,6 +162,19 @@ export function OrganizationsSetting() {
         ))}
       </ul>
       <FormError error={error} />
+      {onFree && (
+        <p className="muted" role="note">
+          More than one organization is part of Plenipo Pro (Settings → License). Free keeps one; an
+          archived organization waits, kept, until Pro is back.
+        </p>
+      )}
+      {atPlanLimit && (
+        <p className="muted" role="note">
+          Your plan covers {license.organizationsCovered} organizations, and all are in use. Plenipo
+          Partner plans cover 10, 25, or any number, for companies that run Plenipo for clients
+          (Settings → License).
+        </p>
+      )}
       <div className="settings-section__actions">
         <Button size="sm" icon="plus" onClick={() => setCreating(true)}>
           New organization

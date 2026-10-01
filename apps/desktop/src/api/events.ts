@@ -41,6 +41,8 @@ export const DROP_EVENT = "plenipo://drop";
 export const ORGANIZATIONS_EVENT = "plenipo://organizations";
 /** Your tile or your Workforce changed: they are shared by every organization (Phase 21). */
 export const SHARED_EVENT = "plenipo://shared";
+/** The PC's license changed: Free or Pro, a key entered or removed, or a check (Phase 11A). */
+export const LICENSE_EVENT = "plenipo://license";
 
 /** Subscribe to runtime events. Resolves with an unsubscribe function. */
 export async function subscribeRuntimeEvents(
@@ -114,4 +116,12 @@ export async function subscribeShared(
   handler: (what: "tile" | "workforce") => void,
 ): Promise<() => void> {
   return listenHere<"tile" | "workforce">(SHARED_EVENT, (event) => handler(event.payload));
+}
+
+/**
+ * Subscribe to changes in the PC's license (Phase 11A): a key entered or removed, a check with 8
+ * West, or Pro starting or ending. The license itself is read with `getLicense`.
+ */
+export async function subscribeLicense(handler: () => void): Promise<() => void> {
+  return listenHere<null>(LICENSE_EVENT, () => handler());
 }

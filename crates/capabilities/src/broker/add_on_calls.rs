@@ -171,6 +171,21 @@ fn working_dir(add_on: &str) -> std::io::Result<PathBuf> {
 impl Broker {
     // ---- Offering ------------------------------------------------------------------------------
 
+    /// On Free, no add-on tools; a worker is told why when the owner has some switched on
+    /// (ADR-068 §4).
+    pub(super) fn paused_add_ons(config: &plenipo_guard::GuardConfig) -> AddOnOffers {
+        AddOnOffers {
+            note: if config.add_ons.iter().any(|a| a.on) {
+                "The owner's add-on tools are paused: they are part of Plenipo Pro, and this copy \
+                 of Plenipo is on Free. If this task needs one, say so in your answer."
+                    .into()
+            } else {
+                String::new()
+            },
+            ..AddOnOffers::default()
+        }
+    }
+
     /// The add-on tools `scope` may use now (ADR-066 §3).
     pub(super) fn add_on_offers(
         &self,
@@ -723,8 +738,9 @@ impl Broker {
         Ok(path.display().to_string())
     }
 
-    /// Add a program, **off** (ADR-066 §1).
+    /// Add a program, **off** (ADR-066 §1). Part of Pro (ADR-068); Remove always works.
     pub fn add_add_on(&self, input: &AddOnInput) -> Result<ConnectionsPage> {
+        self.pro(plenipo_licensing::Limit::AddOnTools)?;
         // The refusal of shells and downloaders is checked on the name as typed too.
         if let Some(why) = plenipo_guard::add_ons::refused_program(&input.program, &input.args) {
             return Err(BrokerError::Invalid(why));

@@ -61,6 +61,7 @@ semver = "1"
 # Mouse and keyboard for computer use (Phase 10): SendInput on Windows, XTest on Linux.
 enigo = { version = "0.6", default-features = false }
 plenipo-guard = { path = "../guard" }
+plenipo-licensing = { path = "../licensing" }
 plenipo-ledger = { path = "../ledger" }
 plenipo-runtime = { path = "../runtime" }
 serde = { version = "1", features = ["derive"] }

@@ -359,14 +359,25 @@ pub fn record(ledger: &Ledger, event: &LedgerEvent) -> Result<Vec<Lesson>> {
 }
 
 /// Record lessons whenever a worker's answer is recorded. Runs on its own thread so it never
-/// writes inside the Ledger's own write.
-pub fn watch(ledger: &Arc<Ledger>) {
+/// writes inside the Ledger's own write. A task that ran on Free writes no lessons (ADR-112): the
+/// edition is the one the task started with.
+pub fn watch(ledger: &Arc<Ledger>, entitlements: crate::service::EntitlementsCell) {
     let weak: Weak<Ledger> = Arc::downgrade(ledger);
     ledger.add_listener(Arc::new(move |event: &LedgerEvent| {
-        if event.event_type != "agent.result" || event.task_id.is_none() {
+        if event.event_type != "agent.result" {
             return;
         }
+        let Some(task_id) = event.task_id.as_deref() else {
+            return;
+        };
         if lessons_in(event.payload["text"].as_str().unwrap_or_default()).is_empty() {
+            return;
+        }
+        if !entitlements
+            .get()
+            .check_for_task(Some(task_id), plenipo_licensing::Limit::Lessons)
+            .is_allowed()
+        {
             return;
         }
         if let Some(ledger) = weak.upgrade() {

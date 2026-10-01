@@ -6,12 +6,14 @@ import { decideLesson, removeLesson, setLearning, setRoleLearning } from "../api
 import { Toggle } from "../components/SwitchSettings";
 import { PILL_TONE } from "../components/tones";
 import { useRun } from "../guard/useRun";
+import { useOnFree } from "../license/useLicense";
 import type { Learning } from "./useLearning";
 
 /** Settings → Switches: worker learning on or off (ADR-024). */
 export function LearningSwitch({ learning }: { learning: Learning }) {
   const { pending, error, run } = useRun((s: LearningSnapshot) => learning.apply(s));
   const s = learning.snapshot;
+  const onFree = useOnFree();
   return (
     <>
       <Toggle
@@ -21,6 +23,13 @@ export function LearningSwitch({ learning }: { learning: Learning }) {
         disabled={pending || !s}
         onChange={(on) => void run(() => setLearning(on))}
       />
+      {onFree && (
+        <p className="muted" role="note">
+          Lessons are part of Plenipo Pro (Settings → License). On Free they pause: workers
+          don&apos;t write new ones or use kept ones, and every kept lesson stays for when Pro is
+          back.
+        </p>
+      )}
       {error && (
         <p className="form-error" role="alert">
           {error}
@@ -124,12 +133,19 @@ export function RoleLessons({
 }) {
   const { pending, error, run } = useRun((s: LearningSnapshot) => learning.apply(s));
   const removeHint = useId();
+  const onFree = useOnFree();
   const s = learning.snapshot;
   if (!s || !s.enabled) return null;
   const kept = s.kept.filter((l) => l.roleId === roleId);
   return (
     <div className="role-lessons">
       <h4>What it has learned</h4>
+      {onFree && kept.length > 0 && (
+        <p className="muted" role="note">
+          Paused — part of Pro. These lessons stay kept, and go back into {roleName}&apos;s
+          workers&apos; instructions when Pro is back.
+        </p>
+      )}
       {kept.length === 0 ? (
         <p className="muted">Nothing yet. Lessons you keep for {roleName} show here.</p>
       ) : (

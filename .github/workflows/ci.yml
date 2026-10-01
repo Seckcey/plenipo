@@ -165,8 +165,13 @@ jobs:
           echo "PLENIPO_CONNECTIONS_STAND_IN=http://127.0.0.1:8767" >> "$GITHUB_ENV"
           echo "PLENIPO_MICROSOFT_APP_ID=0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0" >> "$GITHUB_ENV"
           echo "PLENIPO_SLACK_CLIENT_ID=1111111111.2222222222" >> "$GITHUB_ENV"
+      # Phase 11A (ADR-104): this copy also trusts the license contract's test key, and sends its
+      # weekly license check to a stand-in for 8 West on this machine (127.0.0.1), so the tests
+      # can turn Pro on and check the request byte for byte. Never a release.
+      - name: A stand-in for 8 West's license check
+        run: echo "PLENIPO_LICENSE_STAND_IN=http://127.0.0.1:8768" >> "$GITHUB_ENV"
       - name: Build release app
-        run: pnpm --filter @plenipo/desktop tauri build --no-bundle
+        run: pnpm --filter @plenipo/desktop tauri build --no-bundle --features license-test-keys
       - name: Build fake agent CLIs for Phase 3 tests
         run: cargo build --release --locked -p plenipo-runtime --bin plenipo-fake-agent
       - name: Build the synthetic SSH server and the connections' stand-in, and the test add-on program

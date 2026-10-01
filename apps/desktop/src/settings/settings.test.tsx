@@ -52,6 +52,7 @@ vi.mock("../api/commands", async (importOriginal) => {
 vi.mock("../api/events", () => ({
   subscribeRuntimeEvents: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeLedgerEvents: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeLicense: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeAgentUpdates: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeOrganizations: vi.fn(() => Promise.resolve(() => undefined)),
 }));
@@ -189,6 +190,7 @@ describe("Settings in one place", () => {
       "Personalization",
       "Local paths",
       "Diagnostics",
+      "License",
       "Updates",
       "About Plenipo",
     ]);

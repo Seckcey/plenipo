@@ -9,6 +9,7 @@ import { SwitchSettings } from "../components/SwitchSettings";
 import { TitlesSetting } from "../components/TitlesSetting";
 import type { Go } from "../components/views";
 import { LearningSwitch } from "../learning/Lessons";
+import { LicenseSettings } from "../license/LicenseSettings";
 import { useLearning } from "../learning/useLearning";
 import {
   AboutPlenipo,
@@ -127,6 +128,7 @@ export function SettingsView({
           )}
           {current === "localPaths" && <LocalPathsSettings />}
           {current === "diagnostics" && <DiagnosticsSummary go={go} info={info} />}
+          {current === "license" && <LicenseSettings />}
           {current === "updates" && <UpdateSettings />}
           {current === "about" && <AboutPlenipo info={info} />}
         </div>

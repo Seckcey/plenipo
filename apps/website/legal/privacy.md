@@ -104,6 +104,15 @@ Do not put sensitive details in a public post. GitHub's own
 [privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement)
 also applies to activity on GitHub.
 
+## Plenipo Pro's weekly license check
+
+A copy of Plenipo with no license key (Free) never contacts 8 West. A copy with a Pro
+license key checks with 8 West about once a week, to learn whether its subscription is
+still paid. That check sends exactly two things: the key's ID and the version of Plenipo.
+It never sends your projects, files, folder names, tasks, workers' answers, or anything
+from your records. If you buy Pro, your account, payments, and emails are covered by the
+account [privacy notice](https://account.getplenipo.com/privacy).
+
 ## Sharing and the reasons for handling information
 
 The desktop app does not automatically upload your local task history to 8 West for

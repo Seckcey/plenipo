@@ -122,6 +122,7 @@ import type {
   OrgOpened,
   OrgStart,
   OrgSummary,
+  LicenseView,
 } from "@plenipo/types";
 
 /** Error thrown by every command wrapper. Mirrors the Rust `CommandError` DTO. */
@@ -138,7 +139,10 @@ export class PlenipoCommandError extends Error {
 function isCommandError(value: unknown): value is CommandError {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
-  return (v.kind === "invalidInput" || v.kind === "internal") && typeof v.message === "string";
+  return (
+    (v.kind === "invalidInput" || v.kind === "internal" || v.kind === "partOfPro") &&
+    typeof v.message === "string"
+  );
 }
 
 /** Normalize anything a failed `invoke` rejects with into a PlenipoCommandError. */
@@ -1356,4 +1360,29 @@ export function previewDeleteOrganization(id: string): Promise<OrgDeletePreview>
 /** Delete an archived organization for good, saving the workers in `save` to your Workforce. */
 export function deleteOrganizationForGood(id: string, save: string[]): Promise<OrgListing> {
   return call<OrgListing>("delete_organization_for_good", { id, save });
+}
+
+// ---- Settings → License (Phase 11A, ADR-021, ADR-022) ----------------------------------------
+
+/** The license on this PC: Free or Pro, why, and the last check with 8 West (never the key). */
+export function getLicense(): Promise<LicenseView> {
+  return call<LicenseView>("get_license");
+}
+
+/**
+ * Enter a license key. It is checked on this PC, kept in the Vault, and never shown again; Pro
+ * starts at once, and the first check with 8 West starts by itself.
+ */
+export function enterLicenseKey(key: string): Promise<LicenseView> {
+  return call<LicenseView>("enter_license_key", { key });
+}
+
+/** Remove the license key: Free from now, with nothing else changed. */
+export function removeLicenseKey(): Promise<LicenseView> {
+  return call<LicenseView>("remove_license_key");
+}
+
+/** Check with 8 West now (sends the key's ID and this version; nothing without a key). */
+export function checkLicenseNow(): Promise<LicenseView> {
+  return call<LicenseView>("check_license_now");
 }

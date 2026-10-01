@@ -71,6 +71,9 @@ pub struct LocalPath {
 pub enum CommandErrorKind {
     InvalidInput,
     Internal,
+    /// A Free limit reached (Phase 11A): the message says what Free has, what Pro adds, and where
+    /// to enter a key.
+    PartOfPro,
 }
 
 /// Error returned from every Tauri command. Never contains secrets.
@@ -94,6 +97,14 @@ impl CommandError {
     pub fn internal(message: impl Into<String>) -> Self {
         Self {
             kind: CommandErrorKind::Internal,
+            message: message.into(),
+        }
+    }
+
+    /// A Free limit reached, with its plain-words message.
+    pub fn part_of_pro(message: impl Into<String>) -> Self {
+        Self {
+            kind: CommandErrorKind::PartOfPro,
             message: message.into(),
         }
     }
@@ -172,6 +183,10 @@ mod tests {
         assert_eq!(
             serde_json::to_value(CommandError::internal("x")).unwrap()["kind"],
             "internal"
+        );
+        assert_eq!(
+            serde_json::to_value(CommandError::part_of_pro("Free has one project.")).unwrap(),
+            json!({ "kind": "partOfPro", "message": "Free has one project." })
         );
     }
 

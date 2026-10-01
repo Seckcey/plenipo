@@ -16,6 +16,7 @@ export type SettingsSection =
   | "personalization"
   | "localPaths"
   | "diagnostics"
+  | "license"
   | "updates"
   | "about";
 
@@ -109,6 +110,12 @@ export const SETTINGS_SECTIONS: readonly {
     label: "Diagnostics",
     icon: "diagnostics",
     lead: "How Plenipo is doing, and the technical details for troubleshooting.",
+  },
+  {
+    id: "license",
+    label: "License",
+    icon: "key",
+    lead: "Free or Plenipo Pro on this PC, your license key, and the weekly check with 8 West.",
   },
   {
     id: "updates",

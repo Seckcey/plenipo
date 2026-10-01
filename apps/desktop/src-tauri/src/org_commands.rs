@@ -12,6 +12,7 @@ use plenipo_ledger::Ledger;
 use tauri::{AppHandle, Manager as _, Runtime, State, WebviewWindow};
 
 use crate::commands::ledger_error;
+use crate::license_host::LicenseHost;
 use crate::org_host::{self, Defaults, Opening};
 use crate::orgs::{self, OrgEntry, OrgPlace, OrgStack, Orgs, FIRST, MAX_NAME};
 use crate::workspace_windows::{self, is_org_window, MAIN};
@@ -95,6 +96,7 @@ fn open<R: Runtime>(
             run: defaults.run,
             control: orgs.control(),
             first: Some(&first),
+            entitlements: app.state::<Arc<LicenseHost>>().entitlements(),
         },
     );
     orgs.insert(stack.clone());
@@ -163,6 +165,12 @@ pub async fn create_organization<R: Runtime>(
     let label = org_window(&window)?;
     let name = plenipo_ledger::workforce::clean_line("the organization's name", &name, MAX_NAME)
         .map_err(ledger_error)?;
+    // One change to the list at a time (as archive, bring back, and delete), held until this one
+    // is in the list: two made at once never both pass the plan's number (ADR-110, ADR-119).
+    let _changing = orgs.changing().await;
+    // Free has one organization; a Pro or Partner key covers its number (ADR-110, ADR-119).
+    app.state::<Arc<LicenseHost>>()
+        .allow(plenipo_licensing::Limit::Organizations)?;
     let source = match &start {
         OrgStart::Template { .. } => {
             return Err(CommandError::invalid_input("Templates are coming later."));
@@ -400,6 +408,9 @@ pub async fn bring_back_organization<R: Runtime>(
     if e.archived_at.is_none() {
         return Ok(listing(&orgs, &label));
     }
+    // Free has one organization (Phase 11A, ADR-110): an archived one waits, kept, for Pro.
+    app.state::<Arc<LicenseHost>>()
+        .allow(plenipo_licensing::Limit::Organizations)?;
     let orgs2 = orgs.inner().clone();
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), CommandError> {
@@ -456,6 +467,7 @@ fn archived<R: Runtime>(
             run: false,
             control: orgs.control(),
             first: Some(&first),
+            entitlements: app.state::<Arc<LicenseHost>>().entitlements(),
         },
     );
     orgs.park(stack.clone());

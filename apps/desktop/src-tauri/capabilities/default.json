@@ -200,6 +200,10 @@
     "allow-set-spending-cap",
     "allow-remove-spending-cap",
     "allow-save-paid-key",
-    "allow-remove-paid-key"
+    "allow-remove-paid-key",
+    "allow-get-license",
+    "allow-enter-license-key",
+    "allow-remove-license-key",
+    "allow-check-license-now"
   ]
 }
