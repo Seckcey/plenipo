@@ -120,3 +120,4 @@ architecture must be recorded here.
 | [118](ADR-118-customer-accounts.md)                      | Customer accounts: signing in, and deleting an account                                        | Accepted |
 | [119](ADR-119-editions-and-prices-revised.md)            | Editions and prices, revised: Pro $19 with 3 organizations; Partner plans by organizations    | Accepted |
 | [130](ADR-130-website-domain-migration.md)               | The public website moves to getplenipo.com; old and www addresses preserve paths in redirects | Accepted |
+| [131](ADR-131-tools-for-any-model.md)                    | Wave 4: Plenipo's own tools for any model, then specialist jobs; no Hermes (changes 036)      | Accepted |

@@ -30,7 +30,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 3 | 18 | The organization canvas, and watching workers write code as it happens | Delivered (v1.11.0) |
 | 4 | 19 | The AI tools page: sign-in, usage, and updates | Delivered (v1.12.0) |
 | 5 | 20 | Connections: Microsoft 365, Slack, Google, and more | Delivered: part 20A (Microsoft 365) in v1.13.0, part 20B (Slack, Google) in v1.14.1, part 20C (HubSpot, Stripe, WordPress and WooCommerce, add-on tools) in v1.14.2 (ADR-067, ADR-071) |
-| 6 | 16 | Every AI model worth having | In progress: Wave 1 delivered in v1.14.0 (ADR-080, ADR-081, ADR-082), more Ollama models when the paid plan starts; Wave 2 delivered in v1.15.0 (ADR-083, GitHub Copilot; ADR-084, Cursor's agent waits); Wave 3 delivered in v1.17.0 (ADR-085, paid AI keys with spending caps; ADR-086, OpenRouter through a Plenipo helper; ADR-087, direct keys for every AI company); Wave 4 next (ADR-036, ADR-061) |
+| 6 | 16 | Every AI model worth having | In progress: Wave 1 delivered in v1.14.0 (ADR-080, ADR-081, ADR-082), more Ollama models when the paid plan starts; Wave 2 delivered in v1.15.0 (ADR-083, GitHub Copilot; ADR-084, Cursor's agent waits); Wave 3 delivered in v1.17.0 (ADR-085, paid AI keys with spending caps; ADR-086, OpenRouter through a Plenipo helper; ADR-087, direct keys for every AI company); Wave 4 next: Plenipo's own tools for workers on Ollama, OpenRouter, and direct keys, then specialist jobs, instead of Hermes Agent (ADR-131) |
 | 7 | 21 | Workspace: panels, windows, files, and more than one organization | Delivered (v1.16.0), built beside Phase 16's Wave 2 (ADR-090 to ADR-094) |
 | 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | In progress: the check and the owner's answers are recorded (ADR-100 to ADR-118); Phase 22 in its own private repository, `plenipo-account` (ADR-101); selling starts once the app is finished |
 | 9 | 14 | Plenipo on your phone: a web interface built from scratch | Planned |
@@ -39,7 +39,7 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 12 | 23 | Mac and Linux | Planned |
 | 13 | 24 | Community | Planned |
 
-Phases 0–8, 10, 11, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered. In progress: Phase 16 (Wave 3 delivered in v1.17.0; Wave 4 next).
+Phases 0–8, 10, 11, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered. In progress: Phase 16 (Wave 3 delivered in v1.17.0; Wave 4 next, changed by ADR-131).
 
 ---
 
@@ -1705,7 +1705,7 @@ Stable production architecture. Windows servers build on Phase 11. The Milepost 
 
 # Phase 16 — Every AI Model Worth Having
 
-**Added at the owner's direction (2026-09-27), after reading how Paperclip connects its models.** Decision: ADR-036 (every AI model worth having: API keys with spending caps, models by maker and by app, and more than one route to a model). It was added last; **since 2026-09-28 (ADR-039) it runs after Phase 19**, whose AI tools page gives each AI tool the payment-method switch this phase fills in, **and since ADR-061 (doing Connections before new AI models, 2026-09-28) after Phase 20**. **Since 2026-09-29, Wave 1 is built beside Phase 20** at the owner's direction (ADR-080, building Phase 16's first wave alongside Phase 20); Waves 2 to 4 waited for Phase 20, which was delivered in v1.14.2: **they are next**. **Wave 1 delivered in v1.14.0** (ADR-081, who made each model; ADR-082, Antigravity as an AI tool), except more Ollama cloud models, which wait for the owner's paid plan. **Wave 2 delivered in v1.15.0** (checklist and acceptance report in `docs/phases/phase-16-wave-2-*`): GitHub Copilot joined, checked before every task over its two-way link, with either the owner's Copilot sign-in or the GitHub CLI's and paid extra use off, text answers only (ADR-083, GitHub Copilot as an AI tool); Cursor's agent got a written finding, because nothing a program can run says whether Cursor may charge for on-demand use (ADR-084, Cursor's agent waits). **Wave 3 delivered in v1.17.0** (checklist and acceptance report in `docs/phases/phase-16-wave-3-*`): monthly spending caps for the business, a department, and a position, with the most a paid task could cost set aside before it starts, so the hard stop never goes over, and a record of every paid task (ADR-085, paid AI keys with spending caps); the switch **Let workers use paid AI keys**, off by default; paid keys typed only into Plenipo's own screen and kept in the Vault; paid routes used only where the owner lists them; OpenRouter through Plenipo's own helper (ADR-086, OpenRouter through a Plenipo helper); and each AI company's own service with the owner's key, ten of them (ADR-087, direct keys for every AI company). Built beside Phase 21, whose organizations each keep their own caps (ADR-094). Wave 4 is next.
+**Added at the owner's direction (2026-09-27), after reading how Paperclip connects its models.** Decision: ADR-036 (every AI model worth having: API keys with spending caps, models by maker and by app, and more than one route to a model). It was added last; **since 2026-09-28 (ADR-039) it runs after Phase 19**, whose AI tools page gives each AI tool the payment-method switch this phase fills in, **and since ADR-061 (doing Connections before new AI models, 2026-09-28) after Phase 20**. **Since 2026-09-29, Wave 1 is built beside Phase 20** at the owner's direction (ADR-080, building Phase 16's first wave alongside Phase 20); Waves 2 to 4 waited for Phase 20, which was delivered in v1.14.2: **they are next**. **Wave 1 delivered in v1.14.0** (ADR-081, who made each model; ADR-082, Antigravity as an AI tool), except more Ollama cloud models, which wait for the owner's paid plan. **Wave 2 delivered in v1.15.0** (checklist and acceptance report in `docs/phases/phase-16-wave-2-*`): GitHub Copilot joined, checked before every task over its two-way link, with either the owner's Copilot sign-in or the GitHub CLI's and paid extra use off, text answers only (ADR-083, GitHub Copilot as an AI tool); Cursor's agent got a written finding, because nothing a program can run says whether Cursor may charge for on-demand use (ADR-084, Cursor's agent waits). **Wave 3 delivered in v1.17.0** (checklist and acceptance report in `docs/phases/phase-16-wave-3-*`): monthly spending caps for the business, a department, and a position, with the most a paid task could cost set aside before it starts, so the hard stop never goes over, and a record of every paid task (ADR-085, paid AI keys with spending caps); the switch **Let workers use paid AI keys**, off by default; paid keys typed only into Plenipo's own screen and kept in the Vault; paid routes used only where the owner lists them; OpenRouter through Plenipo's own helper (ADR-086, OpenRouter through a Plenipo helper); and each AI company's own service with the owner's key, ten of them (ADR-087, direct keys for every AI company). Built beside Phase 21, whose organizations each keep their own caps (ADR-094). Wave 4 is next. **On 2026-09-30 the owner changed Wave 4** (ADR-131, Plenipo's own tools for any model, and specialist jobs, instead of Hermes Agent): Hermes is dropped; workers on Ollama, OpenRouter, and direct keys get Plenipo's own tools through Guard, then Plenipo gets ready-made specialist jobs.
 
 ## Goal
 
@@ -1744,9 +1744,10 @@ Four waves, in order. Nothing in Wave 3 starts before the spending caps work.
 - OpenRouter through a Plenipo helper, built like the Ollama helper (ADR-017)
 - direct keys for every AI company whose models take one (the owner widened it on 2026-09-30: Anthropic, OpenAI, xAI, Moonshot AI, Google, DeepSeek, Z.ai, MiniMax, Mistral, and Alibaba Cloud; ADR-087)
 
-**Wave 4 — specialist workers**
+**Wave 4 — tools for any model, then specialist jobs** (changed by ADR-131 on 2026-09-30; Hermes Agent dropped)
 
-- Hermes Agent (Nous Research), checked through its own API server first, not its plain-text program
+- part 1: workers on Ollama, OpenRouter, and direct keys get Plenipo's own tools (files, programs, git, GitHub, the browser), each run through the capability broker and Guard; only models that can use tools; a most-steps limit per task; every paid round set aside under the caps; step 0 on the owner's PC first
+- part 2: ready-made specialist jobs the owner picks when adding a position (Security Reviewer, Code Reviewer, Researcher, Writer, IT Support for Windows servers), built in as plain text and working with any AI tool
 
 ## Technical Implementation
 
@@ -1782,7 +1783,7 @@ Four waves, in order. Nothing in Wave 3 starts before the spending caps work.
 
 ## Dependencies
 
-Phase 15 complete. Wave 3 depends on the spending caps work inside this phase. Ollama's paid plan and the owner's Google, Copilot, and Cursor sign-ins are needed for the step-0 checks. Hermes needs its API server checked first.
+Phase 15 complete. Wave 3 depends on the spending caps work inside this phase. Ollama's paid plan and the owner's Google, Copilot, and Cursor sign-ins are needed for the step-0 checks. Wave 4's tools need step 0 on the owner's PC with one Ollama model and one OpenRouter model (ADR-131).
 
 ## Out of Scope
 
