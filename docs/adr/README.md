@@ -119,3 +119,4 @@ architecture must be recorded here.
 | [117](ADR-117-paid-ai-keys-are-free.md)                  | Paid AI keys are in the Free edition (amends 021)                                             | Accepted |
 | [118](ADR-118-customer-accounts.md)                      | Customer accounts: signing in, and deleting an account                                        | Accepted |
 | [130](ADR-130-website-domain-migration.md)               | The public website moves to getplenipo.com; old and www addresses preserve paths in redirects | Accepted |
+| [131](ADR-131-tools-for-any-model.md)                    | Wave 4: Plenipo's own tools for any model, then specialist jobs; no Hermes (changes 036)      | Accepted |
