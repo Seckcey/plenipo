@@ -3,6 +3,8 @@
 - **Status:** Accepted (by the owner, 2026-09-27). Its place in the order of work moved up, after
   Phase 19, by [ADR-039](ADR-039-owners-notes-order-of-work.md), then after Phase 20 by
   [ADR-061 (doing Connections before new AI models)](ADR-061-connections-before-new-ai-models.md).
+  Wave 4 changed by [ADR-131 (Plenipo's own tools for any model, and specialist jobs, instead of
+  Hermes Agent)](ADR-131-tools-for-any-model.md), 2026-09-30.
 - **Date:** 2026-09-27
 - **Phase:** 16 (new, after Phase 15)
 
@@ -137,7 +139,8 @@ only repeats what is there. A tool that fails gets a written finding, as GitHub 
   brings Qwen, Mistral, Meta's Llama, and the rest.
 - **Direct keys** for Anthropic, OpenAI, xAI, and Google once the helper exists. Each is small.
 
-**Wave 4 — Hermes Agent, for specialist workers.**
+**Wave 4 — Hermes Agent, for specialist workers.** _(Changed by ADR-131 on 2026-09-30: Hermes is
+dropped; Plenipo's own tools for any model, then specialist jobs.)_
 
 The owner wants Hermes for specialist jobs such as security review. Hermes' own program prints
 plain text that has to be read with pattern matching, and it takes the task as a command-line
