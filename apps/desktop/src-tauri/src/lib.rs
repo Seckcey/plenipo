@@ -5959,7 +5959,7 @@ mod ipc_boundary_tests {
     }
 
     #[test]
-    fn the_business_cap_stays_while_a_paid_key_is_saved() {
+    fn the_business_cap_can_be_removed_while_a_paid_key_is_saved() {
         let app = app();
         let main = window(&app, "main");
         let page: plenipo_ledger::SpendingPage = body(invoke_json(
@@ -5973,23 +5973,15 @@ mod ipc_boundary_tests {
         guard
             .save_paid_key("openrouter", "Office key", "paid-key-ipc-test")
             .unwrap();
-        let err = invoke_json(
-            &main,
-            "remove_spending_cap",
-            serde_json::json!({ "capId": cap }),
-        )
-        .expect_err("the business's cap stays while a key is saved");
-        assert!(
-            err.to_string().contains("remove the paid keys first"),
-            "{err}"
-        );
-        guard.remove_paid_key("openrouter").unwrap();
+        // A cap is never needed (the owner's choice, 2026-09-30): the key stays, with no limit.
         let page: plenipo_ledger::SpendingPage = body(invoke_json(
             &main,
             "remove_spending_cap",
             serde_json::json!({ "capId": cap }),
         ));
         assert!(!page.has_business_cap);
+        assert!(guard.config().unwrap().paid_key("openrouter").is_some());
+        guard.remove_paid_key("openrouter").unwrap();
     }
 
     #[test]

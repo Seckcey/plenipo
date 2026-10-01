@@ -138,8 +138,8 @@ impl RuntimeAdapter for Grok {
 
     fn login_hint(&self) -> &'static str {
         "Open a terminal, run: grok login — and sign in with the X account that has your \
-         SuperGrok or X Premium Plus subscription. Plenipo never asks for your password or an \
-         API key. Then choose Re-check."
+         SuperGrok or X Premium Plus subscription. Plenipo never sees your password. Then \
+         choose Re-check."
     }
 
     fn executable_name(&self) -> &'static str {

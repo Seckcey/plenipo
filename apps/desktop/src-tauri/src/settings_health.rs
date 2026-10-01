@@ -19,7 +19,8 @@ pub const SPENDING: &str = plenipo_ledger::spending::SETTING;
 /// The settings that cannot be read now.
 pub fn problems(guard: &Guard, router: &Router) -> Vec<SettingsProblem> {
     let mut out = Vec::new();
-    // The spending caps (Phase 16 Wave 3, ADR-085): unreadable, no paid task starts.
+    // The spending caps (Phase 16 Wave 3, ADR-085): unreadable, no paid task starts (a cap is
+    // never needed, but caps the owner set must be readable to be kept).
     if let Err(e) = guard.ledger().has_business_cap() {
         log::error!("the spending caps cannot be read: {e}");
         out.push(SettingsProblem {

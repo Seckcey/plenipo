@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AiToolsPage } from "@plenipo/types";
+import type { AgentRuntimeInfo, AiToolsPage } from "@plenipo/types";
 import { Button, LoadingState } from "@plenipo/ui";
 
 import { checkAiToolVersions, setAiToolsAutoUpdate, toCommandError } from "../api/commands";
@@ -7,16 +7,19 @@ import { useAgents } from "../agents/useAgents";
 import { useRun } from "../guard/useRun";
 import { when } from "../pages/words";
 import { useRouting } from "../routing/useRouting";
-import { AiToolCard } from "./aiTools/AiToolCard";
+import { AiToolCard, type KeyCard } from "./aiTools/AiToolCard";
+import { keyToolFor } from "./aiTools/keyFor";
 import { useAiTools } from "./aiTools/useAiTools";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_LABEL } from "./aiTools/words";
 import { Toggle } from "./SwitchSettings";
 import type { Go } from "./views";
 
 /**
- * Each AI tool (Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, GitHub Copilot, OpenRouter)
- * in one place (Phase 19): sign in, see its usage, see how it is paid for, keep it up to date, and
- * see its models. `focusId`: the tool whose card to show (another page asked for it).
+ * Each AI tool in one place (Phase 19): sign in, see its usage, see how it is paid for, keep it up
+ * to date, and see its models. The AI tools you sign in to come first, each with a key box for
+ * paying per use instead (2026-09-30); then the paid AI tools that come with Plenipo (OpenRouter
+ * and each AI company's own service, Phase 16 Wave 3). `focusId`: the tool whose card to show
+ * (another page asked for it).
  */
 export function AgentRuntimeCards({
   focusId = null,
@@ -64,6 +67,34 @@ export function AgentRuntimeCards({
   const isLooking = looking.pending || page?.looking === true;
   const refusal = error ?? looking.error ?? switching.error;
 
+  const toolOf = (id: string) => page?.tools.find((t) => t.runtimeId === id);
+  // Until the page's own part arrives, every card is listed with the AI tools you sign in to.
+  const isPaid = (id: string) => toolOf(id)?.payment === "paidKey";
+  const signedIn = state.runtimes.filter((r) => !isPaid(r.id));
+  const paid = state.runtimes.filter((r) => isPaid(r.id));
+  // The paid AI tool whose key a card's key box saves: the same key as on that tool's own card.
+  const keyCardFor = (r: AgentRuntimeInfo): KeyCard | undefined => {
+    if (isPaid(r.id)) return undefined;
+    const id = keyToolFor(r.id);
+    const info = paid.find((p) => p.id === id);
+    const tool = toolOf(id);
+    return info && tool ? { info, tool } : undefined;
+  };
+  const item = (r: AgentRuntimeInfo) => (
+    <li key={r.id} aria-label={`${r.label} AI tool`} tabIndex={-1}>
+      <AiToolCard
+        info={r}
+        tool={toolOf(r.id)}
+        route={routing.snapshot?.tools.find((t) => t.runtimeId === r.id)}
+        usageRevision={ai.usageRevision}
+        onApply={ai.apply}
+        onRouting={routing.apply}
+        go={go}
+        keyCard={keyCardFor(r)}
+      />
+    </li>
+  );
+
   return (
     <>
       <div className="section-header">
@@ -95,9 +126,24 @@ export function AgentRuntimeCards({
         onChange={(on) => void switching.run(() => setAiToolsAutoUpdate(on))}
       />
       <p className="muted">
-        Plenipo uses the AI tools already signed in on this computer, with their subscriptions. It
-        never asks for passwords or API keys, and never updates an AI tool while a task is using it.
+        Plenipo uses the AI tools already signed in on this computer, with their subscriptions, and
+        never sees your passwords. To pay per use instead, put your own key in the key box on a
+        card: it is typed only here and kept in Windows Credential Manager. Plenipo never updates an
+        AI tool while a task is using it.
       </p>
+      {paid.length > 0 && (
+        <div className="ai-tool__buttons">
+          <Button
+            size="sm"
+            variant="quiet"
+            onClick={() =>
+              document.getElementById("paid-ai-tools")?.scrollIntoView?.({ block: "start" })
+            }
+          >
+            Go to the AI tools paid per use
+          </Button>
+        </div>
+      )}
       {refusal && (
         <p className="status status--error" role="alert">
           {refusal}
@@ -109,25 +155,29 @@ export function AgentRuntimeCards({
         </p>
       )}
       <ul className="ai-tools" aria-label="AI tools">
-        {state.runtimes.map((r) => (
-          <li key={r.id} aria-label={`${r.label} AI tool`} tabIndex={-1}>
-            <AiToolCard
-              info={r}
-              tool={page?.tools.find((t) => t.runtimeId === r.id)}
-              route={routing.snapshot?.tools.find((t) => t.runtimeId === r.id)}
-              usageRevision={ai.usageRevision}
-              onApply={ai.apply}
-              onRouting={routing.apply}
-              go={go}
-            />
-          </li>
-        ))}
+        {signedIn.map(item)}
         {state.runtimes.length === 0 && (
           <li>
             <LoadingState />
           </li>
         )}
       </ul>
+      {paid.length > 0 && (
+        <>
+          <div className="section-header">
+            <h2 id="paid-ai-tools">Paid per use with your key</h2>
+          </div>
+          <p className="muted">
+            These come with Plenipo: OpenRouter, which reaches hundreds of models from many AI
+            companies, and each AI company&apos;s own service. Each takes your key from that
+            company, paid per use. A spending limit is up to you (Settings → Spending caps); every
+            paid task is priced and listed there either way.
+          </p>
+          <ul className="ai-tools" aria-label="AI tools paid per use">
+            {paid.map(item)}
+          </ul>
+        </>
+      )}
     </>
   );
 }

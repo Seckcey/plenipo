@@ -155,8 +155,8 @@ pub fn not_ready(info: &AgentRuntimeInfo) -> Option<String> {
         }
         InstallState::Installed => match info.auth.state {
             AuthState::Checking => format!("{label} is still being checked"),
-            // A paid AI tool says why (ADR-085): paid keys switched off, no business cap, no
-            // key, or the key refused.
+            // A paid AI tool says why (ADR-085): paid keys switched off, no key, or the key
+            // refused.
             AuthState::SignedOut => match info.auth.detail.as_deref().map(str::trim) {
                 Some(why) if !why.is_empty() => {
                     format!(
@@ -168,7 +168,10 @@ pub fn not_ready(info: &AgentRuntimeInfo) -> Option<String> {
             },
             AuthState::PaidKey => format!("Plenipo could not confirm {label}'s paid key"),
             AuthState::ApiKey => {
-                format!("{label} is signed in with an API key, and pay-per-use API billing is off")
+                format!(
+                    "{label} is signed in with its own API key, outside Plenipo's spending caps, \
+                     so Plenipo does not use it"
+                )
             }
             AuthState::ThirdPartyCloud => {
                 format!("{label} is set up for a third-party cloud, which Plenipo does not use")
@@ -1117,7 +1120,8 @@ mod tests {
         assert_eq!(chosen(&d), Some("gpt"));
         assert_eq!(
             d.candidates[0].note,
-            "Alpha Code is signed in with an API key, and pay-per-use API billing is off"
+            "Alpha Code is signed in with its own API key, outside Plenipo's spending caps, so \
+             Plenipo does not use it"
         );
         // With no subscription tool left, nothing falls back to API billing.
         w.tools[1].info.auth.state = AuthState::ThirdPartyCloud;

@@ -127,7 +127,7 @@ impl RuntimeAdapter for Kimi {
 
     fn login_hint(&self) -> &'static str {
         "Open a terminal, run: kimi login — and sign in with the Kimi account that has your Kimi \
-         subscription. Plenipo never asks for your password or an API key. Then choose Re-check."
+         subscription. Plenipo never sees your password. Then choose Re-check."
     }
 
     fn executable_name(&self) -> &'static str {

@@ -83,3 +83,20 @@ answer's limit, and Google's chat ignoring the key header.
   list, and see its cost on Settings → Spending caps.
 - OpenRouter and the other companies when their keys arrive.
 - The paid Ollama plan's models once the plan starts (2026-10-01).
+
+## 7. After v1.17.0: the owner's changes (v1.18.1)
+
+The owner tried v1.17.0 on 2026-09-30 and could not find where to add a key: the key boxes were on
+the paid AI tools' cards, far down the page. The owner asked for three changes, built in v1.18.1
+([ADR-085, Fix (v1.18.1)](../adr/ADR-085-paid-ai-keys-with-spending-caps.md#fix-v1181-2026-09-30)):
+
+- **No spending cap is needed** to add a key or run paid work; the screen says a limit can be set
+  in Spending caps and is not required. Every paid task is still priced and recorded.
+- **A key box on every AI tool card**, saving the same AI company's key (or OpenRouter's for
+  Ollama and GitHub Copilot), and the paid AI tools in their own part of the page.
+- **Words that no longer fit**, found by a scan of the screens, the website, and the docs:
+  "never asks for passwords or API keys", "No paid key works without the business's cap",
+  "subscription sign-ins only", "Pay-per-use API billing: Off", and the preview pictures'
+  "never API keys".
+
+The owner's checks in section 6 now start from any AI tool's card, with or without a cap.

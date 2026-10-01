@@ -1057,24 +1057,9 @@ async fn a_paid_key_is_kept_only_in_the_vault_and_only_with_the_switch_and_the_b
             ..plenipo_guard::dto::Switches::default()
         })
         .unwrap();
-    // No business cap yet: refused.
-    let err = h
-        .tools
-        .save_paid_key("openrouter", "Office key", key)
-        .await
-        .unwrap_err();
-    assert!(
-        err.to_string().contains("business's monthly spending cap"),
-        "{err}"
-    );
-    h.ledger
-        .set_spending_cap(
-            &plenipo_ledger::CapCovers::Business,
-            50_000_000,
-            "owner",
-            plenipo_ledger::now_ms(),
-        )
-        .unwrap();
+    // No spending cap is needed (the owner's choice, 2026-09-30): the key is checked as is.
+    assert!(!h.ledger.has_business_cap().unwrap());
+    assert!(card(&h.tools.page()).paid_blocked.is_none());
     // A key the service refuses: nothing changes.
     std::fs::write(h.state.join("auth"), "signed-out").unwrap();
     let err = h
@@ -1120,7 +1105,6 @@ async fn a_paid_key_is_kept_only_in_the_vault_and_only_with_the_switch_and_the_b
     assert!(!format!("{page:?}").contains(key));
     let filter = h.broker.text_filter();
     assert!(!filter(&format!("the service said {key}")).contains(key));
-    // While a key is saved, the business's cap stays (ADR-085 §2.4).
     assert!(plenipo_capabilities::paid::any_key(&h.broker));
     // Removed: gone from the Vault too, and OpenRouter is not ready.
     let page = h.tools.remove_paid_key("openrouter").await.unwrap();

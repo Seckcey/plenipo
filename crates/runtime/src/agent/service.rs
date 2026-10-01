@@ -3343,8 +3343,9 @@ fn not_ready_reason(adapter: &dyn RuntimeAdapter, info: &AgentRuntimeInfo) -> St
         ),
         AuthState::SignedOut => format!("{label} is not signed in. {}", adapter.login_hint()),
         AuthState::ApiKey => format!(
-            "{label} is signed in with an API key. Plenipo does not use API billing; sign in \
-             with your subscription instead. {}",
+            "{label} is signed in with its own API key, which would skip your spending caps, \
+             so Plenipo does not use it. Sign in with your subscription instead; to pay per use, \
+             save the key in the key box on {label}'s card (AI tools). {}",
             adapter.login_hint()
         ),
         AuthState::ThirdPartyCloud => format!(

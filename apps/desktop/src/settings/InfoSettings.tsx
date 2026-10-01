@@ -108,9 +108,12 @@ export function AiToolsSettings({ go }: { go: Go }) {
       />
       <ul className="settings">
         <li>
-          <strong>Billing:</strong> subscription sign-ins only. A tool signed in with an API key or
-          through a third-party cloud is refused, and Plenipo never falls back to pay-per-use API
-          billing. Reaching a usage limit never moves work to another AI company.
+          <strong>Billing:</strong> your subscriptions, and the paid AI keys you save, only while
+          Let workers use paid AI keys is on (Settings → Switches) and only for positions you list
+          them for. Every paid task is priced and recorded, within your spending caps if you set
+          any. An AI tool signed in with its own API key outside Plenipo, or through a third-party
+          cloud, is refused: its costs would skip your caps. Reaching a usage limit never moves work
+          to another AI company.
         </li>
         <li>
           <strong>Permissions:</strong> workers never get their AI tool&apos;s own tools or your
@@ -365,8 +368,8 @@ export function AboutPlenipo({ info }: { info: AppInfo | null }) {
       />
       <p>
         Plenipo runs a company of AI workers on this computer, with you as President. It uses your
-        own signed-in AI tools, never asks for passwords, and asks you before anything that needs
-        you.
+        own signed-in AI tools, and your own paid keys if you add them, never sees your passwords,
+        and asks you before anything that needs you.
       </p>
       <h3>Window behavior</h3>
       <ul className="settings">

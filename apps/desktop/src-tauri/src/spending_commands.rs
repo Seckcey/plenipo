@@ -9,7 +9,6 @@
 
 use std::sync::Arc;
 
-use plenipo_capabilities::broker::Broker;
 use plenipo_core::CommandError;
 use plenipo_ledger::{now_ms, CapCovers, Ledger, SpendingPage};
 use plenipo_runtime::agent::AgentRuntime;
@@ -27,30 +26,24 @@ pub async fn get_spending(ledger: Org<'_, Arc<Ledger>>) -> Result<SpendingPage, 
 }
 
 /// Set (or change) the monthly cap for the business, a department, or one position, in
-/// millionths of a dollar.
+/// millionths of a dollar. A cap is the owner's choice: none is needed for a paid key.
 #[tauri::command]
 pub async fn set_spending_cap(
     ledger: Org<'_, Arc<Ledger>>,
-    agents: Org<'_, AgentRuntime>,
     covers: CapCovers,
     monthly_micros: u64,
 ) -> Result<SpendingPage, CommandError> {
-    let business = covers == CapCovers::Business;
-    let page = with_ledger(&ledger, move |l| {
+    with_ledger(&ledger, move |l| {
         let now = now_ms();
         l.set_spending_cap(&covers, monthly_micros, OWNER, now)?;
         l.spending_page(now)
     })
-    .await?;
-    if business {
-        recheck_paid_tools(&agents);
-    }
-    Ok(page)
+    .await
 }
 
-/// Check the paid AI tools again, in the background, after something they depend on changed
-/// (the paid-keys switch, the business's cap): their cards and the Router say so at once
-/// (ADR-085). A check while paid keys cannot be used starts nothing.
+/// Check the paid AI tools again, in the background, after the paid-keys switch changed: their
+/// cards and the Router say so at once (ADR-085). A check while paid keys cannot be used starts
+/// nothing.
 pub(crate) fn recheck_paid_tools(agents: &AgentRuntime) {
     for adapter in plenipo_runtime::agent::builtin_adapters() {
         if adapter.paid() {
@@ -63,25 +56,18 @@ pub(crate) fn recheck_paid_tools(agents: &AgentRuntime) {
     }
 }
 
-/// Remove a cap. The business's cap stays while a paid key is saved (ADR-085 §2.4).
+/// Remove a cap, the business's included: with no cap, paid work has no dollar limit.
 #[tauri::command]
 pub async fn remove_spending_cap(
     ledger: Org<'_, Arc<Ledger>>,
-    broker: Org<'_, Broker>,
-    agents: Org<'_, AgentRuntime>,
     cap_id: String,
 ) -> Result<SpendingPage, CommandError> {
     if cap_id.is_empty() || cap_id.len() > 64 {
         return Err(CommandError::invalid_input("invalid spending cap"));
     }
-    let keys_saved = plenipo_capabilities::paid::any_key(&broker);
-    let page = with_ledger(&ledger, move |l| {
-        l.remove_spending_cap(&cap_id, keys_saved, OWNER)?;
+    with_ledger(&ledger, move |l| {
+        l.remove_spending_cap(&cap_id, OWNER)?;
         l.spending_page(now_ms())
     })
-    .await?;
-    if !page.has_business_cap {
-        recheck_paid_tools(&agents);
-    }
-    Ok(page)
+    .await
 }

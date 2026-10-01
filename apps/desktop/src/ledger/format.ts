@@ -236,7 +236,7 @@ function describeUpkeepEvent(type: string, p: Record<string, unknown>): string |
 const SIGNED_IN_WORDS: Record<string, string> = {
   subscription: "signed in",
   unverified: "signed in (billing not checked)",
-  apiKey: "signed in with an API key, which Plenipo doesn't use",
+  apiKey: "signed in with its own API key outside Plenipo, which Plenipo doesn't use",
   thirdPartyCloud: "signed in through another company's cloud, which Plenipo doesn't use",
   signedOut: "signed out",
   unknown: "sign-in unknown",

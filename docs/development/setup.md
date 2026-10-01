@@ -276,12 +276,13 @@ Notes:
 - Spending caps and paid AI keys (Phase 16 Wave 3, optional;
   [ADR-085](../adr/ADR-085-paid-ai-keys-with-spending-caps.md), paid AI keys with spending caps).
   Out of the box Plenipo uses only your subscriptions and spends nothing. Paid AI keys stay off
-  until you do both of these:
-  - **Settings → Spending caps:** set the business's monthly cap first (no paid key works without
-    it). You can add a cap for a department or one position too; every paid task counts against
-    its position, its department, and the business, and the smallest amount left decides. The
-    month starts over on the 1st at midnight, Pacific time.
+  until you turn them on:
   - **Settings → Switches → Let workers use paid AI keys:** off to start with.
+  - **Settings → Spending caps** (optional): a monthly cap for the business, a department, or one
+    position. Without one, paid work has no dollar limit; every paid task is still priced and
+    listed. With caps, every paid task counts against its position, its department, and the
+    business, and the smallest amount left decides. The month starts over on the 1st at midnight,
+    Pacific time.
 
   Before a paid task starts, Plenipo sets aside the most it could cost and never starts one that
   could pass a cap, so work can stop a little before a cap is used up. At 80% of a cap you get a

@@ -1,10 +1,11 @@
 //! Spending on paid AI keys (Phase 16 Wave 3, ADR-085; ADR-036 §2, every AI model worth having).
 //!
 //! The owner's **spending caps** — a monthly amount for the whole business, a department, or one
-//! position — and a **record of every paid task**. No paid task starts without the business cap
-//! (the owner's choice 1). Before a paid task's request is sent, the most it could cost is set
-//! aside, and only if it fits under every cap that covers it: the business, the task's
-//! department, and its position. So the hard stop never goes over (choice 3); work can stop a
+//! position — and a **record of every paid task**. Caps are the owner's to set, and none is needed
+//! (the owner changed choice 1 on 2026-09-30): with no cap covering a task, it has no dollar
+//! limit, and it is still priced and recorded. Before a paid task's request is sent, the most it
+//! could cost is set aside, and only if it fits under every cap that covers it: the business, the
+//! task's department, and its position. So the hard stop never goes over (choice 3); work can stop a
 //! little before 100%. When the task ends, its record says what it really cost, or that the bill
 //! could not be read ("not priced yet", counted at the most it could have cost, never as zero;
 //! choice 4).
@@ -300,7 +301,7 @@ pub struct SpendingPage {
     /// When the month turns over (midnight on the 1st, Pacific time).
     #[ts(type = "number")]
     pub resets_at: u64,
-    /// The business cap exists (no paid key works without it).
+    /// The business cap exists. Not needed: without it the business has no dollar limit.
     pub has_business_cap: bool,
     /// The business cap first, then departments', then positions'.
     pub caps: Vec<CapStatus>,
@@ -350,7 +351,7 @@ pub struct SetAside {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpendingRefusal {
-    /// The cap that stopped it (none when the business cap does not exist yet).
+    /// The cap that stopped it.
     pub cap_id: Option<String>,
     /// What to tell the owner, in plain words.
     pub reason: String,
@@ -859,7 +860,8 @@ impl Ledger {
     }
 
     /// What is left this month for a paid task of `position` in `department`: the smallest amount
-    /// left under the caps covering it. None without the business's cap (no paid task starts).
+    /// left under the caps covering it, or `u64::MAX` when no cap covers it (no dollar limit).
+    /// Always `Some`: the Router's `None` is a Ledger it could not read.
     pub fn spending_room(
         &self,
         department: Option<&str>,
@@ -870,9 +872,6 @@ impl Ledger {
         let key = month_key(year, month);
         self.read(|c| {
             let config = SpendingConfig::read(c)?;
-            if config.business().is_none() {
-                return Ok(None);
-            }
             let mut room = u64::MAX;
             for cap in covering(&config, department, position) {
                 let (counted, _) = used(c, &key, &cap.covers)?;
@@ -887,7 +886,7 @@ impl Ledger {
         self.read(|c| Ok(SpendingConfig::read(c)?.caps))
     }
 
-    /// The business cap exists: without it no paid key can be saved and no paid task starts.
+    /// The business cap exists. Not needed: without it the business has no dollar limit.
     pub fn has_business_cap(&self) -> Result<bool> {
         self.read(|c| Ok(SpendingConfig::read(c)?.business().is_some()))
     }
@@ -1004,13 +1003,8 @@ impl Ledger {
         })
     }
 
-    /// Remove a cap. The business cap stays while `business_needed` (a paid key exists).
-    pub fn remove_spending_cap(
-        &self,
-        cap_id: &str,
-        business_needed: bool,
-        actor: &str,
-    ) -> Result<()> {
+    /// Remove a cap, the business's included: no cap is ever needed.
+    pub fn remove_spending_cap(&self, cap_id: &str, actor: &str) -> Result<()> {
         let cap_id = clean_id("the cap", Some(cap_id))?.unwrap_or_default();
         let actor = clean_label(Some(actor), 64).unwrap_or_else(|| "owner".to_owned());
         self.write(|tx, out| {
@@ -1020,12 +1014,6 @@ impl Ledger {
                 .iter()
                 .position(|c| c.id == cap_id)
                 .ok_or_else(|| LedgerError::NotFound(format!("spending cap {cap_id}")))?;
-            if config.caps[i].covers == CapCovers::Business && business_needed {
-                return Err(invalid(
-                    "the business's spending cap stays while a paid AI key is saved: remove the \
-                     paid keys first",
-                ));
-            }
             let cap = config.caps.remove(i);
             config.marks.remove(&cap.id);
             let (label, _) = label_of(tx, &cap.covers)?;
@@ -1042,8 +1030,9 @@ impl Ledger {
     }
 
     /// Set aside the most `task` could cost, if it fits under every cap that covers it (the
-    /// business, its department, its position). Refused without the business cap, or when it
-    /// does not fit; a refusal is recorded, and the owner is told once a month per cap.
+    /// business, its department, its position). With no cap covering it, it always fits (no
+    /// dollar limit). Refused when it does not fit; a refusal is recorded, and the owner is told
+    /// once a month per cap.
     pub fn set_aside_spending(
         &self,
         task: &PaidTask,
@@ -1121,18 +1110,7 @@ impl Ledger {
                     reason,
                 }))
             };
-            if config.business().is_none() {
-                return refuse(
-                    tx,
-                    out,
-                    &mut config,
-                    None,
-                    "Paid AI keys need the business's monthly spending cap first (Settings → \
-                     Spending caps)."
-                        .to_owned(),
-                );
-            }
-            // The cap with the least room decides.
+            // The cap with the least room decides; with none, there is no dollar limit.
             let mut tightest: Option<(SpendingCap, u64)> = None;
             for cap in covering(&config, department_id.as_deref(), position_id.as_deref()) {
                 let (counted, _) = used(tx, &key, &cap.covers)?;
@@ -1616,17 +1594,22 @@ mod tests {
     // ---- Caps ----
 
     #[test]
-    fn no_paid_task_starts_without_the_business_cap() {
+    fn a_paid_task_starts_without_any_cap_and_is_still_recorded() {
         let l = ledger();
-        let refusal = refused(l.set_aside_spending(&task(D), OCT_15).unwrap());
-        assert!(refusal.cap_id.is_none());
-        assert!(refusal.reason.contains("business's monthly spending cap"));
         assert!(!l.has_business_cap().unwrap());
-        assert_eq!(types(&l, "spending."), ["spending.refused"]);
-        l.set_spending_cap(&CapCovers::Business, 50 * D, "owner", OCT_15)
+        assert_eq!(l.spending_room(None, None, OCT_15).unwrap(), Some(u64::MAX));
+        let set = fits(l.set_aside_spending(&task(900 * D), OCT_15).unwrap());
+        assert_eq!(set.most_micros, 900 * D);
+        assert_eq!(types(&l, "spending."), ["spending.set_aside"]);
+        let page = l.spending_page(OCT_15).unwrap();
+        assert!(!page.has_business_cap && page.caps.is_empty());
+        assert_eq!(page.set_aside_micros, 900 * D);
+        assert_eq!(page.recent.len(), 1);
+        // A cap the owner sets later still holds the work under it.
+        l.set_spending_cap(&CapCovers::Business, 950 * D, "owner", OCT_15)
             .unwrap();
-        assert!(l.has_business_cap().unwrap());
-        fits(l.set_aside_spending(&task(D), OCT_15).unwrap());
+        assert_eq!(l.spending_room(None, None, OCT_15).unwrap(), Some(50 * D));
+        refused(l.set_aside_spending(&task(60 * D), OCT_15).unwrap());
     }
 
     #[test]
@@ -1683,17 +1666,12 @@ mod tests {
     }
 
     #[test]
-    fn the_business_cap_stays_while_a_paid_key_is_saved() {
+    fn the_business_cap_can_always_be_removed() {
         let l = ledger();
         let cap = l
             .set_spending_cap(&CapCovers::Business, 50 * D, "owner", OCT_15)
             .unwrap();
-        assert!(l
-            .remove_spending_cap(&cap.id, true, "owner")
-            .unwrap_err()
-            .to_string()
-            .contains("remove the paid keys first"));
-        l.remove_spending_cap(&cap.id, false, "owner").unwrap();
+        l.remove_spending_cap(&cap.id, "owner").unwrap();
         assert!(!l.has_business_cap().unwrap());
         assert_eq!(types(&l, "spending.cap_removed").len(), 1);
     }

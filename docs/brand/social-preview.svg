@@ -39,7 +39,7 @@
       <text x="561" y="524" fill="#6AA6FF" text-anchor="middle">Ollama</text>
     </g>
 
-    <text x="80" y="592" fill="#4E637D" font-size="16">Windows 11 · Tauri + Rust · Your own sign-ins, never API keys</text>
+    <text x="80" y="592" fill="#4E637D" font-size="16">Windows 11 · Tauri + Rust · Your own sign-ins, or your own keys</text>
 
     <g stroke="#23344D" stroke-width="1.5" fill="none">
       <path d="M968 142V192" />

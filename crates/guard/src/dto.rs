@@ -244,7 +244,7 @@ pub struct Switches {
     /// "Let workers use paid AI keys" (Phase 16 Wave 3, ADR-085). Off (the default): Plenipo
     /// uses only the owner's subscriptions, exactly as before; no paid key can be saved and no
     /// paid route is offered or run. On: workers may use the paid keys the owner saved, within
-    /// the owner's spending caps (the business cap is needed first).
+    /// the spending caps the owner set, if any (no cap is needed).
     pub paid_ai_keys: bool,
 }
 

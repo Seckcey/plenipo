@@ -30,7 +30,7 @@ export const SETTINGS_SECTIONS: readonly {
     id: "aiTools",
     label: "AI tools",
     icon: "aiTools",
-    lead: "The AI tools on this computer, and whether each is signed in. Plenipo uses their own sign-in and never asks for passwords.",
+    lead: "The AI tools on this computer, whether each is signed in, and your keys for paying per use. Plenipo uses their own sign-in and never sees your passwords.",
   },
   {
     id: "aiModels",
@@ -42,7 +42,7 @@ export const SETTINGS_SECTIONS: readonly {
     id: "spending",
     label: "Spending caps",
     icon: "spending",
-    lead: "The most paid AI keys may spend each month: for the whole business, a department, or one position. No paid key works without the business's cap.",
+    lead: "The most paid AI keys may spend each month: for the whole business, a department, or one position. Caps are up to you: without one, paid work has no dollar limit.",
   },
   {
     id: "permissions",

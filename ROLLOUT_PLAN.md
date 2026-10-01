@@ -1762,7 +1762,7 @@ Four waves, in order. Nothing in Wave 3 starts before the spending caps work.
 - model list groups correctly by maker and by AI tool, with the same models in both
 - the contract suite still refuses key variables for every subscription AI tool
 - with the paid switch off: no key can be saved, and no paid route is offered
-- a key cannot be saved while no spending cap exists
+- a key can be saved, and paid work runs, with no spending cap (the owner's change, 2026-09-30); every paid task is still priced and recorded
 - warning at 80% of a cap; hard stop at 100%, with the work stopped and the owner told
 - a cap is enforced for the business, a department, and one position
 - route fallback: first route usage-limited → second route runs, and the reason says so

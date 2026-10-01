@@ -19,6 +19,8 @@ import { until } from "../../routing/format";
 import { useTerminalIfAny } from "../../terminal/useTerminal";
 import { Refusal } from "../models/shared";
 import type { Go } from "../views";
+import type { KeyCard } from "./AiToolCard";
+import { OPENROUTER } from "./keyFor";
 import { PaidKey } from "./PaidKey";
 import { SignIn } from "./SignIn";
 import {
@@ -46,7 +48,8 @@ const PLAN_DURING_A_TASK: ReadonlySet<string> = new Set(["claude-code"]);
 /**
  * A card's Overview (Phase 19): sign-in, version and update, how it is paid for, the usage limit,
  * what is left of the plan, and this week's tokens. A paid AI tool (Phase 16 Wave 3, ADR-085)
- * shows its key instead of a plan.
+ * shows its key instead of a plan; a subscription AI tool shows a key box for paying per use
+ * instead, saving the key of the paid AI tool in `keyCard` (2026-09-30).
  */
 export function Overview({
   info,
@@ -57,6 +60,7 @@ export function Overview({
   onApply,
   onRouting,
   go,
+  keyCard,
 }: {
   info: AgentRuntimeInfo;
   /** The page's part for this tool; `undefined` while it loads. */
@@ -69,6 +73,8 @@ export function Overview({
   onRouting: (snapshot: RoutingSnapshot) => void;
   /** Opens another page (Settings → Switches or Spending caps). */
   go?: Go | undefined;
+  /** A subscription AI tool's key box: the paid AI tool whose key it saves. */
+  keyCard?: KeyCard | undefined;
 }) {
   const install = info.installation.state;
   const paid = tool?.payment === "paidKey";
@@ -136,11 +142,11 @@ export function Overview({
               Subscription
               {plan ? ` (${plan})` : ""}
             </div>
-            {/* A subscription AI tool never takes a paid key (ADR-085 §5). */}
-            <p className="muted">
-              {info.label} always uses your subscription. To pay per use, add a key to a paid AI
-              tool (OpenRouter, or the AI company's own), within your spending caps.
-            </p>
+            {/* A subscription AI tool never takes a paid key itself (ADR-085 §5). */}
+            <p className="muted">{info.label} always uses your subscription.</p>
+            {keyCard && (
+              <PayPerUse label={info.label} keyCard={keyCard} onApply={onApply} go={go} />
+            )}
           </>
         )}
       </dd>
@@ -153,7 +159,7 @@ export function Overview({
         {paid ? (
           <div className="ai-tool__block">
             <p>
-              No plan: {info.label} is paid per use. What is left this month is under your spending
+              No plan: {info.label} is paid per use. A spending limit is up to you, in Spending
               caps.
             </p>
             {go && (
@@ -181,6 +187,50 @@ export function Overview({
 }
 
 /**
+ * A subscription AI tool's key box (2026-09-30): paying per use with your own key instead. The key
+ * is the paid AI tool's (the same AI company's, or OpenRouter's), the same one as on that tool's
+ * card; work on it runs on that paid AI tool, priced and listed under Spending caps. The
+ * subscription AI tool itself never gets the key.
+ */
+function PayPerUse({
+  label,
+  keyCard,
+  onApply,
+  go,
+}: {
+  label: string;
+  keyCard: KeyCard;
+  onApply: Apply;
+  go?: Go | undefined;
+}) {
+  const company = keyCard.info.label;
+  return (
+    <div className="ai-tool__block pay-per-use" role="group" aria-label="Pay per use instead">
+      <p>
+        <strong>Or pay per use with your own key.</strong>{" "}
+        {keyCard.info.id === OPENROUTER
+          ? `${label} has no key of its own for paying per use; an OpenRouter key reaches the same kinds of models, and many more.`
+          : `Your ${company} key goes here.`}{" "}
+        It is the same key as on the {company} card under Paid per use with your key. Work on it
+        runs on Plenipo&apos;s {company} AI tool and is priced and listed under Spending caps;{" "}
+        {label} itself keeps using your subscription.
+      </p>
+      {keyCard.tool.paidKey && (
+        <KeyCheck info={keyCard.info} tool={keyCard.tool} checking={false} />
+      )}
+      {/* A new instance for each saved key, as on the paid AI tool's own card. */}
+      <PaidKey
+        key={keyCard.tool.paidKey?.id ?? "no key"}
+        info={keyCard.info}
+        tool={keyCard.tool}
+        onApply={onApply}
+        go={go}
+      />
+    </div>
+  );
+}
+
+/**
  * A paid AI tool's check (ADR-085): whether its key works, or why it is not in use. Nothing to
  * sign in to: the key is added below.
  */
@@ -194,11 +244,11 @@ function KeyCheck({
   checking: boolean;
 }) {
   if (checking) return <>Checking…</>;
-  // Switched off (or no business cap) since the last check: not in use, whatever it said.
+  // Switched off since the last check: not in use, whatever it said.
   if (info.ready && tool.paidBlocked === null) {
     return <>Your key works{info.checkedAt ? ` (checked at ${when(info.checkedAt)})` : ""}.</>;
   }
-  // Switched off or no business cap: the notice below says so once.
+  // Switched off: the notice below says so once.
   const why = tool.paidBlocked ? null : info.auth.detail;
   return (
     <div className="ai-tool__block">

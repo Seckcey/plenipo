@@ -4,6 +4,8 @@
   [Wave 3 checklist](../phases/phase-16-wave-3-checklist.md#the-owners-choices-2026-09-30)):
   "All are approved except the following. 8. No limits 13. Yes you can create and merge and run
   any actions needed. 14. I have keys for anthropic, openai, grok and kimi."
+  **Changed by the owner after v1.17.0 (2026-09-30):** a spending cap is never needed, and every AI
+  tool's card has a key box ([Fix (v1.18.1)](#fix-v1181-2026-09-30)).
 - **Date:** 2026-09-30
 - **Phase:** 16, Wave 3 ("spending caps first, then paid routes")
 - **Follows:** [ADR-036 (every AI model worth having)](ADR-036-every-ai-model.md) §2 (keys and
@@ -27,8 +29,9 @@ Plenipo can now spend the owner's money, but only inside fences the owner sets f
 
 1. A switch, **Let workers use paid AI keys**, off by default. Off, Plenipo behaves exactly as it
    did before Wave 3.
-2. **Spending caps**: a monthly amount for the whole business, a department, or one position. No
-   paid key works until the business's cap exists.
+2. **Spending caps**: a monthly amount for the whole business, a department, or one position.
+   _Changed on 2026-09-30: caps are the owner's choice, never needed; with none, paid work has no
+   dollar limit and every paid task is still priced and recorded._
 3. Before a paid task starts, Plenipo **sets aside** the most it could cost, and never starts a
    task that could pass a cap. So the hard stop never goes over; work can stop a little before
    100% instead.
@@ -48,6 +51,8 @@ use fixed off), and ADR-014 (subscription sign-in only). This is that record.
 The owner's choices for Wave 3 (2026-09-30), from the checklist:
 
 1. **The business cap first.** No key can be saved until the whole-business cap exists.
+   _Changed by the owner on 2026-09-30: "If the user doesn't have a spending cap, still let them
+   add an API key. It's on the user to adjust the spending limits."_
    Department and position caps are extras; every paid task counts against its position, its
    department, and the business, and the smallest amount left decides.
 2. **The month** starts on the 1st at midnight, Pacific time.
@@ -77,7 +82,9 @@ paid route is offered, and no paid task runs; every test that forbids keys passe
 3. **The month** is the calendar month in Pacific time: it starts over at midnight on the 1st,
    daylight saving time included (United States rules since 2007, in one small function).
 4. **The business cap first:** without it, no paid task starts (and, from part 2, no key can be
-   saved). The business cap cannot be removed while a paid key is saved.
+   saved). The business cap cannot be removed while a paid key is saved. _Changed on 2026-09-30
+   (v1.18.1): no cap is needed, and any cap can be removed; a task no cap covers has no dollar
+   limit._
 5. **The gate.** Before a paid task's request is sent, Plenipo adds up, for the task's position,
    its department, and the business: what this month has spent, what is set aside for running
    tasks, and the most this task could cost. If that does not fit under every cap, the task does
@@ -199,8 +206,9 @@ Workers on a paid route answer in text only in this wave (choice 6).
 
 ## Consequences
 
-- **Plenipo can spend the owner's money,** and every dollar is fenced: no key without the
-  business cap, no task that could pass a cap, and a record of every paid task.
+- **Plenipo can spend the owner's money,** and every dollar is recorded: no task that could pass a
+  cap the owner set, and a record of every paid task. (Until v1.18.1, no key without the business
+  cap either.)
 - **Work can stop a little before a cap is used up**, because the most a task could cost is set
   aside first. That is the price of never going over.
 - **A crash can make spending look higher than it was** (a task counted at the most it could have
@@ -300,3 +308,23 @@ Workers on a paid route answer in text only in this wave (choice 6).
 ten AI companies' own services join OpenRouter as paid AI tools, each with its models and the
 prices on its own pages. A price can now carry what a company charges for storing input for reuse
 by itself (`Price::cache_write`), counted for every fresh input token (§3).
+
+### Fix (v1.18.1, 2026-09-30)
+
+The owner's changes after trying v1.17.0:
+
+- **No spending cap is needed.** A key can be saved, and paid work runs, with no cap. A task that
+  no cap covers has no dollar limit; it is still priced, set aside, and recorded, and any cap the
+  owner sets later holds it. The business cap can be removed while a key is saved.
+  `Ledger::set_aside_spending` and `spending_room` no longer need the business cap;
+  `paid::not_allowed` asks only about the switch. Where a key is added, and beside a saved key,
+  the screen says a spending limit can be set in Spending caps and is not required.
+- **A key box on every AI tool card.** Claude Code, Codex, Grok, Kimi, and Antigravity offer their
+  AI company's own key (Anthropic, OpenAI, xAI, Moonshot AI, Google); Ollama and GitHub Copilot
+  offer OpenRouter's. The key is the paid AI tool's, the same one as on its own card, kept once;
+  the subscription AI tool never gets it (§5 stands). The paid AI tools have their own part of the
+  page, **Paid per use with your key**.
+- **Words that no longer fit** were changed: "never asks for passwords or API keys", "No paid key
+  works without the business's cap", "subscription sign-ins only", and "Pay-per-use API billing:
+  Off". An AI tool signed in with its own API key outside Plenipo is still refused, and the words
+  now say why: its costs would skip the caps.
