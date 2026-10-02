@@ -98,8 +98,9 @@ _Added from the pull request's test run._
    repository, and have it built there.
 2. In Cloudflare: point `relay.getplenipo.com` at the relay (WebSockets on), and
    `remote.getplenipo.com` at Coastline's tunnel (ADR-146).
-3. On Coastline: the phone page's piece of the website's updater (the builder writes the steps and
-   can do the console work).
+3. On Coastline: the phone page's home next to the website. The steps are in
+   [`apps/remote/deploy/README.md`](../../apps/remote/deploy/README.md), and the builder can do the
+   console work.
 4. When the relay answers, set the repository variable `PLENIPO_RELAY_LIVE` to `true`; the next
    release turns the switch on.
 

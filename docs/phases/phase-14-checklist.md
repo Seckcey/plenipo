@@ -69,7 +69,7 @@ is truly needed.
       repository, and have it built there.
 - [ ] In Cloudflare: point `relay.getplenipo.com` at the relay (WebSockets on), and
       `remote.getplenipo.com` at Coastline's tunnel (ADR-146).
-- [ ] On Coastline: the phone page's piece of the website's updater (the builder writes the steps).
+- [ ] On Coastline: the phone page's home next to the website ([the steps](../../apps/remote/deploy/README.md); the builder can do the console work).
 - [ ] Tell the builder when the relay answers, for one check by hand before release.
 
 ## Deliverables
