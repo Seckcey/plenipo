@@ -90,6 +90,7 @@ pub fn test_notice() -> Notice {
         body: "This is how Plenipo tells you when something needs you. Choose which notices you \
                get in Settings → Notifications."
             .into(),
+        item: None,
     }
 }
 
@@ -189,6 +190,9 @@ pub fn start<R: Runtime>(
             .map_or_else(|| id.to_owned(), |r| r.label)
     };
     let show_loop = Arc::clone(&show);
+    // Each notice shown goes to the phones that asked for notices too (Phase 14, ADR-144).
+    let phones = app.clone();
+    let org_id = org.id.clone();
     // The thread holds the Ledger only while it reads a batch: the Ledger holds the listener,
     // and the listener holds the sender, so when the Ledger is gone the channel closes and the
     // thread ends.
@@ -244,7 +248,9 @@ pub fn start<R: Runtime>(
                     continue;
                 }
                 if let Some(notice) = gate.pass(notices, plenipo_ledger::now_ms()) {
-                    let _ = show_loop(&named(notice));
+                    let notice = named(notice);
+                    let _ = show_loop(&notice);
+                    crate::remote_host::send_notice(&phones, &org_id, &notice);
                 }
             }
         });

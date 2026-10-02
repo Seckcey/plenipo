@@ -19,4 +19,9 @@ pcName: string,
 /**
  * Plenipo's version on the PC.
  */
-version: string, };
+version: string, 
+/**
+ * The PC's notice key (P-256, base64url), for the phone to sign up for notices (part 14C). A
+ * PC that sends no notices (before 1.19.2) has none.
+ */
+noticeKey?: string, };

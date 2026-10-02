@@ -9,6 +9,7 @@ import { Button, PropertyList, useTheme } from "@plenipo/ui";
 
 import { useRead, useSession } from "../session-context";
 import { aiToolStatus, type PhoneAiTool } from "../words";
+import { NoticesOnThisPhone } from "./Notices";
 
 /** The AI tools on your PC, by name, with what each can do now. */
 function AiTools() {
@@ -73,7 +74,16 @@ function Diagnostics() {
  * One lesson waiting for you: **Keep** it as written (workers in its role use it from then on), or
  * **Discard** it. Changing its words stays on your PC.
  */
-function Lesson({ lesson, onDone }: { lesson: LessonView; onDone: () => void }) {
+function Lesson({
+  lesson,
+  focused,
+  onDone,
+}: {
+  lesson: LessonView;
+  /** A notice opened the page on this one. */
+  focused: boolean;
+  onDone: () => void;
+}) {
   const { ask, org } = useSession();
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
@@ -91,7 +101,7 @@ function Lesson({ lesson, onDone }: { lesson: LessonView; onDone: () => void }) 
       .finally(() => setBusy(false));
   };
   return (
-    <li className="card card--quiet">
+    <li className={focused ? "card card--quiet lesson--focused" : "card card--quiet"}>
       <strong>{lesson.worker}</strong>
       <p>{lesson.text}</p>
       {lesson.heldReason && <p className="muted">{lesson.heldReason}</p>}
@@ -119,25 +129,37 @@ function Lesson({ lesson, onDone }: { lesson: LessonView; onDone: () => void }) 
   );
 }
 
-function Lessons() {
+function Lessons({ focus }: { focus: string | null }) {
   const { org } = useSession();
   const { data, error, reload } = useRead<LearningSnapshot>({ kind: "readLessons", org }, [
     "lessons",
   ]);
   if (error) return <p className="form-error">{error}</p>;
   if (!data) return <p role="status">Loading…</p>;
-  if (data.waiting.length === 0) return <p className="muted">No lessons are waiting for you.</p>;
+  // A notice opened the page on a lesson already kept or discarded (ADR-144 §8).
+  const answered = focus !== null && !data.waiting.some((l) => l.id === focus);
   return (
-    <ul className="list">
-      {data.waiting.map((l) => (
-        <Lesson key={l.id} lesson={l} onDone={reload} />
-      ))}
-    </ul>
+    <>
+      {answered && (
+        <p className="notice-box" role="status">
+          <strong>Already answered.</strong> That lesson was kept or discarded on your PC.
+        </p>
+      )}
+      {data.waiting.length === 0 ? (
+        <p className="muted">No lessons are waiting for you.</p>
+      ) : (
+        <ul className="list">
+          {data.waiting.map((l) => (
+            <Lesson key={l.id} lesson={l} focused={l.id === focus} onDone={reload} />
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
 
 /** More: the AI tools, Diagnostics, lessons waiting, and this phone's own choices. */
-export function MorePage() {
+export function MorePage({ focus = null }: { focus?: string | null }) {
   const { kept, leave } = useSession();
   const [theme, setTheme] = useTheme();
   const [removing, setRemoving] = useState(false);
@@ -145,11 +167,13 @@ export function MorePage() {
     <section className="page" aria-labelledby="more-title">
       <h1 id="more-title">More</h1>
       <h2>Lessons waiting</h2>
-      <Lessons />
+      <Lessons focus={focus} />
       <h2>AI tools</h2>
       <AiTools />
       <h2>Diagnostics</h2>
       <Diagnostics />
+      <h2>Notices on this phone</h2>
+      <NoticesOnThisPhone />
       <h2>This phone</h2>
       <PropertyList
         items={[

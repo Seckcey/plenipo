@@ -9,6 +9,7 @@ import {
   toCommandError,
 } from "../api/commands";
 import { Toggle } from "../components/SwitchSettings";
+import { PhoneNotices } from "../remote/PhoneNotices";
 import { useLive } from "../pages/useLive";
 
 type Kind = Exclude<keyof NoticeSettings, "onlyWhenAway">;
@@ -129,6 +130,10 @@ export function NotificationSettings() {
             onChange={(on) => void choose({ ...shown, [k.key]: on })}
           />
         ))}
+      </section>
+      <section aria-labelledby="notices-phones">
+        <h3 id="notices-phones">On your phones</h3>
+        <PhoneNotices />
       </section>
       <section aria-labelledby="notices-when">
         <h3 id="notices-when">When Plenipo is open</h3>

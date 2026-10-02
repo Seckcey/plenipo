@@ -85,3 +85,33 @@ export function memoryKeep(start: Kept | null = null): Keep & { kept: Kept | nul
   };
   return keep;
 }
+
+const LOCK_SCREEN = "lockScreen";
+
+/**
+ * This phone's lock-screen choice for notices (ADR-144 §5), kept where the page's background part
+ * reads it before a notice shows: "show" (what it is) to begin with, or "hide" (only "Something
+ * needs you").
+ */
+export async function lockScreenChoice(): Promise<"show" | "hide"> {
+  try {
+    const db = await open();
+    try {
+      const v: unknown = await request(db.transaction(STORE).objectStore(STORE).get(LOCK_SCREEN));
+      return v === "hide" ? "hide" : "show";
+    } finally {
+      db.close();
+    }
+  } catch {
+    return "show";
+  }
+}
+
+export async function setLockScreenChoice(choice: "show" | "hide"): Promise<void> {
+  const db = await open();
+  try {
+    await request(db.transaction(STORE, "readwrite").objectStore(STORE).put(choice, LOCK_SCREEN));
+  } finally {
+    db.close();
+  }
+}

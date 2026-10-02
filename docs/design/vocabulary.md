@@ -333,6 +333,10 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | Approve on your PC (an approval kept on the PC)                                | remote approval disabled, policy-restricted action                                         |
 | Paused after 3 failed checks / Un-pause                                        | locked out, rate limited, lockout                                                          |
 | Coming soon (phone access before 8 West's relay is ready)                      | feature flag off, not provisioned                                                          |
+| notice (on your phone) / Notices on this phone / Notices on my phones          | push notification, web push, subscription                                                  |
+| On the lock screen: Show what it is / Show only “Something needs you”          | notification privacy, redacted payload                                                     |
+| Already answered                                                               | stale notification, conflict, 409                                                          |
+| Add Plenipo to your Home Screen (iPhone)                                       | install the PWA, A2HS                                                                      |
 
 ## Where technical words may stay
 

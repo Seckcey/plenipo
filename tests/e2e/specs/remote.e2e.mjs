@@ -23,7 +23,16 @@
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createPrivateKey, sign } from "node:crypto";
+import {
+  createDecipheriv,
+  createECDH,
+  createPrivateKey,
+  createPublicKey,
+  hkdfSync,
+  randomBytes,
+  sign,
+  verify,
+} from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
@@ -57,6 +66,7 @@ const PAGE_DIR = join(root, "apps", "remote", "dist");
 const LICENSE_PORT = 8768;
 const RELAY_PORT = 8769;
 const PAGE_PORT = 8771;
+const NOTICES_PORT = 8772;
 const PAGE = `http://localhost:${PAGE_PORT}`;
 const PHONE_NAME = "Test phone";
 /** An Android phone's Chrome: the page calls it "Android phone", in "Chrome on Android phone". */
@@ -136,6 +146,20 @@ const invoke = (browser, cmd, args = {}) =>
   );
 
 const remoteNow = async (browser) => (await invoke(browser, "get_remote")).ok;
+
+/** Everything the PC's Ledger holds, newest first, page by page (Activity → All events). */
+async function allEvents(browser) {
+  const all = [];
+  let before = null;
+  for (;;) {
+    const page =
+      (await invoke(browser, "get_scope_events", { scope: { kind: "all" }, limit: 200, before }))
+        .ok ?? [];
+    all.push(...page);
+    if (page.length < 200) return all;
+    before = page[page.length - 1].seq;
+  }
+}
 
 const SWITCH = 'button[role="switch"][aria-label="Use Plenipo from another device"]';
 
@@ -311,6 +335,7 @@ async function startPhone() {
       ...(driver && existsSync(driver) ? { "wdio:chromedriverOptions": { binary: driver } } : {}),
       "goog:chromeOptions": {
         args: ["--headless=new", "--no-first-run", "--no-default-browser-check"],
+        prefs: { "profile.default_content_setting_values.notifications": 1 },
         mobileEmulation: {
           deviceMetrics: { width: 390, height: 844, pixelRatio: 2 },
           userAgent: ANDROID,
@@ -430,6 +455,135 @@ async function relaySaw(words) {
   return answer === `saw ${words}`;
 }
 
+// ---- A stand-in for the phones' notice services (part 14C) -----------------------------------
+
+const notices = { got: [], server: null };
+
+function startNotices() {
+  notices.server = createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      notices.got.push({
+        method: req.method,
+        path: req.url,
+        headers: req.headers,
+        body: Buffer.concat(chunks),
+      });
+      res.writeHead(201).end();
+    });
+  });
+  return new Promise((done) => notices.server.listen(NOTICES_PORT, "127.0.0.1", done));
+}
+
+/** The phone's own notice keys, as its browser makes them (RFC 8291). */
+const phoneNoticeKeys = (() => {
+  const ecdh = createECDH("prime256v1");
+  ecdh.generateKeys();
+  return { ecdh, auth: randomBytes(16) };
+})();
+
+/**
+ * The phone's notice service is the stand-in here: the browser's own sign-up is replaced by one
+ * that gives the stand-in's address and the test's keys (a test browser has no service). It is put
+ * back after each page load, already signed up when `signedUp`.
+ */
+async function standInNoticeService(phone, signedUp) {
+  await phone.execute(
+    (endpoint, p256dh, auth, signedUp) => {
+      const sub = {
+        endpoint,
+        toJSON: () => ({ endpoint, keys: { p256dh, auth } }),
+        unsubscribe: () => {
+          current = null;
+          return Promise.resolve(true);
+        },
+      };
+      let current = signedUp ? sub : null;
+      PushManager.prototype.subscribe = function (options) {
+        window.plenipoNoticeKey = new Uint8Array(options.applicationServerKey);
+        current = sub;
+        return Promise.resolve(sub);
+      };
+      PushManager.prototype.getSubscription = () => Promise.resolve(current);
+      Notification.requestPermission = () => Promise.resolve("granted");
+    },
+    `http://127.0.0.1:${NOTICES_PORT}/push/phone-1`,
+    phoneNoticeKeys.ecdh.getPublicKey().toString("base64url"),
+    phoneNoticeKeys.auth.toString("base64url"),
+    signedUp,
+  );
+}
+
+/**
+ * The phone opens Plenipo's page at `target`, as a tapped notice does when the page is closed: a
+ * new page load (a change after `#` alone would not load the page again).
+ */
+async function openFromNotice(phone, target) {
+  await phone.url("about:blank");
+  await phone.url(`${PAGE}/#open=${encodeURIComponent(target)}`);
+  await standInNoticeService(phone, true);
+}
+
+/** Open a sealed notice the way the phone does (RFC 8291 and RFC 8188), with node's own crypto. */
+function openNotice(body) {
+  const salt = body.subarray(0, 16);
+  assert.equal(body.readUInt32BE(16), 4096, "one record of 4096");
+  assert.equal(body[20], 65);
+  const theirs = body.subarray(21, 86);
+  const ours = phoneNoticeKeys.ecdh.getPublicKey();
+  const shared = phoneNoticeKeys.ecdh.computeSecret(theirs);
+  const keyInfo = Buffer.concat([Buffer.from("WebPush: info\0"), ours, theirs]);
+  const ikm = Buffer.from(hkdfSync("sha256", shared, phoneNoticeKeys.auth, keyInfo, 32));
+  const cek = Buffer.from(
+    hkdfSync("sha256", ikm, salt, Buffer.from("Content-Encoding: aes128gcm\0"), 16),
+  );
+  const nonce = Buffer.from(
+    hkdfSync("sha256", ikm, salt, Buffer.from("Content-Encoding: nonce\0"), 12),
+  );
+  const sealed = body.subarray(86);
+  const decipher = createDecipheriv("aes-128-gcm", cek, nonce);
+  decipher.setAuthTag(sealed.subarray(sealed.length - 16));
+  const plain = Buffer.concat([
+    decipher.update(sealed.subarray(0, sealed.length - 16)),
+    decipher.final(),
+  ]);
+  assert.equal(plain[plain.length - 1], 2, "the last record");
+  return JSON.parse(plain.subarray(0, plain.length - 1).toString("utf8"));
+}
+
+/** Check `vapid t=<token>, k=<key>`: the token is signed by that key, for that service. */
+function checkSignature(authorization, key, audience) {
+  const m = /^vapid t=([^,]+), k=(.+)$/.exec(authorization);
+  assert.ok(m, authorization);
+  const [, token, k] = m;
+  assert.equal(k, key, "signed with the PC's notice key, the one the phone signed up with");
+  const [head, claims, signature] = token.split(".");
+  const raw = Buffer.from(k, "base64url");
+  const publicKey = createPublicKey({
+    key: {
+      kty: "EC",
+      crv: "P-256",
+      x: raw.subarray(1, 33).toString("base64url"),
+      y: raw.subarray(33, 65).toString("base64url"),
+    },
+    format: "jwk",
+  });
+  assert.ok(
+    verify(
+      "sha256",
+      Buffer.from(`${head}.${claims}`),
+      { key: publicKey, dsaEncoding: "ieee-p1363" },
+      Buffer.from(signature, "base64url"),
+    ),
+    "the signature is the PC's",
+  );
+  const said = JSON.parse(Buffer.from(claims, "base64url").toString("utf8"));
+  assert.equal(said.aud, audience);
+  assert.equal(said.sub, "https://getplenipo.com");
+  assert.ok(said.exp * 1000 > Date.now() && said.exp * 1000 < Date.now() + 25 * 3600_000);
+}
+
 // ---- The phone's page, served as remote.getplenipo.com would serve it ------------------------------
 
 const TYPES = {
@@ -445,6 +599,8 @@ const TYPES = {
 };
 
 let pageServer = null;
+/** When the last approval the PC showed a notice for appeared (see the notices test). */
+let lastApprovalAt = 0;
 
 function startPage() {
   const index = join(PAGE_DIR, "index.html");
@@ -475,6 +631,7 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
 
   before(async () => {
     await startLicense();
+    await startNotices();
     await startRelay();
     await startPage();
     app = await launch(home, env);
@@ -486,6 +643,7 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     await closePc(app);
     relay.process?.kill();
     license.server?.close();
+    notices.server?.close();
     pageServer?.close();
   });
 
@@ -668,6 +826,7 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
       "the second approval",
       45_000,
     );
+    lastApprovalAt = Date.now();
     await phoneSays(phone, "git push origin");
     await waitUntil(
       () => phone.$('//button[normalize-space()="Approve"]').isExisting(),
@@ -693,6 +852,98 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     );
     await waitForText(browser, '[aria-labelledby="answered-title"]', `from ${PHONE_NAME}`);
     await screenshot(browser, "phone-pc-approvals-answered");
+  });
+
+  it("notices: the phone signs up, and the PC seals each notice for it alone, signed with its key (14C)", async () => {
+    const { browser } = app;
+    // The page's background part is in place.
+    const worker = await waitUntil(
+      () =>
+        phone.executeAsync((done) => {
+          navigator.serviceWorker.getRegistration().then(
+            (r) => done(r?.active?.scriptURL ?? null),
+            () => done(null),
+          );
+        }),
+      "the page's background part",
+    );
+    assert.equal(worker, `${PAGE}/sw.js`);
+    await standInNoticeService(phone, false);
+    await page(phone, "More", "more-title");
+    const toggle = await phone.$('button[role="switch"][aria-label="Notices on this phone"]');
+    await toggle.waitForClickable({ timeout: 15_000 });
+    // In the middle of the screen, clear of the page's bar along the bottom.
+    await phone.execute((el) => el.scrollIntoView({ block: "center" }), toggle);
+    await screenshot(phone, "phone-notices-off");
+    await toggle.click();
+    await waitUntil(async () => (await toggle.getAttribute("aria-checked")) === "true", "on");
+    await waitUntil(
+      async () => (await remoteNow(browser)).remote.devices[0].notices,
+      "the PC has the phone's notice address",
+    );
+    await screenshot(phone, "phone-notices-on");
+    const signedUpWith = Buffer.from(
+      await phone.execute(() => Array.from(window.plenipoNoticeKey ?? [])),
+    ).toString("base64url");
+
+    // Notices come while the PC's window is in front too (the PC's own choice).
+    await openSettings(browser, "Notifications");
+    await waitForText(browser, '[aria-labelledby="notices-phones"]', "1 phone gets");
+    const away = await browser.$(
+      'button[role="switch"][aria-label="Only while Plenipo\'s window is not in front"]',
+    );
+    await browser.execute((el) => el.scrollIntoView({ block: "center" }), away);
+    if ((await away.getAttribute("aria-checked")) === "true") await away.click();
+    await screenshot(browser, "phone-pc-notifications");
+
+    // Something needs the owner: the PC seals a notice for the phone. The PC shows the same
+    // words at most once a minute, and the approvals above said the same thing: wait that out.
+    const repeat = lastApprovalAt + 61_000 - Date.now();
+    if (repeat > 0) await new Promise((done) => setTimeout(done, repeat));
+    const before = notices.got.length;
+    await nav(browser, "Organization");
+    await select(browser, "Website Supervisor");
+    await (
+      await objectiveBox(browser)
+    ).setValue(`Publish once more {{handoff:role:Senior Developer|${tool("git_push", {})}}}`);
+    await clickButton(browser, "Give objective");
+    await waitUntil(() => notices.got.length > before, "the notice", 60_000);
+    const sent = notices.got[notices.got.length - 1];
+    assert.equal(sent.method, "POST");
+    assert.equal(sent.path, "/push/phone-1");
+    assert.equal(sent.headers["content-encoding"], "aes128gcm");
+    assert.equal(sent.headers.ttl, "600");
+    assert.equal(sent.headers.urgency, "high");
+    assert.match(sent.headers.topic, /^[A-Za-z0-9_-]{32}$/);
+    assert.equal(sent.headers.cookie, undefined);
+    checkSignature(sent.headers.authorization, signedUpWith, `http://127.0.0.1:${NOTICES_PORT}`);
+    // Only the phone's keys open it, and it says what the PC's notice says.
+    assert.ok(!sent.body.includes(Buffer.from("git push")), "nothing in the clear");
+    const notice = openNotice(sent.body);
+    assert.equal(notice.v, 1);
+    assert.equal(notice.kind, "approvals");
+    assert.equal(notice.title, "Senior Developer is waiting for your OK");
+    assert.match(notice.body, /^Git push origin/);
+    assert.equal(notice.about.kind, "approval");
+    const pending = (await invoke(browser, "get_approvals")).ok.pending;
+    assert.equal(notice.about.id, pending[0].id, "about the approval that waits");
+    assert.equal(notice.tag, `approval:${notice.org}:${notice.about.id}`);
+    // Opening the notice opens that approval on the phone.
+    await openFromNotice(phone, `approval:${notice.org}:${notice.about.id}`);
+    const focused = await phone.$(".approval--focused");
+    await focused.waitForExist({ timeout: 30_000 });
+    assert.match(await focused.getText(), /git push origin/);
+    await screenshot(phone, "phone-notice-opened");
+    // Answered on the PC: the phone's page shows it as answered, if the notice is opened again.
+    await clickButton(browser, "Review");
+    await clickButton(browser, "Approve");
+    await waitUntil(
+      async () => (await invoke(browser, "get_approvals")).ok.pending.length === 0,
+      "answered on the PC",
+    );
+    await openFromNotice(phone, `approval:${notice.org}:${notice.about.id}`);
+    await phoneSays(phone, "Already answered.", 30_000);
+    await screenshot(phone, "phone-notice-already-answered");
   });
 
   it("gives an objective from the phone, and stops the worker from the phone (14B)", async () => {
@@ -734,6 +985,13 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     await tap(phone, "Stop all", '//*[@role="alertdialog"]');
     await phoneSays(phone, "Browser, desktop, and server work is stopped.");
     await waitForText(browser, ".banner--control", "Browser, desktop, and server work is stopped.");
+    // The phone, which takes notices, is told too, sealed for it alone (part 14C).
+    const stoppedNotice = await waitUntil(
+      () => notices.got.map((n) => openNotice(n.body)).find((n) => n.about?.kind === "stopped"),
+      "Stop all's notice",
+      30_000,
+    );
+    assert.equal(stoppedNotice.title, "Stopped: everything");
     await screenshot(browser, "phone-pc-stopped");
     assert.equal((await invoke(browser, "get_control_status")).ok.stopped, true);
     // Allow again, from the phone too (14B).
@@ -925,7 +1183,8 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
 
   it("Activity on the PC shows every request with the phone that sent it", async () => {
     const { browser } = app;
-    const events = (await invoke(browser, "list_recent_events")).ok;
+    // The whole record: the phone was added long before the newest 200 events.
+    const events = await allEvents(browser);
     const types = (t) => events.filter((e) => e.eventType === t);
     assert.ok(types("remote.device_added").some((e) => e.payload.name === PHONE_NAME));
     const asked = types("remote.request").map((e) => `${e.payload.name}: ${e.payload.kind}`);
@@ -942,6 +1201,11 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     }
     assert.ok(types("remote.signed_in").length >= 2, "signed in twice, each recorded");
     assert.ok(types("remote.device_removed").some((e) => e.payload.by === "pc"));
+    const sentNotices = types("remote.notice_sent");
+    assert.ok(
+      sentNotices.some((e) => e.payload.name === PHONE_NAME && e.payload.kind === "approvals"),
+    );
+    assert.ok(!JSON.stringify(sentNotices).includes("git push"), "never what a notice said");
     await nav(browser, "Activity");
     await (await browser.$('//button[@role="tab" and normalize-space()="All events"]')).click();
     const all = 'ol[aria-label="All events"]';

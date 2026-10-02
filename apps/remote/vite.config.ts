@@ -1,6 +1,6 @@
 /// <reference types="vitest/config" />
 import react from "@vitejs/plugin-react";
-import { defineConfig, type Plugin } from "vite";
+import { build, defineConfig, type Plugin } from "vite";
 
 /**
  * Where the page reaches 8 West's relay (ADR-146): Plenipo's own name for it, or, for the end-to-end
@@ -45,13 +45,53 @@ function contentSecurityPolicy(): Plugin {
   };
 }
 
+const DEFINE = {
+  __PLENIPO_RELAY__: JSON.stringify(RELAY),
+  __PLENIPO_VERSION__: JSON.stringify(VERSION),
+};
+
+/**
+ * The page's background part (`sw.js`, part 14C): it shows notices when the page is closed. Built
+ * on its own, as one plain script with no imports, after the page is built.
+ */
+function serviceWorker(): Plugin {
+  let outDir = "dist";
+  let root = process.cwd();
+  return {
+    name: "plenipo-remote-sw",
+    apply: "build",
+    configResolved(config) {
+      outDir = config.build.outDir;
+      root = config.root;
+    },
+    async closeBundle() {
+      await build({
+        configFile: false,
+        root,
+        logLevel: "warn",
+        define: DEFINE,
+        build: {
+          outDir,
+          emptyOutDir: false,
+          target: "es2022",
+          sourcemap: false,
+          copyPublicDir: false,
+          lib: {
+            entry: "src/sw.ts",
+            formats: ["iife"],
+            name: "plenipoNotices",
+            fileName: () => "sw.js",
+          },
+        },
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), contentSecurityPolicy()],
+  plugins: [react(), contentSecurityPolicy(), serviceWorker()],
   clearScreen: false,
-  define: {
-    __PLENIPO_RELAY__: JSON.stringify(RELAY),
-    __PLENIPO_VERSION__: JSON.stringify(VERSION),
-  },
+  define: DEFINE,
   server: {
     port: 8771,
     strictPort: true,

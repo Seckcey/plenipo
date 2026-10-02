@@ -300,3 +300,31 @@ p.notice-box {
   gap: var(--ui-space-2);
   overflow-wrap: anywhere;
 }
+
+/* Part 14C: notices on this phone, and the item a notice opened. */
+.notices__switch {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+}
+
+.notices__lock {
+  display: grid;
+  gap: var(--ui-space-2);
+  margin: 0;
+  padding: var(--ui-space-3);
+  border: 1px solid var(--ui-border);
+  border-radius: 4px;
+}
+
+.notices__lock label {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+}
+
+.approval--focused,
+.lesson--focused {
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 1px var(--ui-accent);
+}

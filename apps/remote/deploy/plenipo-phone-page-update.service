@@ -1,0 +1,18 @@
+# Plenipo on your phone: serve the phone's page from each release (Phase 14, ADR-146).
+# Installed to /etc/systemd/system/ on Coastline; see apps/remote/deploy/README.md.
+[Unit]
+Description=Plenipo on your phone: serve the newest release of the phone's page
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+# The account that owns /srv/8west/apps/plenipo-phone-page and may use Docker. The install steps
+# fill it in; the service never runs as root.
+User=DEPLOY_USER
+ExecStart=/srv/8west/apps/plenipo-phone-page/deploy/update-page.sh
+TimeoutStartSec=10min
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateTmp=yes

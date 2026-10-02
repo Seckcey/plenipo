@@ -23,6 +23,7 @@ pub mod github;
 pub mod license_check;
 pub mod mcp;
 pub mod paid;
+pub mod phone_notices;
 mod process;
 pub mod programs;
 pub mod relay;

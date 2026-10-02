@@ -213,6 +213,7 @@
     "allow-rename-device",
     "allow-remove-device",
     "allow-unpause-device",
-    "allow-set-kept-on-pc"
+    "allow-set-kept-on-pc",
+    "allow-set-phone-notices"
   ]
 }

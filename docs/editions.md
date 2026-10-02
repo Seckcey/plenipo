@@ -32,7 +32,7 @@ business departments you can create.
 | Add-on tools you set up (Phase 20)                                                      | No             | Yes                                |
 | GitHub's tools for the Development department                                           | Yes            | Yes                                |
 | Your servers over SSH, and the Operations Engineer role                                 | Yes            | Yes                                |
-| Plenipo on your phone: your work, approvals, and Stop all (Phase 14, from v1.19.0)      | No             | Yes                                |
+| Plenipo on your phone, with notices (Phase 14, from v1.19.0; notices from v1.19.2)      | No             | Yes                                |
 | Ledger, Activity trail, and screenshots of every step                                   | Yes            | Yes                                |
 | Ranks, titles, and the rest of Personalization                                          | Yes            | Yes                                |
 | Full source code, and the right to change it for your own use                           | Yes            | Yes                                |
@@ -128,6 +128,13 @@ Exactly what Plenipo sends to the relay, and nothing else (a test checks it):
 The relay can see that a PC and some phones are connected, when, how much they send, and their
 internet addresses. **It cannot see** what they say: no approvals, objectives, workers, names, or
 anything from your projects. It keeps nothing.
+
+**Notices on your phone** (from v1.19.2) do not go through the relay. Your PC sends each one straight
+to your phone's own notice service (Apple's, Google's, Mozilla's, or Microsoft's), sealed with your
+phone's keys so only your phone can read it, and signed with your PC's notice key. The notice
+service sees that a notice went to your phone, when, and how big it was, never what it says. What
+a notice says is the same line your PC's own notice shows, and your phone can show only "Something
+needs you" instead.
 
 **A Free copy never connects to the relay**, even with the switch saved on. When Pro ends, phone
 access pauses: your phones stay on the list, and work again when Pro is back.

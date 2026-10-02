@@ -55,6 +55,56 @@ pub struct MeetingWelcome {
     pub pc_name: String,
     /// Plenipo's version on the PC.
     pub version: String,
+    /// The PC's notice key (P-256, base64url), for the phone to sign up for notices (part 14C). A
+    /// PC that sends no notices (before 1.19.2) has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub notice_key: Option<String>,
+}
+
+/// A notice, as the phone opens it (part 14C, ADR-144 §3). It is sealed for that phone alone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[ts(export)]
+pub struct PhoneNotice {
+    /// Its version: 1.
+    pub v: u8,
+    /// What kind, as Settings → Notifications names them: `approvals`, `checks`, `problems`,
+    /// `finished`, `lessons`, `plenipo`, or `spending`.
+    pub kind: String,
+    /// The organization it is from.
+    pub org: String,
+    pub title: String,
+    pub body: String,
+    /// The one thing it is about, when it can be answered from the notice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub about: Option<NoticeAbout>,
+    /// One per thing: a notice sent again shows once.
+    pub tag: String,
+    /// When the PC sent it (Unix milliseconds).
+    #[ts(type = "number")]
+    pub at: u64,
+}
+
+/// What a notice is about, by its ID.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+#[ts(export, rename = "PhoneNoticeAbout")]
+pub enum NoticeAbout {
+    Approval {
+        id: String,
+    },
+    Lesson {
+        id: String,
+    },
+    /// Stop all stopped the PC's browser, desktop, and server work: **Allow again** opens Plenipo.
+    Stopped,
 }
 
 /// A phone's request, by kind.
@@ -268,9 +318,12 @@ impl Ask {
         let rest_ok = match self {
             Self::Outcome { of } => crate::b64::is_id(of, 16),
             Self::SendObjective { text, .. } => !text.trim().is_empty() && text.len() <= MAX_TEXT,
+            // Only the address's shape here: where notices may go is Guard's to say, when the
+            // phone signs up (`Host::notice_address`) and again for every notice.
             Self::NoticesOn { subscription } => {
-                subscription.endpoint.len() <= 1024
-                    && subscription.endpoint.starts_with("https://")
+                !subscription.endpoint.is_empty()
+                    && subscription.endpoint.len() <= 1024
+                    && subscription.endpoint.bytes().all(|b| b.is_ascii_graphic())
                     && crate::b64::decode(&subscription.p256dh, 65).is_some_and(|k| k.len() == 65)
                     && crate::b64::decode(&subscription.auth, 16).is_some_and(|k| k.len() == 16)
             }
@@ -652,7 +705,7 @@ mod tests {
             },
             Ask::NoticesOn {
                 subscription: Subscription {
-                    endpoint: "http://fcm.googleapis.com/x".into(),
+                    endpoint: "https://fcm.googleapis.com/a b".into(),
                     p256dh: crate::b64::encode(&[4u8; 65]),
                     auth: crate::b64::encode(&[1u8; 16]),
                 },

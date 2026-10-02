@@ -175,6 +175,7 @@ jobs:
           PLENIPO_AI_TOOL_RELEASES: ""
           PLENIPO_REMOTE_STAND_IN: ""
           PLENIPO_REMOTE_PAGE: ""
+          PLENIPO_NOTICES_STAND_IN: ""
         # Only releases sign: tauri.signing.conf.json is merged here, never in CI or `pnpm build`.
         # --verbose shows the signing tool's own error if it fails; Tauri hides it otherwise.
         run: |
@@ -206,6 +207,7 @@ jobs:
           PLENIPO_AI_TOOL_RELEASES: ""
           PLENIPO_REMOTE_STAND_IN: ""
           PLENIPO_REMOTE_PAGE: ""
+          PLENIPO_NOTICES_STAND_IN: ""
         run: pnpm --filter @plenipo/desktop tauri build --verbose
       - name: Keep the unsigned installer (dry run)
         if: inputs.dry_run
@@ -286,6 +288,25 @@ jobs:
             # The certificate lasts only days; the timestamp keeps the signature valid after that.
             if (-not $s.TimeStamperCertificate) { throw "$($f.Name) has no timestamp, so its signature would stop being valid within days" }
           }
+      # Phase 14 (ADR-146): the phone's page, built from this release's own source for
+      # remote.getplenipo.com, with 8 West's relay name built in (never a stand-in). Coastline's
+      # updater serves it from the release.
+      - name: Build the phone's page
+        shell: bash
+        env:
+          PLENIPO_RELAY_PHONE: ""
+        run: |
+          version=$(node -p "require('./package.json').version")
+          pnpm --filter @plenipo/remote build
+          grep -q "connect-src wss://relay.getplenipo.com" apps/remote/dist/index.html
+          grep -q "wss://relay.getplenipo.com/plenipo/v1/phone" apps/remote/dist/sw.js
+          if grep -rq "127.0.0.1" apps/remote/dist; then
+            echo "::error::The phone's page names a test address"
+            exit 1
+          fi
+          page="plenipo-phone-page-$version.zip"
+          (cd apps/remote/dist && 7z a -tzip "$GITHUB_WORKSPACE/$page" . > /dev/null)
+          (cd "$GITHUB_WORKSPACE" && sha256sum "$page" > "$page.sha256")
       - name: Publish GitHub release
         if: ${{ !inputs.dry_run }}
         shell: bash
@@ -310,6 +331,10 @@ jobs:
           # latest.json.
           test -f "${installer[0]}.sig"
           assets=("${installer[@]}" "${installer[0]}.sig")
+          # The phone's page (Phase 14, ADR-146), and its checksum.
+          version=$(node -p "require('./package.json').version")
+          test -f "plenipo-phone-page-$version.zip"
+          assets+=("plenipo-phone-page-$version.zip" "plenipo-phone-page-$version.zip.sha256")
           case "$RELEASE_TAG" in
             *-*) ;;
             *)

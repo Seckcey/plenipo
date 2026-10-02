@@ -35,6 +35,8 @@ export class FakePc {
   sockets: FakeSocket[] = [];
   /** What the phone said it is, when pairing. */
   hello: { name: string; browser: string } | null = null;
+  /** The PC's notice key (part 14C): 65 bytes, as a P-256 public key is sent. */
+  noticeKey: string | null = encode(new Uint8Array(65).fill(4));
 
   static async start(): Promise<FakePc> {
     const pc = new FakePc();
@@ -86,6 +88,8 @@ export class FakeSocket {
   private pairingKey: Uint8Array | null = null;
   private closed = false;
   private dropOnData = false;
+  /** Met from a notice: only a no is taken (ADR-142 §5). */
+  private fromNotice = false;
   private queue: Promise<void> = Promise.resolve();
 
   constructor(
@@ -170,14 +174,19 @@ export class FakeSocket {
     if (this.hs && !this.hs.finished) {
       const payload = await this.hs.readMessage(bytes);
       if (this.phone) {
-        // An everyday meeting: answer with the welcome.
-        const signedIn = this.pc.signedIn.has(this.phone);
-        this.challenge = signedIn ? null : encode(crypto.getRandomValues(new Uint8Array(32)));
+        // An everyday meeting: answer with the welcome. One from a notice is never signed in,
+        // and gets no challenge: it may only say no.
+        const hello = payload.length ? (JSON.parse(fromUtf8(payload)) as { notice?: boolean }) : {};
+        this.fromNotice = hello.notice === true;
+        const signedIn = this.pc.signedIn.has(this.phone) && !this.fromNotice;
+        this.challenge =
+          signedIn || this.fromNotice ? null : encode(crypto.getRandomValues(new Uint8Array(32)));
         const welcome = {
           signedIn,
           ...(this.challenge ? { challenge: this.challenge } : {}),
           pcName: this.pc.pcName,
-          version: "1.19.0",
+          version: "1.19.2",
+          ...(this.pc.noticeKey ? { noticeKey: this.pc.noticeKey } : {}),
         };
         this.say({
           t: "data",
@@ -216,7 +225,14 @@ export class FakeSocket {
       await this.reply(said.id, { ok: { pass: `${this.phone}.renewed`, endsAt: Date.now() + 1 } });
       return;
     }
-    if (!this.pc.signedIn.has(this.phone!)) {
+    if (this.fromNotice) {
+      if (ask.kind !== "refuse" && ask.kind !== "discardLesson") {
+        await this.reply(said.id, {
+          refused: { why: "notFromANotice", message: "Open Plenipo on your phone to do that." },
+        });
+        return;
+      }
+    } else if (!this.pc.signedIn.has(this.phone!)) {
       await this.reply(said.id, {
         refused: { why: "notSignedIn", message: "Sign in on this phone first." },
       });

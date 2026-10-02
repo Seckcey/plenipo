@@ -28,7 +28,7 @@ use plenipo_ledger::{ActivityScope, Ledger, LedgerEvent, NewEvent, MAX_PAGE_EVEN
 use plenipo_licensing::{Limit, SignedAnswer};
 use plenipo_remote::devices::{ConfigFile, Kept, KeyStore};
 use plenipo_remote::link::LinkHost;
-use plenipo_remote::protocol::{Ask, Changed, SignedOutWhy};
+use plenipo_remote::protocol::{Ask, Changed, NoticeAbout, PhoneNotice, SignedOutWhy};
 use plenipo_remote::service::{RemoteSettings, RemoteView};
 use plenipo_remote::{Change, Host, Phone, Remote, Settings, SystemClock};
 use plenipo_runtime::agent::AgentRuntime;
@@ -69,12 +69,19 @@ pub struct Built {
 
 /// This copy's phone access, as built.
 pub fn built() -> Built {
-    built_for(
+    let for_tests = plenipo_licensing::trust::built_for_tests();
+    let mut built = built_for(
         option_env!("PLENIPO_REMOTE_STAND_IN"),
         option_env!("PLENIPO_REMOTE_PAGE"),
         option_env!("PLENIPO_RELAY_LIVE"),
-        plenipo_licensing::trust::built_for_tests(),
-    )
+        for_tests,
+    );
+    // A stand-in for the phones' notice services on this computer: copies built for the tests
+    // only (part 14C).
+    built.rules = built
+        .rules
+        .with_notices_stand_in(option_env!("PLENIPO_NOTICES_STAND_IN").filter(|_| for_tests));
+    built
 }
 
 /// What `built` makes of the build's settings (the tests try each).
@@ -247,6 +254,13 @@ fn plain<E: std::fmt::Display>(e: E) -> String {
 }
 
 impl<R: Runtime> Host for AppSide<R> {
+    fn notice_address(&self, endpoint: &str) -> Result<(), String> {
+        self.built
+            .rules
+            .check(Purpose::PhoneNotices, endpoint)
+            .map(|_| ())
+    }
+
     fn pro(&self) -> bool {
         self.license
             .entitlements()
@@ -812,6 +826,108 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, state: Arc<RemoteState>) {
         });
 }
 
+/// What a notice the PC shows says to a phone (part 14C, ADR-144 §3): its kind, its
+/// organization, its words (the approval card's, which Guard already cleaned of secrets), and what
+/// it is about, so the phone's notice can answer it.
+pub fn phone_notice(org: &str, notice: &plenipo_ledger::Notice, at: u64) -> PhoneNotice {
+    let kind = serde_json::to_value(notice.kind)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "plenipo".into());
+    let about = notice.item.as_ref().map(|item| match item {
+        plenipo_ledger::NoticeItem::Approval { id } => NoticeAbout::Approval { id: id.clone() },
+        plenipo_ledger::NoticeItem::Lesson { id } => NoticeAbout::Lesson { id: id.clone() },
+    });
+    // One tag per thing, so a notice sent again shows once on the phone.
+    let tag = match &about {
+        Some(NoticeAbout::Approval { id }) => format!("approval:{org}:{id}"),
+        Some(NoticeAbout::Lesson { id }) => format!("lesson:{org}:{id}"),
+        Some(NoticeAbout::Stopped) => "stopped".to_owned(),
+        None => {
+            use std::hash::{Hash as _, Hasher as _};
+            let mut words = std::collections::hash_map::DefaultHasher::new();
+            (&notice.title, &notice.body).hash(&mut words);
+            format!("{kind}:{org}:{:016x}", words.finish())
+        }
+    };
+    PhoneNotice {
+        v: 1,
+        kind,
+        org: org.to_owned(),
+        title: notice.title.clone(),
+        body: notice.body.clone(),
+        about,
+        tag,
+        at,
+    }
+}
+
+/// A notice the PC is showing goes to the phones that asked for notices too (part 14C, ADR-144):
+/// sealed for each phone, signed with the PC's notice key, and sent straight to each phone's
+/// notice service, with Guard checking where. It never holds up the PC's own notice.
+pub fn send_notice<R: Runtime>(app: &AppHandle<R>, org: &str, notice: &plenipo_ledger::Notice) {
+    send_phone_notice(
+        app,
+        org,
+        &phone_notice(org, notice, plenipo_ledger::now_ms()),
+    );
+}
+
+/// The notice for Stop all (ADR-144 §3, §6): everything is stopped, and **Allow again** opens
+/// Plenipo on the phone. One tag, so the phone shows it once however many organizations stopped.
+pub fn stopped_notice(org: &str, at: u64) -> PhoneNotice {
+    PhoneNotice {
+        v: 1,
+        kind: "plenipo".into(),
+        org: org.to_owned(),
+        title: "Stopped: everything".into(),
+        body: "Browser, desktop, and server work is stopped. Allow it again from Plenipo.".into(),
+        about: Some(NoticeAbout::Stopped),
+        tag: "stopped".into(),
+        at,
+    }
+}
+
+fn send_phone_notice<R: Runtime>(app: &AppHandle<R>, org: &str, phone_notice: &PhoneNotice) {
+    let Some(state) = app.try_state::<Arc<RemoteState>>() else {
+        return;
+    };
+    let sealed = state.remote.sealed_notices(phone_notice);
+    if sealed.is_empty() {
+        return;
+    }
+    let stacks = crate::orgs::all_stacks(app);
+    let Some(guard) = stacks
+        .iter()
+        .find(|s| s.place.id == org)
+        .or_else(|| stacks.first())
+        .map(|s| s.guard.clone())
+    else {
+        return;
+    };
+    let rules = state.built.rules.clone();
+    let remote = state.remote.clone();
+    let kind = phone_notice.kind.clone();
+    tauri::async_runtime::spawn(async move {
+        use plenipo_capabilities::phone_notices::{self, Outcome};
+        use plenipo_remote::service::Delivered;
+        for (phone, sealed) in sealed {
+            let delivered = match sealed {
+                Ok(n) => {
+                    match phone_notices::post(&guard, &rules, &n.endpoint, &n.headers, n.body).await
+                    {
+                        Outcome::Sent => Delivered::Sent,
+                        Outcome::Gone => Delivered::Gone,
+                        Outcome::Failed(why) => Delivered::Failed(why),
+                    }
+                }
+                Err(e) => Delivered::Failed(e.to_string()),
+            };
+            remote.notice_delivered(&phone, &kind, delivered);
+        }
+    });
+}
+
 /// An organization's committed events reach the phones (called when the organization opens).
 pub fn watch<R: Runtime>(app: &AppHandle<R>, org: &str, ledger: &Ledger) {
     let Some(state) = app.try_state::<Arc<RemoteState>>() else {
@@ -819,9 +935,27 @@ pub fn watch<R: Runtime>(app: &AppHandle<R>, org: &str, ledger: &Ledger) {
     };
     let state = Arc::downgrade(state.inner());
     let org = org.to_owned();
+    let app = app.clone();
     ledger.add_listener(Arc::new(move |event: &LedgerEvent| {
         if let Some(s) = state.upgrade() {
             s.ledger_event(&org, event);
+        }
+        // Stop all is recorded in every organization: the phones are told once, from the first,
+        // when they want notices about Plenipo itself (part 14C).
+        if event.event_type == "control.stopped" && org == crate::orgs::FIRST {
+            let app = app.clone();
+            let org = org.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let wanted = crate::orgs::all_stacks(&app)
+                    .iter()
+                    .find(|s| s.place.id == org)
+                    .and_then(|s| s.ledger.notice_settings().ok())
+                    .unwrap_or_default()
+                    .wants(plenipo_ledger::NoticeKind::Plenipo);
+                if wanted {
+                    send_phone_notice(&app, &org, &stopped_notice(&org, plenipo_ledger::now_ms()));
+                }
+            });
         }
     }));
 }
@@ -836,6 +970,67 @@ pub fn vault_ids(store: Arc<dyn SecretStore>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn pc_notice(
+        kind: plenipo_ledger::NoticeKind,
+        item: Option<plenipo_ledger::NoticeItem>,
+    ) -> plenipo_ledger::Notice {
+        let mut notice: plenipo_ledger::Notice = serde_json::from_value(json!({
+            "kind": kind,
+            "title": "Senior Developer is waiting for your OK",
+            "body": "Git push origin",
+        }))
+        .unwrap();
+        notice.item = item;
+        notice
+    }
+
+    #[test]
+    fn a_phone_notice_says_what_the_pcs_says_and_what_it_is_about() {
+        use plenipo_ledger::{NoticeItem, NoticeKind};
+        let n = phone_notice(
+            "first",
+            &pc_notice(
+                NoticeKind::Approvals,
+                Some(NoticeItem::Approval { id: "a1".into() }),
+            ),
+            7,
+        );
+        assert_eq!(n.kind, "approvals");
+        assert_eq!(n.org, "first");
+        assert_eq!(n.title, "Senior Developer is waiting for your OK");
+        assert_eq!(n.body, "Git push origin");
+        assert_eq!(n.about, Some(NoticeAbout::Approval { id: "a1".into() }));
+        assert_eq!(n.tag, "approval:first:a1");
+        assert_eq!(n.at, 7);
+        let lesson = phone_notice(
+            "org2",
+            &pc_notice(
+                NoticeKind::Lessons,
+                Some(NoticeItem::Lesson { id: "l1".into() }),
+            ),
+            7,
+        );
+        assert_eq!(lesson.tag, "lesson:org2:l1");
+        // Joined notices are about no one thing; the same words make the same tag (shown once).
+        let joined = phone_notice("first", &pc_notice(NoticeKind::Problems, None), 7);
+        assert_eq!(joined.about, None);
+        assert!(joined.tag.starts_with("problems:first:"));
+        assert_eq!(
+            joined.tag,
+            phone_notice("first", &pc_notice(NoticeKind::Problems, None), 9).tag
+        );
+    }
+
+    #[test]
+    fn stop_alls_notice_says_so_once_and_offers_allow_again() {
+        let n = stopped_notice("first", 5);
+        assert_eq!(n.title, "Stopped: everything");
+        assert_eq!(n.kind, "plenipo");
+        assert_eq!(n.about, Some(NoticeAbout::Stopped));
+        // One tag for every organization's record of it: the phone shows it once.
+        assert_eq!(n.tag, stopped_notice("org2", 9).tag);
+    }
 
     #[test]
     fn a_release_reaches_only_plenipos_relay_and_page() {

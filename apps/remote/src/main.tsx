@@ -14,6 +14,11 @@ if (!container) throw new Error("Root element #root not found");
 // The remembered theme, before the first paint.
 applyTheme(readTheme());
 
+// The background part that shows notices when the page is closed (part 14C): the built page only.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  void navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+}
+
 createRoot(container).render(
   <StrictMode>
     <App keep={browserKeep()} />

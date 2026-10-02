@@ -1,0 +1,26 @@
+# Plenipo on your phone: the phone page's small web server (Phase 14, ADR-146), on this computer
+# only (127.0.0.1); the Cloudflare Tunnel brings remote.getplenipo.com to it. The updater
+# (update-page.sh) starts it and points it at each release. Made by 8 West Ventures, LLC.
+services:
+  web:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    volumes:
+      - ${PLENIPO_PAGE_DIR:?Set PLENIPO_PAGE_DIR to the page's folder}:/srv/page:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./plenipo-headers.conf:/etc/nginx/plenipo-headers.conf:ro
+    ports:
+      - "127.0.0.1:${PLENIPO_PORT:?Set PLENIPO_PORT to the verified unused loopback port}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

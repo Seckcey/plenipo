@@ -30,6 +30,7 @@ pub mod protocol;
 pub mod qr;
 pub mod service;
 pub mod webauthn;
+pub mod webpush;
 pub mod wire;
 
 #[cfg(any(test, feature = "stand-in"))]

@@ -401,6 +401,8 @@ export type { PasskeyAnswer } from "./generated/PasskeyAnswer";
 export type { PasskeyRequest } from "./generated/PasskeyRequest";
 export type { PcSays } from "./generated/PcSays";
 export type { PhoneAsk } from "./generated/PhoneAsk";
+export type { PhoneNotice } from "./generated/PhoneNotice";
+export type { PhoneNoticeAbout } from "./generated/PhoneNoticeAbout";
 export type { PhoneChanged } from "./generated/PhoneChanged";
 export type { PhoneEvent } from "./generated/PhoneEvent";
 export type { PhoneRefused } from "./generated/PhoneRefused";
