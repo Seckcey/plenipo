@@ -546,9 +546,14 @@ describe("part 14B: everything else that is safe from the page", () => {
     expect(within(notice).getByText("Update the price list")).toBeInTheDocument();
     expect(notice).toHaveTextContent("Nothing runs again until you choose Run again.");
     await user.click(within(notice).getByRole("button", { name: "Run again" }));
-    expect(pc.asked).toContainEqual({ kind: "runAgain", org: "first", task: "t9" });
-    await user.click(within(notice).getByRole("button", { name: "Leave stopped" }));
-    expect(pc.asked).toContainEqual({ kind: "leaveStopped", org: "first", notice: "r1" });
+    // Each request reaches the PC through the sealed line, a moment after the tap.
+    await waitFor(() =>
+      expect(pc.asked).toContainEqual({ kind: "runAgain", org: "first", task: "t9" }),
+    );
+    await user.click(await within(notice).findByRole("button", { name: "Leave stopped" }));
+    await waitFor(() =>
+      expect(pc.asked).toContainEqual({ kind: "leaveStopped", org: "first", notice: "r1" }),
+    );
     await waitFor(() =>
       expect(
         screen.queryByRole("heading", { name: "Plenipo closed unexpectedly on your PC" }),
@@ -628,10 +633,14 @@ describe("part 14B: everything else that is safe from the page", () => {
     await user.click(await screen.findByRole("button", { name: "More" }));
     const first = (await screen.findByText("Run the tests before a push.")).closest("li")!;
     await user.click(within(first).getByRole("button", { name: "Keep" }));
-    expect(pc.asked).toContainEqual({ kind: "keepLesson", org: "first", lesson: "l1" });
+    await waitFor(() =>
+      expect(pc.asked).toContainEqual({ kind: "keepLesson", org: "first", lesson: "l1" }),
+    );
     const second = (await screen.findByText("Read the whole file.")).closest("li")!;
-    await user.click(within(second).getByRole("button", { name: "Discard" }));
-    expect(pc.asked).toContainEqual({ kind: "discardLesson", org: "first", lesson: "l2" });
+    await user.click(await within(second).findByRole("button", { name: "Discard" }));
+    await waitFor(() =>
+      expect(pc.asked).toContainEqual({ kind: "discardLesson", org: "first", lesson: "l2" }),
+    );
     expect(await screen.findByText("No lessons are waiting for you.")).toBeInTheDocument();
   });
 });
