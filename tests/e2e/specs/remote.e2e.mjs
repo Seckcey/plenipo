@@ -585,6 +585,8 @@ const TYPES = {
 };
 
 let pageServer = null;
+/** When the last approval the PC showed a notice for appeared (see the notices test). */
+let lastApprovalAt = 0;
 
 function startPage() {
   const index = join(PAGE_DIR, "index.html");
@@ -810,6 +812,7 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
       "the second approval",
       45_000,
     );
+    lastApprovalAt = Date.now();
     await phoneSays(phone, "git push origin");
     await waitUntil(
       () => phone.$('//button[normalize-space()="Approve"]').isExisting(),
@@ -879,7 +882,10 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     if ((await away.getAttribute("aria-checked")) === "true") await away.click();
     await screenshot(browser, "phone-pc-notifications");
 
-    // Something needs the owner: the PC seals a notice for the phone.
+    // Something needs the owner: the PC seals a notice for the phone. The PC shows the same
+    // words at most once a minute, and the approvals above said the same thing: wait that out.
+    const repeat = lastApprovalAt + 61_000 - Date.now();
+    if (repeat > 0) await new Promise((done) => setTimeout(done, repeat));
     const before = notices.got.length;
     await nav(browser, "Organization");
     await select(browser, "Website Supervisor");
