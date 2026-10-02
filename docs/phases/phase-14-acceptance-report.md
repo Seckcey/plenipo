@@ -231,8 +231,9 @@ built; it reaches real phones once the relay and the page's home are ready (part
 | A notice's words can be read only on the owner's phone, and the lock-screen choice shows only "Something needs you" | `webpush.rs` tests and `notices_go_only_to_phones_that_asked_and_only_they_can_read_them`; real app: the stand-in notice service saw only a sealed notice; `noticeFor` with the lock-screen choice                                   |
 
 Also: notices go only to phones that asked, only on Pro with phone access on and **Notices on my
-phones** on, and only to a phone's own notice service (Guard); a gone notice address is forgotten;
-and Activity records each notice with the phone and its kind, never its words.
+phones** on, and only to a phone's own notice service (Guard checks the address when the phone
+signs up, and again for every notice); a gone notice address is forgotten; and Activity records
+each notice with the phone and its kind, never its words.
 
 **Also fixed in part 14C,** from part 14B's screenshots: the phone's Activity showed an event it
 had no words for by its code ("guard grant closed"). It now has plain words for what matters, and
