@@ -11,8 +11,6 @@ fn main() {
     // where the owner's programs live to PATH. Before any thread starts: it changes the
     // environment.
     plenipo_runtime::program_dirs::extend_path();
-    // The Vault first, before any other thread starts: on Linux every thread then shares it.
-    plenipo_capabilities::OsSecretStore::prepare();
     // Tool relay mode (Phase 7): an AI tool started Plenipo as its MCP server for a worker;
     // pass messages to the running Plenipo. No window, tray, or webview.
     if let Some(code) = plenipo_capabilities::relay::maybe_run_from_args(std::env::args()) {
