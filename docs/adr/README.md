@@ -132,3 +132,10 @@ architecture must be recorded here.
 | [147](ADR-147-relay-passes-last-90-days.md)              | Relay passes last 90 days, renewed at every sign-in (amends 143)                              | Accepted |
 | [148](ADR-148-the-phone-page-on-its-own-server.md)       | The phone's page on its own small AWS server, not Coastline (amends 146)                      | Accepted |
 | [149](ADR-149-plenipo-runs-its-own-relay.md)             | Plenipo runs its own relay, from this repository, on 8 West's server (amends 143, 146)        | Accepted |
+| [150](ADR-150-phase-23-starts.md)                        | Phase 23 starts: numbers 150 to 159, what the check found, five waves                         | Accepted |
+| [151](ADR-151-one-repository-for-every-system.md)        | One repository for Windows, Mac, and Linux                                                    | Accepted |
+| [152](ADR-152-which-systems-and-in-what-order.md)        | Which systems, and in what order: Linux first, then every Mac from macOS 13                   | Accepted |
+| [153](ADR-153-saved-keys-on-linux.md)                    | Saved keys on Linux live in the system's password store                                       | Accepted |
+| [154](ADR-154-computer-use-on-linux.md)                  | Computer use on Linux: X11 in Wave 2, Wayland in Wave 4                                       | Accepted |
+| [155](ADR-155-each-systems-own-words.md)                 | Each system's own words on screen                                                             | Accepted |
+| [156](ADR-156-refuse-unchecked-tool-calls.md)            | When Plenipo cannot tell which program sent a tool call, it refuses (amends 034)              | Accepted |

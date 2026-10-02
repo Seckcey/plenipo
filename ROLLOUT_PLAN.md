@@ -5,7 +5,7 @@
 **Primary desktop stack:** Tauri 2 + React + TypeScript  
 **Local privileged core:** Rust  
 **Initial AI runtimes:** OpenAI Codex and Anthropic Claude Code  
-**Primary build target:** Windows 11  
+**Primary build target:** Windows 11; macOS and Linux from Phase 23 (ADR-152)  
 **Document purpose:** Execution plan for Claude Code / Opus 5.5 and future implementation agents.
 **Plan changes:** Phase 9 is postponed and Paperclip will not be integrated; a new Sales department will be built in Plenipo later, with HubSpot as its CRM (ADR-018, 2026-09-27). Phase 10 comes next.
 
@@ -2205,7 +2205,7 @@ Phase 11A's request and response contract. A Stripe account for Plenipo, with St
 
 # Phase 23 — Mac and Linux
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Second in the final push (ADR-132, 2026-10-01), after Phase 14 and before Phase 24.
+**Added at the owner's direction (2026-09-28), ADR-039.** Second in the final push (ADR-132). **Started 2026-10-02:** ADR-150 (Phase 23 starts: numbers 150 to 159, what the check found, and five waves), with ADR-151 to ADR-156 for the owner's answers. Checklist: `docs/phases/phase-23-checklist.md`.
 
 ## Goal
 
@@ -2213,49 +2213,67 @@ Plenipo runs on macOS and Linux as well as on Windows, with the same safety.
 
 ## Deliverables
 
-- **macOS:** signed and notarized installer (needs an Apple developer account)
-- **Linux:** .deb and AppImage (others if asked)
+- **one repository, one version, one release** for all three systems (ADR-151)
+- **Linux** (ADR-152): Ubuntu 22.04, 24.04, and 26.04 LTS and Debian 12 or newer, on `x86_64`; a `.deb` and an AppImage, built on Ubuntu 22.04; the AppImage updates itself (others if asked)
+- **macOS** (ADR-152): macOS 13 or newer, Apple's chips and Intel in one `.dmg`, signed as 8 West Ventures, LLC and notarized (needs the Apple Developer Program); not the Mac App Store
 - the Windows-only parts ported:
-  - program trees
-  - private pipes
+  - program trees, including after a crash
+  - tool tickets bound to the AI tool, refused where the check cannot run (ADR-156)
   - the terminal
+  - one Plenipo at a time
   - start at sign-in
-  - the tray and background work
-  - updates
-  - computer use
+  - the tray, or the menu bar on a Mac, and background work
+  - updates, installing, and removing
+  - computer use (ADR-154)
   - browser choice
-- screen text for each system: Cmd on a Mac, the system's own password store named correctly, no "Windows" where it doesn't apply
-- each AI tool checked on macOS and Linux (install locations, sign-in checks)
-- CI jobs for macOS and Linux packages
+- the Vault on Linux keeps keys after a restart (ADR-153)
+- screen text for each system (ADR-155): Cmd on a Mac, the system's own password store named correctly, no "Windows" where it doesn't apply
+- each AI tool checked on macOS and Linux (install locations, sign-in checks, install hints)
+- CI on all three systems; each release builds every system and one `latest.json`
+- the website's downloads and the documents for each system; Homebrew (optional)
+
+## Waves (ADR-150)
+
+| Wave | What |
+|---|---|
+| 0 | Get ready: the records, the word table for each system, a Mac job in CI, and unsigned trial builds |
+| 1 | The shared base: one door per system-specific job, program trees after a crash, the Mac's tool-ticket lookup, the terminal's group, never as root, program names keep their case on Linux, risky-program lists for the Mac, the Linux Vault, the settings passed to AI tools, finding AI tools and Plenipo's own programs, one Plenipo at a time, updates that know their system, and the screen words. Ends with a Guard safety review |
+| 2 | Linux, first look: `.deb` and AppImage, updates, tray, browser, computer use under X11, "Delete my Plenipo data", installer tests, the release for every system, and the owner's check on a Linux PC |
+| 3 | Mac, first look: signing and notarization, one download for every Mac, menu bar and Dock, the right data folder, computer use with Apple's permission steps, Mac end-to-end tests, and the owner's check on the MacBook Pro |
+| 4 | For everyone: Wayland computer use, the website's downloads, the documents, Homebrew, and every AI tool checked on each system |
 
 ## Technical Implementation
 
-- About 110 platform checks exist today. Replace each Windows-only mechanism with the system's own:
-  - Windows job objects → process groups
-  - named pipes → Unix sockets owned by the user
-  - ConPTY → PTY (`portable-pty` already does both)
-  - the Run key → a login item on macOS and autostart on Linux
-- The Vault already uses the macOS Keychain and the Linux keyring through `keyring`.
-- Computer use on macOS needs the owner to allow Accessibility and Screen Recording. Plenipo explains, and never works around it.
-- Guard's program rules and the tool tickets bound to the AI tool (ADR-034) must hold on each system before its release.
+- 162 lines in 53 files choose by system (v1.19.3). Each system-specific job gets one door, a `platform` module in the crate that owns it; the Windows code moves behind its doors first, with no change (ADR-151). Replace each Windows-only mechanism with the system's own:
+  - Windows job objects → process groups, plus cleanup after a crash (Linux: `PR_SET_PDEATHSIG` or a subreaper; the Mac: a small watcher)
+  - the private pipes are already inherited descriptors on Mac and Linux; no change
+  - ConPTY → PTY (`portable-pty` already does both); the terminal's whole group ends with it
+  - the Run key → the autostart plugin's launch agent (Mac) and autostart file (Linux)
+- The Vault uses the macOS Keychain, and on Linux the Secret Service, never the kernel keyring alone (ADR-153).
+- Computer use on macOS needs the owner to allow Accessibility and Screen Recording. Plenipo explains, and never works around it. On Linux, X11 first, then Wayland's own portals (ADR-154).
+- Guard's program rules and the tool tickets bound to the AI tool (ADR-034, ADR-156) must hold on each system before its release.
+- The Mac's end-to-end tests use a WebDriver built into test copies only; a release check proves the real app does not contain it.
 
 ## Tests
 
 - the contract suite, Guard's tests, and the end-to-end suite on macOS and Linux
 - installer, update, and uninstall on each
-- program-tree stop, private pipe ownership, and tool tickets on each
+- program-tree stop (also after a crash), private pipe ownership, tool tickets, and the real password store on each
+- on Linux, every saved key is still there after a restart
 
 ## Acceptance Criteria
 
-The owner installs Plenipo on a Mac and on a Linux PC, signs in to Claude Code on each, and runs a Development objective end to end with the same permissions and approvals as on Windows.
+The owner installs Plenipo on a Mac and on a Linux PC, signs in to Claude Code on each, and runs a Development objective end to end with the same permissions and approvals as on Windows. On Linux, every saved key is still there after a restart. Computer use works on a Mac and on Ubuntu 26.04, asking every step.
 
 ## Dependencies
 
-Phase 13 (installer and updates on Windows as the model). A Mac to test on.
+Phase 13 (installer and updates on Windows as the model). The owner's MacBook Pro, a Linux PC, and the Apple Developer Program for 8 West Ventures, LLC (the D-U-N-S number is in hand).
 
 ## Out of Scope
 
 - a full Plenipo on phones: a phone uses the web interface (Phase 14)
+- the Mac App Store (ADR-152)
+- Fedora's `.rpm`, ARM Linux, and an `apt` list, until asked (ADR-152)
 
 ---
 

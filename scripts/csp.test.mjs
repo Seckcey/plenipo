@@ -88,3 +88,20 @@ test("the terminal still needs the inline styles the policy allows", () => {
     "xterm.js no longer sets style attributes: drop style-src-attr",
   );
 });
+
+// Phase 23 (ADR-152): Tauri merges a system's own settings file (`tauri.macos.conf.json`,
+// `tauri.linux.conf.json`, and the release's `tauri.signing.conf.json`) over `tauri.conf.json`.
+// Those files say how to package the app for one system, never what it may do: a policy, a build
+// command, or a name changed in one of them would quietly hold on one system only.
+test("no settings file for one system changes the app's policy, build, name, or version", () => {
+  const dir = join(root, "apps/desktop/src-tauri");
+  const extra = readdirSync(dir).filter((name) => /^tauri\..+\.conf\.json$/.test(name));
+  assert.ok(extra.includes("tauri.macos.conf.json"), "the Mac's settings file was found");
+  assert.ok(extra.includes("tauri.linux.conf.json"), "Linux's settings file was found");
+  for (const name of extra) {
+    const settings = JSON.parse(readFileSync(join(dir, name), "utf8"));
+    for (const key of ["app", "build", "identifier", "plugins", "productName", "version"]) {
+      assert.ok(!(key in settings), `${name} sets "${key}"; only tauri.conf.json may`);
+    }
+  }
+});
