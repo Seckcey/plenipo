@@ -1017,6 +1017,12 @@ async fn a_phone_can_remove_itself() {
     phone.meet(false).await.unwrap();
     let r = phone.ask(Ask::RemoveThisPhone).await.unwrap();
     assert_eq!(ok(&r)["removed"], true);
+    // The PC answers first, then removes the phone and records it.
+    wait_for(
+        || !w.app.records("remote.device_removed").is_empty(),
+        "the removal to be recorded",
+    )
+    .await;
     assert!(w.remote.view().devices.is_empty());
     assert_eq!(w.app.records("remote.device_removed")[0]["by"], "phone");
 }
