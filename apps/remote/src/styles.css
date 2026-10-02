@@ -1,0 +1,270 @@
+/* Plenipo on your phone (Phase 14): a phone's screen first, in both themes, with the design
+   system's tokens only (ADR-030). */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ui-bg);
+  color: var(--ui-text-primary);
+  -webkit-text-size-adjust: 100%;
+}
+
+.page {
+  padding: var(--ui-space-5) var(--ui-space-4) calc(var(--ui-space-7) + 64px);
+  max-width: 720px;
+  margin: 0 auto;
+  display: grid;
+  gap: var(--ui-space-4);
+}
+
+.page h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.page h2 {
+  margin: var(--ui-space-4) 0 0;
+  font-size: 1.05rem;
+}
+
+.page h3 {
+  margin: var(--ui-space-3) 0 0;
+  font-size: 0.95rem;
+}
+
+.lead {
+  margin: 0;
+  color: var(--ui-text-secondary);
+}
+
+.muted {
+  color: var(--ui-text-muted);
+  margin: 0;
+}
+
+.form-error {
+  color: var(--ui-error-text);
+  margin: 0;
+}
+
+.notice-box {
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border-left: 3px solid var(--ui-warn-text);
+  border-radius: 4px;
+  background: var(--ui-warn-soft);
+  display: grid;
+  gap: var(--ui-space-3);
+}
+
+.notice-box p {
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--ui-space-3);
+}
+
+.card {
+  display: grid;
+  gap: var(--ui-space-2);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  background: var(--ui-surface);
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+
+.card p {
+  margin: 0;
+}
+
+.card--quiet {
+  background: transparent;
+}
+
+.card--attention {
+  border-color: var(--ui-pending);
+  background: var(--ui-pending-soft);
+  cursor: pointer;
+}
+
+.card--problem {
+  border-color: var(--ui-error);
+}
+
+.card__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2) var(--ui-space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card__answer,
+.conversation__answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.conversation__you {
+  font-weight: 600;
+}
+
+.approval__detail {
+  margin: 0;
+  padding: var(--ui-space-2) var(--ui-space-3);
+  border-radius: 4px;
+  background: var(--ui-surface-sunken);
+  font-family: var(--ui-font-mono);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.approval__said {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* The frame: a bar on top, the page, and the tabs along the bottom. */
+.shell {
+  min-height: 100%;
+}
+
+.shell__top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(var(--ui-space-3) + env(safe-area-inset-top)) var(--ui-space-4) var(--ui-space-3);
+  background: var(--ui-surface);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.shell__pc {
+  display: flex;
+  gap: var(--ui-space-2);
+  align-items: center;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.shell__org select {
+  max-width: 50vw;
+  padding: var(--ui-space-2);
+  border: 1px solid var(--ui-control-border);
+  border-radius: 4px;
+  background: var(--ui-surface);
+  color: var(--ui-text-primary);
+  font: inherit;
+}
+
+.stop-all__ask,
+.stop-all__said {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2);
+  align-items: center;
+  margin: 0;
+}
+
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin: var(--ui-space-3) var(--ui-space-4) 0;
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border-radius: 6px;
+  background: var(--ui-pending-soft);
+}
+
+.banner p {
+  margin: 0;
+}
+
+.banner--offline {
+  background: var(--ui-error-soft);
+}
+
+.shell__tabs {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--ui-surface);
+  border-top: 1px solid var(--ui-border);
+}
+
+.shell__tab {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-height: 56px;
+  padding: var(--ui-space-2) 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.shell__tab[aria-current="page"] {
+  color: var(--ui-accent);
+  font-weight: 600;
+}
+
+.shell__tab:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: -2px;
+}
+
+/* Pairing. */
+.pair__form {
+  display: grid;
+  gap: var(--ui-space-4);
+}
+
+.scanner {
+  display: grid;
+  gap: var(--ui-space-3);
+}
+
+.scanner video {
+  width: 100%;
+  max-height: 60vh;
+  border-radius: 8px;
+  background: var(--ui-surface-sunken);
+  object-fit: cover;
+}
+
+.about {
+  font-size: 0.85rem;
+}

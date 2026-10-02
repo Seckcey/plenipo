@@ -54,7 +54,7 @@ architecture must be recorded here.
 | [037](ADR-037-background-work.md)                        | Background work: Plenipo lives in the tray, and the window comes and goes                     | Accepted |
 | [038](ADR-038-updates.md)                                | Updates from GitHub Releases, signed twice, installed only when you say so (amended by 052)   | Accepted |
 | [039](ADR-039-owners-notes-order-of-work.md)             | The owner's notes: eight new phases, watching code live, the order of work (amends 009)       | Accepted |
-| [040](ADR-040-phone-web-interface.md)                    | Phase 14 is Plenipo's own web interface for a phone; CrewOS leaves the plan (amends 039)      | Accepted |
+| [040](ADR-040-phone-web-interface.md)                    | Phase 14 is Plenipo's own web interface for a phone; CrewOS leaves the plan (amended by 144)  | Accepted |
 | [041](ADR-041-model-effort-learning-layers.md)           | Model, effort, and learning set in layers, the closest winning (amends 011, 024)              | Accepted |
 | [042](ADR-042-specialties.md)                            | Specialties under each role, built in and your own (amends 019)                               | Accepted |
 | [043](ADR-043-archive-bring-back-delete.md)              | Archive, bring back, and delete for good (carries out 039 §2.1; amends 009)                   | Accepted |
@@ -121,3 +121,12 @@ architecture must be recorded here.
 | [119](ADR-119-editions-and-prices-revised.md)            | Editions and prices, revised: Pro $19 with 3 organizations; Partner plans by organizations    | Accepted |
 | [130](ADR-130-website-domain-migration.md)               | The public website moves to getplenipo.com; old and www addresses preserve paths in redirects | Accepted |
 | [131](ADR-131-tools-for-any-model.md)                    | Wave 4: Plenipo's own tools for any model, then specialist jobs; no Hermes (changes 036)      | Accepted |
+| [132](ADR-132-the-final-push.md)                         | The final push: Phase 14, then Mac and Linux, then Community; Wave 4, 15, and 9 parked        | Accepted |
+| [140](ADR-140-phase-14-starts.md)                        | Phase 14 starts: numbers 140 to 149, what the check found, three parts                        | Accepted |
+| [141](ADR-141-pairing-a-phone.md)                        | Pairing a phone: a picture code or a typed code, shown on your PC                             | Accepted |
+| [142](ADR-142-the-phone-proves-it-is-you.md)             | The phone proves it is you: a passkey, checked by your PC                                     | Accepted |
+| [143](ADR-143-the-relay-and-the-lock.md)                 | The relay and the lock: sealed end to end, no copies, wrong tries (amended by 147)            | Accepted |
+| [144](ADR-144-notices-on-your-phone.md)                  | Notices on your phone, sealed for it, sent straight from the PC (amends 040)                  | Accepted |
+| [145](ADR-145-what-a-phone-may-ask.md)                   | The fixed list of what a phone may ask; what stays on your PC                                 | Accepted |
+| [146](ADR-146-where-the-phone-page-lives.md)             | Where the phone's page lives: its own address, never the relay                                | Accepted |
+| [147](ADR-147-relay-passes-last-90-days.md)              | Relay passes last 90 days, renewed at every sign-in (amends 143)                              | Accepted |

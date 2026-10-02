@@ -2547,6 +2547,20 @@ impl Broker {
         approve: bool,
         actor: &str,
     ) -> Result<ApprovalView> {
+        self.resolve_approval_via(approval_id, approve, actor, None)
+    }
+
+    /// The owner's answer to an approval, from one of the owner's phones (Phase 14, ADR-145
+    /// §6): the record names it ("Approved by you, from Frank's iPhone."). The first answer
+    /// counts, from the PC or a phone: an approval already answered is refused here and again in
+    /// the Ledger's own transaction.
+    pub fn resolve_approval_via(
+        &self,
+        approval_id: &str,
+        approve: bool,
+        actor: &str,
+        via: Option<&str>,
+    ) -> Result<ApprovalView> {
         let current = self
             .ledger()
             .approval(approval_id)?
@@ -2580,19 +2594,21 @@ impl Broker {
         } else {
             ApprovalState::Rejected
         };
-        let note = if approve {
-            "Approved by you."
-        } else {
-            "Refused by you."
+        let verb = if approve { "Approved" } else { "Refused" };
+        let note = match via {
+            Some(phone) => format!("{verb} by you, from {phone}."),
+            None => format!("{verb} by you."),
         };
         let settled = self
-            .settle(approval_id, state, actor, note)
+            .settle(approval_id, state, actor, &note)
             .ok_or_else(|| {
                 BrokerError::Invalid(
                     "that request could not be answered; it may have just ended".into(),
                 )
             })?;
-        Ok(self.approval_view(&settled, None))
+        let mut view = self.approval_view(&settled, None);
+        view.note = Some(note);
+        Ok(view)
     }
 
     // ---- Carrying out -------------------------------------------------------------------------

@@ -65,7 +65,11 @@ export default tseslint.config(
   {
     // No raw colors in feature code: every color is a design token (ADR-030 §3). Colors are
     // written only in packages/ui/src/tokens.ts; scripts/check-colors.mjs checks the CSS.
-    files: ["apps/desktop/src/**/*.{ts,tsx}", "packages/ui/src/**/*.{ts,tsx}"],
+    files: [
+      "apps/desktop/src/**/*.{ts,tsx}",
+      "apps/remote/src/**/*.{ts,tsx}",
+      "packages/ui/src/**/*.{ts,tsx}",
+    ],
     ignores: ["packages/ui/src/tokens.ts", "**/*.test.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": [

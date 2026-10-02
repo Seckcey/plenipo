@@ -29,6 +29,12 @@ pub enum Purpose {
     /// A Pro copy's weekly license check (Phase 11A, ADR-022, ADR-115): only
     /// [`LICENSE_CHECK_ADDRESS`], exactly. A Free copy never makes it.
     License,
+    /// Using Plenipo from a phone (Phase 14, ADR-143 §12): only Plenipo's relay,
+    /// [`RELAY_ADDRESS`], exactly, on Pro with the switch on. A Free copy never makes it.
+    PhoneAccess,
+    /// A sealed notice to one of the owner's phones (Phase 14, ADR-144 §1): only the phones'
+    /// notice services ([`NOTICE_SERVICE_HOSTS`]).
+    PhoneNotices,
 }
 
 impl Purpose {
@@ -58,6 +64,8 @@ impl Purpose {
                 PaidService::Alibaba => "the Alibaba Cloud paid key",
             },
             Self::License => "the weekly license check",
+            Self::PhoneAccess => "using Plenipo from your phone",
+            Self::PhoneNotices => "a notice to your phone",
         }
     }
 }
@@ -123,6 +131,33 @@ pub const AI_TOOL_RELEASE_LISTS: [&str; 4] = [
 /// The weekly license check's address (ADR-105): built into every copy, and never changed.
 pub const LICENSE_CHECK_ADDRESS: &str = plenipo_licensing::CHECK_ADDRESS;
 
+/// Where a PC reaches 8 West's relay for phone access (ADR-143, ADR-146): Plenipo's own name
+/// for the relay Milepost uses. The relay's real address is never in this repository.
+pub const RELAY_ADDRESS: &str = "https://relay.getplenipo.com/plenipo/v1/pc";
+/// The path a PC uses on the relay (and on its stand-in in the tests).
+pub const RELAY_PATH: &str = "/plenipo/v1/pc";
+
+/// The phones' notice services (ADR-144): Google's (Chrome, Android), Apple's (Safari,
+/// iPhone), and Mozilla's (Firefox). Microsoft's (Edge on Windows) has many hosts under
+/// [`NOTICE_SERVICE_SUFFIX`].
+pub const NOTICE_SERVICE_HOSTS: [&str; 3] = [
+    "fcm.googleapis.com",
+    "web.push.apple.com",
+    "updates.push.services.mozilla.com",
+];
+/// Microsoft's notice service: `<name>.notify.windows.com`.
+pub const NOTICE_SERVICE_SUFFIX: &str = ".notify.windows.com";
+
+/// Is `host` one of the phones' notice services?
+pub fn notice_service(host: &str) -> bool {
+    NOTICE_SERVICE_HOSTS.contains(&host)
+        || host
+            .strip_suffix(NOTICE_SERVICE_SUFFIX)
+            .is_some_and(|name| {
+                !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            })
+}
+
 /// The GitHub repository whose releases Plenipo updates from.
 pub const RELEASES_PATH: &str = "/Seckcey/plenipo/releases/";
 /// The hosts GitHub sends release downloads to.
@@ -130,6 +165,17 @@ pub const DOWNLOAD_HOSTS: [&str; 2] = [
     "objects.githubusercontent.com",
     "release-assets.githubusercontent.com",
 ];
+
+/// The port of a stand-in on this computer (`http://127.0.0.1:<port>`), or `None`.
+fn local_port(base: Option<&str>) -> Option<u16> {
+    base.and_then(|b| {
+        Site::parse(b).ok().and_then(|s| {
+            (s.scheme == "http" && s.host == "127.0.0.1")
+                .then_some(s.port)
+                .flatten()
+        })
+    })
+}
 
 /// The addresses a purpose may use.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -152,6 +198,13 @@ pub struct OutboundRules {
     /// copies of Plenipo built for the tests only (never a setting, never an environment
     /// variable).
     pub license_test_port: Option<u16>,
+    /// A stand-in for 8 West's relay on this computer (`127.0.0.1:<port>` and [`RELAY_PATH`]),
+    /// for copies of Plenipo built for the tests only (never a setting, never an environment
+    /// variable).
+    pub relay_test_port: Option<u16>,
+    /// A stand-in for the phones' notice services on this computer (`127.0.0.1:<port>`), for
+    /// copies of Plenipo built for the tests only.
+    pub notices_test_port: Option<u16>,
 }
 
 impl OutboundRules {
@@ -169,6 +222,8 @@ impl OutboundRules {
             connections_test_port: None,
             paid_test_port: None,
             license_test_port: None,
+            relay_test_port: None,
+            notices_test_port: None,
         }
     }
 
@@ -182,6 +237,20 @@ impl OutboundRules {
                     .flatten()
             })
         });
+        self
+    }
+
+    /// The same rules, with a stand-in for 8 West's relay at `base` (`http://127.0.0.1:<port>`),
+    /// when this copy of Plenipo was built to use one.
+    pub fn with_relay_stand_in(mut self, base: Option<&str>) -> Self {
+        self.relay_test_port = local_port(base);
+        self
+    }
+
+    /// The same rules, with a stand-in for the phones' notice services at `base`
+    /// (`http://127.0.0.1:<port>`), when this copy of Plenipo was built to use one.
+    pub fn with_notices_stand_in(mut self, base: Option<&str>) -> Self {
+        self.notices_test_port = local_port(base);
         self
     }
 
@@ -244,6 +313,12 @@ impl OutboundRules {
         if purpose == Purpose::License {
             return self.check_license(&site, refuse);
         }
+        if purpose == Purpose::PhoneAccess {
+            return self.check_relay(&site, refuse);
+        }
+        if purpose == Purpose::PhoneNotices {
+            return self.check_notice_service(&site, refuse);
+        }
         if let Some(port) = self.test_server_port {
             if site.scheme == "http" && site.host == "127.0.0.1" && site.port == Some(port) {
                 return Ok(site);
@@ -271,7 +346,9 @@ impl OutboundRules {
             Purpose::AiToolVersions
             | Purpose::Connection(_)
             | Purpose::PaidAi(_)
-            | Purpose::License => {
+            | Purpose::License
+            | Purpose::PhoneAccess
+            | Purpose::PhoneNotices => {
                 unreachable!("checked above")
             }
         }
@@ -311,6 +388,76 @@ impl OutboundRules {
             Ok(site.clone())
         } else {
             refuse("the license check reaches only 8 West's license check address")
+        }
+    }
+
+    /// Plenipo's relay, exactly ([`RELAY_ADDRESS`]), or its stand-in on this computer in a copy
+    /// built for the tests.
+    fn check_relay(
+        &self,
+        site: &Site,
+        refuse: impl Fn(&str) -> Result<Site, String>,
+    ) -> Result<Site, String> {
+        let Ok(url) = url::Url::parse(&site.url) else {
+            return refuse("that is not a web address");
+        };
+        let plain = url.query().is_none()
+            && url.fragment().is_none()
+            && url.username().is_empty()
+            && url.password().is_none();
+        if let Some(port) = self.relay_test_port {
+            if site.scheme == "http" && site.host == "127.0.0.1" && site.port == Some(port) {
+                if plain && url.path() == RELAY_PATH {
+                    return Ok(site.clone());
+                }
+                return refuse("the test stand-in serves only the relay");
+            }
+        }
+        let Ok(relay) = url::Url::parse(RELAY_ADDRESS) else {
+            return refuse("the relay's address is not a web address");
+        };
+        let exact = site.scheme == "https"
+            && site.port.is_none()
+            && url.host_str() == relay.host_str()
+            && url.path() == relay.path();
+        if plain && exact {
+            Ok(site.clone())
+        } else {
+            refuse("phone access reaches only Plenipo's relay")
+        }
+    }
+
+    /// One of the phones' notice services, over `https` on its usual port, or its stand-in on
+    /// this computer in a copy built for the tests.
+    fn check_notice_service(
+        &self,
+        site: &Site,
+        refuse: impl Fn(&str) -> Result<Site, String>,
+    ) -> Result<Site, String> {
+        let Ok(url) = url::Url::parse(&site.url) else {
+            return refuse("that is not a web address");
+        };
+        if !url.username().is_empty() || url.password().is_some() {
+            return refuse("a user name or password in the address is never used");
+        }
+        if url.fragment().is_some() {
+            return refuse("a notice address has no part after #");
+        }
+        if let Some(port) = self.notices_test_port {
+            if site.scheme == "http" && site.host == "127.0.0.1" && site.port == Some(port) {
+                return Ok(site.clone());
+            }
+        }
+        if site.scheme != "https" {
+            return refuse("only https is allowed");
+        }
+        if site.port.is_some() {
+            return refuse("only the usual https port is allowed");
+        }
+        if notice_service(&site.host) {
+            Ok(site.clone())
+        } else {
+            refuse("a notice goes only to a phone's own notice service (Apple's, Google's, Mozilla's, or Microsoft's)")
         }
     }
 
@@ -440,6 +587,90 @@ impl OutboundRules {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn phone_access_reaches_only_plenipos_relay() {
+        let rules = OutboundRules::default();
+        assert!(rules.check(Purpose::PhoneAccess, RELAY_ADDRESS).is_ok());
+        for bad in [
+            "http://relay.getplenipo.com/plenipo/v1/pc",
+            "https://relay.getplenipo.com:8443/plenipo/v1/pc",
+            "https://relay.getplenipo.com/plenipo/v1/phone",
+            "https://relay.getplenipo.com/plenipo/v1/pc?x=1",
+            "https://relay.getplenipo.com/plenipo/v1/pc#x",
+            "https://relay.evil.example/plenipo/v1/pc",
+            "https://account.getplenipo.com/plenipo/v1/pc",
+            "http://127.0.0.1:8769/plenipo/v1/pc",
+        ] {
+            let err = rules.check(Purpose::PhoneAccess, bad).unwrap_err();
+            assert!(
+                err.contains("using Plenipo from your phone"),
+                "{bad}: {err}"
+            );
+        }
+        // A user name or password is never sent anywhere.
+        assert!(rules
+            .check(
+                Purpose::PhoneAccess,
+                "https://user:pw@relay.getplenipo.com/plenipo/v1/pc"
+            )
+            .is_err());
+        // The relay's own purpose is the only one that reaches it.
+        assert!(rules.check(Purpose::License, RELAY_ADDRESS).is_err());
+        assert!(rules.check(Purpose::Updates, RELAY_ADDRESS).is_err());
+    }
+
+    #[test]
+    fn the_relay_stand_in_is_only_for_copies_built_for_the_tests() {
+        let test = OutboundRules::default().with_relay_stand_in(Some("http://127.0.0.1:8769"));
+        assert!(test
+            .check(Purpose::PhoneAccess, "http://127.0.0.1:8769/plenipo/v1/pc")
+            .is_ok());
+        for bad in [
+            "http://127.0.0.1:8769/plenipo/v1/phone",
+            "http://127.0.0.1:8769/v1/check",
+            "http://127.0.0.1:9999/plenipo/v1/pc",
+            "http://192.168.1.5:8769/plenipo/v1/pc",
+        ] {
+            assert!(test.check(Purpose::PhoneAccess, bad).is_err(), "{bad}");
+        }
+        assert!(test.check(Purpose::PhoneAccess, RELAY_ADDRESS).is_ok());
+        // Only this computer can be a stand-in.
+        let not_local = OutboundRules::default().with_relay_stand_in(Some("http://10.0.0.2:8769"));
+        assert_eq!(not_local.relay_test_port, None);
+    }
+
+    #[test]
+    fn a_notice_goes_only_to_a_phones_notice_service() {
+        let rules = OutboundRules::default();
+        for ok in [
+            "https://fcm.googleapis.com/fcm/send/abc:def",
+            "https://web.push.apple.com/QGx0c2y",
+            "https://updates.push.services.mozilla.com/wpush/v2/gAAA",
+            "https://wns2-par02p.notify.windows.com/w/?token=BQYAAA",
+        ] {
+            assert!(rules.check(Purpose::PhoneNotices, ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "http://fcm.googleapis.com/fcm/send/abc",
+            "https://fcm.googleapis.com:444/fcm/send/abc",
+            "https://evil.example/fcm/send/abc",
+            "https://notify.windows.com/w/",
+            "https://x.y.notify.windows.com/w/",
+            "https://relay.getplenipo.com/plenipo/v1/pc",
+            "https://web.push.apple.com/a#b",
+        ] {
+            let err = rules.check(Purpose::PhoneNotices, bad).unwrap_err();
+            assert!(err.contains("a notice to your phone"), "{bad}: {err}");
+        }
+        let test = OutboundRules::default().with_notices_stand_in(Some("http://127.0.0.1:8770"));
+        assert!(test
+            .check(Purpose::PhoneNotices, "http://127.0.0.1:8770/push/abc")
+            .is_ok());
+        assert!(test
+            .check(Purpose::PhoneNotices, "http://127.0.0.1:8771/push/abc")
+            .is_err());
+    }
 
     #[test]
     fn updates_come_only_from_plenipos_releases_on_github() {

@@ -12739,6 +12739,82 @@
       "backgroundImage": "none"
     }
   },
+  "color-code-dark": {
+    ".gallery__chip": {
+      "color": [
+        233,
+        237,
+        243,
+        1
+      ],
+      "backgroundColor": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "borderTopColor": [
+        233,
+        237,
+        243,
+        1
+      ],
+      "borderLeftColor": [
+        233,
+        237,
+        243,
+        1
+      ],
+      "borderTopWidth": "0px",
+      "borderLeftWidth": "0px",
+      "borderTopLeftRadius": "6px",
+      "fontSize": "12px",
+      "fontWeight": "400",
+      "paddingTop": "0px",
+      "paddingLeft": "0px",
+      "opacity": "1",
+      "stroke": "none",
+      "backgroundImage": "none"
+    }
+  },
+  "color-code-light": {
+    ".gallery__chip": {
+      "color": [
+        233,
+        237,
+        243,
+        1
+      ],
+      "backgroundColor": [
+        255,
+        255,
+        255,
+        1
+      ],
+      "borderTopColor": [
+        233,
+        237,
+        243,
+        1
+      ],
+      "borderLeftColor": [
+        233,
+        237,
+        243,
+        1
+      ],
+      "borderTopWidth": "0px",
+      "borderLeftWidth": "0px",
+      "borderTopLeftRadius": "6px",
+      "fontSize": "12px",
+      "fontWeight": "400",
+      "paddingTop": "0px",
+      "paddingLeft": "0px",
+      "opacity": "1",
+      "stroke": "none",
+      "backgroundImage": "none"
+    }
+  },
   "frame": {
     "page": {
       "color": [

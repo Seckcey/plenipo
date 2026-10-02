@@ -10,6 +10,7 @@ The root `package.json` `version` is authoritative. These must match it:
 | File                                     | Field                                                                     |
 | ---------------------------------------- | ------------------------------------------------------------------------- |
 | `apps/desktop/package.json`              | `version`                                                                 |
+| `apps/remote/package.json`               | `version`                                                                 |
 | `packages/types/package.json`            | `version`                                                                 |
 | `packages/ui/package.json`               | `version`                                                                 |
 | `tests/e2e/package.json`                 | `version`                                                                 |

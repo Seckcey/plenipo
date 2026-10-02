@@ -47,6 +47,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     getAiTools: vi.fn(),
     setAiToolsAutoUpdate: vi.fn(),
     getOrganizations: vi.fn(),
+    getRemote: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -55,6 +56,7 @@ vi.mock("../api/events", () => ({
   subscribeLicense: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeAgentUpdates: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeOrganizations: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeRemote: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 const api = vi.mocked(commands);
@@ -158,6 +160,20 @@ beforeEach(() => {
     shell = { ...terminal, shell: choice };
     return Promise.resolve(shell);
   });
+  // Phone access (Phase 14): Pro, off, no phones.
+  api.getRemote.mockResolvedValue({
+    pro: true,
+    comingSoon: false,
+    page: "https://remote.getplenipo.com",
+    pcName: "OFFICE-PC",
+    sensitive: [{ kind: "payment", label: "Money: buying, payments, refunds, payouts" }],
+    remote: {
+      switchedOn: false,
+      connected: false,
+      devices: [],
+      kept: { every: false, productionServers: false, kinds: [] },
+    },
+  });
   api.getLocalPaths.mockResolvedValue([
     {
       label: "Everything that happened (the Ledger)",
@@ -184,6 +200,7 @@ describe("Settings in one place", () => {
       "Servers",
       "Connections",
       "Switches",
+      "Devices",
       "Notifications",
       "Terminal",
       "Start and close",

@@ -108,7 +108,7 @@ function AiToolsUpdateSwitch() {
  * Settings → Switches (ADR-023): turn whole features on or off, and choose what workers may do on
  * your allowed websites without asking. The rules that keep you in charge have no switch.
  */
-export function SwitchSettings({ learning }: { learning?: ReactNode }) {
+export function SwitchSettings({ learning, phone }: { learning?: ReactNode; phone?: ReactNode }) {
   const permissions = usePermissions();
   const { pending, error, run } = useRun((s: PermissionsSnapshot) => permissions.apply(s));
   const s = permissions.snapshot?.settings.switches;
@@ -206,6 +206,12 @@ export function SwitchSettings({ learning }: { learning?: ReactNode }) {
         <h3 id="switches-ai-tools">AI tools</h3>
         <AiToolsUpdateSwitch />
       </section>
+      {phone && (
+        <section aria-labelledby="switches-phone">
+          <h3 id="switches-phone">Your phone</h3>
+          {phone}
+        </section>
+      )}
       <p className="muted switches__always">
         Always on, with no switch: workers never type passwords or secrets and never try a CAPTCHA
         more than 3 times; the sign shows whenever a worker uses the browser, your mouse, or a

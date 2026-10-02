@@ -43,6 +43,8 @@ export const ORGANIZATIONS_EVENT = "plenipo://organizations";
 export const SHARED_EVENT = "plenipo://shared";
 /** The PC's license changed: Free or Pro, a key entered or removed, or a check (Phase 11A). */
 export const LICENSE_EVENT = "plenipo://license";
+/** Phone access changed (Phase 14): a phone added, signed in, or removed; the switch; pairing. */
+export const REMOTE_EVENT = "plenipo://remote";
 
 /** Subscribe to runtime events. Resolves with an unsubscribe function. */
 export async function subscribeRuntimeEvents(
@@ -124,4 +126,9 @@ export async function subscribeShared(
  */
 export async function subscribeLicense(handler: () => void): Promise<() => void> {
   return listenHere<null>(LICENSE_EVENT, () => handler());
+}
+
+/** Phone access changed (Settings → Devices reads it again). */
+export async function subscribeRemote(handler: () => void): Promise<() => void> {
+  return listenHere<string>(REMOTE_EVENT, () => handler());
 }

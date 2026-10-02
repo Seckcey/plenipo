@@ -204,6 +204,15 @@
     "allow-get-license",
     "allow-enter-license-key",
     "allow-remove-license-key",
-    "allow-check-license-now"
+    "allow-check-license-now",
+    "allow-get-remote",
+    "allow-set-remote-switch",
+    "allow-start-phone-pairing",
+    "allow-cancel-phone-pairing",
+    "allow-answer-phone-pairing",
+    "allow-rename-device",
+    "allow-remove-device",
+    "allow-unpause-device",
+    "allow-set-kept-on-pc"
   ]
 }

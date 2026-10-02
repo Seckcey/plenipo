@@ -11,7 +11,7 @@ import { cssRawColors } from "./colors.mjs";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Where feature styles live. */
-const ROOTS = ["apps/desktop/src", "packages/ui/src/styles"];
+const ROOTS = ["apps/desktop/src", "apps/remote/src", "packages/ui/src/styles"];
 
 // Hex colors (also URL-encoded, %23…), color functions (rgb() to oklch()), and every CSS named
 // color used as a value. The patterns live in scripts/colors.mjs, shared with ESLint.

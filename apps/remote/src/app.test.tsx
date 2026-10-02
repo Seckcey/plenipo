@@ -1,0 +1,342 @@
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { App } from "./App";
+import { memoryKeep, type Kept } from "./keep";
+import { newKeyPair } from "./lock/noise";
+import { encode } from "./lock/bytes";
+import { FakePc } from "./test/fake-pc";
+
+// The phone's keychain: a stand-in (jsdom has no passkeys). The PC checks real answers in Rust.
+vi.mock("./lock/passkey", () => ({
+  PasskeyProblem: class PasskeyProblem extends Error {},
+  makePasskey: vi.fn(() =>
+    Promise.resolve({
+      id: "Y3JlZGVudGlhbA",
+      publicKey: "AA",
+      algorithm: -7,
+      authenticatorData: "AA",
+      clientData: "AA",
+    }),
+  ),
+  answerChallenge: vi.fn(() =>
+    Promise.resolve({
+      id: "Y3JlZGVudGlhbA",
+      authenticatorData: "AA",
+      clientData: "AA",
+      signature: "AA",
+    }),
+  ),
+}));
+
+const home = {
+  current: [
+    {
+      rootTaskId: "t1",
+      objective: "Make the website faster",
+      positionTitle: "Development Manager",
+      state: "running",
+      createdAt: Date.now() - 60_000,
+      completedAt: null,
+      tasks: 3,
+      active: 1,
+      failed: 0,
+      waitingApprovals: 1,
+      branch: null,
+      projectId: null,
+      answer: null,
+    },
+  ],
+  finished: [],
+  stuck: [],
+  going: 1,
+  finishedDay: 0,
+};
+
+const approval = {
+  id: "a1",
+  taskId: "t1",
+  status: "pending",
+  requestedAt: Date.now() - 10_000,
+  expiresAt: Date.now() + 9 * 60_000,
+  resolvedAt: null,
+  worker: "Backend Developer",
+  role: "Developer",
+  capabilityLabel: "Run programs",
+  summary: "git push to Website",
+  detail: "git push origin main",
+  reason: "Publishing changes outside this computer.",
+  riskLabel: "Sends outside",
+  waiting: true,
+};
+
+async function pairedWith(pc: FakePc): Promise<Kept> {
+  const keys = await newKeyPair(true);
+  pc.phones.set("cGhvbmUtMQ", keys.publicKey);
+  return {
+    keys,
+    paired: {
+      device: "ZGV2aWNlLTE",
+      phone: "cGhvbmUtMQ",
+      pass: "cGhvbmUtMQ.pass",
+      pc: pc.fingerprint,
+      pcKey: encode(pc.keys.publicKey),
+      pcName: pc.pcName,
+      credential: "Y3JlZGVudGlhbA",
+    },
+  };
+}
+
+let pc: FakePc;
+
+beforeEach(async () => {
+  localStorage.clear();
+  window.location.hash = "";
+  pc = await FakePc.start();
+  pc.answer = (ask) => {
+    switch (ask.kind) {
+      case "readOrganizations":
+        return { organizations: [{ id: "first", name: "8 West Ventures" }], pcName: pc.pcName };
+      case "readHome":
+        return home;
+      case "readApprovals":
+        return [
+          {
+            org: "first",
+            name: "8 West Ventures",
+            queue: {
+              pending: pc.asked.some((a) => a.kind === "approve") ? [] : [approval],
+              recent: [],
+            },
+            keptOnPc: [],
+          },
+        ];
+      case "approve":
+        return { ...approval, status: "approved" };
+      case "readLessons":
+        return { enabled: true, autoRoles: [], offRoles: [], agents: {}, waiting: [], kept: [] };
+      case "readAiTools":
+        return { tools: [], autoUpdate: false, lastLookedAt: null, looking: false };
+      case "readDiagnostics":
+        return {
+          ledger: { taskCount: 3, eventCount: 40, lastBackup: null },
+          version: "1.19.0",
+        };
+      default:
+        return {};
+    }
+  };
+});
+
+describe("pairing this phone", () => {
+  it("pairs with the typed code, after the PC's owner says yes", async () => {
+    const keep = memoryKeep();
+    const user = userEvent.setup();
+    render(<App keep={keep} make={pc.make} />);
+    const code = await screen.findByLabelText("Or type the code");
+    await user.type(code, "7k3q-m9tx-2hfd-r8wb");
+    await user.clear(screen.getByLabelText("What to call this phone"));
+    await user.type(screen.getByLabelText("What to call this phone"), "Frank's phone");
+    await user.click(screen.getByRole("button", { name: "Pair this phone" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Set up Face ID, fingerprint, or passcode" }),
+    );
+    // Paired, signed in, and on Home.
+    expect(await screen.findByText("Make the website faster")).toBeInTheDocument();
+    expect(pc.hello?.name).toBe("Frank's phone");
+    expect(keep.kept?.paired.pcName).toBe("Office PC");
+    // The phone's own key can never be copied out.
+    expect(keep.kept?.keys.privateKey.extractable).toBe(false);
+  });
+
+  it("says plainly when a code does not work", async () => {
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep()} make={pc.make} />);
+    await user.type(await screen.findByLabelText("Or type the code"), "0000-0000-0000-0000");
+    await user.click(screen.getByRole("button", { name: "Pair this phone" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/That code didn't work/);
+  });
+
+  it("adds nothing when the PC's owner says no", async () => {
+    pc.ownerSays = "no";
+    const keep = memoryKeep();
+    const user = userEvent.setup();
+    render(<App keep={keep} make={pc.make} />);
+    await user.type(await screen.findByLabelText("Or type the code"), pc.code);
+    await user.click(screen.getByRole("button", { name: "Pair this phone" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Your PC said this is not your phone.",
+    );
+    expect(keep.kept).toBeNull();
+  });
+
+  it("only offers pairing for a whole code", async () => {
+    render(<App keep={memoryKeep()} make={pc.make} />);
+    await userEvent.type(await screen.findByLabelText("Or type the code"), "7K3Q");
+    expect(screen.getByRole("button", { name: "Pair this phone" })).toBeDisabled();
+  });
+});
+
+describe("a paired phone", () => {
+  it("signs in with its passkey, then reads Home", async () => {
+    const kept = await pairedWith(pc);
+    const keep = memoryKeep(kept);
+    const user = userEvent.setup();
+    render(<App keep={keep} make={pc.make} />);
+    await user.click(await screen.findByRole("button", { name: "Check it’s you" }));
+    expect(await screen.findByText("Make the website faster")).toBeInTheDocument();
+    expect(screen.getByText(/Waiting for you: 1 approval/)).toBeInTheDocument();
+    // The PC's fresh pass is kept.
+    expect(keep.kept?.paired.pass).toBe("cGhvbmUtMQ.renewed");
+  });
+
+  it("approves from the phone, and the PC records it", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await user.click(await screen.findByRole("button", { name: "Approvals" }));
+    const card = (await screen.findByText("git push to Website")).closest("li")!;
+    expect(within(card).getByText("git push origin main")).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Approve" }));
+    expect(await screen.findByText("Approved.")).toBeInTheDocument();
+    expect(pc.asked).toContainEqual({ kind: "approve", org: "first", approval: "a1" });
+  });
+
+  it("works from the keyboard alone", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await screen.findByText("Make the website faster");
+    const tabTo = async (target: HTMLElement) => {
+      for (let i = 0; i < 40 && document.activeElement !== target; i++) await user.tab();
+      expect(target).toHaveFocus();
+    };
+    await tabTo(screen.getByRole("button", { name: "Approvals" }));
+    await user.keyboard("{Enter}");
+    const approve = await screen.findByRole("button", { name: "Approve" });
+    await tabTo(approve);
+    await user.keyboard("{Enter}");
+    expect(await screen.findByText("Approved.")).toBeInTheDocument();
+    expect(pc.asked).toContainEqual({ kind: "approve", org: "first", approval: "a1" });
+  });
+
+  it("shows an approval kept on the PC with no buttons", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    const answer = pc.answer;
+    pc.answer = (ask) =>
+      ask.kind === "readApprovals"
+        ? [
+            {
+              org: "first",
+              name: "8 West",
+              queue: { pending: [approval], recent: [] },
+              keptOnPc: ["a1"],
+            },
+          ]
+        : answer(ask);
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await user.click(await screen.findByRole("button", { name: "Approvals" }));
+    const card = (await screen.findByText("git push to Website")).closest("li")!;
+    expect(within(card).getByText(/Approve on your PC/)).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Approve" })).toBeNull();
+  });
+
+  it("reads again when the PC says something changed", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await screen.findByText("Make the website faster");
+    const before = pc.asked.filter((a) => a.kind === "readHome").length;
+    await pc.tell("tasks");
+    await waitFor(() =>
+      expect(pc.asked.filter((a) => a.kind === "readHome").length).toBeGreaterThan(before),
+    );
+  });
+
+  it("when the PC can't be reached, says so and changes nothing", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await screen.findByText("Make the website faster");
+    pc.goOffline();
+    expect(
+      await screen.findByText("Your PC can’t be reached. Nothing was changed."),
+    ).toBeInTheDocument();
+    pc.online = true;
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Make the website faster")).toBeInTheDocument();
+  });
+
+  it("switched off on the PC: the phone hears it, then says the PC can't be reached", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await screen.findByText("Make the website faster");
+    await pc.switchOff();
+    expect(
+      await screen.findByText("Your PC can’t be reached. Nothing was changed."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Check it’s you" })).toBeNull();
+  });
+
+  it("removed just before the line closes: the phone still forgets the PC", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    const keep = memoryKeep(await pairedWith(pc));
+    render(<App keep={keep} make={pc.make} />);
+    await screen.findByText("Make the website faster");
+    await pc.removeAndClose();
+    expect(await screen.findByRole("heading", { name: "Pair this phone" })).toBeInTheDocument();
+    expect(keep.kept).toBeNull();
+  });
+
+  it("a removed phone is told, and can be paired again", async () => {
+    pc.removed.add("cGhvbmUtMQ");
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    expect(
+      await screen.findByRole("heading", { name: "This phone is no longer on your PC’s list" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Pair this phone again" }));
+    expect(await screen.findByRole("heading", { name: "Pair this phone" })).toBeInTheDocument();
+  });
+
+  it("a phone removed while it was away is told so when it comes back", async () => {
+    pc.forgotten.add("cGhvbmUtMQ");
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    expect(
+      await screen.findByRole("heading", { name: "This phone is no longer on your PC’s list" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Stop all asks first, then stops", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    const answer = pc.answer;
+    pc.answer = (ask) =>
+      ask.kind === "stopAll" ? { stopped: true, sessions: [], revision: 1 } : answer(ask);
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await screen.findByText("Make the website faster");
+    await user.click(screen.getByRole("button", { name: "Stop all" }));
+    const ask = screen.getByRole("alertdialog", { name: "Stop all?" });
+    await user.click(within(ask).getByRole("button", { name: "Stop all" }));
+    expect(
+      await screen.findByText(/work is stopped\. Allow it again on your PC/),
+    ).toBeInTheDocument();
+    expect(pc.asked).toContainEqual({ kind: "stopAll" });
+  });
+
+  it("removing this phone asks first, then forgets it", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    const keep = memoryKeep(await pairedWith(pc));
+    const user = userEvent.setup();
+    render(<App keep={keep} make={pc.make} />);
+    await screen.findByText("Make the website faster");
+    await user.click(screen.getByRole("button", { name: "More" }));
+    await user.click(screen.getByRole("button", { name: "Remove this phone" }));
+    const ask = screen.getByRole("alertdialog", { name: "Remove this phone?" });
+    await user.click(within(ask).getByRole("button", { name: "Remove this phone" }));
+    expect(await screen.findByRole("heading", { name: "Pair this phone" })).toBeInTheDocument();
+    expect(keep.kept).toBeNull();
+    expect(pc.asked).toContainEqual({ kind: "removeThisPhone" });
+  });
+});

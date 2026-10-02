@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-kept-on-pc"
+description = "Enables the set_kept_on_pc command without any pre-configured scope."
+commands.allow = ["set_kept_on_pc"]
+
+[[permission]]
+identifier = "deny-set-kept-on-pc"
+description = "Denies the set_kept_on_pc command without any pre-configured scope."
+commands.deny = ["set_kept_on_pc"]

@@ -210,6 +210,15 @@ const COMMANDS: &[&str] = &[
     "enter_license_key",
     "remove_license_key",
     "check_license_now",
+    "get_remote",
+    "set_remote_switch",
+    "start_phone_pairing",
+    "cancel_phone_pairing",
+    "answer_phone_pairing",
+    "rename_device",
+    "remove_device",
+    "unpause_device",
+    "set_kept_on_pc",
 ];
 
 fn main() {

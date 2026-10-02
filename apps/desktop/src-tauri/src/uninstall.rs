@@ -86,12 +86,34 @@ pub fn forget_every_organizations_secrets(
                 Ok(false) => {}
                 Err(e) => problems.push(format!("the license key: {e}")),
             }
+            // Phone access's keys and phones (Phase 14), under the same name.
+            match forget_phone_access(store.as_ref()) {
+                Ok(n) => removed += n,
+                Err(e) => problems.push(format!("phone access: {e}")),
+            }
         }
     }
     if problems.is_empty() {
         Ok(removed)
     } else {
         Err(format!("{removed} removed; {}", problems.join("; ")))
+    }
+}
+
+/// Remove phone access's keys and phones (Phase 14, ADR-141 §8), kept under the first
+/// organization's name. How many were removed.
+fn forget_phone_access(store: &dyn SecretStore) -> Result<usize, String> {
+    use plenipo_remote::devices::{DEVICE_PREFIX, KEYS_ID, LIST_ID};
+    let mut ids = vec![KEYS_ID.to_owned(), LIST_ID.to_owned()];
+    if let Some(list) = vault::read(store, LIST_ID)? {
+        let phones: Vec<String> = serde_json::from_str(&list).unwrap_or_default();
+        ids.extend(phones.into_iter().map(|p| format!("{DEVICE_PREFIX}{p}")));
+    }
+    let (removed, problems) = vault::forget_ids(store, &ids);
+    if problems.is_empty() {
+        Ok(removed)
+    } else {
+        Err(problems.join("; "))
     }
 }
 

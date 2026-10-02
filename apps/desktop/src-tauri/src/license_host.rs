@@ -174,6 +174,12 @@ impl LicenseHost {
         host
     }
 
+    /// 8 West's newest signed weekly answer, as it travelled (phone access shows it to the relay,
+    /// so the relay knows this PC is Pro: ADR-143 §3). `None`: no successful check yet.
+    pub fn signed_answer(&self) -> Option<plenipo_licensing::SignedAnswer> {
+        lock(&self.license).record().answer.clone()
+    }
+
     /// The PC's Free or Pro, shared by every organization's services.
     pub fn entitlements(&self) -> Arc<Entitlements> {
         Arc::clone(&self.entitlements)

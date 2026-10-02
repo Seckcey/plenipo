@@ -90,6 +90,8 @@ export const COLOR_ROLES = {
   "terminal-bright-magenta": "The terminal's bright magenta (a color programs ask for)",
   "terminal-bright-cyan": "The terminal's bright cyan (a color programs ask for)",
   "terminal-bright-white": "The terminal's bright white (a color programs ask for)",
+  "code-dark": "A picture code's dark squares: the same in both themes, so a phone can read it",
+  "code-light": "A picture code's light ground and border: the same in both themes",
 } as const;
 
 export type ColorToken = keyof typeof COLOR_ROLES;
@@ -174,6 +176,8 @@ const dark: Palette = {
   "terminal-bright-magenta": "#d2a8ff",
   "terminal-bright-cyan": "#56d4dd",
   "terminal-bright-white": "#f0f6fc",
+  "code-dark": "#000000",
+  "code-light": "#ffffff",
 };
 
 const light: Palette = {
@@ -254,6 +258,8 @@ const light: Palette = {
   "terminal-bright-magenta": "#6639ba",
   "terminal-bright-cyan": "#1b6d74",
   "terminal-bright-white": "#57606a",
+  "code-dark": "#000000",
+  "code-light": "#ffffff",
 };
 
 /** Every color token, per theme. */

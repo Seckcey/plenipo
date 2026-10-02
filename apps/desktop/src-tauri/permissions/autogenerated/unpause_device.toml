@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-unpause-device"
+description = "Enables the unpause_device command without any pre-configured scope."
+commands.allow = ["unpause_device"]
+
+[[permission]]
+identifier = "deny-unpause-device"
+description = "Denies the unpause_device command without any pre-configured scope."
+commands.deny = ["unpause_device"]

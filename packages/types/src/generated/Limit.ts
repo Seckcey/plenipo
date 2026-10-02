@@ -3,4 +3,4 @@
 /**
  * Something Free limits.
  */
-export type Limit = "organizations" | "departments" | "projects" | "workersAtOnce" | "businessDepartment" | "connections" | "addOnTools" | "lessons";
+export type Limit = "organizations" | "departments" | "projects" | "workersAtOnce" | "businessDepartment" | "connections" | "addOnTools" | "lessons" | "phoneAccess";

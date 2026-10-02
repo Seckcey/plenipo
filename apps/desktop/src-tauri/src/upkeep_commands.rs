@@ -52,7 +52,7 @@ fn shows_first(stack: Option<&crate::orgs::OrgStack>) -> bool {
 }
 
 /// What recovery has to tell window `label` (its organization's; none: the first one's).
-fn recovery_status<R: Runtime>(
+pub(crate) fn recovery_status<R: Runtime>(
     app: &AppHandle<R>,
     label: Option<&str>,
 ) -> Result<RecoveryStatus, CommandError> {
@@ -114,13 +114,28 @@ pub async fn run_again<R: Runtime>(
     liaison: Org<'_, Liaison>,
     task_id: String,
 ) -> Result<RecoveryStatus, CommandError> {
-    validate_task_id(&task_id)?;
-    let id = task_id.clone();
-    let task = with_ledger(&ledger, move |l| {
+    run_again_core(ledger.inner(), workforce.inner(), liaison.inner(), &task_id).await?;
+    recovery_status_off_thread(&app, Some(window.label().to_owned())).await
+}
+
+/// Run a stopped objective again (the main window's **Run again**, and a phone's, Phase 14): the
+/// same objective to the same worker, through the normal checks, recorded as run again.
+pub(crate) async fn run_again_core(
+    ledger: &Arc<Ledger>,
+    workforce: &Workforce,
+    liaison: &Liaison,
+    task_id: &str,
+) -> Result<(), CommandError> {
+    validate_task_id(task_id)?;
+    let id = task_id.to_owned();
+    let l = Arc::clone(ledger);
+    let task = tauri::async_runtime::spawn_blocking(move || {
         l.task(&id)?
             .ok_or_else(|| plenipo_ledger::LedgerError::NotFound(format!("task {id}")))
     })
-    .await?;
+    .await
+    .map_err(|e| CommandError::internal(e.to_string()))?
+    .map_err(|e| CommandError::invalid_input(e.to_string()))?;
     let plan = recovery::run_again_plan(&task).map_err(CommandError::invalid_input)?;
     let detail = match plan {
         RunAgain::Position {
@@ -140,13 +155,13 @@ pub async fn run_again<R: Runtime>(
             .map_err(to_command_error)?,
     };
     let new_task = detail.turns.last().map(|t| t.task_id.clone());
-    let l = Arc::clone(&ledger);
+    let l = Arc::clone(ledger);
+    let from = task_id.to_owned();
     tauri::async_runtime::spawn_blocking(move || {
-        recovery::record_run_again(&l, &task_id, new_task.as_deref());
+        recovery::record_run_again(&l, &from, new_task.as_deref());
     })
     .await
-    .map_err(|e| CommandError::internal(e.to_string()))?;
-    recovery_status_off_thread(&app, Some(window.label().to_owned())).await
+    .map_err(|e| CommandError::internal(e.to_string()))
 }
 
 /// Leave the stopped tasks stopped: the notice about the last run goes away.
