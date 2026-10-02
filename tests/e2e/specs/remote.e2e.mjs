@@ -41,6 +41,7 @@ import {
   nav,
   objectiveBox,
   openSettings,
+  pidAlive,
   screenshot as save,
   waitForShell,
   waitPidGone,
@@ -96,6 +97,30 @@ const waitForText = async (browser, selector, needle, timeoutMs = 20_000) => {
 
 const exists = (browser, selector) =>
   browser.execute((s) => document.querySelector(s) !== null, selector);
+
+/**
+ * Close Plenipo and make sure it is gone: a copy that does not quit in time says why (the end of
+ * its own log) and is stopped, so it never stays behind for the next suite.
+ */
+async function closePc(current) {
+  if (!current) return;
+  const pids = appPids();
+  await current.close();
+  for (const pid of pids) {
+    try {
+      await waitUntil(() => !pidAlive(pid), `Plenipo (${pid}) to quit`, 30_000);
+    } catch (error) {
+      const log = join(home, ".local", "share", "com.eightwest.plenipo", "logs", "plenipo.log");
+      if (existsSync(log)) {
+        console.error(
+          `--- the end of Plenipo's log ---\n${readFileSync(log, "utf8").slice(-8000)}`,
+        );
+      }
+      process.kill(pid, "SIGKILL");
+      throw error;
+    }
+  }
+}
 
 /** Call one of Plenipo's commands from the page: its answer or its refusal. */
 const invoke = (browser, cmd, args = {}) =>
@@ -456,7 +481,7 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
   });
   after(async () => {
     await phone?.deleteSession().catch(() => undefined);
-    await app?.close();
+    await closePc(app);
     relay.process?.kill();
     license.server?.close();
     pageServer?.close();
@@ -776,7 +801,7 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     await page(phone, "Home", "home-title");
     const goneBefore = relayCount("no PC connected");
     // The PC is turned off: Plenipo closes, and the relay tells the phone.
-    await app.close();
+    await closePc(app);
     app = null;
     await relaySays("no PC connected", goneBefore + 1);
     await phoneSays(phone, "Your PC can’t be reached. Nothing was changed.");

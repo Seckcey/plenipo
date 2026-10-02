@@ -734,6 +734,10 @@ pub fn manage_upkeep<R: Runtime>(
 /// by installing an update, and by restarting to restore a backup. Returns how many programs
 /// were stopped.
 pub async fn stop_work<R: Runtime>(app: &tauri::AppHandle<R>) -> usize {
+    // Phone access first (Phase 14): the relay link closes, so no phone's request starts now.
+    if let Some(remote) = app.try_state::<Arc<remote_host::RemoteState>>() {
+        remote.stop();
+    }
     // Every organization's work, all at once (Phase 21, ADR-094 §7); each Ledger records its
     // own.
     let stacks = orgs::all_stacks(app);

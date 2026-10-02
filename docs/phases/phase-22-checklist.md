@@ -1,14 +1,16 @@
 # Phase 22 — Implementation Checklist
 
-**Status: Phase 22 built and running in Stripe test mode, not live** (2026-10-01;
+**Status: Phase 22 is live** (Stripe live mode since 2026-10-02;
 [acceptance report](phase-22-acceptance-report.md)). The owner's own key works; two test purchases
-went through end to end. Live mode waits for the security review.
+went through end to end. The owner chose to go live **before** the security review, which is still
+to do.
 The 8 West account service lives in its own private repository,
 `Seckcey/plenipo-account` (draft pull request 1 there). None of its code is in this repository
 ([ADR-101](../adr/ADR-101-account-service-repository-name.md), the account service's own
 repository). The one thing both share is the weekly check's contract,
-`contracts/license-check/v1`, written here and copied there byte for byte. Stripe is in **test mode
-only**. A security review comes before anything goes live. Plenipo is made by 8 West Ventures, LLC.
+`contracts/license-check/v1`, written here and copied there byte for byte. Stripe is in **live
+mode** (the owner's word, 2026-10-02); the security review is still open. Plenipo is made by 8 West
+Ventures, LLC.
 
 Source: `ROLLOUT_PLAN.md`, Phase 22 — The 8 West Account Service: Users, Billing, Email, and
 Licenses, and ADR-100 to ADR-118 (the owner's answers). The ones for this phase are ADR-101 to
@@ -35,9 +37,11 @@ Dates are Pacific time.
   owner has a complimentary Partner Unlimited key in Plenipo, checked in and "active". Two test
   purchases (one by a script with Stripe's test card, one by the owner through sign-up and Stripe
   Checkout) each got a key by email within seconds.
-- **Not done yet: going live.** That waits for the security review and the owner's word, plus
-  monitoring and a few Stripe settings (see "Left for the owner"). Nightly backups run, and a
-  restore was checked.
+- **Live since 2026-10-02.** The owner said to go live without the security review. Live Stripe
+  is set up, test data was removed after a fresh backup, and the service's log says it runs in
+  live mode. The owner accepted sign-up and purchase without a live test purchase; the first real
+  customer is the live check. AWS alarms and UptimeRobot watch it; nightly backups run, and a
+  restore was checked. Still open: the security review and Stripe's custom email domain.
 
 ## Deliverables
 
@@ -118,17 +122,20 @@ Values go only where each line says. Never in chat, and never in either reposito
 - [x] **AWS backups:** nightly, encrypted to a key pair whose private half the owner keeps printed;
       the first backup is in the bucket, locked for 35 days, and a restore check on Coastline matched
       the live database's counts (2026-10-01).
-- [ ] **AWS, still to do:** the alarms for memory, disk, and failed signatures.
+- [x] **AWS alarms:** server status check, memory over 80%, disk over 80%, and a failed signature,
+      all emailing the owner (2026-10-02, seen in CloudWatch).
 - [x] **Stripe sandbox:** Stripe Tax's head office address, the webhook endpoint and its signing
       secret, a restricted key for the service, and the customer portal with the privacy and terms
       links (2026-10-01).
-- [ ] **Stripe, still to do:** branding (logo and color), the custom email domain, and Billing's
-      retry and email settings (quantity changes in the portal are off, 2026-10-01). Then the same in
-      live mode.
+- [x] **Stripe live mode:** branding (the owner), tax, the four plans and eight prices, the default
+      customer portal, Billing's emails and retries, the notice endpoint, and the service's key
+      (2026-10-02).
+- [ ] **Stripe, still to do:** the custom email domain.
 - [x] **Microsoft Entra:** the app registration that sends from hello@getplenipo.com, locked to that
       one mailbox (RBAC for Applications). Its secret is in SSM (2026-10-01).
 - [x] **Cloudflare:** the tunnel to the server, Access for the admin page with an emailed code, and
       the one rate rule the free plan allows (2026-10-01).
-- [ ] **UptimeRobot:** the check address, every 5 minutes.
+- [x] **UptimeRobot:** the website and the account service's check address (the owner, 2026-10-02).
 - [x] **An attorney:** the terms of sale and the privacy notice (approved; 2026-10-01).
-- [ ] **The security review, then live mode.**
+- [x] **Live mode** (the owner's word, 2026-10-02, before the security review).
+- [ ] **The security review.** Skipped for launch by the owner's choice; still to do.
