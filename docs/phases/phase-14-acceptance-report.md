@@ -85,10 +85,43 @@ plain reasons).
 
 ### 4. Screenshots
 
-From the real-app test on GitHub's Linux machine: a copy of Plenipo built for the tests, a stand-in
-relay, and Google Chrome at a phone's size as the phone, with made-up names.
+From the real-app test on GitHub's Linux machine (`tests/e2e/specs/remote.e2e.mjs`): a copy of
+Plenipo built for the tests, a stand-in relay, and Google Chrome at a phone's size as the phone,
+with made-up names.
 
-_Added from the pull request's test run._
+- **Turning it on, on the PC:** [on Free, Devices says it is part of Pro, and the PC connects to
+  nothing](evidence/phase-14/phone-devices-free.png) · [the switch Use Plenipo from another device,
+  on](evidence/phase-14/phone-switch-on.png) · [Add a phone: a picture code and a typed code that
+  work once, for 10 minutes](evidence/phase-14/phone-devices-code.png)
+- **Pairing:** [a wrong code, refused, with nothing
+  added](evidence/phase-14/phone-pair-wrong-code.png) · [the phone's name and the typed
+  code](evidence/phase-14/phone-pair.png) · [the phone waits for your yes (its line breaks are fixed
+  in part 14B)](evidence/phase-14/phone-pair-waiting.png) · [the PC asks Is this your
+  phone?](evidence/phase-14/phone-devices-ask.png) · [the phone on the PC's list, signed
+  in](evidence/phase-14/phone-devices-listed.png)
+- **Approvals:** [a second approval waiting on the phone, and the first one answered from
+  it](evidence/phase-14/phone-approvals-answered.png) · [on the phone afterwards: nothing left
+  waiting, and both answers listed](evidence/phase-14/phone-approvals-dark.png) · [on the PC, each
+  answer says who gave it, and from which phone](evidence/phase-14/phone-pc-approvals-answered.png)
+- **Every page fits a phone's screen, in both themes:** Home
+  ([dark](evidence/phase-14/phone-home-dark.png), [light](evidence/phase-14/phone-home-light.png)) ·
+  Approvals ([dark](evidence/phase-14/phone-approvals-dark.png),
+  [light](evidence/phase-14/phone-approvals-light.png)) · Work
+  ([dark](evidence/phase-14/phone-work-dark.png), [light](evidence/phase-14/phone-work-light.png)) ·
+  Activity ([dark](evidence/phase-14/phone-activity-dark.png),
+  [light](evidence/phase-14/phone-activity-light.png)) · More
+  ([dark](evidence/phase-14/phone-more-dark.png), [light](evidence/phase-14/phone-more-light.png)).
+  More's AI tools show their codes here, and Activity the pages the phone opened; both are fixed in
+  part 14B.
+- **Stop all:** [the phone asks first](evidence/phase-14/phone-stop-all-ask.png) · [the PC stops
+  browser, desktop, and server work](evidence/phase-14/phone-pc-stopped.png)
+- **Signing in, the PC turned off, and a removed phone:** [signing in again with the phone's
+  passkey](evidence/phase-14/phone-sign-in.png) · [the PC is off: Your PC can't be reached. Nothing
+  was changed.](evidence/phase-14/phone-offline.png) · [Remove asks first, and says the phone is cut
+  off at once](evidence/phase-14/phone-devices-remove.png) · [a removed phone, refused even with a
+  copy of its keys](evidence/phase-14/phone-removed.png)
+- **Activity on the PC:** [each request, with the phone that sent
+  it](evidence/phase-14/phone-pc-activity.png)
 
 ### 5. What the owner needs to do, and the checks only the owner can do
 
