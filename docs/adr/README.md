@@ -140,3 +140,11 @@ architecture must be recorded here.
 | [155](ADR-155-each-systems-own-words.md)                 | Each system's own words on screen                                                             | Accepted |
 | [156](ADR-156-refuse-unchecked-tool-calls.md)            | When Plenipo cannot tell which program sent a tool call, it refuses (amends 034)              | Accepted |
 | [160](ADR-160-phase-24-alongside-phase-23.md)            | Building Phase 24 (Community) alongside Phase 23 (Mac and Linux)                              | Accepted |
+| [161](ADR-161-phase-24-starts.md)                        | Phase 24 starts: what the check found, six parts, the owner's questions                       | Proposed |
+| [162](ADR-162-your-account-in-plenipo.md)                | Your 8 West account in Plenipo: sign in with a code, 18 and older, who needs Pro              | Proposed |
+| [163](ADR-163-profiles-and-finding-people.md)            | Your profile, hidden until you choose; finding people by exact name or email                  | Proposed |
+| [164](ADR-164-private-messages-sealed.md)                | Private messages, sealed end to end, text only, reports with a proof                          | Proposed |
+| [165](ADR-165-linked-organizations.md)                   | Linked organizations: link, objectives, the answer you send back, unlink                      | Proposed |
+| [166](ADR-166-collaborators.md)                          | Collaborators: viewer, approver, manager; removed at once                                     | Proposed |
+| [167](ADR-167-block-report-leave.md)                     | Block, report, and leave; 8 West handles reports                                              | Proposed |
+| [168](ADR-168-what-is-kept-and-for-how-long.md)          | What Community keeps, where, and for how long                                                 | Proposed |
