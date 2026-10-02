@@ -22,6 +22,9 @@ name: Release
 # Plenipo on your phone (Phase 14, ADR-149): a Linux job builds Plenipo's own relay as a static
 # program (musl) with a .sha256, and the release carries it too; the relay's updater on 8 West's
 # server fetches it from the release, as the phone page's updater does for the page.
+#
+# Mac and Linux (Phase 23, ADR-150): a dry run also builds unsigned trial files for the Mac and
+# for Linux, kept as downloads for 7 days. A release builds them from Waves 2 and 3 on.
 
 on:
   push:
@@ -83,6 +86,99 @@ jobs:
           path: relay-dist/
           if-no-files-found: error
           retention-days: 7
+
+  # Mac and Linux (Phase 23, Wave 0; ADR-150, ADR-152): a dry run also builds the Mac and Linux
+  # files, unsigned, to see what Tauri makes. A dry run only: a release does not build them until
+  # Waves 2 and 3, and no secret is used here (ADR-052). The Mac file is one app for Apple's chips
+  # and Intel; the Linux files are built on Ubuntu 22.04, so they also run on newer Linux.
+  trial:
+    name: Trial build, unsigned (${{ matrix.name }})
+    if: inputs.dry_run
+    runs-on: ${{ matrix.runner }}
+    # Builds and keeps files; it never writes to the repository or a release.
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Mac
+            runner: macos-latest
+            target: universal-apple-darwin
+            files: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          - name: Linux
+            runner: ubuntu-22.04
+            target: ""
+            files: |
+              target/release/bundle/deb/*.deb
+              target/release/bundle/appimage/*.AppImage
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install Tauri Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev file
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Both kinds of Mac chip
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: trial-${{ runner.os }}
+      - run: pnpm install --frozen-lockfile
+      - name: Build the app and its files, unsigned
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          # Not secrets; built in so a trial copy is otherwise the same as a release one.
+          PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
+          PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
+          PLENIPO_SLACK_CLIENT_ID: ${{ vars.PLENIPO_SLACK_CLIENT_ID }}
+          PLENIPO_RELAY_LIVE: ${{ vars.PLENIPO_RELAY_LIVE }}
+          PLENIPO_CONNECTIONS_STAND_IN: ""
+          PLENIPO_AI_TOOL_RELEASES: ""
+          PLENIPO_REMOTE_STAND_IN: ""
+          PLENIPO_REMOTE_PAGE: ""
+          PLENIPO_NOTICES_STAND_IN: ""
+          # The AppImage tool unpacks itself instead of needing FUSE on the runner.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          args=(--verbose)
+          if [ -n "$TARGET" ]; then args+=(--target "$TARGET"); fi
+          pnpm --filter @plenipo/desktop tauri build "${args[@]}"
+      - name: What was made
+        shell: bash
+        env:
+          FILES: ${{ matrix.files }}
+        run: |
+          {
+            echo "### Trial build, unsigned: ${{ matrix.name }}"
+            echo ""
+            echo '```'
+            for f in $FILES; do ls -l $f; done
+            if [ "$RUNNER_OS" = "macOS" ]; then
+              app=(target/universal-apple-darwin/release/bundle/macos/*.app)
+              echo "Chips in ${app[0]##*/}: $(lipo -archs "${app[0]}/Contents/MacOS/"*)"
+              echo "Lowest macOS: $(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "${app[0]}/Contents/Info.plist")"
+            else
+              for f in target/release/bundle/deb/*.deb; do dpkg-deb --field "$f" Package Version Architecture Depends; done
+            fi
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plenipo-unsigned-trial-${{ matrix.name }}
+          path: ${{ matrix.files }}
+          retention-days: 7
+          if-no-files-found: error
 
   windows:
     name: Build Windows installer and publish release

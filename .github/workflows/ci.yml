@@ -237,6 +237,46 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # Phase 23, Wave 0 (ADR-150): the Mac. Clippy and the tests run on a Mac for every change, and
+  # what still fails is reported (in this job's summary, and as a warning), not as a failed check:
+  # nothing has been ported yet. Wave 1 makes both pass; then the two `continue-on-error` lines
+  # go, and this job counts like the others.
+  macos:
+    name: Mac (clippy, test; reported, not yet required)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - id: clippy
+        continue-on-error: true
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - id: test
+        continue-on-error: true
+        timeout-minutes: 45
+        run: cargo test --workspace --locked
+      - name: What still fails on a Mac
+        if: always()
+        env:
+          CLIPPY: ${{ steps.clippy.outcome }}
+          TEST: ${{ steps.test.outcome }}
+        run: |
+          {
+            echo "### Mac (Phase 23: reported, not yet required)"
+            echo ""
+            echo "| Check | Result |"
+            echo "| --- | --- |"
+            echo "| \`cargo clippy\` | $CLIPPY |"
+            echo "| \`cargo test\` | $TEST |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CLIPPY" != "success" ] || [ "$TEST" != "success" ]; then
+            echo "::warning title=Mac::On a Mac, cargo clippy: $CLIPPY; cargo test: $TEST. Phase 23's Wave 1 makes both pass (ADR-150)."
+          fi
+
   windows:
     name: Windows (test, build, installer, launch smoke, installer tests)
     needs: changes
