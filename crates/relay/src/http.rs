@@ -23,6 +23,9 @@ use crate::ClientAddress;
 
 /// The most a request head may be.
 const MAX_HEAD: usize = 8 * 1024;
+/// How long a finished connection waits for the peer's own close (a round trip, even on a
+/// slow phone network) before the socket closes anyway.
+const CLOSE_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 pub(crate) const PC_PATH: &str = "/plenipo/v1/pc";
 pub(crate) const PHONE_PATH: &str = "/plenipo/v1/phone";
 
@@ -120,9 +123,13 @@ pub(crate) async fn serve(hub: Arc<Hub>, mut stream: TcpStream, peer: SocketAddr
         Role_::Pc => crate::pc::serve(&hub, &mut line, address).await,
         Role_::Phone => crate::phone::serve(&hub, &mut line, address).await,
     }
-    // Over: the queue closes, the writer sends what is left and ends.
-    drop(line);
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), writer).await;
+    // Over: the queue closes and the writer sends what is left, its close last; meanwhile the
+    // line reads what the peer still sends, until its close comes back (`Line::finish`), so the
+    // socket never closes on a peer that is still sending.
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(line.finish(CLOSE_WAIT), writer)
+    })
+    .await;
     hub.leave(address);
 }
 
