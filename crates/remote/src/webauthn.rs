@@ -306,6 +306,52 @@ mod tests {
         }
     }
 
+    /// A passkey and a sign-in answer made by Chrome's own authenticator (WebDriver's virtual
+    /// authenticator, as the real-app test uses it), for the page at `http://localhost:18771`.
+    #[test]
+    fn a_passkey_made_by_chrome_is_accepted() {
+        let page = |challenge| Expect {
+            origin: "http://localhost:18771",
+            rp_id: "localhost",
+            challenge,
+        };
+        let made = NewPasskey {
+            id: "sDbEqXvZH8Z831VA7nbxNMur8sxLzHVD5U57Oo_1_zY".into(),
+            public_key: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUCN9-wAD_IU79Rr9hTeSj5aIIiW7n0ijL25VWf6OVLn3_9886Rn4FAD6iRozGez4r0or6y83aSfnuOJok1E-3A".into(),
+            algorithm: -7,
+            authenticator_data: "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2NFAAAAAQECAwQFBgcIAQIDBAUGBwgAILA2xKl72R_GfN9VQO528TTLq_LMS8x1Q-VOezqP9f82pQECAyYgASFYIFAjffsAA_yFO_Ua_YU3ko-WiCIlu59Ioy9uVVn-jlS5Ilgg9__fPOkZ-BQA-okaMxns-K9KK-svN2kn57jiaJNRPtw".into(),
+            client_data: "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiQndjSEJ3Y0hCd2NIQndjSEJ3Y0hCd2NIQndjSEJ3Y0hCd2NIQndjSEJ3YyIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6MTg3NzEiLCJjcm9zc09yaWdpbiI6ZmFsc2V9".into(),
+        };
+        let passkey = register(&made, &page(&[7; 32])).unwrap();
+        assert_eq!(passkey.algorithm, ES256);
+        let answer = PasskeyAnswer {
+            id: "sDbEqXvZH8Z831VA7nbxNMur8sxLzHVD5U57Oo_1_zY".into(),
+            authenticator_data: "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MFAAAAAg".into(),
+            client_data: "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiQ1FrSkNRa0pDUWtKQ1FrSkNRa0pDUWtKQ1FrSkNRa0pDUWtKQ1FrSkNRayIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6MTg3NzEiLCJjcm9zc09yaWdpbiI6ZmFsc2V9".into(),
+            signature: "MEUCIQDmrDtRZ6wwMIvETLq6YgRVzP6yVWAYvpjD6tdNNF_QyAIgdrdI0timofpUrttrdPdzaxdIDQcL385zDN_tCuBko1s".into(),
+        };
+        assert_eq!(check(&passkey, &answer, &page(&[9; 32])), Ok(2));
+        // The same answer, for another challenge, page, or site, is refused.
+        assert!(check(&passkey, &answer, &page(&[8; 32])).is_err());
+        let elsewhere = Expect {
+            origin: "http://localhost:9999",
+            ..page(&[9; 32])
+        };
+        assert_eq!(
+            check(&passkey, &answer, &elsewhere),
+            Err(PasskeyError::WrongPage)
+        );
+        // And once used, its counter cannot be used again.
+        let used = Passkey {
+            counter: 2,
+            ..passkey
+        };
+        assert_eq!(
+            check(&used, &answer, &page(&[9; 32])),
+            Err(PasskeyError::CounterWentBack)
+        );
+    }
+
     #[test]
     fn a_wrong_answer_is_refused() {
         let mut auth = Authenticator::new(ES256, ORIGIN, RP);
