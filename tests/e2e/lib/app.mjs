@@ -296,10 +296,14 @@ export async function openSettings(browser, section) {
   );
   await tab.waitForClickable({ timeout: 10_000 });
   await tab.click();
-  await waitUntil(
-    async () => (await tab.getAttribute("aria-selected")) === "true",
-    `Settings → ${section}`,
-  );
+  // A notice above the page that goes away as the tab is clicked moves the page under the click:
+  // click again until the section shows.
+  let tries = 0;
+  await waitUntil(async () => {
+    if ((await tab.getAttribute("aria-selected")) === "true") return true;
+    if (++tries % 10 === 0) await tab.click();
+    return false;
+  }, `Settings → ${section}`);
 }
 
 export async function clickButton(browser, label) {
