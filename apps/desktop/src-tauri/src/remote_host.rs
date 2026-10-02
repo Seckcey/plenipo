@@ -22,9 +22,9 @@ use std::time::Duration;
 
 use plenipo_capabilities::vault::{self, SecretStore};
 use plenipo_guard::outbound::{Purpose, RELAY_ADDRESS};
-use plenipo_guard::remote::ApprovalFacts;
+use plenipo_guard::remote::{ApprovalFacts, RequestKind};
 use plenipo_guard::{OutboundRules, OWNER, PLENIPO};
-use plenipo_ledger::{ActivityScope, Ledger, LedgerEvent, NewEvent};
+use plenipo_ledger::{ActivityScope, Ledger, LedgerEvent, NewEvent, MAX_PAGE_EVENTS};
 use plenipo_licensing::{Limit, SignedAnswer};
 use plenipo_remote::devices::{ConfigFile, Kept, KeyStore};
 use plenipo_remote::link::LinkHost;
@@ -232,6 +232,19 @@ impl<R: Runtime> AppSide<R> {
     }
 }
 
+/// Events on one page of the phone's Activity.
+const ACTIVITY_PAGE: usize = 50;
+
+/// A phone only read a page (a `remote.request` that changes nothing).
+fn phone_read(event: &LedgerEvent) -> bool {
+    event.event_type == "remote.request"
+        && event.payload["kind"].as_str().is_some_and(|kind| {
+            RequestKind::ALL
+                .iter()
+                .any(|k| k.reads() && k.label() == kind)
+        })
+}
+
 fn value<T: Serialize>(v: T) -> Result<Value, String> {
     serde_json::to_value(v).map_err(|e| e.to_string())
 }
@@ -418,13 +431,24 @@ fn carry_out<R: Runtime>(side: &AppSide<R>, phone: &Phone, ask: &Ask) -> Result<
         }
         Ask::ReadActivity { org, before } => {
             let stack = side.stack(org)?;
-            let before = before.and_then(|b| u64::try_from(b).ok());
-            value(
-                stack
+            let mut before = before.and_then(|b| u64::try_from(b).ok());
+            // A phone's page reads stay in the Ledger and on the PC's Activity, but not on the
+            // phone's Activity page, where every page it opened would bury what happened.
+            let mut shown = Vec::new();
+            loop {
+                let page = stack
                     .ledger
-                    .scope_events(&ActivityScope::All, before, 50)
-                    .map_err(plain)?,
-            )
+                    .scope_events(&ActivityScope::All, before, MAX_PAGE_EVENTS)
+                    .map_err(plain)?;
+                let at_the_start = page.len() < MAX_PAGE_EVENTS as usize;
+                before = page.last().map(|e| e.seq);
+                shown.extend(page.into_iter().filter(|e| !phone_read(e)));
+                if shown.len() >= ACTIVITY_PAGE || at_the_start {
+                    break;
+                }
+            }
+            shown.truncate(ACTIVITY_PAGE);
+            value(shown)
         }
         Ask::ReadAiTools => {
             let tools = app
