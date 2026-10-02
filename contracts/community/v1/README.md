@@ -204,7 +204,9 @@ and `terms` (the version the person accepted on screen). Answer `Me`.
 | `region`         | A country (ISO 3166-1 alpha-2, like `US`) or a US state (ISO 3166-2, like `US-CA`). Never a town or an address |
 
 `PUT /v1/community/me/profile` with the whole `Profile` replaces it; answer `Me`. Texts are one
-line, with no control characters.
+line, with no control characters. **Hiding** parts (sending them as `null`, or fewer business
+kinds) is always allowed, even while paused or before new terms are accepted; showing or changing
+anything needs full standing. `DELETE /v1/community/me/picture` is always allowed too.
 
 **The picture:** `PUT /v1/community/me/picture`, body `{"png": "<base64url>"}`: a PNG of at most
 256 × 256 pixels and 256 KB, not interlaced. The service checks that it is a real PNG (the chunks,
@@ -260,12 +262,21 @@ Two members **talk** once one has accepted the other's first message (ADR-164 §
   `can_start` (an adult, with Pro). It is delivered marked `"request": true`, and until it is
   accepted the sender can send nothing more to that person (`waiting_for_accept`).
 - `POST /v1/community/contacts/{member_id}/accept` accepts it (`204`). A reply also accepts it. The
-  sender gets the notice `contact_accepted` (§6).
-- `DELETE /v1/community/contacts/{member_id}` is **Leave this conversation**: the other person's
-  next items answer `not_delivered`, until this member writes to them again.
-- `GET /v1/community/contacts` answers `Contacts`: each `member_id`, `name`, `display_name`,
-  `state` (`requested_by_me`, `requested_by_them`, `accepted`, `left_by_me`, or `left_by_them`),
-  and `since`.
+  sender gets the notice `contact_accepted` (§6). **Only the person who got the request can open a
+  conversation**; nothing the sender does opens it.
+- `DELETE /v1/community/contacts/{member_id}` is **Leave this conversation**, and it is each side's
+  own:
+  - on a request this member made: it **withdraws** the request, and its first message if still
+    waiting (unless the other person already declined it: then it stays declined). Writing again
+    is a new request;
+  - on a request this member got: it **declines** it. The sender's next items answer
+    `not_delivered`;
+  - on a conversation: the other person's next items answer `not_delivered` until this member
+    writes to them again. Writing again opens only this member's own side, never the other's.
+- A request nobody answers (or one declined) is deleted after 30 days (ADR-168).
+- `GET /v1/community/contacts` answers `Contacts`: each `member_id`, `name`, `display_name` (only
+  while the two talk; otherwise `null`), `state` (`requested_by_me`, `requested_by_them`,
+  `accepted`, `left_by_me`, or `left_by_them`), and `since`.
 
 ## 6. Sealed items: sending, picking up, and the stamp
 
@@ -277,7 +288,7 @@ sees only the **envelope**.
 
 | Field     | What                                                                                                                                            |
 | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `item_id` | `ci_…`, made by the sending PC. Sending the same item again (after a lost answer) gives the same answer                                         |
+| `item_id` | `ci_…`, made by the sending PC. Sending the same item again within a day (after a lost answer) gives the same answer                            |
 | `to`      | The member it is for                                                                                                                            |
 | `kind`    | `message`, `reaction`, `link_note`, `objective`, `objective_state`, `answer`, or `collab_note`                                                  |
 | `ref`     | The link (`cl_…`) for `link_note`, `objective`, `objective_state`, and `answer`; the collaboration (`cc_…`) for `collab_note`; otherwise `null` |
@@ -287,10 +298,16 @@ sees only the **envelope**.
 - The copies must name exactly the PCs signed in now; otherwise `devices_changed`, and the PC
   fetches both lists again (§4) and seals again. A receiver with no PC signed in answers
   `not_delivered`.
-- What each kind needs: `message` follows §5; `reaction` needs the two to talk; `link_note` needs a
-  link that is asked for or active; `objective` and `answer` need an active link that the receiver
-  hasn't paused, and Pro on both sides; `objective_state` needs a link that hasn't ended;
-  `collab_note` needs a collaboration that is invited or active, sent by its owner.
+- What each kind needs, all decided under one lock for the two members, so a block is never
+  overtaken:
+  - `message` follows §5; `reaction` needs the two to talk;
+  - `link_note`: **one**, from the member who asked, while the link is asked for;
+  - `objective`: an active link the receiver hasn't paused, and Pro (and 18 or older) on both sides;
+  - `answer`: an active link, and Pro (and 18 or older) on both sides (a pause stops new
+    objectives, never the answer to one);
+  - `objective_state`: an active link;
+  - `collab_note`: from the collaboration's owner; **one** while it is an invitation, then at most
+    20 a day once accepted.
 - **Answer** `ItemSent`: `item_id`, `accepted_at`, `stamp`, and `request` (whether it was a
   request). The sending PC keeps the stamp with its own copy.
 
@@ -316,7 +333,7 @@ PC's copy), `tag`, `stamp`, `accepted_at`, `request`, and `notice` (`null`).
 | `link_requested`     | `link_id`, `member_id`     | Someone asked to link (their note comes as a `link_note`)          |
 | `link_accepted`      | `link_id`                  | The other owner accepted                                           |
 | `link_paused`        | `link_id`, `paused`        | The other owner paused or unpaused objectives                      |
-| `link_ended`         | `link_id`                  | Either side unlinked, or blocked                                   |
+| `link_ended`         | `link_id`                  | Either side unlinked or blocked, or a request lapsed               |
 | `collab_invited`     | `collab_id`, `member_id`   | An owner invited this member (details come as a `collab_note`)     |
 | `collab_accepted`    | `collab_id`                | The invited person accepted                                        |
 | `collab_ended`       | `collab_id`                | Removed, left, lapsed, or ended by a block                         |
@@ -384,18 +401,22 @@ they were blocked. Unblocking brings none of it back.
 ADR-165. The service knows only that two members linked, the `co_` each chose for their
 organization, and the link's state. Names, notes, objectives, and answers travel sealed (§6, §7).
 
-- `POST /v1/community/links`, body `{"to": "cm_…", "org_ref": "co_…"}`, asks (`can_start` needed),
-  answer `Link`. The other member gets `link_requested`; the asking PC then sends a `link_note`.
+- `POST /v1/community/links`, body `{"to": "cm_…", "org_ref": "co_…"}`, asks, answer `Link`.
+  Linking needs Pro, and 18 or older, on **both** sides, so the ask answers `needs_pro` unless both
+  members could link: a request never reaches anyone who could not accept it. The other member
+  gets `link_requested`; the asking PC then sends its one `link_note`.
 - `POST /v1/community/links/{link_id}/accept`, body `{"org_ref": "co_…"}`, accepts (the accepting
-  member needs `can_start`), answer `Link`. A request not accepted in 14 days lapses.
+  member needs `can_start`), answer `Link`. A request not accepted in 14 days lapses, and the asker
+  gets `link_ended`.
 - `PUT /v1/community/links/{link_id}/paused`, body `{"paused": true}`, is **Don't accept objectives
   for now** on this member's side; answer `Link`.
-- `DELETE /v1/community/links/{link_id}` unlinks, from either side, at once (`204`). Objectives
-  still waiting in the mailbox for the other side are deleted.
+- `DELETE /v1/community/links/{link_id}` unlinks, from either side, at once (`204`). The link is
+  deleted (ADR-168), with the sealed items about it still waiting; the other side gets
+  `link_ended`.
 - `GET /v1/community/links` answers `Links`. A `Link` is `link_id`, `other` (`cm_…`), `asked_by`
-  (`me` or `them`), `my_org_ref`, `their_org_ref` (`null` until accepted), `state` (`requested`,
-  `active`, or `ended`), `paused_by_me`, `paused_by_them`, `created_at`, `accepted_at`, and
-  `ended_at`.
+  (`me` or `them`), `my_org_ref`, `their_org_ref` (`null` until accepted), `state` (`requested` or
+  `active`; an ended link is deleted, so it is not listed), `paused_by_me`, `paused_by_them`,
+  `created_at`, `accepted_at`, and `ended_at`.
 - When either side's Pro ends, objectives and answers on its links answer `needs_pro`; nothing is
   deleted.
 
@@ -412,7 +433,8 @@ own work goes through Plenipo's relay, sealed, never through this service.
 - `POST /v1/community/collaborations/{collab_id}/accept` accepts (any member, 13 or older), answer
   `Collaboration`.
 - `DELETE /v1/community/collaborations/{collab_id}` is **Remove** for the owner and **Leave** for
-  the collaborator, at once (`204`).
+  the collaborator, at once (`204`). The collaboration is deleted (ADR-168); the other side gets
+  `collab_ended`. An invitation that lapses is deleted too, and both sides get `collab_ended`.
 - `GET /v1/community/collaborations` answers `Collaborations`. A `Collaboration` is `collab_id`,
   `owner`, `collaborator`, `org_ref`, `state` (`invited`, `active`, or `ended`), `created_at`,
   `accepted_at`, `ended_at`, and `expires_at` (for an invitation).
@@ -497,16 +519,16 @@ The service enforces these; the numbers may change without a new version, and Pl
 | PCs signed in, per account                 | 5                                                                                                                         |
 | Sign-in starts, per internet address       | 10 an hour                                                                                                                |
 | Finishing sign-in, per internet address    | 1,200 an hour                                                                                                             |
-| Code tries on the account site             | 10 in 15 minutes per account                                                                                              |
+| Code tries on the account site             | 10 in 15 minutes per account; 2,000 in 15 minutes for the whole service                                                   |
 | A message's text                           | 4,000 characters                                                                                                          |
 | An objective's or an answer's text         | 20,000 characters                                                                                                         |
 | One sealed copy (before base64url)         | 32 KiB for `message`, `reaction`, `link_note`, `objective_state`, and `collab_note`; 128 KiB for `objective` and `answer` |
-| Sealed items from one member still waiting | 64 MiB in all (then `too_many` until they are picked up)                                                                  |
+| Sealed items from one member still waiting | 64 MiB and 10,000 items in all (then `too_many`, with `Retry-After`)                                                      |
 | Items sent, per member                     | 60 a minute                                                                                                               |
 | New conversations, per member              | 20 a day                                                                                                                  |
 | Objectives on one link, each way           | 20 a day (the receiving PC also refuses past 5 waiting)                                                                   |
 | Link requests, per member                  | 20 a day                                                                                                                  |
-| Collaboration invitations, per member      | 20 a day                                                                                                                  |
+| Collaboration invitations, per member      | 20 a day; notes on an accepted collaboration, 20 a day                                                                    |
 | Cards seen (directory and look-ups)        | 200 a day per member, 1,000 a day per internet address; name look-ups 60 an hour                                          |
 | Picking up                                 | 1 waiting request per PC; 720 an hour                                                                                     |
 | Reports, per member                        | 20 a day                                                                                                                  |
