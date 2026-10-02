@@ -60,6 +60,13 @@ pub trait Host: Send + Sync + 'static {
     fn record(&self, org: Option<&str>, event: &str, payload: Value);
     /// Something Settings → Devices shows changed.
     fn changed(&self, what: Change);
+    /// Whether Guard lets notices go to `endpoint` (part 14C): a phone's own notice service, or
+    /// the tests' stand-in in a copy built for the tests. Why not, in plain words.
+    fn notice_address(&self, endpoint: &str) -> std::result::Result<(), String> {
+        plenipo_guard::OutboundRules::default()
+            .check(plenipo_guard::outbound::Purpose::PhoneNotices, endpoint)
+            .map(|_| ())
+    }
 }
 
 /// What changed, for Settings → Devices.
@@ -1651,9 +1658,14 @@ impl Remote {
                 return;
             }
             Ask::NoticesOn { subscription } => {
-                match self.set_notices(&device.id, Some(subscription.clone())) {
-                    Ok(()) => Reply::ok(request, json!({ "notices": true })),
-                    Err(e) => Reply::failed(request, e.to_string()),
+                // Only an address Guard lets notices go to is kept.
+                if let Err(why) = self.host.notice_address(&subscription.endpoint) {
+                    Reply::refused(request, None, why)
+                } else {
+                    match self.set_notices(&device.id, Some(subscription.clone())) {
+                        Ok(()) => Reply::ok(request, json!({ "notices": true })),
+                        Err(e) => Reply::failed(request, e.to_string()),
+                    }
                 }
             }
             Ask::NoticesOff => match self.set_notices(&device.id, None) {

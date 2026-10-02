@@ -318,9 +318,12 @@ impl Ask {
         let rest_ok = match self {
             Self::Outcome { of } => crate::b64::is_id(of, 16),
             Self::SendObjective { text, .. } => !text.trim().is_empty() && text.len() <= MAX_TEXT,
+            // Only the address's shape here: where notices may go is Guard's to say, when the
+            // phone signs up (`Host::notice_address`) and again for every notice.
             Self::NoticesOn { subscription } => {
-                subscription.endpoint.len() <= 1024
-                    && subscription.endpoint.starts_with("https://")
+                !subscription.endpoint.is_empty()
+                    && subscription.endpoint.len() <= 1024
+                    && subscription.endpoint.bytes().all(|b| b.is_ascii_graphic())
                     && crate::b64::decode(&subscription.p256dh, 65).is_some_and(|k| k.len() == 65)
                     && crate::b64::decode(&subscription.auth, 16).is_some_and(|k| k.len() == 16)
             }
@@ -702,7 +705,7 @@ mod tests {
             },
             Ask::NoticesOn {
                 subscription: Subscription {
-                    endpoint: "http://fcm.googleapis.com/x".into(),
+                    endpoint: "https://fcm.googleapis.com/a b".into(),
                     p256dh: crate::b64::encode(&[4u8; 65]),
                     auth: crate::b64::encode(&[1u8; 16]),
                 },
