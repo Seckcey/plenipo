@@ -143,6 +143,14 @@ impl RuntimeAdapter for Ollama {
             }
         } else {
             out.extend(host.system_dirs().iter().map(|d| d.join("ollama")));
+            // The Mac's Ollama app keeps its program inside the app (Phase 23, ADR-150).
+            if cfg!(target_os = "macos") {
+                let inside = Path::new("Ollama.app/Contents/Resources/ollama");
+                out.push(Path::new("/Applications").join(inside));
+                if let Some(home) = &host.home {
+                    out.push(home.join("Applications").join(inside));
+                }
+            }
         }
         out
     }

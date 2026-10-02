@@ -7,6 +7,10 @@ fn main() {
     if let Some(code) = plenipo_runtime::keeper::maybe_run_from_args(std::env::args()) {
         std::process::exit(code);
     }
+    // Phase 23 (ADR-150): on a Mac or a Linux PC opened from the Dock or a menu, add the folders
+    // where the owner's programs live to PATH. Before any thread starts: it changes the
+    // environment.
+    plenipo_runtime::program_dirs::extend_path();
     // The Vault first, before any other thread starts: on Linux every thread then shares it.
     plenipo_capabilities::OsSecretStore::prepare();
     // Tool relay mode (Phase 7): an AI tool started Plenipo as its MCP server for a worker;
