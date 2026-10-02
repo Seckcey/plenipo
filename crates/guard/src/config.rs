@@ -1708,7 +1708,12 @@ mod tests {
                 1,
             )
             .unwrap();
-        assert_eq!(s.programs, ["gh"]);
+        // One program on Windows, which ignores case; two on a Mac or a Linux PC (ADR-150).
+        if crate::commands::NAMES_IGNORE_CASE {
+            assert_eq!(s.programs, ["gh"]);
+        } else {
+            assert_eq!(s.programs, ["GH", "gh"]);
+        }
         assert!(!serde_json::to_string(&c).unwrap().contains("ghp_x"));
         for bad in [
             SecretInput {
