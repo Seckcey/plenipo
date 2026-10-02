@@ -1,0 +1,8 @@
+# Only on a machine whose automatic Docker address pool is full (update-page.sh adds it when SUBNET is
+# set): reserve a nonoverlapping subnet after checking live Docker networks and host routes, including
+# VPN routes. The page's own server needs none.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${PLENIPO_SUBNET:?Set the verified reserved network subnet for the phone page}

@@ -2,7 +2,9 @@
 
 - **Status:** Accepted (by the owner, 2026-10-01: "as recommended but can we make the address be
   remote.getplenipo.com instead of phone.getplenipo.com?"). The page's address is
-  **`remote.getplenipo.com`**; everything else is as recommended.
+  **`remote.getplenipo.com`**; everything else is as recommended. **Amended by
+  [ADR-148](ADR-148-the-phone-page-on-its-own-server.md)** (2026-10-02, the phone's page on its own
+  server): the page is served from a small AWS server of its own, not from Coastline (§2 and §6).
 - **Date:** 2026-10-01
 - **Phase:** 14
 - **Part of:** [ADR-140 (Phase 14 starts)](ADR-140-phase-14-starts.md)
@@ -44,7 +46,8 @@ address never goes in this repository.
 2. **Its files are built from this repository**, in a new app, `apps/remote` (React, with the design
    system in `packages/ui`), by the release's own checks, and **served next to the website on
    Coastline**, through the same Cloudflare Tunnel, updated from each release the same way as the
-   website (recommended). A new piece of the website's updater serves them; the website's own files
+   website (recommended). _Amended by ADR-148: served from a small AWS server of its own, with its
+   own Tunnel; updated from each release the same way._ A new piece of the website's updater serves them; the website's own files
    do not change.
 3. **The page loads nothing from anywhere else.** No outside scripts, fonts, or counters. Its rules
    (a Content Security Policy) allow only its own files, and only the relay for connections, and no

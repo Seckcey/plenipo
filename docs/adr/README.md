@@ -128,5 +128,6 @@ architecture must be recorded here.
 | [143](ADR-143-the-relay-and-the-lock.md)                 | The relay and the lock: sealed end to end, no copies, wrong tries (amended by 147)            | Accepted |
 | [144](ADR-144-notices-on-your-phone.md)                  | Notices on your phone, sealed for it, sent straight from the PC (amends 040)                  | Accepted |
 | [145](ADR-145-what-a-phone-may-ask.md)                   | The fixed list of what a phone may ask; what stays on your PC                                 | Accepted |
-| [146](ADR-146-where-the-phone-page-lives.md)             | Where the phone's page lives: its own address, never the relay                                | Accepted |
+| [146](ADR-146-where-the-phone-page-lives.md)             | Where the phone's page lives: its own address, never the relay (amended by 148)               | Accepted |
 | [147](ADR-147-relay-passes-last-90-days.md)              | Relay passes last 90 days, renewed at every sign-in (amends 143)                              | Accepted |
+| [148](ADR-148-the-phone-page-on-its-own-server.md)       | The phone's page on its own small AWS server, not Coastline (amends 146)                      | Accepted |
