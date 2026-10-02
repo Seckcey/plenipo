@@ -3,6 +3,8 @@
 The account-link work and account-first release gate are tracked in
 [account branding and website links](../phases/account-branding-links.md). Account service
 operation remains in its private repository; this site's existing checked updater is unchanged.
+The [account-link release receipt](website-releases/2026-10-01-account-links.md) records the
+current source, image, rollback and verified desktop/mobile account destinations.
 
 The public product site is built from `apps/website` for <https://getplenipo.com>.
 
@@ -23,8 +25,8 @@ The current homepage explains hiring a coordinated team across AI providers, whi
 the automatically opening sample. Source `ae7356061eadc9ea498f1e3b88ff87541f37d75d` was deployed
 September 30, 2026 UTC with published installer v1.11.0. See the
 [team-positioning release receipt](website-releases/2026-09-30-team-positioning.md) for source/image
-identity, public acceptance, rollback, and cleanup. Immediate rollback is `9d8a137` with its
-original image and configuration retained. The [automatic-entry release](website-releases/2026-09-28-autostart.md)
+identity, public acceptance, rollback, and cleanup. That release's immediate rollback was
+`9d8a137`; the latest receipt records the current rollback. The [automatic-entry release](website-releases/2026-09-28-autostart.md)
 and earlier [click-entry release](website-releases/2026-09-28-interactive.md) document the demo's history.
 
 The hero and download links render without JavaScript. A small loader in
