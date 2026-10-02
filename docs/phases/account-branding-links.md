@@ -28,8 +28,11 @@ Both sites say paid purchases are not open yet. Free needs no account or card.
 - [x] Account service PR #13 merged and deployed first at source
       `2bae4aeeb558bc59b4c4a68f890acffef8acd703`. Public release identity, health, branded assets
       and landing/sign-in/reset/signup navigation passed. Stripe remains in test mode. Its
-      checked updater is enabled and the first run passed; private release evidence stays in
-      the account repository.
+      checked updater is enabled and the first run passed. Full branding acceptance was then
+      withdrawn when an existing browser kept the old dark stylesheet in its fresh cache.
+      Account PR #14 adds content-versioned assets; marketing remains held until normal
+      navigation in that affected browser shows the bright white Inter/Pip design. Private
+      release evidence stays in the account repository.
 - [ ] Merge this website change after account acceptance, then verify the existing Coastline
       updater publishes the expected source and public links.
 
