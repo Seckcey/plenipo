@@ -258,7 +258,8 @@ jobs:
       - id: test
         continue-on-error: true
         timeout-minutes: 45
-        run: cargo test --workspace --locked
+        # Every test group runs even after one fails, so the summary lists all that still fail.
+        run: cargo test --workspace --locked --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/mac-test.log"
       - name: What still fails on a Mac
         if: always()
         env:
@@ -272,6 +273,23 @@ jobs:
             echo "| --- | --- |"
             echo "| \`cargo clippy\` | $CLIPPY |"
             echo "| \`cargo test\` | $TEST |"
+            if [ -f "$RUNNER_TEMP/mac-test.log" ]; then
+              log=$(sed -E 's/\x1B\[[0-9;]*[mK]//g' "$RUNNER_TEMP/mac-test.log")
+              failing=$(printf '%s\n' "$log" | sed -nE 's/^---- (.*) stdout ----$/\1/p' | sort -u)
+              broken=$(printf '%s\n' "$log" | grep -E '^error: could not compile' | sort -u || true)
+              if [ -n "$failing" ]; then
+                echo ""
+                echo "**Tests that fail on a Mac:**"
+                echo ""
+                printf '%s\n' "$failing" | sed 's/^/- `/; s/$/`/'
+              fi
+              if [ -n "$broken" ]; then
+                echo ""
+                echo "**What does not compile on a Mac:**"
+                echo ""
+                printf '%s\n' "$broken" | sed 's/^/- /'
+              fi
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$CLIPPY" != "success" ] || [ "$TEST" != "success" ]; then
             echo "::warning title=Mac::On a Mac, cargo clippy: $CLIPPY; cargo test: $TEST. Phase 23's Wave 1 makes both pass (ADR-150)."

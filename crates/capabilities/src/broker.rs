@@ -659,7 +659,8 @@ fn secrets_for(program: &str, origin: Origin, secrets: &[SecretInfo]) -> Secrets
 }
 
 /// The bare name a program's secrets are bound by: its file name without the extension, in
-/// lower case (`C:\Program Files\GitHub CLI\gh.exe` → `gh`).
+/// lower case on Windows (`C:\Program Files\GitHub CLI\gh.exe` → `gh`) and as written on a Mac
+/// or a Linux PC, where names keep their case (ADR-150).
 fn program_stem(executable: &Path) -> String {
     CommandLine {
         program: executable
@@ -4176,7 +4177,11 @@ mod tests {
         assert!(
             SECRETS_KEPT.contains("no stored secrets were given (the program is not from PATH)")
         );
-        assert_eq!(program_stem(Path::new("C:\\Tools\\GH.exe")), "gh");
+        if cfg!(windows) {
+            assert_eq!(program_stem(Path::new("C:\\Tools\\GH.exe")), "gh");
+        } else {
+            assert_eq!(program_stem(Path::new("/opt/tools/GH")), "GH");
+        }
         assert_eq!(program_stem(Path::new("/usr/bin/gh")), "gh");
         assert_eq!(program_stem(Path::new("./scripts/gh.sh")), "gh");
     }
