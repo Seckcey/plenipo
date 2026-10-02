@@ -146,3 +146,48 @@ back from Activity), and a PC on v1.19.0 never sees a request it cannot read.
 ### 3. Screenshots
 
 _Added from the pull request's test run._
+
+## Part 14C — notices when the page is closed (v1.19.2; Phase 14 delivered)
+
+**In short, for the owner.** Your phone now gets a **notice** when something needs you, even when
+Plenipo's page is closed. Only your phone can read it: your PC seals it with your phone's keys and
+signs it with its own key, and 8 West's relay never sees notices at all. On Android you can
+**Refuse** or **Discard** right from the notice; **Approve** and **Keep** open Plenipo on that item.
+On an iPhone, a tap opens it. You choose what the lock screen shows. With this part, Phase 14 is
+built; it reaches real phones once the relay and the page's home are ready (part 14A, section 5).
+
+### 1. Deliverables → result
+
+| #   | Deliverable (checklist, part 14C)                                                           | Result   | Evidence                                                                                                                 |
+| --- | ------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 1   | The PC's notice key, in the Vault; signing up for notices inside the sealed line            | **Done** | `keys.rs` (made with the PC's keys); the welcome names it; `noticesOn` in the sealed line; the page test "signs up"      |
+| 2   | Guard's purpose **phone notices**: only the four notice services, only to a phone's address | **Done** | `outbound.rs` (`check_notice_service`); `phone_notices.rs` test "only a phone's notice service is reached"               |
+| 3   | Notices sealed for the phone (RFC 8291), signed by the PC's key (RFC 8292)                  | **Done** | `webpush.rs`: the standard's own example, byte for byte; the real-app test opens and checks them with node's own crypto  |
+| 4   | The short line, from Guard's cleaned approval card; the lock-screen choice on the phone     | **Done** | The PC's own notice's words (`phone_notice`); **On the lock screen** on the phone (`Notices.tsx`, `notice.ts`)           |
+| 5   | Android: **Approve** / **Refuse**, **Allow again**, **Keep** / **Discard**; iPhone: one tap | **Done** | `notice.ts` (buttons; a notice never approves by itself), `sw.js`; **Refuse** and **Discard** answer in a notice meeting |
+| 6   | An answered item shows "Already answered"; a repeated notice shows once                     | **Done** | The page tests "already answered"; one tag per item; the real-app test opens an answered approval                        |
+| 7   | The Home Screen guide for iPhone                                                            | **Done** | More → Notices on this phone, on an iPhone outside the Home Screen; the page test                                        |
+| 8   | Release notes, this report, and the plan: Phase 14 delivered                                | **Done** | [v1.19.2](../releases/v1.19.2.md), `ROLLOUT_PLAN.md`, [roadmap](../roadmap.md)                                           |
+
+### 2. Tests → evidence
+
+| Test (the plan's list)                                                                                              | Evidence                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Approving, refusing, and allowing right from a notice (Android), and one tap to that approval (iPhone)              | `notice.test.ts` (each button: Refuse and Discard answer, Approve, Keep, Allow again, and a tap open the item); `notices.test.tsx` (Refuse from a notice meeting); `a_notice_may_only_say_no` (the PC takes only a no from a notice) |
+| A notice's words can be read only on the owner's phone, and the lock-screen choice shows only "Something needs you" | `webpush.rs` tests and `notices_go_only_to_phones_that_asked_and_only_they_can_read_them`; real app: the stand-in notice service saw only a sealed notice; `noticeFor` with the lock-screen choice                                   |
+
+Also: notices go only to phones that asked, only on Pro with phone access on and **Notices on my
+phones** on, and only to a phone's own notice service (Guard); a gone notice address is forgotten;
+and Activity records each notice with the phone and its kind, never its words.
+
+### 3. Screenshots
+
+_Added from the pull request's test run._
+
+### 4. Checks only the owner can do, on real phones
+
+- [ ] On Android (Chrome): **Notices on this phone** on; a notice with the page closed; **Refuse**
+      from the notice; **Approve** from the notice (unlock, sign in if asked, one tap)
+- [ ] On an iPhone: add Plenipo to the Home Screen, pair from there, turn notices on, and one tap
+      from a notice to that approval
+- [ ] **On the lock screen → Show only "Something needs you"**, and see the lock screen say only that

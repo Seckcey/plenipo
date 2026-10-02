@@ -91,3 +91,23 @@ your Home Screen first; the page shows you how.
 - **No line, only "Something needs you", always.** Simplest, but the plan wants the line, and the
   sealing keeps it private.
 - **A phone app instead of web notices.** ADR-040 chose no phone app.
+
+## As built (v1.19.2, part 14C)
+
+Built as decided. The PC seals each notice with the phone's keys (RFC 8291, checked against the
+standard's own worked example) and signs it with its notice key (RFC 8292; the contact it names is
+Plenipo's site, `https://getplenipo.com`, never a person), and sends it straight to the phone's
+notice service through Guard's purpose **phone notices**. A notice goes out where the PC shows its
+own, after the same choices: the kinds turned off, **Do not disturb**, and "only while Plenipo's
+window is not in front" apply to the phones too, and **Settings → Notifications → Notices on my
+phones** turns them off for every phone at once. The words are the PC's notice's own (its title and
+line), and an approval's or a lesson's notice names that item so its buttons can answer it. A notice
+for Stop all ("Stopped: everything", with **Allow again**) goes out once, however many organizations
+stopped. On the phone, the page's background part (`sw.js`, built from this repository with the page)
+applies the lock-screen choice before anything shows; **Refuse** and **Discard** answer from the
+notice in a meeting the PC marks as from a notice; **Approve**, **Keep**, **Allow again**, and a tap
+open Plenipo on that item, as it is now ("Already answered" when it was). A notice sent again shows
+once (the phone keeps one notice per item). Recorded: `remote.notice_sent` and `remote.notice_failed`
+(the phone and the kind, never the words); a notice address its service says is gone is forgotten.
+The real-app test opens a notice with the phone's keys and checks the PC's signature with node's own
+cryptography, independently of Plenipo's code.

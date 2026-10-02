@@ -1,6 +1,6 @@
 # Phase 14 — Implementation Checklist
 
-**Status: parts 14A (v1.19.0) and 14B (v1.19.1) built; part 14C next.** The owner said Phase 22 is live on 2026-10-01, and Phase 14 started
+**Status: delivered: parts 14A (v1.19.0), 14B (v1.19.1), and 14C (v1.19.2) are built and tested. It reaches real phones once 8 West's relay is live (ADR-140 §4).** The owner said Phase 22 is live on 2026-10-01, and Phase 14 started
 on branch `claude/phase-14-phone` (ADR-132, the final push). The owner answered the questions the
 same day, and the decision records below are **Accepted**. Below, "[x]" is done. Plenipo is made by 8 West Ventures, LLC.
 
@@ -121,17 +121,17 @@ is truly needed.
 
 ### Part 14C — notices when the page is closed (`1.19.2`; Phase 14 delivered)
 
-- [ ] The PC's notice key, in the Vault; signing up for notices inside the sealed line (ADR-144 §2)
-- [ ] Guard's purpose **phone notices**: only the four notice services, only to a phone's own address
+- [x] The PC's notice key, in the Vault; signing up for notices inside the sealed line (ADR-144 §2)
+- [x] Guard's purpose **phone notices**: only the four notice services, only to a phone's own address
       (ADR-144 §1)
-- [ ] Notices sealed for the phone (RFC 8291), signed by the PC's key (RFC 8292) (ADR-144 §4)
-- [ ] The short line, from Guard's cleaned approval card; the lock-screen choice on the phone
+- [x] Notices sealed for the phone (RFC 8291), signed by the PC's key (RFC 8292) (ADR-144 §4)
+- [x] The short line, from Guard's cleaned approval card; the lock-screen choice on the phone
       (ADR-144 §3, §5)
-- [ ] Android: **Approve** / **Refuse**, **Allow again**, **Keep** / **Discard** on the notice; iPhone:
+- [x] Android: **Approve** / **Refuse**, **Allow again**, **Keep** / **Discard** on the notice; iPhone:
       one tap to the item (ADR-142 §6, ADR-144 §6)
-- [ ] An answered item shows "Already answered"; a repeated notice shows once (ADR-144 §8)
-- [ ] The Home Screen guide for iPhone (ADR-144 §9)
-- [ ] Release notes, the whole acceptance report, and the plan's status line: Phase 14 delivered
+- [x] An answered item shows "Already answered"; a repeated notice shows once (ADR-144 §8)
+- [x] The Home Screen guide for iPhone (ADR-144 §9)
+- [x] Release notes, the whole acceptance report, and the plan's status line: Phase 14 delivered
 
 ## Tests (the plan's list)
 
@@ -159,8 +159,8 @@ authenticator), and made-up data. None uses the real relay.
 | Allowing (Allow again) from the web interface, after the phone confirms it is the owner                                                                                                              | 14B  | [x]  |
 | Stop a task, Allow again, Run again, and Leave stopped from another device                                                                                                                           | 14B  | [x]  |
 | Sending an objective from another device                                                                                                                                                             | 14B  | [x]  |
-| Approving, refusing, and allowing right from a notice (Android), and one tap to that approval (iPhone)                                                                                               | 14C  | [ ]  |
-| A notice's words can be read only on the owner's phone, and the lock-screen choice shows only "Something needs you"                                                                                  | 14C  | [ ]  |
+| Approving, refusing, and allowing right from a notice (Android), and one tap to that approval (iPhone)                                                                                               | 14C  | [x]  |
+| A notice's words can be read only on the owner's phone, and the lock-screen choice shows only "Something needs you"                                                                                  | 14C  | [x]  |
 
 Also, from the rules of this phase: every request is recorded with the phone that sent it; new
 desktop commands refuse a second window, the sign, and a web page; and no log or diagnostics file
