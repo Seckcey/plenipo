@@ -20,6 +20,7 @@ pub mod pipes;
 pub mod policy;
 pub mod pricing;
 pub mod profile;
+pub mod program_dirs;
 pub mod store;
 mod supervisor;
 
