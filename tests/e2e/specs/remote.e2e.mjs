@@ -509,7 +509,8 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     assert.ok(await exists(browser, 'svg[role="img"][aria-label^="Picture code (QR code)"]'));
     await screenshot(browser, "phone-devices-code");
 
-    // The phone opens the link (what scanning the picture code does).
+    // The phone opens the link (what scanning the picture code does), as a fresh page.
+    await phone.url("about:blank");
     await phone.url(pairing.link);
     const name = await phone.$(
       '//label[.//span[normalize-space()="What to call this phone"]]//input',
@@ -582,12 +583,14 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
 
     // The phone hears that something changed, and shows the approval.
     await page(phone, "Approvals", "approvals-title");
-    const card = '//li[.//*[contains(normalize-space(.), "git push origin")]]';
+    const card = '//li[contains(normalize-space(.), "git push origin")]';
     await waitUntil(() => phone.$(card).isExisting(), "the approval on the phone", 20_000);
     await phoneSays(phone, "Senior Developer");
     await screenshot(phone, "phone-approvals-dark");
     await tap(phone, "Approve", card);
-    await phoneSays(phone, "Approved.");
+    // Answered: the card moves to "Answered lately", with the PC's own record of who answered.
+    await phoneSays(phone, `Approved by you, from ${PHONE_NAME}.`);
+    await screenshot(phone, "phone-approvals-answered");
 
     const queue = await waitUntil(async () => {
       const q = (await invoke(browser, "get_approvals")).ok;
