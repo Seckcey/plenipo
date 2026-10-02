@@ -892,13 +892,19 @@ pub fn run() -> i32 {
         start_close::on_second_launch(app, &args);
     }));
     let runtime_code = configure(builder, smoke, ShellOptions::default())
-        .build(tauri::generate_context!())
+        .build(context())
         .expect("error while building Plenipo")
         .run_return(on_run_event);
 
     // The runtime does not reliably propagate the code given to `AppHandle::exit`
     // on every platform, so the smoke outcome is tracked independently.
     outcome.resolve_exit_code(runtime_code)
+}
+
+/// The app's settings, icons, and pages, built in here once: on a Mac the macro also builds in
+/// the app's `Info.plist` under a fixed name, which a program may hold only once (Phase 23).
+fn context<R: tauri::Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
 }
 
 #[cfg(test)]
@@ -947,7 +953,7 @@ mod ipc_boundary_tests {
                 window_watch: false,
             },
         )
-        .build(tauri::generate_context!())
+        .build(context())
         .expect("failed to build mock app");
         // The mock runtime does not run `setup`; install the organizations the same way: the
         // first one, kept in memory, its services built as the app builds them.
