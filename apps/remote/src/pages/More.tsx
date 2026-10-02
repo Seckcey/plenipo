@@ -8,23 +8,42 @@ import type {
 import { Button, PropertyList, useTheme } from "@plenipo/ui";
 
 import { useRead, useSession } from "../session-context";
+import { aiToolStatus, type PhoneAiTool } from "../words";
 import { NoticesOnThisPhone } from "./Notices";
 
+/** The AI tools on your PC, by name, with what each can do now. */
 function AiTools() {
-  const { data, error } = useRead<AiToolsPage>({ kind: "readAiTools" }, ["aiTools"]);
+  const { data, error } = useRead<AiToolsPage & { runtimes?: PhoneAiTool[] }>(
+    { kind: "readAiTools" },
+    ["aiTools"],
+  );
   if (error) return <p className="form-error">{error}</p>;
   if (!data) return <p role="status">Loading…</p>;
+  // A PC on 1.19.0 sends no names.
+  if (!data.runtimes) {
+    return <p className="muted">Update Plenipo on your PC to see its AI tools here.</p>;
+  }
+  const outOfService = new Map(data.tools.map((t) => [t.runtimeId, t.outOfService]));
+  const onPc = data.runtimes.filter((r) => r.install !== "notInstalled");
+  const notOnPc = data.runtimes.filter((r) => r.install === "notInstalled");
   return (
-    <ul className="list">
-      {data.tools.map((t) => (
-        <li key={t.runtimeId} className="card card--quiet">
-          <strong>{t.runtimeId}</strong>
-          <p className="muted">
-            {t.outOfService ?? (t.newest ? `Newest version: ${t.newest}` : "Ready")}
-          </p>
-        </li>
-      ))}
-    </ul>
+    <>
+      {onPc.length === 0 ? (
+        <p className="muted">No AI tool is installed on your PC yet.</p>
+      ) : (
+        <ul className="list">
+          {onPc.map((r) => (
+            <li key={r.id} className="card card--quiet">
+              <strong>{r.label}</strong>
+              <p className="muted">{aiToolStatus(r, outOfService.get(r.id) ?? null)}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+      {notOnPc.length > 0 && (
+        <p className="muted">Not on your PC: {notOnPc.map((r) => r.label).join(", ")}.</p>
+      )}
+    </>
   );
 }
 

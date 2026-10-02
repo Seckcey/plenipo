@@ -31,6 +31,7 @@ use plenipo_remote::link::LinkHost;
 use plenipo_remote::protocol::{Ask, Changed, NoticeAbout, PhoneNotice, SignedOutWhy};
 use plenipo_remote::service::{RemoteSettings, RemoteView};
 use plenipo_remote::{Change, Host, Phone, Remote, Settings, SystemClock};
+use plenipo_runtime::agent::AgentRuntime;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
@@ -429,7 +430,27 @@ fn carry_out<R: Runtime>(side: &AppSide<R>, phone: &Phone, ask: &Ask) -> Result<
             let tools = app
                 .try_state::<plenipo_capabilities::ai_tools::AiTools>()
                 .ok_or("Plenipo is still starting.")?;
-            value(tools.page())
+            let mut page = value(tools.page())?;
+            // Each AI tool by its own name, and whether it can work now, as the AI tools page
+            // shows them; never where it is installed.
+            page["runtimes"] = app
+                .try_state::<AgentRuntime>()
+                .map(|a| a.runtimes())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| {
+                    json!({
+                        "id": r.id,
+                        "label": r.label,
+                        "ready": r.ready,
+                        "install": r.installation.state,
+                        "auth": r.auth.state,
+                        "held": r.held,
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into();
+            Ok(page)
         }
         Ask::ReadDiagnostics => {
             let first = side.first()?;

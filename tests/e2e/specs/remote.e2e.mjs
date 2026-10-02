@@ -238,6 +238,8 @@ async function tap(phone, label, scope = "") {
     `${scope}//button[normalize-space()="${label}" or @aria-label="${label}"]`,
   );
   await button.waitForClickable({ timeout: 15_000 });
+  // In the middle of the screen, clear of the page's bars along the top and bottom.
+  await phone.execute((el) => el.scrollIntoView({ block: "center" }), button);
   await button.click();
 }
 
@@ -1136,8 +1138,11 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
 
     // The relay keeps nothing: after it meets the PC again it would take the pass once more,
     // so the PC, which no longer knows the phone, has the relay refuse it.
+    const goneBefore = relayCount("no PC connected");
     const connectedBefore = relayCount("a PC connected");
     await setSwitch(browser, false);
+    // The PC leaves the relay (it looks at the switch every 2 seconds), then meets it again.
+    await relaySays("no PC connected", goneBefore + 1);
     await setSwitch(browser, true);
     await relaySays("a PC connected", connectedBefore + 1);
     await waitUntil(async () => (await remoteNow(browser)).remote.connected, "connected again");

@@ -1,4 +1,4 @@
-import type { LedgerEvent, TaskState } from "@plenipo/types";
+import type { AuthState, HoldFor, InstallState, LedgerEvent, TaskState } from "@plenipo/types";
 
 /** Plain words for the phone's page (docs/design/vocabulary.md). */
 
@@ -114,4 +114,25 @@ export function iPhoneOutsideHomeScreen(): boolean {
     window.matchMedia?.("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true;
   return apple && !standalone;
+}
+
+/** One AI tool as your PC sends it: its own name, and whether it can work now. */
+export interface PhoneAiTool {
+  id: string;
+  label: string;
+  ready: boolean;
+  install: InstallState;
+  auth: AuthState;
+  held: HoldFor | null;
+}
+
+/** What an AI tool on your PC can do now, in plain words. */
+export function aiToolStatus(tool: PhoneAiTool, outOfService: string | null): string {
+  if (outOfService) return outOfService;
+  if (tool.install === "checking" || tool.auth === "checking") return "Checking…";
+  if (tool.install !== "installed") return "Not working on your PC. AI tools on your PC says why.";
+  if (!tool.ready) return "Can't work yet: sign in, or add its key, in AI tools on your PC.";
+  if (tool.held === "update") return "Being updated: new work waits a moment.";
+  if (tool.held === "signIn") return "Signing in on your PC: new work waits a moment.";
+  return "Ready";
 }
