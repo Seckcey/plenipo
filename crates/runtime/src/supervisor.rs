@@ -310,6 +310,11 @@ impl Supervisor {
                 return Ok(record);
             }
         };
+        // On a Mac and Linux, the keeper ends this program's group if Plenipo stops suddenly
+        // (ADR-157). Told at once, before the start is recorded or reported: a crash between the
+        // two would leave the program running (seen on GitHub's Mac). Off the keeper's list when
+        // this run is over. The program leads its group.
+        let kept = child.id().map(crate::keeper::Kept::new);
 
         let feed = spec.stdin_feed.as_ref().and_then(|f| f.take());
         if let Some(mut stdin) = child.stdin().take() {
@@ -356,6 +361,7 @@ impl Supervisor {
             max_runtime: spec.max_runtime,
             read_limit: spec.max_line_bytes.unwrap_or(inner.config.max_line_bytes),
             observer: spec.observer,
+            kept,
         };
         tokio::spawn(supervise(
             Arc::clone(inner),
@@ -615,6 +621,8 @@ struct Run {
     /// Longest line read from the child (observer lines); display lines are capped separately.
     read_limit: usize,
     observer: Option<mpsc::UnboundedSender<OutputLine>>,
+    /// The program's group on the keeper's list (a Mac and Linux), until this run is over.
+    kept: Option<crate::keeper::Kept>,
 }
 
 enum Outcome {
@@ -633,15 +641,14 @@ async fn supervise(
     done_tx: watch::Sender<bool>,
 ) {
     let config = inner.config.clone();
+    // `_kept` stays alive, and the program's group on the keeper's list, until this run is over.
     let Run {
         id,
         max_runtime,
         read_limit,
         observer,
+        kept: _kept,
     } = run;
-    // On a Mac and Linux, the keeper ends this program's group if Plenipo stops suddenly; it is
-    // taken off the keeper's list when this run is over (ADR-157). The program leads its group.
-    let _kept = child.id().map(crate::keeper::Kept::new);
     let (tx, rx) = mpsc::channel::<RawLine>(1024);
     let mut readers: Vec<JoinHandle<()>> = Vec::new();
     if let Some(out) = stdout {
