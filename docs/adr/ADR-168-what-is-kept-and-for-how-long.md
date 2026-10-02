@@ -37,28 +37,27 @@ rest of your Plenipo records. Backups on 8 West's server still expire after 35 d
 
 1. **On 8 West's server (the account service)** (question 2):
 
-   | What                                                                         | Kept                                                                                     |
-   | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-   | A sealed message, link objective, answer, or invitation                      | Until every PC it is for has picked it up, then deleted; **30 days** at the most         |
-   | Its envelope (who, who to, when, size, the report tag)                       | Deleted with the message. The stamp travels with the message, so the server keeps none   |
-   | That an item was sent (so a resend after a lost answer gets the same answer) | A day: the sender, a hash of the request, and when; never who to, or the stamp           |
-   | A conversation (who talks with whom, and each side's Leave)                  | While both are in Community; a request nobody answers (or declined), 30 days             |
-   | Your public profile and picture                                              | While it is shown; deleted at once when you hide it or leave Community                   |
-   | Your Community name                                                          | While you are in Community; then free for others after **90 days** (so nobody steals it) |
-   | Each PC's public Community keys and Community pass                           | While that PC is signed in; deleted at once on sign out or **Remove**                    |
-   | Blocks                                                                       | While they are on                                                                        |
-   | Links, invitations, and collaborators (who, which role, which part)          | While they are on; invitations that lapse, at once                                       |
-   | Your birth month and year (ADR-162 §4)                                       | As long as your account; an answer under 13 is never kept                                |
-
-| Your directory listing (what your business does, where) | While you are listed; deleted at once when you leave the directory |
-| Points, badges, and thanks (ADR-169) | While you are in Community |
-| The leaderboard (ADR-169) | Worked out again each day from points; last week's kept 1 year |
-| A GIF search (ADR-164 §4) | Never kept: the account service passes it to the GIF library and keeps only its limit counters |
-| Who invited whom, for a free month (ADR-169) | Until the reward is given or refused, then 60 days; the free month itself is an invoice record (7 years, for tax) |
-| A report, what it carried, and what 8 West did | **1 year** after it is closed, then deleted |
-| A ban (that an email may not rejoin Community) | As long as the ban, kept as a scrambled code of the email, not the email itself |
-| Limits' counters (lookups, messages a minute) | Cleared within a day, like the account service's other counters |
-| Backups of all the above | **35 days**, encrypted, as today |
+   | What                                                                         | Kept                                                                                                                    |
+   | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+   | A sealed message, link objective, answer, or invitation                      | Until every PC it is for has picked it up, then deleted; **30 days** at the most                                        |
+   | Its envelope (who, who to, when, size, the report tag)                       | Deleted with the message. The stamp travels with the message, so the server keeps none                                  |
+   | That an item was sent (so a resend after a lost answer gets the same answer) | A day: the sender, a hash of the request, and when; never who to, or the stamp                                          |
+   | A conversation (who talks with whom, and each side's Leave)                  | While both are in Community; a request nobody answers (or declined), 30 days                                            |
+   | Your public profile and picture                                              | While it is shown; deleted at once when you hide it or leave Community                                                  |
+   | Your Community name                                                          | While you are in Community; then free for others after **90 days** (so nobody steals it)                                |
+   | Each PC's public Community keys and Community pass                           | While that PC is signed in; deleted at once on sign out or **Remove**                                                   |
+   | Blocks                                                                       | While they are on                                                                                                       |
+   | Links, invitations, and collaborators (who, which role, which part)          | While they are on; invitations that lapse, at once                                                                      |
+   | Your birth month and year (ADR-162 §4)                                       | As long as your account; an answer under 13 is never kept                                                               |
+   | Your directory listing (what your business does, where)                      | While you are listed; deleted at once when you leave the directory                                                      |
+   | Points, badges, and thanks (ADR-169)                                         | While you are in Community                                                                                              |
+   | The leaderboard (ADR-169)                                                    | Worked out from points whenever it is asked for; only each week's top member (for the Top helper badge) is kept, 1 year |
+   | A GIF search (ADR-164 §4)                                                    | Never kept: the account service passes it to the GIF library and keeps only its limit counters                          |
+   | Who invited whom, for a free month (ADR-169)                                 | Until the reward is given or refused, then 60 days; the free month itself is an invoice record (7 years, for tax)       |
+   | A report, what it carried, and what 8 West did                               | **1 year** after it is closed, then deleted                                                                             |
+   | A ban (that an email may not rejoin Community)                               | As long as the ban, kept as a scrambled code of the email, not the email itself                                         |
+   | Limits' counters (lookups, messages a minute)                                | Cleared within a day, like the account service's other counters                                                         |
+   | Backups of all the above                                                     | **35 days**, encrypted, as today                                                                                        |
 
 2. **Apparent child sexual abuse material** reported to NCMEC is kept only as the law requires and
    then deleted; the attorney confirms the time (ADR-167 §12).
