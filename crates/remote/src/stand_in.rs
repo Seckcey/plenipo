@@ -305,6 +305,11 @@ impl Relay {
         lock(&self.hub).refused.clone()
     }
 
+    /// The pairing mailbox a PC has open, if any.
+    pub fn mailbox(&self) -> Option<String> {
+        lock(&self.hub).pcs.values().find_map(|l| l.mailbox.clone())
+    }
+
     /// Every message a PC sent the relay, as it arrived.
     pub fn pc_said(&self) -> Vec<String> {
         lock(&self.hub).pc_said.clone()

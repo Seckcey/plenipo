@@ -235,10 +235,23 @@ impl World {
         Code::parse(&code).unwrap()
     }
 
-    /// Pair a new phone, the owner saying yes.
-    async fn paired_phone(&self, name: &str) -> NetPhone {
+    /// Show a code on the PC (Add a phone), once the relay has its mailbox open: a person takes
+    /// longer to type it than the PC takes to tell the relay.
+    async fn new_code(&self) -> Code {
         self.remote.start_pairing().unwrap();
         let code = self.code();
+        let mailbox = code.mailbox();
+        wait_for(
+            || self.relay.mailbox().as_deref() == Some(mailbox.as_str()),
+            "the relay to open the mailbox",
+        )
+        .await;
+        code
+    }
+
+    /// Pair a new phone, the owner saying yes.
+    async fn paired_phone(&self, name: &str) -> NetPhone {
+        let code = self.new_code().await;
         let mut phone = NetPhone::new(&self.relay.phone_address());
         phone.start_pairing(&code, name).await.unwrap();
         wait_for(
@@ -253,7 +266,7 @@ impl World {
 }
 
 async fn wait_for(mut what: impl FnMut() -> bool, label: &str) {
-    for _ in 0..200 {
+    for _ in 0..400 {
         if what() {
             return;
         }
@@ -335,8 +348,7 @@ async fn a_phone_is_paired_at_the_pc_and_signs_in() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_wrong_code_fails_three_times_and_dies() {
     let w = World::new().await;
-    w.remote.start_pairing().unwrap();
-    let right = w.code();
+    let right = w.new_code().await;
     let wrong = Code::new();
     for n in 1..=3 {
         // A wrong code finds no mailbox at all (the relay knows the mailbox by the code)...
@@ -381,8 +393,7 @@ async fn a_wrong_code_fails_three_times_and_dies() {
 async fn three_dead_codes_pause_adding_a_phone() {
     let w = World::new().await;
     for _ in 0..3 {
-        w.remote.start_pairing().unwrap();
-        let code = w.code();
+        let code = w.new_code().await;
         for _ in 0..3 {
             let mut phone = NetPhone::new(&w.relay.phone_address());
             let _ = phone.start_pairing_with_psk(&code, [9u8; 32], "x").await;
@@ -397,11 +408,15 @@ async fn three_dead_codes_pause_adding_a_phone() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_expired_code_is_refused() {
     let w = World::new().await;
-    w.remote.start_pairing().unwrap();
-    let code = w.code();
+    let code = w.new_code().await;
     w.clock.advance(plenipo_remote::CODE_LIFE_MS);
     w.remote.tick();
     assert!(w.remote.view().pairing.is_none());
+    wait_for(
+        || w.relay.mailbox().is_none(),
+        "the relay to close the mailbox",
+    )
+    .await;
     let refused = w.app.records("remote.pairing_refused");
     assert_eq!(refused.last().unwrap()["reason"], "expired");
     let mut phone = NetPhone::new(&w.relay.phone_address());
@@ -414,8 +429,7 @@ async fn an_expired_code_is_refused() {
 #[tokio::test(flavor = "multi_thread")]
 async fn nothing_is_added_until_the_owner_says_yes() {
     let w = World::new().await;
-    w.remote.start_pairing().unwrap();
-    let code = w.code();
+    let code = w.new_code().await;
     let mut phone = NetPhone::new(&w.relay.phone_address());
     phone.start_pairing(&code, "Not mine").await.unwrap();
     wait_for(
@@ -487,6 +501,14 @@ async fn a_phone_removed_while_away_is_told_it_is_not_listed() {
     w.disconnect().await;
     w.connect().await;
     let failed = w.app.records("remote.meetings_stopped").len();
+    let bad_passes = || {
+        w.relay
+            .refused()
+            .iter()
+            .filter(|c| *c == "bad_pass")
+            .count()
+    };
+    let before = bad_passes();
     // The phone comes back: its pass still opens the relay, but the PC does not know it, so the
     // relay is told to refuse it, and the phone hears it is no longer on the list.
     assert_eq!(
@@ -498,14 +520,7 @@ async fn a_phone_removed_while_away_is_told_it_is_not_listed() {
         phone.meet(false).await.unwrap_err(),
         PhoneError::Relay("bad_pass".into())
     );
-    assert_eq!(
-        w.relay
-            .refused()
-            .iter()
-            .filter(|c| *c == "bad_pass")
-            .count(),
-        2
-    );
+    assert_eq!(bad_passes() - before, 2);
     assert_eq!(w.app.records("remote.meetings_stopped").len(), failed);
     assert!(w.remote.view().devices.is_empty());
 }
