@@ -1,5 +1,5 @@
-# Plenipo on your phone: serve the phone's page from each release (Phase 14, ADR-146).
-# Installed to /etc/systemd/system/ on Coastline; see apps/remote/deploy/README.md.
+# Plenipo on your phone: serve the phone's page from each release (Phase 14, ADR-146 and ADR-148).
+# Installed to /etc/systemd/system/ on the page's own server; see apps/remote/deploy/README.md.
 [Unit]
 Description=Plenipo on your phone: serve the newest release of the phone's page
 Wants=network-online.target docker.service

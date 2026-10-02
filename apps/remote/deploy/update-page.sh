@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Plenipo on your phone: serve the phone's page at remote.getplenipo.com from Coastline (Phase 14,
-# ADR-146). Made by 8 West Ventures, LLC.
+# Plenipo on your phone: serve the phone's page at remote.getplenipo.com from its own small server
+# (Phase 14, ADR-146 and ADR-148). Made by 8 West Ventures, LLC.
 #
 # Runs from a systemd timer (plenipo-phone-page-update.timer), every 15 minutes. Each run:
 #   1. asks GitHub for the latest published release (not a draft or pre-release);
@@ -33,8 +33,10 @@ REPO_API="${REPO_API:-https://api.github.com/repos/Seckcey/plenipo}"
 DOWNLOADS="${DOWNLOADS:-https://github.com/Seckcey/plenipo/releases/download}"
 PROJECT="${PROJECT:-plenipo-phone-page}"
 PORT="${PORT:?Set PORT to the verified unused loopback port for the phone page}"
-SUBNET="${SUBNET:?Set SUBNET to the verified reserved network for the phone page}"
-ALLOCATION_LOCK="${ALLOCATION_LOCK:-/srv/8west/port-allocations/allocations.lock}"
+# A reserved network, only on a machine whose Docker address pool is full (empty: Docker's own).
+SUBNET="${SUBNET:-}"
+# A lock shared with other services that pick ports and networks, where a machine has one.
+ALLOCATION_LOCK="${ALLOCATION_LOCK:-}"
 DEPLOY_DIR="${DEPLOY_DIR:-$APP_DIR/deploy}"
 RELEASES_DIR="$APP_DIR/releases"
 STATE_DIR="$APP_DIR/state"
@@ -149,13 +151,23 @@ point_at "$version"
 
 running="$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" --filter 'label=com.docker.compose.service=web' | head -n 1)"
 if [[ -z "$running" ]]; then
-  [[ -f "$ALLOCATION_LOCK" ]] || fail "The shared allocation lock $ALLOCATION_LOCK is missing"
-  (
-    flock -w 300 9 || { log "Timed out waiting for $ALLOCATION_LOCK"; exit 1; }
+  files=(-f "$DEPLOY_DIR/compose.yaml")
+  if [[ -n "$SUBNET" ]]; then
+    files+=(-f "$DEPLOY_DIR/compose.subnet.yaml")
+  fi
+  start() {
     PLENIPO_PAGE_DIR="$APP_DIR" PLENIPO_PORT="$PORT" PLENIPO_SUBNET="$SUBNET" \
-      docker compose -p "$PROJECT" -f "$DEPLOY_DIR/compose.yaml" -f "$DEPLOY_DIR/compose.coastline.yaml" \
-      up -d --wait --wait-timeout 120
-  ) 9< "$ALLOCATION_LOCK" || fail "The web server did not start"
+      docker compose -p "$PROJECT" "${files[@]}" up -d --wait --wait-timeout 120
+  }
+  if [[ -n "$ALLOCATION_LOCK" ]]; then
+    [[ -f "$ALLOCATION_LOCK" ]] || fail "The shared allocation lock $ALLOCATION_LOCK is missing"
+    (
+      flock -w 300 9 || { log "Timed out waiting for $ALLOCATION_LOCK"; exit 1; }
+      start
+    ) 9< "$ALLOCATION_LOCK" || fail "The web server did not start"
+  else
+    start || fail "The web server did not start"
+  fi
 fi
 
 # --- 5. Check, and go back if anything is wrong ------------------------------------------------

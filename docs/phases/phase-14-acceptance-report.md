@@ -44,16 +44,16 @@ is live). What you need to do is in section 5.
 
 ### 2. The owner's answers → as built
 
-| Answer (2026-10-01)                                                  | As built                                                                                                                    |
-| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| 1. Picture code or 16-letter code; "Is this your phone?" (ADR-141)   | Settings → Devices shows both; the code works once, for 10 minutes, 3 wrong tries; nothing is added until **Add**.          |
-| 2. The passkey **only at sign-in** (ADR-142)                         | The phone's face, fingerprint, or passcode at sign-in; approvals inside a sign-in need no second check.                     |
-| 4. 30 minutes idle, 12 hours at most (ADR-142, ADR-143)              | As decided; the PC ends the sign-in and the phone asks again.                                                               |
-| 5. The relay checks Pro with 8 West's signed weekly answer (ADR-143) | The PC shows the relay the newest signed answer; the stand-in relay refuses a PC that is not on Pro.                        |
-| 7. No approvals kept on the PC to begin with (ADR-145)               | None ticked; the choice is in Settings → Devices.                                                                           |
-| 8. `remote.getplenipo.com`, next to the website (ADR-146)            | The page is built from `apps/remote`, with the relay's name built in. Hosting it on Coastline is an owner step (section 5). |
-| 9. Three parts (ADR-140)                                             | This is part 14A, v1.19.0.                                                                                                  |
-| Relay passes last 90 days (ADR-147, under the standing order)        | A phone used now and then stays paired; a copied pass alone still cannot reach the PC.                                      |
+| Answer (2026-10-01)                                                  | As built                                                                                                                                  |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Picture code or 16-letter code; "Is this your phone?" (ADR-141)   | Settings → Devices shows both; the code works once, for 10 minutes, 3 wrong tries; nothing is added until **Add**.                        |
+| 2. The passkey **only at sign-in** (ADR-142)                         | The phone's face, fingerprint, or passcode at sign-in; approvals inside a sign-in need no second check.                                   |
+| 4. 30 minutes idle, 12 hours at most (ADR-142, ADR-143)              | As decided; the PC ends the sign-in and the phone asks again.                                                                             |
+| 5. The relay checks Pro with 8 West's signed weekly answer (ADR-143) | The PC shows the relay the newest signed answer; the stand-in relay refuses a PC that is not on Pro.                                      |
+| 7. No approvals kept on the PC to begin with (ADR-145)               | None ticked; the choice is in Settings → Devices.                                                                                         |
+| 8. `remote.getplenipo.com`, next to the website (ADR-146)            | The page is built from `apps/remote`, with the relay's name built in. Hosting it on its own server is an owner step (section 5, ADR-148). |
+| 9. Three parts (ADR-140)                                             | This is part 14A, v1.19.0.                                                                                                                |
+| Relay passes last 90 days (ADR-147, under the standing order)        | A phone used now and then stays paired; a copied pass alone still cannot reach the PC.                                                    |
 
 ### 3. Tests → evidence
 
@@ -130,8 +130,9 @@ with made-up names.
 1. Approve the [relay change request](phase-14-relay-change-request.md) in the relay's own
    repository, and have it built there.
 2. In Cloudflare: point `relay.getplenipo.com` at the relay (WebSockets on), and
-   `remote.getplenipo.com` at Coastline's tunnel (ADR-146).
-3. On Coastline: the phone page's home next to the website. The steps are in
+   `remote.getplenipo.com` at the page's own Tunnel (ADR-146).
+3. The phone page's own small AWS server (ADR-148, the phone's page on its own server, for about
+   $7 to $8 a month), and the page's home on it. The steps are in
    [`apps/remote/deploy/README.md`](../../apps/remote/deploy/README.md), and the builder can do the
    console work.
 4. When the relay answers, set the repository variable `PLENIPO_RELAY_LIVE` to `true`; the next

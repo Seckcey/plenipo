@@ -57,7 +57,7 @@ address in question 8. Each record now says **Accepted**.
 | 5   | Does the relay check that the PC is Pro?                 | As recommended: yes, with 8 West's signed weekly answer                                                    | 143      |
 | 6   | Notices: straight from the PC, or through the relay?     | As recommended: straight from the PC (amends ADR-040)                                                      | 144      |
 | 7   | Approvals kept on the PC only, to begin with             | As recommended: none                                                                                       | 145      |
-| 8   | The page's address, the relay's name, where it is served | **`remote.getplenipo.com`**, served next to the website on Coastline; `relay.getplenipo.com`               | 146      |
+| 8   | The page's address, the relay's name, where it is served | **`remote.getplenipo.com`**, on its own small AWS server (ADR-148); `relay.getplenipo.com`                 | 146, 148 |
 | 9   | Three parts (14A, 14B, 14C)                              | As recommended                                                                                             | 140      |
 
 The owner also said: build it, commit, push, merge, and release, without stopping unless the owner
@@ -68,8 +68,8 @@ is truly needed.
 - [ ] Approve the [relay change request](phase-14-relay-change-request.md) in the relay's own
       repository, and have it built there.
 - [ ] In Cloudflare: point `relay.getplenipo.com` at the relay (WebSockets on), and
-      `remote.getplenipo.com` at Coastline's tunnel (ADR-146).
-- [ ] On Coastline: the phone page's home next to the website ([the steps](../../apps/remote/deploy/README.md); the builder can do the console work).
+      `remote.getplenipo.com` at the page's own Tunnel (ADR-146, ADR-148).
+- [ ] The page's own small AWS server, and the page's home on it ([the steps](../../apps/remote/deploy/README.md); the builder can do the console work).
 - [ ] Tell the builder when the relay answers, for one check by hand before release.
 
 ## Deliverables

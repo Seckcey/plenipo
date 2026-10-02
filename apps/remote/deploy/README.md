@@ -1,41 +1,69 @@
-# The phone's page on Coastline (`remote.getplenipo.com`)
+# The phone's page on its own server (`remote.getplenipo.com`)
 
-Plenipo on your phone (Phase 14, [ADR-146](../../../docs/adr/ADR-146-where-the-phone-page-lives.md),
-where the phone's page lives) is a page your phone opens at `remote.getplenipo.com`. Each release
-carries it, already built and checked: `plenipo-phone-page-<version>.zip` and its `.sha256`
-(release 1.19.2 and later). Coastline serves it next to the website, through the same Cloudflare
-Tunnel. Made by 8 West Ventures, LLC.
+Plenipo on your phone (Phase 14) is a page your phone opens at `remote.getplenipo.com`. Each
+release carries it, already built and checked: `plenipo-phone-page-<version>.zip` and its `.sha256`
+(release 1.19.2 and later). It is served from **a small AWS server of its own**
+([ADR-148](../../../docs/adr/ADR-148-the-phone-page-on-its-own-server.md), the phone's page on its
+own server; [ADR-146](../../../docs/adr/ADR-146-where-the-phone-page-lives.md), where the phone's
+page lives), through a Cloudflare Tunnel. Made by 8 West Ventures, LLC.
 
-**In short:** a small web server on Coastline serves the page on this computer only
+**In short:** a small web server on that server serves the page on the server itself only
 (`127.0.0.1`); every 15 minutes, `update-page.sh` checks GitHub for a new release, checks the
 page's checksum and that it names only 8 West's relay, switches to it, checks it, and goes back if
-anything is wrong. The Tunnel brings `remote.getplenipo.com` to it.
+anything is wrong. The Tunnel brings `remote.getplenipo.com` to it. Nothing else runs there, and it
+holds no secrets but the Tunnel's token.
 
 The page works for real phones only when 8 West's relay answers at `relay.getplenipo.com` too
 (see the [relay change request](../../../docs/phases/phase-14-relay-change-request.md)).
 
-## Set up (once)
+Keep the server's address out of this repository (as ADR-100 does for the account service's
+server); these steps call it "the page's server".
 
-Everything runs as the account that owns `/srv/8west/apps` and may use Docker (never as root),
-except installing the timer. Containers and tests on Coastline follow its own rules: a separate
-folder, a uniquely named Compose project (`plenipo-phone-page`), and an unused loopback port.
+## 1. Make the server (once, in AWS)
 
-1. **Pick a port and a network**, as the website did: an unused loopback port (for example
-   `14381`; check `ss -ltn` and Coastline's port allocations) and a reserved subnet that overlaps
-   no Docker network or host route (`docker network inspect`, `ip route`, the VPN's routes).
-2. **Make the folder and copy the files** (from a checkout of this repository at a release tag):
+In AWS, in the same region as 8 West's other servers, launch one EC2 server:
+
+- **Name** `plenipo-remote`; **image** Ubuntu Server 24.04 LTS, 64-bit (Arm); **type** `t4g.nano`.
+- **Disk:** 8 GB gp3, encrypted. **Termination protection** on. **Metadata:** IMDSv2 required.
+- **Security group** of its own: only SSH, only from 8 West's office address. No web ports: the
+  Tunnel needs none.
+- **A public IPv4 address**: the updater reaches GitHub over it.
+- **Key pair:** 8 West's usual one.
+
+It costs about $7 to $8 a month (ADR-148). Optionally, add a status-check alarm that tells the same
+alerts topic as the account service's server.
+
+## 2. Set it up (once, on the server)
+
+Sign in to the page's server as `ubuntu` (never run the updater as root).
+
+1. **Swap and Docker:**
 
    ```sh
-   mkdir -p /srv/8west/apps/plenipo-phone-page/deploy
-   cp apps/remote/deploy/* /srv/8west/apps/plenipo-phone-page/deploy/
-   chmod +x /srv/8west/apps/plenipo-phone-page/deploy/update-page.sh
+   sudo fallocate -l 1G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+   sudo apt-get update && sudo apt-get install -y docker.io docker-compose-v2 curl jq unzip git
+   sudo usermod -aG docker ubuntu
    ```
 
-3. **Its settings**, in `/srv/8west/apps/plenipo-phone-page/update-page.env`:
+   Then sign out and in again, so `docker` works without `sudo`.
+
+2. **The Tunnel** (the owner, in Cloudflare): **Zero Trust → Networks → Tunnels → Create a
+   tunnel**, named `plenipo-remote`, for Debian on 64-bit Arm. Run the install command it shows on
+   the page's server: it holds the Tunnel's token, a secret, so paste it only into the server's own
+   terminal. Then add the public hostname **`remote.getplenipo.com`** → `http://127.0.0.1:8080`.
+
+3. **The folder and the files** (from this repository's `main` branch):
 
    ```sh
-   PORT=14381
-   SUBNET=10.204.229.16/28
+   sudo mkdir -p /srv/8west/apps/plenipo-phone-page
+   sudo chown ubuntu: /srv/8west/apps/plenipo-phone-page
+   git clone --depth 1 https://github.com/Seckcey/plenipo /tmp/plenipo
+   mkdir -p /srv/8west/apps/plenipo-phone-page/deploy
+   cp /tmp/plenipo/apps/remote/deploy/* /srv/8west/apps/plenipo-phone-page/deploy/
+   chmod +x /srv/8west/apps/plenipo-phone-page/deploy/update-page.sh
+   echo 'PORT=8080' > /srv/8west/apps/plenipo-phone-page/update-page.env
+   rm -rf /tmp/plenipo
    ```
 
 4. **Try it, then run it once:**
@@ -43,16 +71,25 @@ folder, a uniquely named Compose project (`plenipo-phone-page`), and an unused l
    ```sh
    /srv/8west/apps/plenipo-phone-page/deploy/update-page.sh --check
    /srv/8west/apps/plenipo-phone-page/deploy/update-page.sh
-   curl -sI http://127.0.0.1:14381/ | head
+   curl -sI http://127.0.0.1:8080/ | head
    ```
 
-5. **The timer** (as root): copy `plenipo-phone-page-update.service` and `.timer` to
-   `/etc/systemd/system/`, put the account's name in place of `DEPLOY_USER`, then
-   `systemctl daemon-reload && systemctl enable --now plenipo-phone-page-update.timer`.
-6. **The name, in Cloudflare** (the owner): in the Tunnel that serves the website, add the public
-   hostname `remote.getplenipo.com` to `http://127.0.0.1:14381` (the port from step 1).
-7. **Check from outside:** `https://remote.getplenipo.com/healthz` answers `ok`, and
+5. **The timer:** copy `plenipo-phone-page-update.service` and `.timer` to `/etc/systemd/system/`,
+   put `ubuntu` in place of `DEPLOY_USER`, then:
+
+   ```sh
+   sudo systemctl daemon-reload && sudo systemctl enable --now plenipo-phone-page-update.timer
+   ```
+
+6. **Check from outside:** `https://remote.getplenipo.com/healthz` answers `ok`, and
    `https://remote.getplenipo.com/` shows **Pair this phone**.
+
+## On a shared machine
+
+On a machine that runs other services, pick an unused loopback port for `PORT`. If its automatic
+Docker address pool is full, set `SUBNET` to a reserved network that overlaps nothing (the updater
+then adds `compose.subnet.yaml`), and if the machine has a lock file that its services take before
+they pick ports and networks, set `ALLOCATION_LOCK` to it.
 
 ## Going back
 
