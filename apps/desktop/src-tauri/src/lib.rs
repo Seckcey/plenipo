@@ -4180,6 +4180,32 @@ mod ipc_boundary_tests {
             )
             .unwrap_err();
         assert_eq!(err, "That organization is not open on your PC.");
+        // The phone's Activity page leaves out its own page reads, which stay in the Ledger,
+        // and keeps what it asked to do.
+        for kind in ["approve", "read Home", "see the list of organizations"] {
+            host.record(
+                Some(orgs::FIRST),
+                "remote.request",
+                serde_json::json!({ "device": phone.id, "name": phone.name, "kind": kind }),
+            );
+        }
+        let shown = host
+            .carry_out(
+                &phone,
+                &Ask::ReadActivity {
+                    org: first(),
+                    before: None,
+                },
+            )
+            .unwrap();
+        let asked: Vec<&str> = shown
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["eventType"] == "remote.request")
+            .filter_map(|e| e["payload"]["kind"].as_str())
+            .collect();
+        assert_eq!(asked, ["approve"]);
         // Stop all from a phone stops everything, and Allow again lets it go again.
         let stopped = host.carry_out(&phone, &Ask::StopAll).unwrap();
         assert_eq!(stopped["stopped"], true);
