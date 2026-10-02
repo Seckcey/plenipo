@@ -135,8 +135,10 @@ if [[ ! -d "$release_dir" ]]; then
   if grep -rqE '127\.0\.0\.1|localhost:87' "$staging/page"; then
     fail "$page names a test address"
   fi
-  chmod -R a-w "$staging/page"
+  # Moved into place first (Linux moves a folder only while it can be written), then made
+  # read-only: the release is never edited again.
   mv "$staging/page" "$release_dir"
+  chmod -R a-w "$release_dir"
   rm -rf "$staging"
   trap - EXIT
 fi
