@@ -50,7 +50,7 @@ rest of your Plenipo records. Backups on 8 West's server still expire after 35 d
 
 | Your directory listing (what your business does, where) | While you are listed; deleted at once when you leave the directory |
 | Points, badges, and thanks (ADR-169) | While you are in Community |
-| The leaderboard (ADR-169) | Worked out again each day from points; last week's kept 1 year |
+| The leaderboard (ADR-169) | Worked out from points whenever it is asked for; only each week's top member (for the Top helper badge) is kept, 1 year |
 | A GIF search (ADR-164 §4) | Never kept: the account service passes it to the GIF library and keeps only its limit counters |
 | Who invited whom, for a free month (ADR-169) | Until the reward is given or refused, then 60 days; the free month itself is an invoice record (7 years, for tax) |
 | A report, what it carried, and what 8 West did | **1 year** after it is closed, then deleted |

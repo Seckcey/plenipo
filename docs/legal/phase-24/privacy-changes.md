@@ -110,7 +110,8 @@ named here.]**
 > - **Your profile and directory listing:** while you are in Community; deleted at once when you
 >   leave it. While you appear offline, nobody is shown them.
 > - **Your birth month and year:** as long as your account. If you are under 13, it is never kept.
-> - **Points, badges, and thanks:** while you are in Community. Each week's leaderboard: 1 year.
+> - **Points, badges, and thanks:** while you are in Community. Each week's top member (for the Top
+>   helper badge): 1 year.
 > - **GIF searches:** not kept.
 > - **Who invited whom:** until the reward is given or refused, then 60 days. A free month given is
 >   kept with payment records (7 years, for tax law).
