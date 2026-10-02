@@ -8,6 +8,7 @@ import { memoryKeep, type Kept } from "./keep";
 import { newKeyPair } from "./lock/noise";
 import { encode } from "./lock/bytes";
 import { FakePc } from "./test/fake-pc";
+import type { PhoneAiTool } from "./words";
 
 // The phone's keychain: a stand-in (jsdom has no passkeys). The PC checks real answers in Rust.
 vi.mock("./lock/passkey", () => ({
@@ -118,7 +119,23 @@ beforeEach(async () => {
       case "readLessons":
         return { enabled: true, autoRoles: [], offRoles: [], agents: {}, waiting: [], kept: [] };
       case "readAiTools":
-        return { tools: [], autoUpdate: false, lastLookedAt: null, looking: false };
+        return {
+          tools: [
+            {
+              runtimeId: "codex",
+              outOfService: "Plenipo gives Codex no tasks: its update failed.",
+            },
+          ],
+          autoUpdate: false,
+          lastLookedAt: null,
+          looking: false,
+          runtimes: [
+            aiTool("claude-code", "Claude Code", { ready: true }),
+            aiTool("codex", "Codex", { ready: true }),
+            aiTool("grok", "Grok Build", { auth: "signedOut" }),
+            aiTool("kimi", "Kimi Code", { install: "notInstalled", auth: "unknown" }),
+          ],
+        };
       case "readDiagnostics":
         return {
           ledger: { taskCount: 3, eventCount: 40, lastBackup: null },
@@ -129,6 +146,19 @@ beforeEach(async () => {
     }
   };
 });
+
+/** An AI tool as the PC sends it to the phone. */
+function aiTool(id: string, label: string, state: Partial<PhoneAiTool> = {}): PhoneAiTool {
+  return {
+    id,
+    label,
+    ready: false,
+    install: "installed",
+    auth: "subscription",
+    held: null,
+    ...state,
+  };
+}
 
 describe("pairing this phone", () => {
   it("pairs with the typed code, after the PC's owner says yes", async () => {
@@ -352,6 +382,25 @@ describe("a paired phone", () => {
     expect(await screen.findByRole("heading", { name: "Pair this phone" })).toBeInTheDocument();
     expect(keep.kept).toBeNull();
     expect(pc.asked).toContainEqual({ kind: "removeThisPhone" });
+  });
+
+  it("More names each AI tool on the PC, with what it can do now", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await user.click(await screen.findByRole("button", { name: "More" }));
+    const claude = (await screen.findByText("Claude Code")).closest("li")!;
+    expect(within(claude).getByText("Ready")).toBeInTheDocument();
+    const codex = screen.getByText("Codex").closest("li")!;
+    expect(
+      within(codex).getByText("Plenipo gives Codex no tasks: its update failed."),
+    ).toBeInTheDocument();
+    const grok = screen.getByText("Grok Build").closest("li")!;
+    expect(
+      within(grok).getByText("Can't work yet: sign in, or add its key, in AI tools on your PC."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Not on your PC: Kimi Code.")).toBeInTheDocument();
+    expect(screen.queryByText("claude-code")).not.toBeInTheDocument();
   });
 });
 

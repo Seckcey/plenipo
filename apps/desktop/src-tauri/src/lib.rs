@@ -4157,6 +4157,19 @@ mod ipc_boundary_tests {
         }
         let control = host.carry_out(&phone, &Ask::ReadControl).unwrap();
         assert_eq!(control["control"]["stopped"], false);
+        // The AI tools by their own names, with whether each can work; never where it is
+        // installed.
+        let tools = host.carry_out(&phone, &Ask::ReadAiTools).unwrap();
+        let runtimes = tools["runtimes"].as_array().expect("the AI tools");
+        assert!(!runtimes.is_empty());
+        for r in runtimes {
+            assert!(r["label"].as_str().is_some_and(|l| !l.is_empty()), "{r}");
+            assert!(r["ready"].is_boolean(), "{r}");
+            assert!(
+                r.get("executable").is_none() && r.get("installation").is_none(),
+                "{r}"
+            );
+        }
         // Another organization's ID that is not open is refused in plain words.
         let err = host
             .carry_out(
