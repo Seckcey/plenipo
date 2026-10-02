@@ -25,3 +25,5 @@ contracts/license-check/*/request.json
 contracts/license-check/*/test-signing-key.json
 contracts/license-check/*/answers/
 contracts/license-check/*/keys/
+# The phone relay's contract: written byte for byte from the code (crates/remote/src/contract.rs).
+contracts/phone-relay/*/*.json

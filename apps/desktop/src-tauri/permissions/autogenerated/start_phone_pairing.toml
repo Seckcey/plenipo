@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-start-phone-pairing"
+description = "Enables the start_phone_pairing command without any pre-configured scope."
+commands.allow = ["start_phone_pairing"]
+
+[[permission]]
+identifier = "deny-start-phone-pairing"
+description = "Denies the start_phone_pairing command without any pre-configured scope."
+commands.deny = ["start_phone_pairing"]

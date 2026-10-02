@@ -25,6 +25,8 @@ pub mod org_host;
 pub mod orgs;
 pub mod owner_commands;
 pub mod recovery;
+pub mod remote_commands;
+pub mod remote_host;
 pub mod runtime_host;
 pub mod settings_health;
 pub mod smoke;
@@ -274,6 +276,24 @@ pub fn configure<R: Runtime>(
                 .entitlements()
                 .set_usage(Arc::new(license_host::PcUsage(Arc::downgrade(&orgs))));
             app.manage(license.clone());
+            // Plenipo on your phone (Phase 14): the PC's keys and the phones in the first
+            // organization's Vault, like the license key; the switch in `remote.json`. Made before
+            // the organizations, so each one's changes reach the phones.
+            let remote = remote_host::create(
+                app.handle(),
+                license.clone(),
+                match options.persistence {
+                    Persistence::AppData => Arc::new(plenipo_capabilities::OsSecretStore::new(
+                        orgs::vault_name(&identifier, orgs::FIRST),
+                    )),
+                    Persistence::InMemory => {
+                        Arc::new(plenipo_capabilities::MemorySecretStore::default())
+                    }
+                },
+                data.clone(),
+                &version,
+            );
+            app.manage(remote.clone());
             let opening = org_host::Opening {
                 persistence: options.persistence,
                 notices: options.notices,
@@ -364,6 +384,8 @@ pub fn configure<R: Runtime>(
             // checks in, ADR-115).
             if data.is_some() {
                 license_host::start(app.handle(), license);
+                // Phone access: the relay link runs while it is on, Pro, and live (ADR-140 §4).
+                remote_host::start(app.handle(), remote);
             }
             if options.window_watch {
                 window_watch::start(
@@ -678,6 +700,16 @@ pub fn configure<R: Runtime>(
             license_commands::enter_license_key,
             license_commands::remove_license_key,
             license_commands::check_license_now,
+            // Phase 14: Settings → Devices and the phone access switch (main window only).
+            remote_commands::get_remote,
+            remote_commands::set_remote_switch,
+            remote_commands::start_phone_pairing,
+            remote_commands::cancel_phone_pairing,
+            remote_commands::answer_phone_pairing,
+            remote_commands::rename_device,
+            remote_commands::remove_device,
+            remote_commands::unpause_device,
+            remote_commands::set_kept_on_pc,
         ])
 }
 
@@ -948,6 +980,21 @@ mod ipc_boundary_tests {
             .entitlements()
             .set_usage(Arc::new(license_host::PcUsage(Arc::downgrade(&orgs))));
         app.manage(license.clone());
+        // Phone access, kept in memory, as a copy built for the tests (the relay "live" at a closed
+        // port on this computer): no relay link runs in these tests.
+        app.manage(remote_host::create_with(
+            app.handle(),
+            license.clone(),
+            Arc::new(plenipo_capabilities::MemorySecretStore::default()),
+            None,
+            "1.9.0",
+            remote_host::built_for(
+                Some("http://127.0.0.1:9"),
+                Some("http://localhost:8771"),
+                None,
+                true,
+            ),
+        ));
         let first = org_host::build(
             app.handle(),
             place,
@@ -3651,6 +3698,303 @@ mod ipc_boundary_tests {
                 assert!(err["kind"].is_string(), "{cmd} from the main window: {err}");
             }
         }
+    }
+
+    // ---- Plenipo on your phone (Phase 14) ------------------------------------------------
+
+    /// Settings → Devices: adding a phone, the switch, and the approvals kept on the PC widen who
+    /// may connect, so they are the main window's alone (ADR-145 §3, §8).
+    const PHONE_ACCESS: [&str; 9] = [
+        "get_remote",
+        "set_remote_switch",
+        "start_phone_pairing",
+        "cancel_phone_pairing",
+        "answer_phone_pairing",
+        "rename_device",
+        "remove_device",
+        "unpause_device",
+        "set_kept_on_pc",
+    ];
+
+    #[test]
+    fn phone_access_settings_are_the_main_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        let args = serde_json::json!({
+            "on": false, "add": false, "id": "AAAAAAAAAAAAAAAAAAAAAA", "name": "x",
+            "kept": { "every": false, "productionServers": false, "kinds": [] },
+        });
+        for cmd in PHONE_ACCESS {
+            let refused = |answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
+                           from: &str| {
+                let err = answer.expect_err(from);
+                assert!(
+                    err.to_string().contains("not allowed"),
+                    "{cmd} from {from}: {err}"
+                );
+            };
+            refused(invoke_json(&other, cmd, args.clone()), "another window");
+            refused(invoke_json(&sign, cmd, args.clone()), "the sign");
+            refused(
+                invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                "a web page",
+            );
+            if let Err(err) = invoke_json(&main, cmd, args.clone()) {
+                assert!(err["kind"].is_string(), "{cmd} from the main window: {err}");
+            }
+        }
+    }
+
+    #[test]
+    fn phone_access_is_part_of_pro() {
+        let app = app();
+        let main = window(&app, "main");
+        let view: plenipo_licensing::LicenseView = body(invoke(&main, "remove_license_key"));
+        assert_eq!(view.edition, plenipo_licensing::Edition::Free);
+        let words = plenipo_licensing::words::message(plenipo_licensing::Limit::PhoneAccess);
+        for (cmd, args) in [
+            ("set_remote_switch", serde_json::json!({ "on": true })),
+            ("start_phone_pairing", serde_json::json!({})),
+        ] {
+            let err = invoke_json(&main, cmd, args).expect_err("part of Pro");
+            assert_eq!(err["kind"], "partOfPro", "{cmd}: {err}");
+            assert_eq!(err["message"], words, "{cmd}");
+        }
+        let settings: plenipo_remote::service::RemoteSettings = body(invoke(&main, "get_remote"));
+        assert!(!settings.pro);
+        assert!(!settings.remote.switched_on);
+        // Nothing connects: no relay link runs, and nothing is kept.
+        assert!(!settings.remote.connected);
+    }
+
+    #[test]
+    fn the_switch_adding_a_phone_and_the_approvals_kept_on_the_pc() {
+        let app = app();
+        let main = window(&app, "main");
+        let settings: plenipo_remote::service::RemoteSettings = body(invoke(&main, "get_remote"));
+        assert!(settings.pro);
+        assert!(!settings.coming_soon, "a copy built for the tests has its stand-in");
+        assert!(!settings.remote.switched_on, "off to begin with");
+        assert_eq!(settings.page, "http://localhost:8771");
+        // Adding a phone needs the switch on.
+        let err = invoke(&main, "start_phone_pairing").expect_err("off");
+        assert!(err["message"].as_str().unwrap().contains("Use Plenipo from another device"));
+        let on: plenipo_remote::service::RemoteSettings =
+            body(invoke_json(&main, "set_remote_switch", serde_json::json!({ "on": true })));
+        assert!(on.remote.switched_on);
+        let showing: plenipo_remote::service::RemoteSettings =
+            body(invoke(&main, "start_phone_pairing"));
+        let Some(plenipo_remote::service::PairingView::Showing {
+            code, link, qr, wrong, ..
+        }) = showing.remote.pairing
+        else {
+            panic!("no code shown");
+        };
+        assert_eq!(code.len(), 19, "{code}");
+        assert_eq!(code.matches('-').count(), 3);
+        assert_eq!(link, format!("http://localhost:8771/#pair={}", code.replace('-', "")));
+        assert!(qr.size >= 21);
+        assert_eq!(wrong, 0);
+        // Nobody is waiting yet: there is nothing to answer.
+        let err = invoke_json(&main, "answer_phone_pairing", serde_json::json!({ "add": true }))
+            .expect_err("no phone");
+        assert!(err["message"].as_str().unwrap().contains("No phone"));
+        let cancelled: plenipo_remote::service::RemoteSettings =
+            body(invoke(&main, "cancel_phone_pairing"));
+        assert!(cancelled.remote.pairing.is_none());
+        let kept: plenipo_remote::service::RemoteSettings = body(invoke_json(
+            &main,
+            "set_kept_on_pc",
+            serde_json::json!({ "kept": { "every": false, "productionServers": true, "kinds": ["payment", "dns", "payment"] } }),
+        ));
+        assert!(kept.remote.kept.production_servers);
+        assert_eq!(
+            kept.remote.kept.kinds,
+            [plenipo_guard::SensitiveKind::Dns, plenipo_guard::SensitiveKind::Payment]
+        );
+        let off: plenipo_remote::service::RemoteSettings =
+            body(invoke_json(&main, "set_remote_switch", serde_json::json!({ "on": false })));
+        assert!(!off.remote.switched_on);
+        // Recorded in the first organization's Ledger, as the owner's.
+        let ledger = app.state::<std::sync::Arc<plenipo_ledger::Ledger>>();
+        let events = ledger.recent_events(50).unwrap();
+        for kind in [
+            "remote.switched_on",
+            "remote.pairing_refused",
+            "remote.kept_on_pc_changed",
+            "remote.switched_off",
+        ] {
+            assert!(
+                events.iter().any(|e| e.event_type == kind),
+                "{kind} not recorded"
+            );
+        }
+        let on = events
+            .iter()
+            .find(|e| e.event_type == "remote.switched_on")
+            .unwrap();
+        assert_eq!(on.source, "owner");
+        // A phone the PC does not know cannot be renamed, removed, or un-paused.
+        for cmd in ["rename_device", "remove_device", "unpause_device"] {
+            let err = invoke_json(
+                &main,
+                cmd,
+                serde_json::json!({ "id": "AAAAAAAAAAAAAAAAAAAAAA", "name": "x" }),
+            )
+            .expect_err("unknown phone");
+            assert!(err["message"].as_str().unwrap().contains("not on your PC's list"), "{cmd}");
+        }
+        let err = invoke_json(&main, "remove_device", serde_json::json!({ "id": "../x" }))
+            .expect_err("not an ID");
+        assert_eq!(err["kind"], "invalidInput");
+    }
+
+    /// A phone's answer goes through the same core function as the main window's: the record
+    /// names the phone, and the first answer counts, from either side (ADR-145 §6).
+    #[test]
+    fn a_phone_answers_an_approval_the_same_way_and_the_first_answer_counts() {
+        let app = app();
+        let main = window(&app, "main");
+        let ledger = app
+            .state::<std::sync::Arc<plenipo_ledger::Ledger>>()
+            .inner()
+            .clone();
+        let task = ledger
+            .create_task(
+                plenipo_ledger::NewTask {
+                    requested_by: "owner".into(),
+                    objective: "work".into(),
+                    priority: 2,
+                    ..plenipo_ledger::NewTask::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        ledger
+            .transition_task(&task.id, plenipo_ledger::TaskState::Running, "w", None)
+            .unwrap();
+        let far = plenipo_ledger::now_ms() + 600_000;
+        let ask = |summary: &str| {
+            ledger
+                .request_action_approval(
+                    &task.id,
+                    "shell.exec",
+                    &serde_json::json!({ "summary": summary, "worker": "Backend Developer",
+                                         "capability": "shell.exec", "riskLabel": "Runs a program" }),
+                    far,
+                    "agent:codex",
+                )
+                .unwrap()
+        };
+        let first = ask("git push to Website");
+        let second = ask("npm publish");
+        let state = app.state::<std::sync::Arc<crate::remote_host::RemoteState>>();
+        let host = state.host.clone();
+        let phone = plenipo_remote::Phone {
+            id: "AAAAAAAAAAAAAAAAAAAAAA".into(),
+            name: "Frank's iPhone".into(),
+        };
+        // Guard's facts: a waiting approval is one; an unknown one is not.
+        assert!(host.approval(orgs::FIRST, &first.id).is_some());
+        assert!(host.approval(orgs::FIRST, "no-such-approval").is_none());
+        // The phone first.
+        let view = host
+            .carry_out(
+                &phone,
+                &plenipo_remote::protocol::Ask::Approve {
+                    org: orgs::FIRST.into(),
+                    approval: first.id.clone(),
+                },
+            )
+            .unwrap();
+        assert_eq!(view["status"], "approved");
+        assert_eq!(view["note"], "Approved by you, from Frank's iPhone.");
+        assert_eq!(view["resolvedBy"], "owner");
+        let q: plenipo_capabilities::ApprovalQueue = body(invoke(&main, "get_approvals"));
+        let approved = q.recent.iter().find(|a| a.id == first.id).unwrap();
+        assert_eq!(
+            approved.note.as_deref(),
+            Some("Approved by you, from Frank's iPhone.")
+        );
+        // Then the PC: the first answer counted.
+        let err = invoke_json(
+            &main,
+            "resolve_approval",
+            serde_json::json!({ "approvalId": first.id, "approve": false }),
+        )
+        .expect_err("already answered");
+        assert!(err["message"].as_str().unwrap().contains("already approved"), "{err}");
+        assert!(host.approval(orgs::FIRST, &first.id).is_none());
+        // The PC first, then the phone: nothing changes.
+        let _: plenipo_capabilities::ApprovalQueue = body(invoke_json(
+            &main,
+            "resolve_approval",
+            serde_json::json!({ "approvalId": second.id, "approve": false }),
+        ));
+        let err = host
+            .carry_out(
+                &phone,
+                &plenipo_remote::protocol::Ask::Approve {
+                    org: orgs::FIRST.into(),
+                    approval: second.id.clone(),
+                },
+            )
+            .expect_err("already answered");
+        assert!(err.contains("already refused"), "{err}");
+        let q: plenipo_capabilities::ApprovalQueue = body(invoke(&main, "get_approvals"));
+        let refused = q.recent.iter().find(|a| a.id == second.id).unwrap();
+        assert_eq!(refused.status, plenipo_capabilities::ApprovalStatus::Rejected);
+        assert_eq!(refused.note.as_deref(), Some("Refused by you."));
+    }
+
+    /// The pages a phone reads come from the same services as the main window's, and an approval
+    /// kept on the PC says so.
+    #[test]
+    fn a_phone_reads_the_same_pages() {
+        let app = app();
+        let state = app.state::<std::sync::Arc<crate::remote_host::RemoteState>>();
+        let host = state.host.clone();
+        let phone = plenipo_remote::Phone {
+            id: "AAAAAAAAAAAAAAAAAAAAAA".into(),
+            name: "Phone".into(),
+        };
+        use plenipo_remote::protocol::Ask;
+        let first = || orgs::FIRST.to_owned();
+        let orgs_page = host.carry_out(&phone, &Ask::ReadOrganizations).unwrap();
+        assert_eq!(orgs_page["organizations"][0]["id"], orgs::FIRST);
+        assert!(orgs_page["pcName"].is_string());
+        for ask in [
+            Ask::ReadHome { org: first() },
+            Ask::ReadOrganization { org: first() },
+            Ask::ReadProjects { org: first(), project: None },
+            Ask::ReadWorkers { org: first(), position: None },
+            Ask::ReadTasks { org: first(), task: None, conversation: None },
+            Ask::ReadActivity { org: first(), before: None },
+            Ask::ReadAiTools,
+            Ask::ReadDiagnostics,
+            Ask::ReadControl,
+            Ask::ReadLessons { org: first() },
+            Ask::ReadApprovals { org: None },
+        ] {
+            let page = host
+                .carry_out(&phone, &ask)
+                .unwrap_or_else(|e| panic!("{ask:?}: {e}"));
+            assert!(!page.is_null(), "{ask:?}");
+        }
+        let control = host.carry_out(&phone, &Ask::ReadControl).unwrap();
+        assert_eq!(control["control"]["stopped"], false);
+        // Another organization's ID that is not open is refused in plain words.
+        let err = host
+            .carry_out(&phone, &Ask::ReadHome { org: "other".into() })
+            .unwrap_err();
+        assert_eq!(err, "That organization is not open on your PC.");
+        // Stop all from a phone stops everything, and Allow again lets it go again.
+        let stopped = host.carry_out(&phone, &Ask::StopAll).unwrap();
+        assert_eq!(stopped["stopped"], true);
+        let allowed = host.carry_out(&phone, &Ask::AllowAgain).unwrap();
+        assert_eq!(allowed["stopped"], false);
     }
 
     #[test]

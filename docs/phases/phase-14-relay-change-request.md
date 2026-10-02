@@ -5,6 +5,7 @@
 **Status:** Draft, 2026-10-01. **The owner approves this change in the relay's own repository.**
 Plenipo's builder does not touch that repository.
 **Depends on:** [ADR-143 (the relay and the lock)](../adr/ADR-143-the-relay-and-the-lock.md),
+[ADR-147 (relay passes last 90 days)](../adr/ADR-147-relay-passes-last-90-days.md),
 [ADR-146 (where the phone's page lives)](../adr/ADR-146-where-the-phone-page-lives.md), and, for
 notices, [ADR-144](../adr/ADR-144-notices-on-your-phone.md). If the owner changes those records,
 this request changes with them.
@@ -43,7 +44,7 @@ working exactly as before**: Plenipo gets its own paths, its own limits, and its
      after the check;
    - one live connection per PC key: a new one replaces the old.
 3. **A phone connects** with a **relay pass** the PC signed: which PC (the fingerprint), which phone (a
-   random ID), and an end date at most 7 days away. The relay checks the pass against the PC's key,
+   random ID), and an end date at most 90 days away (ADR-147). The relay checks the pass against the PC's key,
    and then passes messages only between that phone and that PC.
 4. **Pairing mailboxes.** A PC may open one mailbox at a time, named by an ID it chooses (made from
    the pairing code, never the code itself), for at most 10 minutes. One phone may connect to a
@@ -67,7 +68,7 @@ working exactly as before**: Plenipo gets its own paths, its own limits, and its
 ## The contract both sides test
 
 The exact messages, codes, and limits are written once, in Plenipo's repository, under
-`contracts/phone-relay/v1/` (part 14A), as the weekly license check's contract is
+[`contracts/phone-relay/v1/`](../../contracts/phone-relay/v1/README.md), as the weekly license check's contract is
 (`contracts/license-check/v1`). The relay pins the contract's version it was tested with. Plenipo's
 own tests run against a stand-in relay that follows the same contract, including a **bad relay**
 mode, so Plenipo never needs the real relay to test.

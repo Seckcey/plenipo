@@ -1,0 +1,16 @@
+{
+  "code": "7K3QM9TX2HFDR8WB",
+  "hkdf": {
+    "hash": "SHA-256",
+    "ikm": "the code's 16 characters, ASCII",
+    "info": {
+      "mailbox": "mailbox (16 bytes, hex)",
+      "psk": "psk (32 bytes)"
+    },
+    "salt": "plenipo-remote-pairing.v1"
+  },
+  "link": "https://remote.getplenipo.com/#pair=7K3QM9TX2HFDR8WB",
+  "mailbox": "589704e9466ff61d5f38c2fec2a2f8b8",
+  "psk": "4fc5acc845bbf02456ddc2dc915c9e23883e7c669830acccb959939a4b90041c",
+  "shown": "7K3Q-M9TX-2HFD-R8WB"
+}

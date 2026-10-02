@@ -194,6 +194,8 @@ pub fn build<R: Runtime>(
     }
     // What the last run left unfinished is recorded as recovered (Phase 13).
     recovery::record(&ledger, how.previous, &before, how.version);
+    // Plenipo on your phone (Phase 14): this organization's changes reach the signed-in phones.
+    crate::remote_host::watch(app, &place.id, &ledger);
     let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
     if how.run {
         let busy = supervisor.clone();

@@ -21,7 +21,7 @@ use crate::servers::Environment;
 /// Every kind of request a phone may make (ADR-145 §2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
+#[ts(export, rename = "PhoneRequestKind")]
 pub enum RequestKind {
     // ---- Reading (part 14A) ----
     /// The organizations on the PC, and which one the phone looks at.
@@ -254,7 +254,7 @@ pub struct Refusal {
 /// Which of Guard's checks refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
+#[ts(export, rename = "GuardRefusalWhy")]
 pub enum Why {
     SwitchedOff,
     NotPro,

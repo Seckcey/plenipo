@@ -3,4 +3,4 @@
 /**
  * What changed on the PC, so the phone reads that page again.
  */
-export type Changed = "approvals" | "home" | "control" | "lessons" | "tasks" | "activity" | "organizations" | "aiTools";
+export type PhoneChanged = "approvals" | "home" | "control" | "lessons" | "tasks" | "activity" | "organizations" | "aiTools";

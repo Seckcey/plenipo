@@ -365,11 +365,11 @@ pub(crate) fn validate_runtime_id(id: &str) -> Result<(), CommandError> {
     }
 }
 
-fn validate_session_id(id: &str) -> Result<(), CommandError> {
+pub(crate) fn validate_session_id(id: &str) -> Result<(), CommandError> {
     validate_execution_id(id).map_err(|_| CommandError::invalid_input("invalid session id"))
 }
 
-fn validate_objective(objective: &str) -> Result<(), CommandError> {
+pub(crate) fn validate_objective(objective: &str) -> Result<(), CommandError> {
     if objective.len() > MAX_OBJECTIVE_BYTES {
         return Err(CommandError::invalid_input("the objective is too long"));
     }

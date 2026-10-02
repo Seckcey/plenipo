@@ -65,7 +65,7 @@ pub struct MeetingWelcome {
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-#[ts(export)]
+#[ts(export, rename = "PhoneAsk")]
 pub enum Ask {
     /// Sign in with the passkey's answer to the meeting's challenge.
     SignIn { answer: PasskeyAnswer },
@@ -166,7 +166,7 @@ pub enum Ask {
 /// Where the phone's notice service takes its notices (the browser's push subscription).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(export)]
+#[ts(export, rename = "NoticeSubscription")]
 pub struct Subscription {
     pub endpoint: String,
     /// The phone's notice key (P-256, base64url).
@@ -297,7 +297,7 @@ pub enum PhoneSays {
 /// Guard's refusal, as the phone sees it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(export)]
+#[ts(export, rename = "PhoneRefused")]
 pub struct Refused {
     /// Which check refused (`null`: not one of Guard's, for example a copied request).
     #[ts(optional)]
@@ -309,7 +309,7 @@ pub struct Refused {
 /// The PC's answer to one request.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(export)]
+#[ts(export, rename = "PhoneReply")]
 pub struct Reply {
     /// The request's ID.
     pub re: String,
@@ -362,7 +362,7 @@ impl Reply {
 /// What changed on the PC, so the phone reads that page again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export)]
+#[ts(export, rename = "PhoneChanged")]
 pub enum Changed {
     Approvals,
     Home,
@@ -417,7 +417,7 @@ impl SignedOutWhy {
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-#[ts(export)]
+#[ts(export, rename = "PhoneEvent")]
 pub enum Event {
     /// Something changed on the PC: read that page again.
     Changed {

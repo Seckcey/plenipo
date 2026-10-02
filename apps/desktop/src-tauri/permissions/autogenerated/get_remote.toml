@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-remote"
+description = "Enables the get_remote command without any pre-configured scope."
+commands.allow = ["get_remote"]
+
+[[permission]]
+identifier = "deny-get-remote"
+description = "Denies the get_remote command without any pre-configured scope."
+commands.deny = ["get_remote"]

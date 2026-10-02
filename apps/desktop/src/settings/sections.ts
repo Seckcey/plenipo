@@ -10,6 +10,7 @@ export type SettingsSection =
   | "servers"
   | "connections"
   | "switches"
+  | "devices"
   | "notifications"
   | "terminal"
   | "startAndClose"
@@ -74,6 +75,12 @@ export const SETTINGS_SECTIONS: readonly {
     label: "Switches",
     icon: "settings",
     lead: "Turn whole features on or off.",
+  },
+  {
+    id: "devices",
+    label: "Devices",
+    icon: "phone",
+    lead: "Use Plenipo from your phone: add a phone, see your phones, and choose which approvals stay on this PC.",
   },
   {
     id: "notifications",

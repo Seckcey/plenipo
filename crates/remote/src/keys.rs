@@ -57,6 +57,18 @@ impl PcKeys {
         }
     }
 
+    /// Fixed keys for the written contract's examples (never used anywhere else).
+    #[cfg(test)]
+    pub(crate) fn fixed_for_contract(noise_private: [u8; 32], relay: [u8; 32]) -> Self {
+        Self {
+            noise_public: crate::noise::public_of(&noise_private),
+            noise_private,
+            relay,
+            notice: [7; 32],
+            user: [9; 16],
+        }
+    }
+
     /// Read kept keys (`None`: not keys Plenipo made).
     pub fn read(text: &str) -> Option<Self> {
         let kept: Kept = serde_json::from_str(text).ok()?;

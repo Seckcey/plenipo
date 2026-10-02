@@ -4303,6 +4303,7 @@ dependencies = [
  "plenipo-ledger",
  "plenipo-liaison",
  "plenipo-licensing",
+ "plenipo-remote",
  "plenipo-router",
  "plenipo-runtime",
  "plenipo-workforce",

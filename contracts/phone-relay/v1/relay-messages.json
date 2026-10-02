@@ -1,0 +1,129 @@
+{
+  "codes": [
+    "not_pro",
+    "bad_proof",
+    "bad_hello",
+    "pc_offline",
+    "bad_pass",
+    "mailbox_closed",
+    "too_many_tries",
+    "too_big",
+    "unknown_conn"
+  ],
+  "examplePass": {
+    "checkedAt": 1791000000,
+    "endsAt": 1798776000,
+    "pass": "eyJ2IjoxLCJwYyI6ImJUMHBJdm1yZkNCSTVwZW9pS0pmRnFNLVNQVEk1dWYxakpZUTJ2Zi1KQlEiLCJwaG9uZSI6ImNHeGxibWx3Ynkxd2FHOXVaUzB3TVEiLCJleHAiOjE3OTg3NzYwMDB9.vEu5PTQ4ipLNB4aHq6iQlDAvqbHF42vMCrkjXG5UQvKXEjgX0ovmHDjt3NVnXW8kej1OD5ISdxRbgBOA9D3EDA",
+    "phone": "cGxlbmlwby1waG9uZS0wMQ"
+  },
+  "examplePc": {
+    "challengeNonce": "ERERERERERERERERERERERERERERERERERERERERERE",
+    "fingerprint": "bT0pIvmrfCBI5peoiKJfFqM-SPTI5uf1jJYQ2vf-JBQ",
+    "relayKeyPublic": "uKu3b569MVEZbFBcXxYMfXxZDX9Nf3kTbbbDtL3xY8U",
+    "relayKeySeed": "706c656e69706f2d636f6e74726163742d70632d72656c61792d6b65792d3031"
+  },
+  "pc": {
+    "pcToRelay": [
+      {
+        "answer": {
+          "answer": "<8 West's signed weekly answer: see contracts/license-check/v1/answers>",
+          "signature": "<its signature>"
+        },
+        "key": "uKu3b569MVEZbFBcXxYMfXxZDX9Nf3kTbbbDtL3xY8U",
+        "proof": "rRzAlJxj5WSjXvip18QmmDUYeUaUI_Ve2-KOnsIMwqyE4KhIUmQbmiNWKoHo_Ufqd28tFpE4hhh2tPlp6oxfAQ",
+        "t": "hello",
+        "v": 1
+      },
+      {
+        "mailbox": "589704e9466ff61d5f38c2fec2a2f8b8",
+        "t": "mailbox"
+      },
+      {
+        "t": "close_mailbox"
+      },
+      {
+        "phone": "cGxlbmlwby1waG9uZS0wMQ",
+        "t": "drop",
+        "until": 1798776000
+      },
+      {
+        "conn": "c000001",
+        "data": "PHNlYWxlZD4",
+        "t": "send"
+      },
+      {
+        "conn": "c000001",
+        "t": "close"
+      }
+    ],
+    "relayToPc": [
+      {
+        "nonce": "ERERERERERERERERERERERERERERERERERERERERERE",
+        "t": "challenge"
+      },
+      {
+        "pc": "bT0pIvmrfCBI5peoiKJfFqM-SPTI5uf1jJYQ2vf-JBQ",
+        "t": "welcome"
+      },
+      {
+        "code": "not_pro",
+        "t": "refused"
+      },
+      {
+        "conn": "c000001",
+        "phone": "cGxlbmlwby1waG9uZS0wMQ",
+        "t": "joined"
+      },
+      {
+        "conn": "c000002",
+        "mailbox": true,
+        "t": "joined"
+      },
+      {
+        "conn": "c000001",
+        "data": "PHNlYWxlZD4",
+        "t": "data"
+      },
+      {
+        "conn": "c000001",
+        "t": "left"
+      },
+      {
+        "code": "too_big",
+        "t": "error"
+      }
+    ]
+  },
+  "phone": {
+    "phoneToRelay": [
+      {
+        "pass": "eyJ2IjoxLCJwYyI6ImJUMHBJdm1yZkNCSTVwZW9pS0pmRnFNLVNQVEk1dWYxakpZUTJ2Zi1KQlEiLCJwaG9uZSI6ImNHeGxibWx3Ynkxd2FHOXVaUzB3TVEiLCJleHAiOjE3OTg3NzYwMDB9.vEu5PTQ4ipLNB4aHq6iQlDAvqbHF42vMCrkjXG5UQvKXEjgX0ovmHDjt3NVnXW8kej1OD5ISdxRbgBOA9D3EDA",
+        "t": "pass"
+      },
+      {
+        "mailbox": "589704e9466ff61d5f38c2fec2a2f8b8",
+        "t": "mailbox"
+      },
+      {
+        "data": "PHNlYWxlZD4",
+        "t": "data"
+      }
+    ],
+    "relayToPhone": [
+      {
+        "t": "ready"
+      },
+      {
+        "code": "bad_pass",
+        "t": "refused"
+      },
+      {
+        "data": "PHNlYWxlZD4",
+        "t": "data"
+      },
+      {
+        "t": "pc_offline"
+      }
+    ]
+  }
+}

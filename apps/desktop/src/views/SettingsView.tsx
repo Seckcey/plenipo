@@ -11,6 +11,8 @@ import type { Go } from "../components/views";
 import { LearningSwitch } from "../learning/Lessons";
 import { LicenseSettings } from "../license/LicenseSettings";
 import { useLearning } from "../learning/useLearning";
+import { DevicesSettings } from "../remote/DevicesSettings";
+import { PhoneSwitch } from "../remote/PhoneSwitch";
 import {
   AboutPlenipo,
   AiToolsSettings,
@@ -112,8 +114,12 @@ export function SettingsView({
           {current === "servers" && <ServerSettings />}
           {current === "connections" && <ConnectionsSettings go={go} />}
           {current === "switches" && (
-            <SwitchSettings learning={<LearningSwitch learning={learning} />} />
+            <SwitchSettings
+              learning={<LearningSwitch learning={learning} />}
+              phone={<PhoneSwitch />}
+            />
           )}
+          {current === "devices" && <DevicesSettings go={go} />}
           {current === "notifications" && <NotificationSettings />}
           {current === "terminal" && <TerminalSettings />}
           {current === "startAndClose" && <StartAndCloseSettings />}

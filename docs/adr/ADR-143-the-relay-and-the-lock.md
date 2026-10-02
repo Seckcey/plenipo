@@ -8,6 +8,8 @@
 - **Carries out:** [ADR-040 (Phase 14 is Plenipo's own web interface for a phone)](ADR-040-phone-web-interface.md)
   §5: "the phone and the PC encrypt what they say end to end, so the relay cannot read the work,
   answer an approval, or make up a request"
+- **Amended by:** [ADR-147 (relay passes last 90 days)](ADR-147-relay-passes-last-90-days.md): a
+  pass lasts 90 days, not 7 (§4).
 - **Goes with:** the change request for the relay's own repository,
   [`docs/phases/phase-14-relay-change-request.md`](../phases/phase-14-relay-change-request.md)
 

@@ -3,4 +3,4 @@
 /**
  * Which of Guard's checks refused.
  */
-export type Why = "switchedOff" | "notPro" | "unknownPhone" | "paused" | "notSignedIn" | "notFromANotice" | "keptOnPc" | "notAnApproval";
+export type GuardRefusalWhy = "switchedOff" | "notPro" | "unknownPhone" | "paused" | "notSignedIn" | "notFromANotice" | "keptOnPc" | "notAnApproval";

@@ -35,6 +35,9 @@ pub mod wire;
 #[cfg(any(test, feature = "stand-in"))]
 pub mod stand_in;
 
+#[cfg(test)]
+mod contract;
+
 pub use service::{Change, Clock, Host, Phone, Remote, Settings, SystemClock};
 
 /// The phone's page (ADR-146): its address, and the passkeys' site.

@@ -3,7 +3,7 @@
 /**
  * Where the phone's notice service takes its notices (the browser's push subscription).
  */
-export type Subscription = { endpoint: string, 
+export type NoticeSubscription = { endpoint: string, 
 /**
  * The phone's notice key (P-256, base64url).
  */

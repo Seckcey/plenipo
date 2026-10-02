@@ -4,6 +4,8 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  KeptOnPc,
+  RemoteSettings,
   LiveView,
   LoanUntil,
   OwnerProfile,
@@ -1385,4 +1387,50 @@ export function removeLicenseKey(): Promise<LicenseView> {
 /** Check with 8 West now (sends the key's ID and this version; nothing without a key). */
 export function checkLicenseNow(): Promise<LicenseView> {
   return call<LicenseView>("check_license_now");
+}
+
+// ---- Settings → Devices: Plenipo on your phone (Phase 14, ADR-141, ADR-145) -----------------
+
+/** Phone access: the switch, the phones, adding one, and the approvals kept on this PC. */
+export function getRemote(): Promise<RemoteSettings> {
+  return call<RemoteSettings>("get_remote");
+}
+
+/** Settings → Switches → Use Plenipo from another device. Off cuts every phone off at once. */
+export function setRemoteSwitch(on: boolean): Promise<RemoteSettings> {
+  return call<RemoteSettings>("set_remote_switch", { on });
+}
+
+/** Add a phone: a new picture code and typed code, for 10 minutes. */
+export function startPhonePairing(): Promise<RemoteSettings> {
+  return call<RemoteSettings>("start_phone_pairing");
+}
+
+/** Stop adding a phone. */
+export function cancelPhonePairing(): Promise<RemoteSettings> {
+  return call<RemoteSettings>("cancel_phone_pairing");
+}
+
+/** The answer to "Is this your phone?": nothing is added until you say yes. */
+export function answerPhonePairing(add: boolean): Promise<RemoteSettings> {
+  return call<RemoteSettings>("answer_phone_pairing", { add });
+}
+
+export function renameDevice(id: string, name: string): Promise<RemoteSettings> {
+  return call<RemoteSettings>("rename_device", { id, name });
+}
+
+/** Remove a phone: it is cut off at once. */
+export function removeDevice(id: string): Promise<RemoteSettings> {
+  return call<RemoteSettings>("remove_device", { id });
+}
+
+/** Un-pause a phone paused after failed checks. */
+export function unpauseDevice(id: string): Promise<RemoteSettings> {
+  return call<RemoteSettings>("unpause_device", { id });
+}
+
+/** Keep these approvals on my PC only. */
+export function setKeptOnPc(kept: KeptOnPc): Promise<RemoteSettings> {
+  return call<RemoteSettings>("set_kept_on_pc", { kept });
 }

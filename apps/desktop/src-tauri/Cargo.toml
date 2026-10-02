@@ -27,6 +27,8 @@ plenipo-ledger = { path = "../../../crates/ledger" }
 plenipo-liaison = { path = "../../../crates/liaison" }
 # Free and Pro, the license key, and the weekly check (Phase 11A).
 plenipo-licensing = { path = "../../../crates/licensing" }
+# Plenipo on your phone (Phase 14).
+plenipo-remote = { path = "../../../crates/remote" }
 plenipo-router = { path = "../../../crates/router" }
 plenipo-runtime = { path = "../../../crates/runtime" }
 plenipo-workforce = { path = "../../../crates/workforce" }

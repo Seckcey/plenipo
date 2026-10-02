@@ -5054,3 +5054,88 @@ body.popout {
   flex-wrap: wrap;
   gap: var(--ui-space-2);
 }
+
+/* ---- Settings → Devices: Plenipo on your phone (Phase 14) ---------------------------------- */
+
+.devices section + section {
+  margin-top: var(--ui-space-6);
+}
+
+.picture-code {
+  flex: none;
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+.picture-code__ground {
+  fill: var(--ui-code-light);
+}
+
+.picture-code__squares {
+  fill: var(--ui-code-dark);
+}
+
+.pairing--showing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-5);
+  align-items: flex-start;
+}
+
+.pairing__words {
+  flex: 1;
+  min-width: 260px;
+  display: grid;
+  gap: var(--ui-space-3);
+}
+
+.pairing__code {
+  font-family: var(--ui-font-mono);
+  font-size: 1.5rem;
+  letter-spacing: 0.08em;
+}
+
+.devices__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--ui-space-4);
+}
+
+.device {
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  background: var(--ui-surface);
+  display: grid;
+  gap: var(--ui-space-2);
+}
+
+.device__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3);
+  align-items: center;
+}
+
+.device__rename {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3);
+  align-items: flex-end;
+}
+
+.kept-on-pc {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--ui-space-2);
+}
+
+.kept-on-pc legend {
+  font-weight: 600;
+  margin-bottom: var(--ui-space-2);
+}

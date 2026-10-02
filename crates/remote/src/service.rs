@@ -176,6 +176,47 @@ pub struct RemoteView {
     pub relay_problem: Option<String>,
 }
 
+/// Settings → Devices, as the screen shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RemoteSettings {
+    pub remote: RemoteView,
+    /// Phone access is part of Pro: is this PC on Pro?
+    pub pro: bool,
+    /// The relay is not live for this copy yet: the switch says "Coming soon".
+    pub coming_soon: bool,
+    /// The phone's page.
+    pub page: String,
+    /// What the phone calls this PC.
+    pub pc_name: String,
+    /// The kinds of sensitive action, with their plain names, for **Keep these approvals on my PC
+    /// only**.
+    pub sensitive: Vec<SensitiveChoice>,
+}
+
+/// One kind of sensitive action, with its plain name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SensitiveChoice {
+    pub kind: plenipo_guard::SensitiveKind,
+    pub label: String,
+}
+
+impl SensitiveChoice {
+    /// Every kind Guard knows, in its order.
+    pub fn all() -> Vec<Self> {
+        plenipo_guard::SensitiveKind::ALL
+            .into_iter()
+            .map(|kind| Self {
+                kind,
+                label: kind.label().to_owned(),
+            })
+            .collect()
+    }
+}
+
 /// A meeting's lock: the meeting itself, then the open line.
 enum Lock {
     Meeting(Box<HandshakeState>),
