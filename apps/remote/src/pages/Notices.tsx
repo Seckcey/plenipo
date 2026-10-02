@@ -20,6 +20,16 @@ function canGetNotices(): boolean {
   );
 }
 
+/** The page's background part, ready: or a plain failure after a few seconds. */
+function backgroundPart(): Promise<ServiceWorkerRegistration> {
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("the background part did not start")), 10_000),
+    ),
+  ]);
+}
+
 async function currentSubscription(): Promise<PushSubscription | null> {
   const registration = await navigator.serviceWorker.getRegistration();
   return (await registration?.pushManager.getSubscription()) ?? null;
@@ -73,7 +83,7 @@ export function NoticesOnThisPhone() {
         setState(permission === "denied" ? "blocked" : "off");
         return;
       }
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await backgroundPart();
       // A sign-up made with another key (an earlier pairing) is dropped first.
       await (await registration.pushManager.getSubscription())?.unsubscribe();
       const sub = await registration.pushManager.subscribe({

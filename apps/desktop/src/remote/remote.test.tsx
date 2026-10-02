@@ -305,6 +305,17 @@ describe("Activity, for phones", () => {
     expect(describeRemoteEvent("remote.switched_on", {})).toBe(
       "You turned on using Plenipo from another device",
     );
+    expect(
+      describeRemoteEvent("remote.notice_sent", { name: "Frank's phone", kind: "approvals" }),
+    ).toBe("A notice went to Frank's phone");
+    expect(
+      describeRemoteEvent("remote.notice_failed", { name: "Frank's phone", why: "gone" }),
+    ).toBe(
+      "A notice to Frank's phone did not go: its notice address is gone, so it gets none until it asks again",
+    );
+    expect(describeRemoteEvent("remote.phone_notices_switched", { on: false })).toBe(
+      "You turned off notices on your phones",
+    );
     expect(describeRemoteEvent("task.created", {})).toBeNull();
   });
 });

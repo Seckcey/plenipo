@@ -96,6 +96,16 @@ export function describeRemoteEvent(type: string, p: Record<string, unknown>): s
       return `${phone} signed out${SIGNED_OUT_WORDS[str(p.why) ?? "you"] ?? ""}`;
     case "remote.check_refused":
       return `${phone}: the face, fingerprint, or passcode check did not pass`;
+    case "remote.phone_notices_switched":
+      return p.on === false
+        ? "You turned off notices on your phones"
+        : "You turned on notices on your phones";
+    case "remote.notice_sent":
+      return `A notice went to ${phone}`;
+    case "remote.notice_failed":
+      return p.why === "gone"
+        ? `A notice to ${phone} did not go: its notice address is gone, so it gets none until it asks again`
+        : `A notice to ${phone} did not go${str(p.why) ? `: ${str(p.why)}` : ""}`;
     case "remote.request":
       return `${phone} asked to ${asked}${p.fromNotice === true ? " (from a notice)" : ""}`;
     case "remote.refused": {
