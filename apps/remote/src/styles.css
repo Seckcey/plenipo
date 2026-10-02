@@ -65,6 +65,11 @@ body {
   margin: 0;
 }
 
+/* A box that is one paragraph reads as one: its bold start and the words after it flow together. */
+p.notice-box {
+  display: block;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
