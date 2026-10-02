@@ -15,6 +15,7 @@
 //! run time.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -191,6 +192,8 @@ pub struct RemoteState {
     changes: Mutex<Option<mpsc::Sender<(String, Changed)>>>,
     /// The link runs only for a copy that keeps its data (the IPC tests keep none).
     pub may_connect: bool,
+    /// Plenipo is quitting: the link is closed, and the look no longer starts it.
+    quitting: AtomicBool,
 }
 
 /// The app, as phone access sees it.
@@ -582,6 +585,7 @@ pub(crate) fn create_with<R: Runtime>(
         was_pro: Mutex::new(side.pro()),
         changes: Mutex::new(None),
         may_connect: data.is_some(),
+        quitting: AtomicBool::new(false),
     });
     state.start_telling_phones();
     state
@@ -651,6 +655,9 @@ impl RemoteState {
     /// Start or stop the relay link as the switch, Pro, and the build say; pause phone access
     /// when Pro ends.
     fn look<R: Runtime>(self: &Arc<Self>, app: &AppHandle<R>, license: &LicenseHost) {
+        if self.quitting.load(Ordering::SeqCst) {
+            return;
+        }
         let pro = license
             .entitlements()
             .check(Limit::PhoneAccess)
@@ -686,10 +693,14 @@ impl RemoteState {
         }
     }
 
-    /// Stop the relay link now (Quit).
+    /// Quit: the relay link closes now, and is not started again. The phones are told the PC
+    /// went away by the relay, as when it is turned off.
     pub fn stop(&self) {
-        if let Some(running) = lock(&self.link).take() {
+        self.quitting.store(true, Ordering::SeqCst);
+        let running = lock(&self.link).take();
+        if let Some(running) = running {
             running.abort();
+            self.remote.relay_down(None);
         }
     }
 }
@@ -726,11 +737,13 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, state: Arc<RemoteState>) {
     let app = app.clone();
     let _ = std::thread::Builder::new()
         .name("plenipo-remote".into())
-        .spawn(move || loop {
-            if let Some(license) = app.try_state::<Arc<LicenseHost>>() {
-                state.look(&app, &license);
+        .spawn(move || {
+            while !state.quitting.load(Ordering::SeqCst) {
+                if let Some(license) = app.try_state::<Arc<LicenseHost>>() {
+                    state.look(&app, &license);
+                }
+                std::thread::sleep(LOOK_EVERY);
             }
-            std::thread::sleep(LOOK_EVERY);
         });
 }
 
