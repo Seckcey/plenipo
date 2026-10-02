@@ -1,0 +1,12 @@
+# Plenipo's relay: check GitHub for a new release every 15 minutes (Phase 14, ADR-149).
+[Unit]
+Description=Check for a new release of Plenipo's relay every 15 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target

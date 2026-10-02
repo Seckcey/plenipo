@@ -1,0 +1,46 @@
+[package]
+name = "plenipo-relay"
+description = "Plenipo's own relay for Plenipo on your phone (Phase 14, ADR-149): passes sealed messages between a Pro PC and its own phones, and nothing else. A small static Linux program, run by 8 West Ventures, LLC."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+# Only for the tests: the relay also trusts the license contract's test signing key, keeps a copy
+# of the sealed messages it passed (to prove the words never showed), and prints what a test needs
+# to know. A release never builds it.
+test-hooks = ["plenipo-licensing/test-keys"]
+
+[[bin]]
+name = "plenipo-relay"
+path = "src/main.rs"
+
+[dependencies]
+# 8 West's public license keys and the weekly answer's check (ADR-143 §3).
+plenipo-licensing = { path = "../licensing" }
+# The relay's messages, codes, passes, and fingerprints: one definition with the PC.
+plenipo-relay-contract = { path = "../relay-contract" }
+ed25519-dalek = "3"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+getrandom = "0.3"
+httparse = "1"
+log = { version = "0.4", features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["net", "time", "sync", "rt", "rt-multi-thread", "macros", "signal", "io-util"] }
+# WebSockets, server side only: no TLS here (the proxy in front of the relay ends TLS), so the
+# program builds static for musl.
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+
+[dev-dependencies]
+# The tests run Plenipo's own PC side and its stand-in phone through this relay.
+plenipo-remote = { path = "../remote", features = ["stand-in"] }
+plenipo-guard = { path = "../guard" }
+plenipo-licensing = { path = "../licensing", features = ["test-keys"] }
+plenipo-relay = { path = ".", features = ["test-hooks"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake"] }
+
+[lints]
+workspace = true

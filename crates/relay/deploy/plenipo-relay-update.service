@@ -1,0 +1,14 @@
+# Plenipo's relay: fetch the newest release's relay program and switch to it (Phase 14, ADR-149).
+# Started by plenipo-relay-update.timer; see crates/relay/deploy/README.md.
+[Unit]
+Description=Plenipo's relay: install the newest release's relay program
+Wants=network-online.target
+After=network-online.target plenipo-relay.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/plenipo-relay/deploy/update-relay.sh
+TimeoutStartSec=10min
+Nice=10
+IOSchedulingClass=idle
+PrivateTmp=yes

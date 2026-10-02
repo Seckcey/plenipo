@@ -422,9 +422,19 @@ const relay = { process: null, lines: [] };
 function startRelay() {
   assert.ok(
     existsSync(RELAY_BIN),
-    `the stand-in relay is not built: ${RELAY_BIN} (cargo build --release -p plenipo-remote --features stand-in --bin plenipo-test-relay)`,
+    `the relay is not built: ${RELAY_BIN} (cargo build --release -p plenipo-relay --features test-hooks, and PLENIPO_TEST_RELAY to it; or -p plenipo-remote --features stand-in --bin plenipo-test-relay)`,
   );
-  relay.process = spawn(RELAY_BIN, [String(RELAY_PORT)], { stdio: ["pipe", "pipe", "inherit"] });
+  relay.process = spawn(RELAY_BIN, [String(RELAY_PORT)], {
+    stdio: ["pipe", "pipe", "inherit"],
+    // Every test connection comes from this one machine: Plenipo's own relay must not take the
+    // suite for one address flooding it (its defaults suit the internet, not a test run).
+    env: {
+      ...process.env,
+      PLENIPO_RELAY_MAX_PER_ADDRESS: "500",
+      PLENIPO_RELAY_MAX_NEW_PER_MINUTE: "5000",
+      PLENIPO_RELAY_MAX_TRIES_PER_MINUTE: "5000",
+    },
+  });
   let partial = "";
   relay.process.stdout.on("data", (chunk) => {
     partial += chunk.toString("utf8");
@@ -432,8 +442,11 @@ function startRelay() {
     partial = lines.pop() ?? "";
     relay.lines.push(...lines.filter(Boolean));
   });
+  // The stand-in relay says "the stand-in relay listens on …"; Plenipo's own relay, built for the
+  // tests (PLENIPO_TEST_RELAY, ADR-149), says "the relay listens on …". Both print the same lines
+  // after that.
   return waitUntil(
-    () => relay.lines.some((l) => l.startsWith("the stand-in relay listens")),
+    () => relay.lines.some((l) => /^the (stand-in )?relay listens/.test(l)),
     "the relay",
   );
 }
