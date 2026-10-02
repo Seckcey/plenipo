@@ -790,6 +790,7 @@ pub fn phone_notice(org: &str, notice: &plenipo_ledger::Notice, at: u64) -> Phon
     let tag = match &about {
         Some(NoticeAbout::Approval { id }) => format!("approval:{org}:{id}"),
         Some(NoticeAbout::Lesson { id }) => format!("lesson:{org}:{id}"),
+        Some(NoticeAbout::Stopped) => "stopped".to_owned(),
         None => {
             use std::hash::{Hash as _, Hasher as _};
             let mut words = std::collections::hash_map::DefaultHasher::new();
@@ -813,11 +814,33 @@ pub fn phone_notice(org: &str, notice: &plenipo_ledger::Notice, at: u64) -> Phon
 /// sealed for each phone, signed with the PC's notice key, and sent straight to each phone's
 /// notice service, with Guard checking where. It never holds up the PC's own notice.
 pub fn send_notice<R: Runtime>(app: &AppHandle<R>, org: &str, notice: &plenipo_ledger::Notice) {
+    send_phone_notice(
+        app,
+        org,
+        &phone_notice(org, notice, plenipo_ledger::now_ms()),
+    );
+}
+
+/// The notice for Stop all (ADR-144 §3, §6): everything is stopped, and **Allow again** opens
+/// Plenipo on the phone. One tag, so the phone shows it once however many organizations stopped.
+pub fn stopped_notice(org: &str, at: u64) -> PhoneNotice {
+    PhoneNotice {
+        v: 1,
+        kind: "plenipo".into(),
+        org: org.to_owned(),
+        title: "Stopped: everything".into(),
+        body: "Browser, desktop, and server work is stopped. Allow it again from Plenipo.".into(),
+        about: Some(NoticeAbout::Stopped),
+        tag: "stopped".into(),
+        at,
+    }
+}
+
+fn send_phone_notice<R: Runtime>(app: &AppHandle<R>, org: &str, phone_notice: &PhoneNotice) {
     let Some(state) = app.try_state::<Arc<RemoteState>>() else {
         return;
     };
-    let phone_notice = phone_notice(org, notice, plenipo_ledger::now_ms());
-    let sealed = state.remote.sealed_notices(&phone_notice);
+    let sealed = state.remote.sealed_notices(phone_notice);
     if sealed.is_empty() {
         return;
     }
@@ -832,7 +855,7 @@ pub fn send_notice<R: Runtime>(app: &AppHandle<R>, org: &str, notice: &plenipo_l
     };
     let rules = state.built.rules.clone();
     let remote = state.remote.clone();
-    let kind = phone_notice.kind;
+    let kind = phone_notice.kind.clone();
     tauri::async_runtime::spawn(async move {
         use plenipo_capabilities::phone_notices::{self, Outcome};
         use plenipo_remote::service::Delivered;
@@ -860,9 +883,27 @@ pub fn watch<R: Runtime>(app: &AppHandle<R>, org: &str, ledger: &Ledger) {
     };
     let state = Arc::downgrade(state.inner());
     let org = org.to_owned();
+    let app = app.clone();
     ledger.add_listener(Arc::new(move |event: &LedgerEvent| {
         if let Some(s) = state.upgrade() {
             s.ledger_event(&org, event);
+        }
+        // Stop all is recorded in every organization: the phones are told once, from the first,
+        // when they want notices about Plenipo itself (part 14C).
+        if event.event_type == "control.stopped" && org == crate::orgs::FIRST {
+            let app = app.clone();
+            let org = org.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let wanted = crate::orgs::all_stacks(&app)
+                    .iter()
+                    .find(|s| s.place.id == org)
+                    .and_then(|s| s.ledger.notice_settings().ok())
+                    .unwrap_or_default()
+                    .wants(plenipo_ledger::NoticeKind::Plenipo);
+                if wanted {
+                    send_phone_notice(&app, &org, &stopped_notice(&org, plenipo_ledger::now_ms()));
+                }
+            });
         }
     }));
 }
@@ -927,6 +968,16 @@ mod tests {
             joined.tag,
             phone_notice("first", &pc_notice(NoticeKind::Problems, None), 9).tag
         );
+    }
+
+    #[test]
+    fn stop_alls_notice_says_so_once_and_offers_allow_again() {
+        let n = stopped_notice("first", 5);
+        assert_eq!(n.title, "Stopped: everything");
+        assert_eq!(n.kind, "plenipo");
+        assert_eq!(n.about, Some(NoticeAbout::Stopped));
+        // One tag for every organization's record of it: the phone shows it once.
+        assert_eq!(n.tag, stopped_notice("org2", 9).tag);
     }
 
     #[test]

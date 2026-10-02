@@ -95,6 +95,22 @@ describe("what tapping a notice does", () => {
     expect(tapOn("refuse", lesson)).toEqual({ kind: "open", target: "lesson:first:l1" });
   });
 
+  it("Stop all's notice has Allow again, which opens Plenipo (it never allows by itself)", () => {
+    const stopped: PhoneNotice = {
+      ...approval,
+      kind: "plenipo",
+      title: "Stopped: everything",
+      body: "Browser, desktop, and server work is stopped. Allow it again from Plenipo.",
+      about: { kind: "stopped" },
+      tag: "stopped",
+    };
+    const shown = noticeFor(stopped, "show");
+    expect(shown.options.actions).toEqual([{ action: "allow", title: "Allow again" }]);
+    const tapped = readNoticeData(shown.options.data)!;
+    expect(tapOn("allow", tapped)).toEqual({ kind: "open", target: "stopped:first" });
+    expect(targetFromHash(openUrl("stopped:first").slice(1))).toBe("stopped:first");
+  });
+
   it("opens a notice about nothing in particular at its kind", () => {
     expect(tapOn("", { ...data, kind: "finished", about: null })).toEqual({
       kind: "open",

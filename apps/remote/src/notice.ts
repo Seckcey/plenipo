@@ -47,7 +47,9 @@ export function noticeFor(
             { action: "keep", title: "Keep" },
             { action: "discard", title: "Discard" },
           ]
-        : [];
+        : about?.kind === "stopped"
+          ? [{ action: "allow", title: "Allow again" }]
+          : [];
   const data: NoticeData = { org: notice.org, kind: notice.kind, tag: notice.tag, about };
   return {
     title: hidden ? "Plenipo" : notice.title,
@@ -88,6 +90,7 @@ export function readNoticeData(value: unknown): NoticeData | null {
   const ok =
     about === null ||
     about === undefined ||
+    about.kind === "stopped" ||
     ((about.kind === "approval" || about.kind === "lesson") && typeof about.id === "string");
   return ok ? { org: d.org, kind: d.kind, tag: d.tag, about: about ?? null } : null;
 }
@@ -96,6 +99,7 @@ export function readNoticeData(value: unknown): NoticeData | null {
 export function openTarget(data: NoticeData): string {
   if (data.about?.kind === "approval") return `approval:${data.org}:${data.about.id}`;
   if (data.about?.kind === "lesson") return `lesson:${data.org}:${data.about.id}`;
+  if (data.about?.kind === "stopped") return `stopped:${data.org}`;
   return `${data.kind}:${data.org}`;
 }
 

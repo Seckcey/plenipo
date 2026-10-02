@@ -179,6 +179,8 @@ jobs:
           echo "PLENIPO_REMOTE_STAND_IN=http://127.0.0.1:8769" >> "$GITHUB_ENV"
           echo "PLENIPO_REMOTE_PAGE=http://localhost:8771" >> "$GITHUB_ENV"
           echo "PLENIPO_RELAY_PHONE=ws://127.0.0.1:8769/plenipo/v1/phone" >> "$GITHUB_ENV"
+          # Part 14C: notices go to a stand-in for the phones' notice services here.
+          echo "PLENIPO_NOTICES_STAND_IN=http://127.0.0.1:8772" >> "$GITHUB_ENV"
       - name: Build release app
         run: pnpm --filter @plenipo/desktop tauri build --no-bundle --features license-test-keys
       - name: Build fake agent CLIs for Phase 3 tests

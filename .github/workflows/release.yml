@@ -175,6 +175,7 @@ jobs:
           PLENIPO_AI_TOOL_RELEASES: ""
           PLENIPO_REMOTE_STAND_IN: ""
           PLENIPO_REMOTE_PAGE: ""
+          PLENIPO_NOTICES_STAND_IN: ""
         # Only releases sign: tauri.signing.conf.json is merged here, never in CI or `pnpm build`.
         # --verbose shows the signing tool's own error if it fails; Tauri hides it otherwise.
         run: |
@@ -206,6 +207,7 @@ jobs:
           PLENIPO_AI_TOOL_RELEASES: ""
           PLENIPO_REMOTE_STAND_IN: ""
           PLENIPO_REMOTE_PAGE: ""
+          PLENIPO_NOTICES_STAND_IN: ""
         run: pnpm --filter @plenipo/desktop tauri build --verbose
       - name: Keep the unsigned installer (dry run)
         if: inputs.dry_run

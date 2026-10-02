@@ -97,8 +97,14 @@ pub struct PhoneNotice {
 )]
 #[ts(export, rename = "PhoneNoticeAbout")]
 pub enum NoticeAbout {
-    Approval { id: String },
-    Lesson { id: String },
+    Approval {
+        id: String,
+    },
+    Lesson {
+        id: String,
+    },
+    /// Stop all stopped the PC's browser, desktop, and server work: **Allow again** opens Plenipo.
+    Stopped,
 }
 
 /// A phone's request, by kind.

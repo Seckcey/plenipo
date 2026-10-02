@@ -3,4 +3,4 @@
 /**
  * What a notice is about, by its ID.
  */
-export type PhoneNoticeAbout = { "kind": "approval", id: string, } | { "kind": "lesson", id: string, };
+export type PhoneNoticeAbout = { "kind": "approval", id: string, } | { "kind": "lesson", id: string, } | { "kind": "stopped" };
