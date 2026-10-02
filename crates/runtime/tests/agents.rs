@@ -2215,7 +2215,9 @@ async fn the_permissions_note_goes_out_in_full_only_when_needed() {
     h.rt.continue_turn(&id, &task, "the replies", note)
         .await
         .unwrap();
-    let detail = turn_where(&h.rt, &id, 3, |t| t.result.is_some()).await;
+    // Done and free: the result is recorded a moment before the turn stops running, and the
+    // next objective below would be refused as busy in between.
+    let detail = settled(&h.rt, &id, 3).await;
     let replies = detail.turns[2].steps[1]
         .result
         .clone()
