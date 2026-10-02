@@ -22,112 +22,131 @@ weekly answer, a mailbox name, or a challenge to a log.
 Keep the server's address and sign-in out of this repository (ADR-040, ADR-146): these steps call
 it "the server". Plenipo knows only the name `relay.getplenipo.com`.
 
-## Before you start: look
+## Set up (once)
 
-The server is shared and short on memory. Look first, and keep what you saw. From a copy of this
-folder on the server (as root):
+You need: SSH to the server as root, the Nginx Proxy Manager page (port 81 on the server), and
+Cloudflare for `getplenipo.com`. You do **not** need a copy of this repository on your PC. A
+published release that carries the relay (1.19.3 or later) must exist first.
+
+### 1. Get the setup files onto the server
+
+Sign in to the server, become root (`sudo -i` if your prompt does not say `root`), and paste:
 
 ```sh
-cd /root/plenipo-relay-deploy   # wherever you copied crates/relay/deploy
+mkdir -p /root/plenipo-relay-deploy && cd /root/plenipo-relay-deploy
+base=https://raw.githubusercontent.com/Seckcey/plenipo/main/crates/relay/deploy
+for f in install-relay.sh update-relay.sh plenipo-relay.service plenipo-relay-update.service plenipo-relay-update.timer relay.env.example; do
+  curl -fsSLO "$base/$f" || echo "FAILED: $f"
+done
+chmod +x install-relay.sh update-relay.sh
+ls -la
+```
+
+You should see six files and no `FAILED` line.
+
+### 2. Look first (changes nothing)
+
+```sh
 ./install-relay.sh --check
 ```
 
-It prints, and changes nothing: memory and swap, disk, every listening port, every running
-service, the containers, and **how Nginx Proxy Manager reaches this machine** (its network mode,
-and this machine's address on the Docker bridge). The real run writes the same to
-`/opt/plenipo-relay/looked-<time>.txt`.
+If it stops with `jq is not installed` (or another tool), run `apt install -y jq` and check again.
 
-**Pick the port.** The default is `8790`. If the list of listening ports shows `8790` in use, pick
-another free one and pass it with `--listen`.
+Read two parts of what it prints:
 
-**Pick the address.** Nginx Proxy Manager usually runs in a Docker container. A container cannot
-reach the host's `127.0.0.1`, so:
+- **Listening ports (TCP):** if `:8790` is **not** in the list, use port `8790`. If it is, pick
+  another free port (for example `8791`) and use it everywhere below.
+- **The proxy (Nginx Proxy Manager): how it reaches this machine:**
+  - `network mode host`: your address is `127.0.0.1:8790`.
+  - Anything else (`bridge`, or a name like `something_default`): the proxy runs in a Docker
+    container, which cannot reach the server's `127.0.0.1`. Your address is the Docker bridge
+    number on the next line, without the `/16`, for example `172.17.0.1:8790`. It is a private
+    address: only this machine and its containers can reach it. (The relay refuses any address the
+    internet could reach.)
 
-- If the proxy's network mode is `host`: use `127.0.0.1:8790`. The proxy forwards to
-  `127.0.0.1`.
-- If the proxy is on a Docker bridge (network mode `bridge`, or a named network): use this
-  machine's address on that bridge, which the check prints (usually `172.17.0.1`), for example
-  `--listen 172.17.0.1:8790`. The proxy forwards to that address. It is a private address: only
-  this machine and its containers can reach it, never the internet. The relay refuses to listen
-  on any address the internet could reach.
+### 3. Install
 
-## Set up (once, as root)
+Use the address from step 2:
 
-1. **Copy this folder to the server**, for example from your PC:
+```sh
+./install-relay.sh --listen 172.17.0.1:8790
+```
 
-   ```powershell
-   scp -r crates\relay\deploy milepost-rt:/root/plenipo-relay-deploy
-   ```
+It adds the system user `plenipo-relay`, `/opt/plenipo-relay`, `/etc/plenipo-relay/relay.env`, and
+the services, downloads the newest release's relay, checks it, and starts it. The last line starts
+with `Done. The relay runs as plenipo-relay on …`.
 
-2. **Look, then install** (the install needs the first release that carries the relay, 1.19.3,
-   to be published):
+### 4. Check it, on the server and from the proxy
 
-   ```sh
-   cd /root/plenipo-relay-deploy
-   chmod +x install-relay.sh update-relay.sh
-   ./install-relay.sh --check
-   ./install-relay.sh --listen 127.0.0.1:8790     # or --listen 172.17.0.1:8790, see above
-   ```
+```sh
+systemctl status plenipo-relay --no-pager      # active (running)
+curl -s http://172.17.0.1:8790/healthz          # ok   (your address)
+docker exec npm curl -s -m 5 http://172.17.0.1:8790/healthz   # ok: the proxy can reach it
+```
 
-   It adds the system user `plenipo-relay`, `/opt/plenipo-relay` (the program, one folder per
-   release), `/etc/plenipo-relay/relay.env` (the settings), the units `plenipo-relay.service`,
-   `plenipo-relay-update.service`, and `plenipo-relay-update.timer`, downloads the newest
-   release's program, checks it, and starts the relay. Then:
+`npm` is the proxy's container name (the check's **Containers** list shows it). If that container
+has no `curl`, use `docker exec npm wget -qO- -T 5 http://172.17.0.1:8790/healthz`. If it waits and
+prints nothing, something blocks the proxy from reaching the relay: stop and ask.
 
-   ```sh
-   systemctl status plenipo-relay --no-pager
-   curl -s http://127.0.0.1:8790/healthz      # ok   (use the address you chose)
-   journalctl -u plenipo-relay -n 20 --no-pager
-   ```
+If `systemctl status` shows the relay stopped with `SIGSYS` (the sandbox was too strict for this
+server), run:
 
-   If the status shows the program stopped with `SIGSYS` (the sandbox's system-call list was too
-   strict for this kernel), remove the two `SystemCallFilter=` lines from
-   `/etc/systemd/system/plenipo-relay.service`, then `systemctl daemon-reload && systemctl
-restart plenipo-relay`.
+```sh
+sed -i '/^SystemCallFilter=/d' /etc/systemd/system/plenipo-relay.service
+systemctl daemon-reload && systemctl restart plenipo-relay
+```
 
-3. **The proxy host, in Nginx Proxy Manager** (the web page on port 81):
-   - **Hosts → Proxy Hosts → Add Proxy Host.**
-   - **Details:** Domain Names `relay.getplenipo.com`; Scheme `http`; Forward Hostname / IP
-     `127.0.0.1` or `172.17.0.1` (the address you chose); Forward Port `8790`; **Websockets
-     Support on**; Block Common Exploits on; Cache Assets off.
-   - **SSL:** Request a new SSL Certificate (Let's Encrypt), **Force SSL** on, **HTTP/2** on,
-     **HSTS** on. (The certificate request needs the Cloudflare record below to exist first and
-     to point straight at the server, grey cloud; make the record, then come back and request the
-     certificate.)
-   - **Advanced** (optional, keeps idle connections open longer than the proxy's default 60
-     seconds; the relay and the PC ping every 30 seconds either way):
+### 5. The name, in Cloudflare
 
-     ```nginx
-     proxy_read_timeout 300s;
-     proxy_send_timeout 300s;
-     ```
+**getplenipo.com → DNS → Records → Add record:** type `A`, name `relay`, the server's public IPv4
+address (`curl -4 -s ifconfig.me` on the server prints it). Save, and wait about a minute.
 
-   - Save.
+Either cloud works:
 
-4. **The name, in Cloudflare** (the owner, signed in): **getplenipo.com → DNS → Add record**:
-   type `A`, name `relay`, the server's public IPv4 address, proxy status **DNS only** (grey
-   cloud) to begin with, so Let's Encrypt can check the name and WebSockets go straight to the
-   proxy. (If the server has an IPv6 address the proxy listens on, add an `AAAA` record too.)
-   Then request the certificate in step 3.
+- **Orange cloud (Proxied), the way it runs now:** tell the relay to read each phone's own address
+  from Cloudflare, so its limits count people and not Cloudflare. On the server:
 
-   If you later turn the Cloudflare proxy on (orange cloud): set
-   `PLENIPO_RELAY_CLIENT_ADDRESS=cloudflare` in `/etc/plenipo-relay/relay.env` and
-   `systemctl restart plenipo-relay`, so the limits count each phone's own address and not
-   Cloudflare's.
+  ```sh
+  sed -i 's/^PLENIPO_RELAY_CLIENT_ADDRESS=.*/PLENIPO_RELAY_CLIENT_ADDRESS=cloudflare/' /etc/plenipo-relay/relay.env
+  systemctl restart plenipo-relay
+  ```
 
-5. **Check from outside**, from your PC, with Plenipo's own PC code:
+- **Gray cloud (DNS only):** nothing to change; the default (`proxy`) is right.
 
-   ```powershell
-   cargo run -p plenipo-relay --example probe -- https://relay.getplenipo.com
-   ```
+### 6. The proxy host, in Nginx Proxy Manager
 
-   A healthy relay answers `not_pro` to a PC whose weekly answer is signed with the contract's
-   test key (the path works, and the lock on Pro is on), and `mailbox_closed` to a phone at a
-   mailbox nobody opened. `https://relay.getplenipo.com/healthz` says `ok` in a browser.
+**Hosts → Proxy Hosts → Add Proxy Host.**
 
-6. **Turn phone access on for everyone:** set the repository variable `PLENIPO_RELAY_LIVE` to
-   `true` on GitHub (Settings → Secrets and variables → Actions → Variables). The next release's
-   switch says **Use Plenipo from another device** instead of **Coming soon**.
+- **Details:** Domain Names `relay.getplenipo.com` (press Enter after typing it); Scheme `http`;
+  Forward Hostname / IP `172.17.0.1` (your address, without the port); Forward Port `8790`;
+  **Websockets Support on**; Block Common Exploits on; Cache Assets off.
+- **SSL:** Request a new SSL Certificate; **Force SSL**, **HTTP/2 Support**, and **HSTS Enabled**
+  on. Leave **Trust Upstream Forwarded Proto Headers** off. (Newer versions of Nginx Proxy Manager
+  ask no question about Let's Encrypt's terms.)
+- **Custom settings** (optional): newer versions keep them behind the **gear icon** at the top
+  right of the window, not an Advanced tab. You can skip them: the relay and the PC ping every 30
+  seconds, which keeps connections open.
+- **Save.** If the certificate fails, wait a minute for the Cloudflare record and save again.
+
+### 7. Check from outside
+
+- In a browser: `https://relay.getplenipo.com/healthz` says `ok`, with a padlock.
+- With Plenipo's own PC code (needs this repository and Rust on the computer that runs it):
+
+  ```sh
+  cargo run -p plenipo-relay --example probe -- https://relay.getplenipo.com
+  ```
+
+  Both lines say `good`: the relay answers `not_pro` to a PC whose weekly answer is signed with the
+  contract's test key (the path works, and the lock on Pro is on), and `mailbox_closed` to a phone
+  at a mailbox nobody opened.
+
+### 8. Turn phone access on for everyone
+
+On GitHub: the repository's **Settings → Secrets and variables → Actions → Variables** tab → **New
+repository variable**: name `PLENIPO_RELAY_LIVE`, value `true`. The next release's switch says
+**Use Plenipo from another device** instead of **Coming soon**. (Done on 2026-10-02; v1.19.4 is
+that release.)
 
 ## Every day
 
