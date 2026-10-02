@@ -69,7 +69,7 @@ is truly needed.
       repository, and have it built there.
 - [ ] In Cloudflare: point `relay.getplenipo.com` at the relay (WebSockets on), and
       `remote.getplenipo.com` at the page's own Tunnel (ADR-146, ADR-148).
-- [ ] The page's own small AWS server, and the page's home on it ([the steps](../../apps/remote/deploy/README.md); the builder can do the console work).
+- [x] The page's own small AWS server, and the page's home on it ([the steps](../../apps/remote/deploy/README.md)): set up 2026-10-02, serving v1.19.2 at `remote.getplenipo.com`.
 - [ ] Tell the builder when the relay answers, for one check by hand before release.
 
 ## Deliverables

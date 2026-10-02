@@ -1,19 +1,20 @@
 # Phase 14 — Acceptance Report
 
-|              |                                                                                                                                                                                                                                         |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Phase**    | 14 — Plenipo on Your Phone: a Web Interface Built From Scratch                                                                                                                                                                          |
-| **Branch**   | `claude/phase-14-phone`                                                                                                                                                                                                                 |
-| **Verified** | Locally on Windows: `pnpm check`, `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`, `pnpm bindings` (no diff). GitHub CI on the pull request, including Windows and the real-app tests on Linux.                       |
-| **Date**     | 2026-10-01 (Pacific time)                                                                                                                                                                                                               |
-| **Result**   | **Part 14A** built, as **v1.19.0**: every 14A deliverable, and every 14A test in the plan's list passes. Parts 14B and 14C follow. The checks only the owner can do, on real phones, are in section 5. Plenipo by 8 West Ventures, LLC. |
+|              |                                                                                                                                                                                                                                                                                                                                  |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase**    | 14 — Plenipo on Your Phone: a Web Interface Built From Scratch                                                                                                                                                                                                                                                                   |
+| **Branches** | `claude/phase-14-phone` (14A), `claude/phase-14b-phone` (14B), `claude/phase-14c-phone` (14C), `claude/phase-14-page-home` (the page's own server, ADR-148)                                                                                                                                                                      |
+| **Verified** | Locally on Windows for each part: `pnpm check`, `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`, `pnpm bindings` (no diff). GitHub CI on each pull request, including Windows and the real-app tests on Linux. The page's server, seen serving v1.19.2 at `https://remote.getplenipo.com` on 2026-10-02.       |
+| **Date**     | 2026-10-01 to 2026-10-02 (Pacific time)                                                                                                                                                                                                                                                                                          |
+| **Result**   | **Phase 14 delivered**, in three parts: 14A as **v1.19.0**, 14B as **v1.19.1**, 14C as **v1.19.2**. Every deliverable and every test in the plan's list passes. The phone's page is live on its own server. Phones reach their PC once the relay answers at `relay.getplenipo.com` (section 5). Plenipo by 8 West Ventures, LLC. |
 
-**In short, for the owner.** Your PC's side of using Plenipo from your phone is done and tested:
-the switch, adding a phone, its face, fingerprint, or passcode, the sealed line through 8 West's
-relay, every page to read, **Approve**, **Refuse**, and **Stop all**. The tests used a stand-in
-relay on the test machine and a real browser as the phone. A released copy says **Coming soon**
-until 8 West's relay is ready (ADR-140 §4, phone access reaches people only after the relay change
-is live). What you need to do is in section 5.
+**In short, for the owner.** Plenipo on your phone is built and released, in three parts: your
+phone pairs with your PC and signs in with its face, fingerprint, or passcode; it reads every page,
+answers approvals, and stops or allows work (14A, 14B); and it gets sealed notices when its page is
+closed (14C). The page is live at `remote.getplenipo.com`, on its own small server. The tests used a
+stand-in relay and a real browser as the phone. A released copy says **Coming soon** until 8 West's
+relay answers at `relay.getplenipo.com` (ADR-140 §4); what is left for that is in part 14A's
+section 5.
 
 ## Part 14A — the sealed line and the approvals (v1.19.0)
 
@@ -129,12 +130,12 @@ with made-up names.
 
 1. Approve the [relay change request](phase-14-relay-change-request.md) in the relay's own
    repository, and have it built there.
-2. In Cloudflare: point `relay.getplenipo.com` at the relay (WebSockets on), and
-   `remote.getplenipo.com` at the page's own Tunnel (ADR-146).
-3. The phone page's own small AWS server (ADR-148, the phone's page on its own server, for about
-   $7 to $8 a month), and the page's home on it. The steps are in
-   [`apps/remote/deploy/README.md`](../../apps/remote/deploy/README.md), and the builder can do the
-   console work.
+2. In Cloudflare: point `relay.getplenipo.com` at the relay (WebSockets on). **Done for the
+   page:** `remote.getplenipo.com` points at the page's own Tunnel (ADR-146).
+3. **Done, 2026-10-02:** the phone page's own small AWS server (ADR-148, the phone's page on its
+   own server, about $7 to $8 a month), set up by the builder from the steps in
+   [`apps/remote/deploy/README.md`](../../apps/remote/deploy/README.md), with the owner's one
+   click in Cloudflare. It serves each release's page by itself; seen serving v1.19.2.
 4. When the relay answers, set the repository variable `PLENIPO_RELAY_LIVE` to `true`; the next
    release turns the switch on.
 
@@ -242,7 +243,18 @@ leaves out the rest, which stays in Activity on the PC under All events (page te
 
 ### 3. Screenshots
 
-_Added from the pull request's test run._
+From the real-app test on GitHub's Linux machine (`tests/e2e/specs/remote.e2e.mjs`), as in part
+14A.
+
+- **On the phone:** [More: Notices on this phone, off](evidence/phase-14/phone-notices-off.png) ·
+  [on, with the lock-screen choice](evidence/phase-14/phone-notices-on.png) · [a notice opened: that
+  approval, on the phone](evidence/phase-14/phone-notice-opened.png) · [opened again after the PC
+  answered it: Already answered](evidence/phase-14/phone-notice-already-answered.png)
+- **On the PC:** [Settings → Notifications: Notices on my
+  phones](evidence/phase-14/phone-pc-notifications.png)
+- **Fixed from part 14B's screenshots:** the phone's Activity in plain words
+  ([dark](evidence/phase-14/phone-14c-activity-dark.png),
+  [light](evidence/phase-14/phone-14c-activity-light.png))
 
 ### 4. Checks only the owner can do, on real phones
 
