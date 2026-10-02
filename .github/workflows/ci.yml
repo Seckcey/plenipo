@@ -111,11 +111,16 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       # ADR-153: the Vault's test of the system's own store. On Linux that is the desktop's
-      # password store, which this machine has none of, so GNOME Keyring is started for it.
+      # password store, which this machine has none of, so GNOME Keyring is started for it, its
+      # login keyring made and unlocked with a throwaway password (it must be started as a
+      # daemon, and the password must end in a line break, or it stays locked).
       - name: The Vault in the system's own store (GNOME Keyring)
         run: |
-          out=$(dbus-run-session -- bash -c 'printf "" | gnome-keyring-daemon --unlock --components=secrets > /dev/null && PLENIPO_TEST_REAL_VAULT=1 cargo test --locked -p plenipo-capabilities --lib vault::tests::the_systems_own_store_keeps_and_forgets_a_value -- --exact' 2>&1)
+          # The output is shown whether the test passes or not (set -e would stop before it).
+          status=0
+          out=$(dbus-run-session -- bash -c 'gnome-keyring-daemon --components=secrets --daemonize --unlock <<< plenipo-ci > /dev/null && PLENIPO_TEST_REAL_VAULT=1 cargo test --locked -p plenipo-capabilities --lib vault::tests::the_systems_own_store_keeps_and_forgets_a_value -- --exact' 2>&1) || status=$?
           echo "$out"
+          [ "$status" -eq 0 ] || { echo "::error::The Vault's test of the system's own store failed (exit $status)"; exit 1; }
           echo "$out" | grep -q "test result: ok. 1 passed" || { echo "::error::The Vault's test of the system's own store did not run and pass"; exit 1; }
       - name: Generated TypeScript bindings are up to date
         run: |
@@ -239,7 +244,7 @@ jobs:
         # ADR-153: the Vault on Linux is the desktop's password store. This machine has none, so
         # GNOME Keyring is started for the run, unlocked, on the run's own session bus.
         run: |
-          dbus-run-session -- bash -c 'printf "" | gnome-keyring-daemon --unlock --components=secrets > /dev/null && xvfb-run -a pnpm e2e'
+          dbus-run-session -- bash -c 'gnome-keyring-daemon --components=secrets --daemonize --unlock <<< plenipo-ci > /dev/null && xvfb-run -a pnpm e2e'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
