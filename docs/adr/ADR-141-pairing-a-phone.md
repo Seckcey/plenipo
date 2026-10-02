@@ -1,6 +1,6 @@
 # ADR-141: Pairing a phone — a picture code or a typed code, shown on your PC
 
-- **Status:** Proposed (2026-10-01)
+- **Status:** Accepted (by the owner, 2026-10-01, as recommended)
 - **Date:** 2026-10-01
 - **Phase:** 14
 - **Part of:** [ADR-140 (Phase 14 starts)](ADR-140-phase-14-starts.md)

@@ -1,18 +1,20 @@
 # ADR-146: Where the phone's page lives — its own address, never on the relay
 
-- **Status:** Proposed (2026-10-01)
+- **Status:** Accepted (by the owner, 2026-10-01: "as recommended but can we make the address be
+  remote.getplenipo.com instead of phone.getplenipo.com?"). The page's address is
+  **`remote.getplenipo.com`**; everything else is as recommended.
 - **Date:** 2026-10-01
 - **Phase:** 14
 - **Part of:** [ADR-140 (Phase 14 starts)](ADR-140-phase-14-starts.md)
 - **Keeps:** [ADR-040 (Phase 14 is Plenipo's own web interface for a phone)](ADR-040-phone-web-interface.md)
   §5, "The relay's address and sign-in are kept out of this repository"
 
-> **On screen** (ADR-010, plain words and rank names): the address `phone.getplenipo.com`, shown in
+> **On screen** (ADR-010, plain words and rank names): the address `remote.getplenipo.com`, shown in
 > the picture code and on Settings → Devices.
 
 ## In short
 
-Your phone opens Plenipo's page at its own address, **`phone.getplenipo.com`**. The page's files are
+Your phone opens Plenipo's page at its own address, **`remote.getplenipo.com`**. The page's files are
 built from this repository with each release, and served by **the same machine that serves Plenipo's
 website**, updated the same way. **The relay never serves the page**: if it did, a relay that went bad
 could change the page and trick you. Plenipo reaches the relay by a name of its own,
@@ -36,10 +38,10 @@ address never goes in this repository.
 
 ## Decision
 
-1. **The page's address: `phone.getplenipo.com`** (recommended). Its own address, apart from the
+1. **The page's address: `remote.getplenipo.com`** (the owner's choice). Its own address, apart from the
    website, so the page shares nothing with it: not its storage, its passkeys, its notice sign-ups,
    or any script.
-2. **Its files are built from this repository**, in a new app, `apps/phone` (React, with the design
+2. **Its files are built from this repository**, in a new app, `apps/remote` (React, with the design
    system in `packages/ui`), by the release's own checks, and **served next to the website on
    Coastline**, through the same Cloudflare Tunnel, updated from each release the same way as the
    website (recommended). A new piece of the website's updater serves them; the website's own files

@@ -1,6 +1,8 @@
 # ADR-145: The fixed list of what a phone may ask, and what stays on your PC only
 
-- **Status:** Proposed (2026-10-01)
+- **Status:** Accepted (by the owner, 2026-10-01, as recommended): none of the approvals is kept on the PC to begin
+  with (question 7). The face, fingerprint, or passcode check is asked only at sign-in (ADR-142), so
+  every request on the list needs a signed-in phone.
 - **Date:** 2026-10-01
 - **Phase:** 14
 - **Part of:** [ADR-140 (Phase 14 starts)](ADR-140-phase-14-starts.md)
@@ -41,19 +43,19 @@ begin with, there are none, as the plan says.
 2. **The list is a fixed set of request kinds in code** (one Rust `enum`, with no "any command"
    kind). Anything not on it cannot even be written down, and Guard refuses a request it cannot read.
 
-   | What the phone asks                                                                                                                                                                                                 | Needs                                          | Part |
-   | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ---- |
-   | **Read:** Home; Approvals; the organization; projects; workers; tasks and their conversations; Activity; AI tools; Diagnostics; whether everything is stopped; lessons waiting; the list of organizations on the PC | Signed in                                      | 14A  |
-   | **Refuse** an approval                                                                                                                                                                                              | Signed in                                      | 14A  |
-   | **Approve** an approval                                                                                                                                                                                             | Signed in, and the check for this answer       | 14A  |
-   | **Stop all**                                                                                                                                                                                                        | Signed in                                      | 14A  |
-   | **Sign out**; **Remove this phone**                                                                                                                                                                                 | Signed in                                      | 14A  |
-   | **Allow again** after Stop all                                                                                                                                                                                      | Signed in, and the check                       | 14B  |
-   | **Stop** one worker's task                                                                                                                                                                                          | Signed in                                      | 14B  |
-   | **Run again** / **Leave stopped** after an unexpected stop                                                                                                                                                          | Run again: the check. Leave stopped: signed in | 14B  |
-   | **Keep** / **Discard** a lesson, as written                                                                                                                                                                         | Keep: the check. Discard: signed in            | 14B  |
-   | **Send an objective** to a Manager, Supervisor, or other position that takes objectives (text only, up to the PC's own size limit)                                                                                  | Signed in, and the check                       | 14B  |
-   | **Refuse** / **Discard** right from a notice                                                                                                                                                                        | The phone's own key (ADR-142 §6)               | 14C  |
+   | What the phone asks                                                                                                                                                                                                 | Needs                            | Part |
+   | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ---- |
+   | **Read:** Home; Approvals; the organization; projects; workers; tasks and their conversations; Activity; AI tools; Diagnostics; whether everything is stopped; lessons waiting; the list of organizations on the PC | Signed in                        | 14A  |
+   | **Refuse** an approval                                                                                                                                                                                              | Signed in                        | 14A  |
+   | **Approve** an approval                                                                                                                                                                                             | Signed in                        | 14A  |
+   | **Stop all**                                                                                                                                                                                                        | Signed in                        | 14A  |
+   | **Sign out**; **Remove this phone**                                                                                                                                                                                 | Signed in                        | 14A  |
+   | **Allow again** after Stop all                                                                                                                                                                                      | Signed in                        | 14B  |
+   | **Stop** one worker's task                                                                                                                                                                                          | Signed in                        | 14B  |
+   | **Run again** / **Leave stopped** after an unexpected stop                                                                                                                                                          | Signed in                        | 14B  |
+   | **Keep** / **Discard** a lesson, as written                                                                                                                                                                         | Signed in                        | 14B  |
+   | **Send an objective** to a Manager, Supervisor, or other position that takes objectives (text only, up to the PC's own size limit)                                                                                  | Signed in                        | 14B  |
+   | **Refuse** / **Discard** right from a notice                                                                                                                                                                        | The phone's own key (ADR-142 §5) | 14C  |
 
    The phone's own choices (its notices, the lock-screen words, its theme) live on the phone and ask
    the PC nothing.
@@ -76,9 +78,7 @@ begin with, there are none, as the plan says.
 4. **Guard decides every request**, in a new part of Guard (`guard::remote`), in this order: phone
    access is on; Pro; the phone is paired and not paused; the meeting is signed in and not ended
    (except **Refuse** and **Discard** sent from a notice, which need only the phone's own key,
-   ADR-142 §6); the
-   request is on the list; the check is present and right when the request needs it (ADR-142 §4); an
-   approval is not one kept on the PC (item 5). Each refusal has one plain sentence, as Guard's other
+   ADR-142 §5); the request is on the list; an approval is not one kept on the PC (item 5). Each refusal has one plain sentence, as Guard's other
    refusals do. Then the PC calls the same core function the main window uses, which applies all of
    its own rules too (an approval answered once, expired, or gone; Free's limits; a project that is
    not active).

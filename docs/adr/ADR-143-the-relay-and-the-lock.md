@@ -1,6 +1,7 @@
 # ADR-143: The relay and the lock — sealed end to end, no copies, sign-in, and wrong tries
 
-- **Status:** Proposed (2026-10-01)
+- **Status:** Accepted (by the owner, 2026-10-01, as recommended), including the relay's check that the PC is Pro
+  (question 5). The face, fingerprint, or passcode check is asked only at sign-in (ADR-142).
 - **Date:** 2026-10-01
 - **Phase:** 14
 - **Part of:** [ADR-140 (Phase 14 starts)](ADR-140-phase-14-starts.md)
@@ -77,8 +78,8 @@ stop listening for a while.
      fails, and the PC ends that meeting at once.
    - Every request carries a random ID. The PC refuses an ID it has already seen in that sign-in, and
      keeps each request's outcome for that time.
-   - Every answer that lets work go ahead also carries a passkey answer made for that one request
-     (ADR-142 §4).
+   - Every request needs a signed-in meeting (ADR-142 §3, §4), except **Refuse** and **Discard**
+     sent from a notice (ADR-142 §5).
 7. **Sign-in, and ending it.** A meeting is signed in once the phone's passkey answer is checked
    (ADR-142 §3). It ends:
    - after **30 minutes** with no request, or **12 hours** in all;
@@ -95,7 +96,7 @@ stop listening for a while.
      answering new meetings for 1 minute, then 2, 4, and so on up to 15 minutes. A phone already
      signed in keeps working. If it keeps happening, the PC tells you: "**Someone keeps trying to
      reach your PC as a phone.**"
-   - Passkey answers the PC refuses: ADR-142 §7.
+   - Passkey answers the PC refuses: ADR-142 §6.
    - The relay limits connections and tries from each internet address too (the change request).
 9. **When the PC cannot be reached.** The phone shows "**Your PC can't be reached. Nothing was
    changed.**" Nothing waits at the relay to run later. If the connection drops after a request was

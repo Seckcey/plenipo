@@ -1,9 +1,8 @@
 # Phase 14 — Implementation Checklist
 
-**Status: planning.** The owner said Phase 22 is live on 2026-10-01, and Phase 14 started on branch
-`claude/phase-14-phone` (ADR-132, the final push). The decision records below are **Proposed** and
-wait for the owner's answers. **No code is written until the owner has answered and raised the
-effort level.** Below, "[x]" is done. Plenipo is made by 8 West Ventures, LLC.
+**Status: building part 14A.** The owner said Phase 22 is live on 2026-10-01, and Phase 14 started
+on branch `claude/phase-14-phone` (ADR-132, the final push). The owner answered the questions the
+same day, and the decision records below are **Accepted**. Below, "[x]" is done. Plenipo is made by 8 West Ventures, LLC.
 
 Source: `ROLLOUT_PLAN.md`, Phase 14 — Plenipo on Your Phone: a Web Interface Built From Scratch, and
 the records written for it:
@@ -35,37 +34,41 @@ permissions, and the records stay on the owner's PC."
 - **Turn it on at your PC.** Settings → Switches → **Use Plenipo from another device**. It is part of
   Pro. Off is off: every phone is cut off at once.
 - **Add a phone at your PC.** Settings → Devices → **Add a phone** shows a picture code and a typed
-  code. Your phone scans it in Plenipo's page (`phone.getplenipo.com`), your PC asks **Is this your
+  code. Your phone scans it in Plenipo's page (`remote.getplenipo.com`), your PC asks **Is this your
   phone?**, and the phone sets up your face, fingerprint, or passcode for Plenipo.
-- **Use it.** Read every page. **Approve** with your face or fingerprint. **Refuse**, **Stop all**, and
-  stop work any time. Later parts add **Allow again**, **Run again**, lessons, objectives, and
+- **Use it.** Sign in with your face or fingerprint. Then read every page, **Approve**, **Refuse**,
+  **Stop all**, and stop work. Later parts add **Allow again**, **Run again**, lessons, objectives, and
   notices when the page is closed.
 - **Your PC stays in charge.** The phone talks to it through 8 West's relay, sealed so the relay
   cannot read or change anything. Guard decides every request, and Activity shows each one with the
   phone that sent it.
 
-## Owner decisions (waiting, 2026-10-01)
+## Owner decisions (answered, 2026-10-01)
 
-Each record says **Proposed** until the owner answers. The builder's recommendation is first.
+The owner answered every question on 2026-10-01: "as recommended", except question 2 and the
+address in question 8. Each record now says **Accepted**.
 
-| #   | Question                                                           | Recommended                                                                                                                                  | Record   |
-| --- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| 1   | How a phone is paired                                              | On the PC: a picture code or a 16-letter typed code; the PC asks "Is this your phone?"; no 8 West account                                    | 141      |
-| 2   | How the phone proves it is you                                     | A passkey (face, fingerprint, or passcode), checked by your PC, at sign-in and for each Approve, Allow again, Run again, Keep, and objective | 142      |
-| 3   | From a notice                                                      | Android: **Refuse** right on the notice; **Approve** opens the page with the check ready. iPhone: one tap opens it                           | 142, 144 |
-| 4   | How long you stay signed in                                        | 30 minutes after your last request, 12 hours at most                                                                                         | 142, 143 |
-| 5   | Does the relay check that the PC is Pro?                           | Yes, with 8 West's signed weekly answer the PC already has                                                                                   | 143      |
-| 6   | Notices: straight from the PC, or through the relay?               | Straight from the PC to Apple's or Google's notice service (changes one line of ADR-040)                                                     | 144      |
-| 7   | Approvals kept on the PC only, to begin with                       | None, as the plan says; you can tick any                                                                                                     | 145      |
-| 8   | The page's address, the relay's name, and where the page is served | `phone.getplenipo.com`, served next to the website on Coastline; `relay.getplenipo.com`                                                      | 146      |
-| 9   | Three parts (14A, 14B, 14C)                                        | Yes, as ADR-140 lists                                                                                                                        | 140      |
+| #   | Question                                                 | The owner's answer                                                                                         | Record   |
+| --- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------- |
+| 1   | How a phone is paired                                    | As recommended: on the PC, a picture code or a 16-letter typed code; the PC asks "Is this your phone?"     | 141      |
+| 2   | How the phone proves it is you                           | **Only at sign-in**: a passkey (face, fingerprint, or passcode), checked by your PC                        | 142      |
+| 3   | From a notice                                            | As recommended: Android, **Refuse** on the notice and **Approve** opens the page; iPhone, one tap opens it | 142, 144 |
+| 4   | How long you stay signed in                              | As recommended: 30 minutes after your last request, 12 hours at most                                       | 142, 143 |
+| 5   | Does the relay check that the PC is Pro?                 | As recommended: yes, with 8 West's signed weekly answer                                                    | 143      |
+| 6   | Notices: straight from the PC, or through the relay?     | As recommended: straight from the PC (amends ADR-040)                                                      | 144      |
+| 7   | Approvals kept on the PC only, to begin with             | As recommended: none                                                                                       | 145      |
+| 8   | The page's address, the relay's name, where it is served | **`remote.getplenipo.com`**, served next to the website on Coastline; `relay.getplenipo.com`               | 146      |
+| 9   | Three parts (14A, 14B, 14C)                              | As recommended                                                                                             | 140      |
+
+The owner also said: build it, commit, push, merge, and release, without stopping unless the owner
+is truly needed.
 
 ## Before part 14A can reach a real phone (the owner's steps)
 
 - [ ] Approve the [relay change request](phase-14-relay-change-request.md) in the relay's own
       repository, and have it built there.
 - [ ] In Cloudflare: point `relay.getplenipo.com` at the relay (WebSockets on), and
-      `phone.getplenipo.com` at Coastline's tunnel (ADR-146).
+      `remote.getplenipo.com` at Coastline's tunnel (ADR-146).
 - [ ] On Coastline: the phone page's piece of the website's updater (the builder writes the steps).
 - [ ] Tell the builder when the relay answers, for one check by hand before release.
 
@@ -86,7 +89,7 @@ Each record says **Proposed** until the owner answers. The builder's recommendat
       each other (ADR-143 §5)
 - [ ] Settings → Devices: **Add a phone** (picture code, typed code, 10 minutes, 3 tries), **Is this
       your phone?**, the list, **Rename**, **Remove**, un-pause (ADR-141)
-- [ ] The passkey: made at pairing, checked by the PC at sign-in and for each **Approve** (ADR-142)
+- [ ] The passkey: made at pairing, checked by the PC at sign-in (ADR-142)
 - [ ] Sign-in and its end: 30 minutes idle, 12 hours, **Sign out**, **Remove**, switch off, Pro ends
       (ADR-143 §7)
 - [ ] Wrong tries: pairing codes, failed meetings, refused passkey answers (ADR-141 §5, ADR-142 §7,
@@ -96,7 +99,7 @@ Each record says **Proposed** until the owner answers. The builder's recommendat
       §6)
 - [ ] **Keep these approvals on my PC only**, none ticked; "Approve on your PC" on the phone (ADR-145
       §5)
-- [ ] `apps/phone`: the page, phone screen first, both themes, from the keyboard, design system and
+- [ ] `apps/remote`: the page, phone screen first, both themes, from the keyboard, design system and
       plain words; **Pair this phone**, sign-in, every read page, Approvals with **Approve** and
       **Refuse**, **Stop all**, **Sign out**, **Remove this phone**, more than one organization
       (ADR-145 §7)
@@ -109,18 +112,18 @@ Each record says **Proposed** until the owner answers. The builder's recommendat
 
 ### Part 14B — everything else that is safe from the page (`1.19.1`)
 
-- [ ] **Allow again** after Stop all, with the check
+- [ ] **Allow again** after Stop all
 - [ ] **Stop** one worker's task
-- [ ] **Run again** (with the check) and **Leave stopped** after an unexpected stop
-- [ ] **Keep** (with the check) and **Discard** a lesson, as written
-- [ ] **Send an objective** to a position that takes objectives, text only, with the check
+- [ ] **Run again** and **Leave stopped** after an unexpected stop
+- [ ] **Keep** and **Discard** a lesson, as written
+- [ ] **Send an objective** to a position that takes objectives, text only
 - [ ] Release notes and part 14B's section of the acceptance report
 
 ### Part 14C — notices when the page is closed (`1.19.2`; Phase 14 delivered)
 
 - [ ] The PC's notice key, in the Vault; signing up for notices inside the sealed line (ADR-144 §2)
 - [ ] Guard's purpose **phone notices**: only the four notice services, only to a phone's own address
-      (ADR-144 §1), if the owner accepts sending straight from the PC
+      (ADR-144 §1)
 - [ ] Notices sealed for the phone (RFC 8291), signed by the PC's key (RFC 8292) (ADR-144 §4)
 - [ ] The short line, from Guard's cleaned approval card; the lock-screen choice on the phone
       (ADR-144 §3, §5)
@@ -170,10 +173,9 @@ listed again in the acceptance report:
 
 - [ ] Pair an **iPhone** from its Home Screen page, and an **Android** phone from Chrome
 - [ ] Face ID or Touch ID on the iPhone, and the fingerprint or screen lock on Android, at sign-in
-      and for an approval
 - [ ] A notice on each phone while the page is closed; its words on the lock screen, and "Something
       needs you" when chosen
-- [ ] On Android, **Refuse** from the notice, and **Approve** from the notice through the check
+- [ ] On Android, **Refuse** from the notice, and **Approve** from the notice (unlock, then one tap)
 - [ ] On the iPhone, one tap from the notice to that approval
 - [ ] Turn the switch off on the PC while the phone is open, and see it cut off
 - [ ] **Remove** a phone on the PC, and see it refused at once

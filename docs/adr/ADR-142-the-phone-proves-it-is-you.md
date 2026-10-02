@@ -1,6 +1,9 @@
 # ADR-142: The phone proves it is you — a passkey, with your face, fingerprint, or passcode, checked by your PC
 
-- **Status:** Proposed (2026-10-01)
+- **Status:** Accepted (by the owner, 2026-10-01), with one change from the builder's
+  recommendation: the face, fingerprint, or passcode check is asked **only at sign-in** (the owner's
+  answer to question 2: "Only at sign in"), not again for each approval. The notice buttons are as
+  recommended (question 3), and so is how long you stay signed in (question 4).
 - **Date:** 2026-10-01
 - **Phase:** 14
 - **Part of:** [ADR-140 (Phase 14 starts)](ADR-140-phase-14-starts.md)
@@ -15,12 +18,12 @@
 
 When you pair a phone, it makes a **passkey** for Plenipo: a key that lives in the phone's own
 keychain and only works after your face, fingerprint, or phone passcode. Your **PC** checks it, not
-the relay and not 8 West. You use it to **sign in**, and again for **each approval**, so the check
-covers that exact answer and nothing else. Saying no, stopping work, and reading never need it.
+the relay and not 8 West. You use it to **sign in**. While you are signed in (30 minutes after your
+last tap, 12 hours at most), the phone can answer approvals without asking again.
 
 From a notice: on **Android**, **Refuse** works right on the notice, and **Approve** opens Plenipo on
-that approval with the check ready. On an **iPhone**, a web notice has no buttons, so one tap opens
-that approval.
+that approval (the phone unlocks first, and Plenipo asks you to sign in if you are not). On an
+**iPhone**, a web notice has no buttons, so one tap opens that approval.
 
 ## Context
 
@@ -52,60 +55,52 @@ What phones allow today (checked against the browsers' published support, 2026-1
    challenge, the signature, and the flag that says the person was checked. An answer without that
    flag is refused. A signature counter that goes backwards is refused; a counter that is always 0
    (common for synced passkeys) is allowed.
-3. **Signing in needs the check.** Opening the page starts a sealed meeting (ADR-143), and the PC asks
-   for a passkey answer over that meeting's own fingerprint, so a sign-in cannot be lifted into another
-   meeting. **You stay signed in for 30 minutes after your last request, and 12 hours at most.** A
-   dropped connection inside that time picks up again without a new check, because it needs the phone's
-   own key too.
-4. **Each answer that lets work go ahead needs a fresh check, made for that one answer:**
-   - **Approve** an approval;
-   - **Allow again** after Stop all;
-   - **Run again** after an unexpected stop;
-   - **Keep** a lesson;
-   - **send an objective**.
-
-   The phone asks the PC for a challenge for that exact request. The PC makes one that covers the
-   meeting, the request, its ID, and a fresh random number, good once, for 2 minutes. The phone
-   shows what it is approving, runs the check, and sends the answer. A copied answer cannot be used
-   again, or for another approval.
-
-5. **Answers that only stop or say no need no check,** only a signed-in phone: reading any page,
-   **Refuse**, **Discard** a lesson, stopping one worker, **Stop all**, **Leave stopped**, **Sign out**,
-   and **Remove this phone**. None of them can let anything happen.
-6. **From a notice (part 14C):**
+3. **Signing in needs the check, and nothing else does** (the owner's choice). Opening the page
+   starts a sealed meeting (ADR-143), and the PC asks for a passkey answer over that meeting's own
+   fingerprint, so a sign-in cannot be lifted into another meeting. **You stay signed in for 30
+   minutes after your last request, and 12 hours at most.** A dropped connection inside that time
+   picks up again without a new check, because it needs the phone's own key too.
+4. **While signed in, the phone may make any request on the list** (ADR-145): read, **Approve**,
+   **Refuse**, **Allow again**, **Run again**, **Leave stopped**, **Keep** or **Discard** a lesson,
+   stop work, **Stop all**, and send an objective. Each still goes through Guard on the PC.
+5. **From a notice (part 14C):**
    - **Android:** an approval's notice has **Approve** and **Refuse**. **Refuse** is sent from the
      notice by the page's background part, sealed with the phone's own key (ADR-143); it needs no
-     sign-in, because it only says no. **Approve** opens Plenipo on that approval with the check ready
-     (it starts by itself where the phone allows, and otherwise after one tap on **Check it's you**).
+     sign-in, because it only says no. **Approve** opens Plenipo on that approval. Opening it makes
+     the phone unlock first (the phone's own check), Plenipo asks you to sign in if you are not, and
+     one tap on **Approve** answers it. A link that opens the page never approves anything by itself.
    - **iPhone:** one tap on the notice opens that approval, with **Approve** and **Refuse**.
-   - **Allow again** after Stop all, and a lesson's **Keep**, work the same way as **Approve**.
-7. **Too many failed checks pause the phone.** Three passkey answers the PC refuses within 10
+   - **Allow again** after Stop all, and a lesson's **Keep**, work the same way as **Approve**; a
+     lesson's **Discard** works like **Refuse**.
+6. **Too many failed checks pause the phone.** Three passkey answers the PC refuses within 10
    minutes pause that phone until you un-pause it on the PC (Settings → Devices), with a notice on the
    PC. The phone's own face and fingerprint retries are the phone's business.
-8. **Recorded:** `remote.signed_in`, `remote.signed_out` (with why: you, idle, 12 hours, removed,
+7. **Recorded:** `remote.signed_in`, `remote.signed_out` (with why: you, idle, 12 hours, removed,
    switched off, Pro ended), `remote.check_refused`, and `remote.device_paused`, with the device.
    Never a passkey answer or a challenge.
 
 ## Consequences
 
-- A stolen, locked phone can do nothing that lets work go ahead. An unlocked phone within 30 minutes
-  of your last use can read, say no, and stop work, and nothing more without your face, fingerprint,
-  or passcode.
-- The owner sees the face or fingerprint prompt often: at sign-in and for each approval. That is the
-  price of approving from outside the house.
-- Approving from an Android notice is two steps (tap, then the check), not one. No web page can do
-  better: a notice's button cannot run the check.
+- A stolen, locked phone can do nothing: the page needs a sign-in with your face, fingerprint, or
+  passcode, and a notice's **Approve** needs the phone unlocked.
+- **The risk the owner accepted:** someone holding your **unlocked** phone within 30 minutes of your
+  last use could approve what is waiting. Lock your phone when you put it down, and use **Sign out**
+  or **Remove** on the PC if it is lost.
+- The owner sees the face or fingerprint prompt once per sign-in, not for every approval.
+- Approving from an Android notice is two taps (the notice, then **Approve**), not one. A link alone
+  never approves, so a trick link cannot.
 - The PC needs code to check a passkey answer. It uses the signature libraries already in the build
   (`p256` for most phones, `ed25519-dalek` for the rest), with test answers made by a stand-in
   authenticator.
 
 ## Alternatives considered
 
+- **A fresh check for each approval, made for that one answer** (the builder's recommendation). It
+  would stop someone holding your unlocked phone, at the cost of a prompt for every approval. Not
+  chosen by the owner.
 - **Trust the phone's own lock screen** (a notice's **Approve** answers at once). One step, but the
   PC could not tell who tapped it, and some phones run notice buttons from the lock screen. Not
-  recommended.
-- **Check only at sign-in.** Fewer prompts, but anyone holding your unlocked phone could approve for
-  30 minutes.
+  chosen.
 - **A PIN typed into Plenipo's page.** It works on any phone, but it can be watched over a shoulder,
   and the page would have to keep the PIN safe itself. The phone's own check is stronger and already
   set up.

@@ -1,10 +1,11 @@
 # ADR-144: Notices on your phone when the page is closed, sealed so only your phone can read them
 
-- **Status:** Proposed (2026-10-01)
+- **Status:** Accepted (by the owner, 2026-10-01, as recommended): notices go **straight from the PC** (question 6),
+  with the buttons of question 3.
 - **Date:** 2026-10-01
 - **Phase:** 14 (part 14C)
 - **Part of:** [ADR-140 (Phase 14 starts)](ADR-140-phase-14-starts.md)
-- **Amends, if accepted as recommended:** [ADR-040 (Phase 14 is Plenipo's own web interface for a
+- **Amends:** [ADR-040 (Phase 14 is Plenipo's own web interface for a
   phone)](ADR-040-phone-web-interface.md) §5, "by web push through the relay": your PC sends each
   sealed notice **straight to your phone's notice service** (Apple's, Google's, Mozilla's, or
   Microsoft's), and the relay never handles notices. Everything else in §5 stands.
@@ -59,10 +60,11 @@ your Home Screen first; the page shows you how.
 5. **The lock screen is your phone's choice:** **Show what it is** (the line), or **Show only
    "Something needs you"**. The choice lives on the phone, and the phone applies it when the notice
    arrives, before anything shows.
-6. **Buttons** (ADR-142 §6): on Android, an approval's notice has **Approve** and **Refuse**; Stop
+6. **Buttons** (ADR-142 §5): on Android, an approval's notice has **Approve** and **Refuse**; Stop
    all's has **Allow again**; a lesson's has **Keep** and **Discard**. **Refuse** and **Discard** are
-   sent from the notice; **Approve**, **Allow again**, and **Keep** open that item with the check
-   ready. On an iPhone, a tap opens that item.
+   sent from the notice; **Approve**, **Allow again**, and **Keep** open that item (the phone unlocks
+   first, and Plenipo asks you to sign in if you are not), where one tap answers it. On an iPhone, a
+   tap opens that item.
 7. **Which notices go to the phone:** the same kinds your PC shows, with the same on and off switches
    in **Settings → Notifications**, plus a switch for the phone as a whole. Notices that come
    together are joined, as on the PC.

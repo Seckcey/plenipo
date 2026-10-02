@@ -1,7 +1,10 @@
 # ADR-140: Phase 14 starts — its numbers, what the check found, and its three parts
 
-- **Status:** Proposed (2026-10-01). The owner said Phase 22 is live on 2026-10-01 and told the
-  builder to begin Phase 14 in a new branch.
+- **Status:** Accepted (by the owner, 2026-10-01: "as recommended"). The owner said Phase 22 is
+  live on 2026-10-01 and told the builder to begin Phase 14 in a new branch, then answered the nine
+  questions the same day: every one as recommended, except that the face, fingerprint, or passcode
+  check is asked only at sign-in (ADR-142), and the page's address is `remote.getplenipo.com`
+  (ADR-146).
 - **Date:** 2026-10-01
 - **Phase:** 14 (Plenipo on your phone: a web interface built from scratch)
 - **Carries out:** [ADR-132 (the final push)](ADR-132-the-final-push.md) §1 and §2: Phase 14 is
@@ -24,14 +27,14 @@ and wrote one record for each big choice. **Accepting this record means** Phase 
 ADR-149, is built in **three parts** (each its own pull request and release), and starts with the
 records below:
 
-| Record | What it settles                                                                     |
-| ------ | ----------------------------------------------------------------------------------- |
-| 141    | How a phone is paired: a picture code (QR code) or a typed code, shown on your PC   |
-| 142    | How the phone proves it is you: a passkey, with your face, fingerprint, or passcode |
-| 143    | The relay and the lock: sealed end to end, no copies, sign-in, and wrong tries      |
-| 144    | Notices when the page is closed, sealed so only your phone can read them            |
-| 145    | The fixed list of what a phone may ask, and what stays on your PC only              |
-| 146    | Where the phone's page lives: its own address, never on the relay                   |
+| Record | What it settles                                                                    |
+| ------ | ---------------------------------------------------------------------------------- |
+| 141    | How a phone is paired: a picture code (QR code) or a typed code, shown on your PC  |
+| 142    | How the phone proves it is you: a passkey at sign-in (face, fingerprint, passcode) |
+| 143    | The relay and the lock: sealed end to end, no copies, sign-in, and wrong tries     |
+| 144    | Notices when the page is closed, sealed so only your phone can read them           |
+| 145    | The fixed list of what a phone may ask, and what stays on your PC only             |
+| 146    | Where the phone's page lives: its own address, never on the relay                  |
 
 ## Context
 

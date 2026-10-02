@@ -1,6 +1,9 @@
 # ADR-040: Phase 14 is Plenipo's own web interface for a phone; CrewOS leaves the plan
 
 - **Status:** Accepted (by the owner, 2026-09-27); amends ADR-039
+- **Amended by:** [ADR-144 (notices on your phone, sealed for it)](ADR-144-notices-on-your-phone.md):
+  the PC sends each sealed notice straight to the phone's notice service, not through the relay
+  (§5, "Notices when the page is closed"). Everything else in §5 stands.
 - **Date:** 2026-09-27
 - **Phase:** 14 (recorded after Phase 13, v1.9.0, before Phase 14 starts)
 
