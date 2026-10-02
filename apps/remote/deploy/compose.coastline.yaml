@@ -1,0 +1,7 @@
+# Coastline's automatic Docker address pool is full. Reserve a nonoverlapping subnet after checking
+# live Docker networks and host routes, including VPN routes (as the website does).
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${PLENIPO_SUBNET:?Set the verified reserved network subnet for the phone page}
