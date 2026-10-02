@@ -4268,6 +4268,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "similar",
+ "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -4462,6 +4463,7 @@ version = "1.19.4"
 dependencies = [
  "dunce",
  "libc",
+ "nix 0.31.3",
  "process-wrap",
  "serde",
  "serde_json",

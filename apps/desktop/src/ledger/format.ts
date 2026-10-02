@@ -381,12 +381,17 @@ function describeGuardEvent(type: string, p: Record<string, unknown>): string | 
     case "guard.grant_skipped":
       return str(p.reason) ?? `${worker} got no tools`;
     case "tool_server.ticket_refused": {
+      // ADR-156: this computer gives no way to check which program asked, so Plenipo said no.
+      if (p.checkPossible === false) {
+        return `Blocked: Plenipo can't check which program is asking for ${worker}'s tools on this computer, so it said no`;
+      }
       // ADR-034: a program outside the AI tool's own process tree presented the ticket.
       const program = (v: unknown) => (typeof v === "number" ? String(v) : "unknown");
       return `Blocked: a program outside ${worker}'s AI tool tried to use ${worker}'s tools (program ${program(
         p.connectingPid,
       )}; the AI tool is program ${program(p.expectedRootPid)})`;
     }
+    // Recorded only by versions before ADR-156, which let such a connection through.
     case "tool_server.ticket_unchecked":
       return `Plenipo could not check which program connected to ${worker}'s tools on this computer, so it let it through`;
     case "guard.approvals_limited":

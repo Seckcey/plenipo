@@ -639,6 +639,9 @@ async fn supervise(
         read_limit,
         observer,
     } = run;
+    // On a Mac and Linux, the keeper ends this program's group if Plenipo stops suddenly; it is
+    // taken off the keeper's list when this run is over (ADR-157). The program leads its group.
+    let _kept = child.id().map(crate::keeper::Kept::new);
     let (tx, rx) = mpsc::channel::<RawLine>(1024);
     let mut readers: Vec<JoinHandle<()>> = Vec::new();
     if let Some(out) = stdout {
@@ -704,22 +707,14 @@ async fn supervise(
     // Output pipes close when every process holding them has exited. If descendants of a
     // finished process keep them open, terminate the rest of the tree: Plenipo does not
     // leave owned processes running.
-    let drained = tokio::time::timeout(config.drain_timeout, async {
-        for reader in readers.iter_mut() {
-            let _ = reader.await;
-        }
-    })
-    .await
-    .is_ok();
-    if !drained {
-        kill_tree(child.as_mut(), config.kill_grace).await;
-        let drained_after_kill = tokio::time::timeout(config.kill_grace, async {
-            for reader in readers.iter_mut() {
-                let _ = reader.await;
-            }
-        })
+    let drained = tokio::time::timeout(config.drain_timeout, drain(&mut readers))
         .await
         .is_ok();
+    if !drained {
+        kill_tree(child.as_mut(), config.kill_grace).await;
+        let drained_after_kill = tokio::time::timeout(config.kill_grace, drain(&mut readers))
+            .await
+            .is_ok();
         if !drained_after_kill {
             readers.iter().for_each(JoinHandle::abort);
         }
@@ -733,6 +728,17 @@ async fn supervise(
 
     inner.finish(&id, state, exit_code, detail);
     let _ = done_tx.send(true);
+}
+
+/// Wait for each output reader to finish, taking each off `readers` as it does: a reader that
+/// has finished is never waited on again (tokio panics when a finished task is polled again),
+/// so a second wait after a timeout waits only for those still reading (Phase 23: first seen on
+/// a Mac, where a slow-closing pipe made the first wait time out after one reader finished).
+async fn drain(readers: &mut Vec<JoinHandle<()>>) {
+    while let Some(reader) = readers.last_mut() {
+        let _ = reader.await;
+        readers.pop();
+    }
 }
 
 async fn kill_tree(child: &mut dyn ChildWrapper, grace: Duration) {
@@ -937,5 +943,31 @@ impl Inner {
     fn emit_lifecycle(&self, record: ExecutionRecord) {
         self.sink
             .emit(RuntimeEvent::Lifecycle(LifecycleEvent { record }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A reader that finished during a wait that then timed out is not waited on again by the
+    /// next wait: tokio panics when a finished task is polled twice (first seen on a Mac).
+    #[tokio::test]
+    async fn a_second_drain_waits_only_for_readers_still_reading() {
+        let finished = tokio::spawn(async {});
+        let (go, wait) = oneshot::channel::<()>();
+        let still_reading = tokio::spawn(async move {
+            let _ = wait.await;
+        });
+        // `drain` takes readers from the end: the finished one first.
+        let mut readers = vec![still_reading, finished];
+        let first = tokio::time::timeout(Duration::from_millis(100), drain(&mut readers)).await;
+        assert!(first.is_err(), "one reader is still reading");
+        assert_eq!(readers.len(), 1);
+        go.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), drain(&mut readers))
+            .await
+            .expect("the second wait ends");
+        assert!(readers.is_empty());
     }
 }

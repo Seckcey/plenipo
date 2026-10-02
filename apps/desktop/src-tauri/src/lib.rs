@@ -204,6 +204,15 @@ pub fn configure<R: Runtime>(
             if let Some(Err(e)) = private {
                 log::warn!("The data folder could not be made readable by this account only: {e}");
             }
+            // Phase 23 (ADR-157): on a Mac and Linux, the keeper ends the workers' programs if
+            // Plenipo stops suddenly. Started before any organization's supervisor.
+            if let Err(e) = std::env::current_exe()
+                .and_then(|exe| plenipo_runtime::keeper::start(&exe))
+            {
+                log::warn!(
+                    "The keeper did not start, so a crash could leave workers' programs running: {e}"
+                );
+            }
             // How the last run ended (read before this run's note replaces it).
             let (previous, keeper) = match &data {
                 Some(data) => {
@@ -892,13 +901,19 @@ pub fn run() -> i32 {
         start_close::on_second_launch(app, &args);
     }));
     let runtime_code = configure(builder, smoke, ShellOptions::default())
-        .build(tauri::generate_context!())
+        .build(context())
         .expect("error while building Plenipo")
         .run_return(on_run_event);
 
     // The runtime does not reliably propagate the code given to `AppHandle::exit`
     // on every platform, so the smoke outcome is tracked independently.
     outcome.resolve_exit_code(runtime_code)
+}
+
+/// The app's settings, icons, and pages, built in here once: on a Mac the macro also builds in
+/// the app's `Info.plist` under a fixed name, which a program may hold only once (Phase 23).
+fn context<R: tauri::Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
 }
 
 #[cfg(test)]
@@ -947,7 +962,7 @@ mod ipc_boundary_tests {
                 window_watch: false,
             },
         )
-        .build(tauri::generate_context!())
+        .build(context())
         .expect("failed to build mock app");
         // The mock runtime does not run `setup`; install the organizations the same way: the
         // first one, kept in memory, its services built as the app builds them.

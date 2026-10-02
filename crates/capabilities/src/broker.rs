@@ -79,9 +79,10 @@ const SECRETS_WITHHELD: &str = "(Plenipo does not give stored secrets to npm, pn
 /// is a file in the project folder rather than the installed one (ADR-048).
 const SECRETS_KEPT: &str = "(Plenipo gives a stored secret only to the installed program of that \
                             name, so no stored secrets were given (the program is not from PATH).)";
-/// The notice where this computer offers no way to tell which program connects (ADR-034).
-const TICKET_UNCHECKED: &str = "Plenipo cannot tell on this computer which program connects to \
-                                a worker's tools, so a copied tool ticket cannot be refused.";
+/// The notice where this computer offers no way to tell which program connects: the
+/// connection is refused (ADR-156, which amends ADR-034).
+const TICKET_UNCHECKABLE: &str = "Plenipo can't check which program is asking on this computer, \
+                                  so workers can't use Plenipo's tools here yet.";
 /// How many of one worker's approval requests may wait for the owner at once (B6, limits on
 /// asking). A call that would add a fourth is refused until one is answered.
 pub const MAX_PENDING_APPROVALS: usize = 3;
@@ -584,8 +585,8 @@ enum NotAsked {
 enum Admission {
     /// From the AI tool's own process tree.
     Admitted,
-    /// This computer cannot say which program connected.
-    Unchecked,
+    /// This computer cannot say which program connected, so it is refused (ADR-156).
+    Uncheckable,
     /// From another program (its process ID, when known).
     Refused(Option<u32>),
 }
@@ -658,7 +659,8 @@ fn secrets_for(program: &str, origin: Origin, secrets: &[SecretInfo]) -> Secrets
 }
 
 /// The bare name a program's secrets are bound by: its file name without the extension, in
-/// lower case (`C:\Program Files\GitHub CLI\gh.exe` → `gh`).
+/// lower case on Windows (`C:\Program Files\GitHub CLI\gh.exe` → `gh`) and as written on a Mac
+/// or a Linux PC, where names keep their case (ADR-150).
 fn program_stem(executable: &Path) -> String {
     CommandLine {
         program: executable
@@ -1503,8 +1505,8 @@ impl Broker {
     /// grant's step, or from a program that AI tool started. Any other program that read the
     /// ticket is refused, and the refusal is recorded for the owner
     /// (`tool_server.ticket_refused`), as is any connection whose program the lookup fails to
-    /// find. Only where this computer offers no way to tell at all (macOS) is the connection
-    /// served, and that is recorded too (`tool_server.ticket_unchecked`).
+    /// find. Where this computer offers no way to tell at all, the connection is refused too,
+    /// with one notice for the owner and `checkPossible: false` in the record (ADR-156).
     pub(crate) async fn admit(&self, grant_id: &str, peer: SocketAddr, local: SocketAddr) -> bool {
         let Some((task_id, session_id, worker)) = self
             .state()
@@ -1526,7 +1528,7 @@ impl Broker {
         }
         let admission =
             tokio::task::spawn_blocking(move || match process::holders_of(peer, local) {
-                Holders::Unavailable => Admission::Unchecked,
+                Holders::Unavailable => Admission::Uncheckable,
                 Holders::Unknown => Admission::Refused(None),
                 Holders::Pids(pids) => match root {
                     Some(root) => {
@@ -1546,20 +1548,23 @@ impl Broker {
             .unwrap_or(Admission::Refused(None));
         match admission {
             Admission::Admitted => true,
-            Admission::Unchecked => {
-                self.notice(TICKET_UNCHECKED.into());
+            Admission::Uncheckable => {
+                self.notice(TICKET_UNCHECKABLE.into());
                 let _ = self.ledger().append_event(NewEvent {
                     task_id: Some(task_id),
                     source: GUARD.into(),
-                    event_type: "tool_server.ticket_unchecked".into(),
+                    event_type: "tool_server.ticket_refused".into(),
                     payload: json!({
                         "grantId": grant_id,
                         "worker": worker,
-                        "reason": TICKET_UNCHECKED,
+                        "connectingPid": null,
+                        "expectedRootPid": root,
+                        "checkPossible": false,
+                        "reason": TICKET_UNCHECKABLE,
                     }),
                     ..NewEvent::default()
                 });
-                true
+                false
             }
             Admission::Refused(connecting) => {
                 let _ = self.ledger().append_event(NewEvent {
@@ -3409,10 +3414,16 @@ fn program_path(
         .or_else(|| programs::find_on_path(program))
         .ok_or_else(|| format!("{program} is not installed (it was not found on PATH)."));
     // Found through PATH but lying inside the project folder: the project's own file, not the
-    // installed program (ADR-048).
+    // installed program (ADR-048). Compared after links are resolved, as the project folder's
+    // own path is (a Mac's `/var` is `/private/var`, and a PATH folder can be a link into the
+    // project); a path that cannot be resolved counts as the project's, so it is never given a
+    // secret (ADR-150).
     let origin = match &found {
-        Ok(p) if p.starts_with(ws.root()) => Origin::Project,
-        _ => Origin::Path,
+        Ok(p) => match dunce::canonicalize(p) {
+            Ok(real) if !real.starts_with(ws.root()) && !p.starts_with(ws.root()) => Origin::Path,
+            _ => Origin::Project,
+        },
+        Err(_) => Origin::Path,
     };
     Ok((found, program.to_owned(), origin))
 }
@@ -4166,7 +4177,11 @@ mod tests {
         assert!(
             SECRETS_KEPT.contains("no stored secrets were given (the program is not from PATH)")
         );
-        assert_eq!(program_stem(Path::new("C:\\Tools\\GH.exe")), "gh");
+        if cfg!(windows) {
+            assert_eq!(program_stem(Path::new("C:\\Tools\\GH.exe")), "gh");
+        } else {
+            assert_eq!(program_stem(Path::new("/opt/tools/GH")), "GH");
+        }
         assert_eq!(program_stem(Path::new("/usr/bin/gh")), "gh");
         assert_eq!(program_stem(Path::new("./scripts/gh.sh")), "gh");
     }
@@ -4253,6 +4268,23 @@ mod tests {
         assert_eq!(origin, Origin::Project);
         assert_eq!(executable, root.join("scripts").join(exe("gh")));
         assert_eq!(key, "gh");
+        // A search path that is a link into the project folder is inside it too, though its
+        // own path does not say so (ADR-150).
+        #[cfg(unix)]
+        {
+            let link = dir.path().join("linked-scripts");
+            std::os::unix::fs::symlink(root.join("scripts"), &link).unwrap();
+            let linked = Where {
+                ws: Some(&ws),
+                branch: None,
+                base: None,
+                repo: None,
+                gh: None,
+                search: Some(link.into_os_string()),
+            };
+            let (_, origin, _) = run(&linked, "gh");
+            assert_eq!(origin, Origin::Project);
+        }
     }
 
     /// The Activity trail shows what a program said, not the fence around it.

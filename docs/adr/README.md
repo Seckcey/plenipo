@@ -139,6 +139,7 @@ architecture must be recorded here.
 | [154](ADR-154-computer-use-on-linux.md)                  | Computer use on Linux: X11 in Wave 2, Wayland in Wave 4                                       | Accepted |
 | [155](ADR-155-each-systems-own-words.md)                 | Each system's own words on screen                                                             | Accepted |
 | [156](ADR-156-refuse-unchecked-tool-calls.md)            | When Plenipo cannot tell which program sent a tool call, it refuses (amends 034)              | Accepted |
+| [157](ADR-157-a-keeper-ends-programs-after-a-crash.md)   | On a Mac and Linux, a keeper ends a worker's programs after a crash (amends 005)              | Accepted |
 | [160](ADR-160-phase-24-alongside-phase-23.md)            | Building Phase 24 (Community) alongside Phase 23 (Mac and Linux)                              | Accepted |
 | [161](ADR-161-phase-24-starts.md)                        | Phase 24 starts: what the check found, six parts, the owner's questions                       | Proposed |
 | [162](ADR-162-your-account-in-plenipo.md)                | Your 8 West account in Plenipo: sign in with a code, 18 and older, who needs Pro              | Proposed |

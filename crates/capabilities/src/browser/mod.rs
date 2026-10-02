@@ -277,16 +277,10 @@ fn prepare_profile(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Running as root on Linux (a container), where Chrome needs `--no-sandbox`.
-fn root_on_linux() -> bool {
-    cfg!(target_os = "linux")
-        && std::fs::read_to_string("/proc/self/status").is_ok_and(|s| {
-            s.lines()
-                .find(|l| l.starts_with("Uid:"))
-                .and_then(|l| l.split_whitespace().nth(2))
-                == Some("0")
-        })
-}
+/// Why Plenipo's browser does not start as root on a Mac or a Linux PC (ADR-150): Chrome would
+/// have to run without its sandbox, one website away from the whole computer.
+const NOT_AS_ROOT: &str = "Plenipo is running as root, so its browser would be too. Close \
+                           Plenipo and start it as yourself (not with sudo) to use the browser.";
 
 /// The command-line options Plenipo starts the browser with, on its own `profile` folder.
 fn arguments(config: &BrowserConfig, profile: &Path) -> Vec<String> {
@@ -309,9 +303,6 @@ fn arguments(config: &BrowserConfig, profile: &Path) -> Vec<String> {
     if cfg!(target_os = "linux") {
         // Never touch the desktop's keyring.
         args.push("--password-store=basic".into());
-    }
-    if root_on_linux() {
-        args.push("--no-sandbox".into());
     }
     if config.headless {
         args.push("--headless=new".into());
@@ -525,6 +516,9 @@ impl Browser {
     }
 
     async fn launch_once(&self) -> Result<Running, LaunchError> {
+        if cfg!(unix) && crate::terminal::runs_as_administrator() {
+            return Err(LaunchError::Failed(NOT_AS_ROOT.into()));
+        }
         let config = &self.inner.config;
         let (path, name, kind) = self
             .find_chosen()
