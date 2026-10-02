@@ -1516,17 +1516,20 @@ impl Remote {
             name: device.name.clone(),
         };
         let reply = match ask {
-            // Answered first: ending the sign-in, or removing the phone, closes the line.
+            // Ended before it is answered: once the phone hears it is signed out, nothing more it
+            // sends is carried out. The line stays open, for signing in again.
             Ask::SignOut => {
+                let mut st = lock(&self.state);
+                self.end_sign_in(&mut st, &device.id, SignedOutWhy::You);
+                drop(st);
                 self.reply(
                     conn,
                     &device.id,
                     Reply::ok(request, json!({ "signedOut": true })),
                 );
-                let mut st = lock(&self.state);
-                self.end_sign_in(&mut st, &device.id, SignedOutWhy::You);
                 return;
             }
+            // Answered first: removing the phone closes the line.
             Ask::RemoveThisPhone => {
                 self.reply(
                     conn,
