@@ -467,6 +467,48 @@ const phoneNoticeKeys = (() => {
   return { ecdh, auth: randomBytes(16) };
 })();
 
+/**
+ * The phone's notice service is the stand-in here: the browser's own sign-up is replaced by one
+ * that gives the stand-in's address and the test's keys (a test browser has no service). It is put
+ * back after each page load, already signed up when `signedUp`.
+ */
+async function standInNoticeService(phone, signedUp) {
+  await phone.execute(
+    (endpoint, p256dh, auth, signedUp) => {
+      const sub = {
+        endpoint,
+        toJSON: () => ({ endpoint, keys: { p256dh, auth } }),
+        unsubscribe: () => {
+          current = null;
+          return Promise.resolve(true);
+        },
+      };
+      let current = signedUp ? sub : null;
+      PushManager.prototype.subscribe = function (options) {
+        window.plenipoNoticeKey = new Uint8Array(options.applicationServerKey);
+        current = sub;
+        return Promise.resolve(sub);
+      };
+      PushManager.prototype.getSubscription = () => Promise.resolve(current);
+      Notification.requestPermission = () => Promise.resolve("granted");
+    },
+    `http://127.0.0.1:${NOTICES_PORT}/push/phone-1`,
+    phoneNoticeKeys.ecdh.getPublicKey().toString("base64url"),
+    phoneNoticeKeys.auth.toString("base64url"),
+    signedUp,
+  );
+}
+
+/**
+ * The phone opens Plenipo's page at `target`, as a tapped notice does when the page is closed: a
+ * new page load (a change after `#` alone would not load the page again).
+ */
+async function openFromNotice(phone, target) {
+  await phone.url("about:blank");
+  await phone.url(`${PAGE}/#open=${encodeURIComponent(target)}`);
+  await standInNoticeService(phone, true);
+}
+
 /** Open a sealed notice the way the phone does (RFC 8291 and RFC 8188), with node's own crypto. */
 function openNotice(body) {
   const salt = body.subarray(0, 16);
@@ -807,31 +849,7 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
       "the page's background part",
     );
     assert.equal(worker, `${PAGE}/sw.js`);
-    // The phone's notice service is the stand-in here: the browser's own sign-up is replaced by
-    // one that gives the stand-in's address and the test's keys (a test browser has no service).
-    await phone.execute(
-      (endpoint, p256dh, auth) => {
-        let current = null;
-        const sub = {
-          endpoint,
-          toJSON: () => ({ endpoint, keys: { p256dh, auth } }),
-          unsubscribe: () => {
-            current = null;
-            return Promise.resolve(true);
-          },
-        };
-        PushManager.prototype.subscribe = function (options) {
-          window.plenipoNoticeKey = new Uint8Array(options.applicationServerKey);
-          current = sub;
-          return Promise.resolve(sub);
-        };
-        PushManager.prototype.getSubscription = () => Promise.resolve(current);
-        Notification.requestPermission = () => Promise.resolve("granted");
-      },
-      `http://127.0.0.1:${NOTICES_PORT}/push/phone-1`,
-      phoneNoticeKeys.ecdh.getPublicKey().toString("base64url"),
-      phoneNoticeKeys.auth.toString("base64url"),
-    );
+    await standInNoticeService(phone, false);
     await page(phone, "More", "more-title");
     const toggle = await phone.$('button[role="switch"][aria-label="Notices on this phone"]');
     await toggle.waitForClickable({ timeout: 15_000 });
@@ -886,9 +904,7 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     assert.equal(notice.about.id, pending[0].id, "about the approval that waits");
     assert.equal(notice.tag, `approval:${notice.org}:${notice.about.id}`);
     // Opening the notice opens that approval on the phone.
-    await phone.url(
-      `${PAGE}/#open=${encodeURIComponent(`approval:${notice.org}:${notice.about.id}`)}`,
-    );
+    await openFromNotice(phone, `approval:${notice.org}:${notice.about.id}`);
     const focused = await phone.$(".approval--focused");
     await focused.waitForExist({ timeout: 30_000 });
     assert.match(await focused.getText(), /git push origin/);
@@ -900,9 +916,7 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
       async () => (await invoke(browser, "get_approvals")).ok.pending.length === 0,
       "answered on the PC",
     );
-    await phone.url(
-      `${PAGE}/#open=${encodeURIComponent(`approval:${notice.org}:${notice.about.id}`)}`,
-    );
+    await openFromNotice(phone, `approval:${notice.org}:${notice.about.id}`);
     await phoneSays(phone, "Already answered.", 30_000);
     await screenshot(phone, "phone-notice-already-answered");
   });

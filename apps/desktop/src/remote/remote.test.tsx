@@ -346,11 +346,12 @@ describe("Notices on my phones", () => {
   });
 
   it("says what is missing first: Pro, the switch, or a phone that asked", async () => {
-    for (const [patch, remote, words] of [
+    const cases: [Partial<RemoteSettings>, Partial<RemoteSettings["remote"]>, RegExp][] = [
       [{ pro: false }, {}, /Part of Plenipo Pro/],
       [{}, { switchedOn: false }, /Turn on Use Plenipo from another device first/],
       [{}, { devices: [] }, /No phone has asked for notices yet/],
-    ] as const) {
+    ];
+    for (const [patch, remote, words] of cases) {
       api.getRemote.mockResolvedValue(settings(patch, remote));
       const { unmount } = render(<PhoneNotices />);
       expect(await screen.findByText(words)).toBeInTheDocument();
