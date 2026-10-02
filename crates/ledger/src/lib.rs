@@ -40,7 +40,7 @@ pub use dto::*;
 pub use error::{LedgerError, Result};
 pub use lessons::{clean_lesson, MAX_LESSONS_PER_TASK, MAX_LESSON_CHARS};
 pub use migrate::{Migration, MIGRATIONS};
-pub use notices::{Notice, NoticeGate, NoticeKind, NoticeSettings, NOTICE_REPEAT_MS};
+pub use notices::{Notice, NoticeGate, NoticeItem, NoticeKind, NoticeSettings, NOTICE_REPEAT_MS};
 pub use pages::{WorkOf, DECISIONS, MAX_PAGE_EVENTS};
 pub use spending::{
     Bill, CapCovers, CapState, CapStatus, PaidTask, PricedBy, SetAside, Settled, SpendingCap,

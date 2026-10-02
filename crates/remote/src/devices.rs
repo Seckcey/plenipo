@@ -114,6 +114,9 @@ pub struct Config {
     pub switched_on: bool,
     /// Settings → Devices → **Keep these approvals on my PC only** (none to begin with).
     pub kept: KeptOnPc,
+    /// Settings → Notifications → **Notices on my phones** turned off (on to begin with: each
+    /// phone still asks for them itself).
+    pub phone_notices_off: bool,
 }
 
 impl Config {
@@ -370,6 +373,7 @@ mod tests {
                 production_servers: true,
                 kinds: vec![],
             },
+            phone_notices_off: true,
         };
         c.write(&file).unwrap();
         assert_eq!(Config::read(&file), c);

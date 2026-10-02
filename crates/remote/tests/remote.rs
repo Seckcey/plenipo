@@ -14,7 +14,9 @@ use plenipo_licensing::{SignedAnswer, SubscriptionState};
 use plenipo_remote::code::Code;
 use plenipo_remote::devices::{MemoryConfig, MemoryStore};
 use plenipo_remote::link::{self, LinkHost};
-use plenipo_remote::protocol::{Ask, Changed, Event, PairStep, SignedOutWhy};
+use plenipo_remote::protocol::{
+    Ask, Changed, Event, NoticeAbout, PairStep, PhoneNotice, SignedOutWhy,
+};
 use plenipo_remote::service::PairingView;
 use plenipo_remote::stand_in::{Bad, NetPhone, PhoneError, Relay};
 use plenipo_remote::{b64, Change, Clock, Host, Phone, Remote, Settings};
@@ -603,6 +605,105 @@ async fn a_phone_cannot_ask_for_anything_off_the_list() {
         phone.meet(false).await.unwrap();
     }
     assert!(w.app.records("remote.request").is_empty());
+}
+
+/// A phone's notice keys, as its browser makes them when it signs up for notices.
+fn notice_keys() -> (p256::SecretKey, plenipo_remote::protocol::Subscription) {
+    let key = loop {
+        if let Ok(k) = p256::SecretKey::from_slice(&plenipo_remote::random::<32>()) {
+            break k;
+        }
+    };
+    let to = plenipo_remote::protocol::Subscription {
+        endpoint: "https://fcm.googleapis.com/fcm/send/phone-1".into(),
+        p256dh: b64::encode(&key.public_key().to_sec1_bytes()),
+        auth: b64::encode(&[5u8; 16]),
+    };
+    (key, to)
+}
+
+fn a_notice() -> PhoneNotice {
+    PhoneNotice {
+        v: 1,
+        kind: "approvals".into(),
+        org: "first".into(),
+        title: "Senior Developer is waiting for your OK".into(),
+        body: "Git push origin".into(),
+        about: Some(NoticeAbout::Approval { id: "a1".into() }),
+        tag: "approval:first:a1".into(),
+        at: 1,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn notices_go_only_to_phones_that_asked_and_only_they_can_read_them() {
+    let w = World::new().await;
+    let mut asked = w.paired_phone("Asked").await;
+    let mut quiet = w.paired_phone("Quiet").await;
+    // The PC gives its notice key in every meeting; a phone signs up with it.
+    let welcome = asked.meet(false).await.unwrap();
+    let notice_key = welcome.notice_key.clone().expect("the PC's notice key");
+    assert_eq!(
+        quiet.meet(false).await.unwrap().notice_key,
+        Some(notice_key.clone())
+    );
+    let (phone_key, to) = notice_keys();
+    let r = asked
+        .ask(Ask::NoticesOn {
+            subscription: to.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(ok(&r)["notices"], true);
+
+    // One sealed notice, for the phone that asked, to its own notice service.
+    let sealed = w.remote.sealed_notices(&a_notice());
+    assert_eq!(sealed.len(), 1);
+    let (phone, notice) = &sealed[0];
+    assert_eq!(phone.name, "Asked");
+    let notice = notice.as_ref().unwrap();
+    assert_eq!(notice.endpoint, to.endpoint);
+    let header = |name: &str| {
+        notice
+            .headers
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, v)| v.clone())
+            .unwrap()
+    };
+    assert!(header("Authorization").ends_with(&format!(", k={notice_key}")));
+    assert_eq!(header("Urgency"), "high");
+    // Only that phone can open it, and it says exactly the notice.
+    let opened = plenipo_remote::webpush::decrypt(&notice.body, &phone_key, &[5u8; 16]).unwrap();
+    let read: PhoneNotice = serde_json::from_slice(&opened).unwrap();
+    assert_eq!(read, a_notice());
+    assert!(!notice.body.windows(8).any(|w| w == b"git push"));
+
+    // Notices on my phones, off on the PC: nothing goes out.
+    w.remote.set_phone_notices(false).unwrap();
+    assert!(!w.remote.view().phone_notices);
+    assert!(w.remote.sealed_notices(&a_notice()).is_empty());
+    w.remote.set_phone_notices(true).unwrap();
+    assert_eq!(w.remote.sealed_notices(&a_notice()).len(), 1);
+    // Free: nothing goes out either.
+    w.app.free.store(true, Ordering::SeqCst);
+    assert!(w.remote.sealed_notices(&a_notice()).is_empty());
+    w.app.free.store(false, Ordering::SeqCst);
+
+    // The notice service says the address is gone: the PC forgets it, and says so.
+    w.remote
+        .notice_delivered(phone, "approvals", plenipo_remote::service::Delivered::Gone);
+    assert!(w.remote.sealed_notices(&a_notice()).is_empty());
+    let failed = w.app.records("remote.notice_failed");
+    assert_eq!(failed[0]["why"], "gone");
+    assert_eq!(failed[0]["kind"], "approvals");
+    assert!(
+        !failed[0].to_string().contains("git push"),
+        "never what it said"
+    );
+    w.remote
+        .notice_delivered(phone, "approvals", plenipo_remote::service::Delivered::Sent);
+    assert_eq!(w.app.records("remote.notice_sent")[0]["name"], "Asked");
 }
 
 #[tokio::test(flavor = "multi_thread")]

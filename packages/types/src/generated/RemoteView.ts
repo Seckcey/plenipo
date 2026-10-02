@@ -26,4 +26,8 @@ meetingsStoppedUntil?: number,
 /**
  * Why the relay did not connect, in plain words.
  */
-relayProblem?: string, };
+relayProblem?: string, 
+/**
+ * Settings → Notifications → **Notices on my phones** (part 14C).
+ */
+phoneNotices: boolean, };

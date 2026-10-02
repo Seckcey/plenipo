@@ -150,6 +150,8 @@ fn handshake_vectors() -> Value {
         challenge: Some(b64::encode(&[0x42; 32])),
         pc_name: "Office PC".into(),
         version: "1.19.0".into(),
+        // The published test answers stay the same: a welcome without notices.
+        notice_key: None,
     })
     .expect("JSON");
     let m1 = noise::write(&mut phone, &meeting_hello).expect("m1");

@@ -90,6 +90,7 @@ pub fn test_notice() -> Notice {
         body: "This is how Plenipo tells you when something needs you. Choose which notices you \
                get in Settings → Notifications."
             .into(),
+        item: None,
     }
 }
 

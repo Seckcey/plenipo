@@ -4387,6 +4387,7 @@ dependencies = [
 name = "plenipo-remote"
 version = "1.19.1"
 dependencies = [
+ "aes-gcm 0.11.1",
  "base64 0.22.1",
  "ed25519-dalek",
  "futures-util",

@@ -23,9 +23,10 @@ use crate::limits::{Checks, DeadCodes, Meetings, CODE_TRIES};
 use crate::noise::{self, Assembler};
 use crate::protocol::{
     Ask, Changed, Event, MeetingHello, MeetingWelcome, PairHello, PairStep, PasskeyRequest, PcSays,
-    PhoneSays, Reply, SignedIn, SignedOutWhy,
+    PhoneNotice, PhoneSays, Reply, SignedIn, SignedOutWhy,
 };
 use crate::webauthn::{self, Expect};
+use crate::webpush::{self, Delivery, NoticeError, SealedNotice};
 use crate::wire::{PcToRelay, RelayToPc};
 use crate::{b64, RemoteError, Result};
 
@@ -79,6 +80,23 @@ pub enum Change {
 pub struct Phone {
     pub id: String,
     pub name: String,
+}
+
+/// What a notice service said about one notice (part 14C).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Delivered {
+    /// It took the notice.
+    Sent,
+    /// The phone's notice address is gone: the phone turned notices off, or its browser forgot.
+    Gone,
+    /// It did not take it, in plain words.
+    Failed(String),
+}
+
+/// A notice's topic: 32 letters from base64url, the same for each notice about one thing.
+fn topic(tag: &str) -> String {
+    use sha2::Digest as _;
+    b64::encode(&sha2::Sha256::digest(tag.as_bytes()))[..32].to_owned()
 }
 
 /// What the service is built with.
@@ -178,6 +196,8 @@ pub struct RemoteView {
     /// Why the relay did not connect, in plain words.
     #[ts(optional)]
     pub relay_problem: Option<String>,
+    /// Settings → Notifications → **Notices on my phones** (part 14C).
+    pub phone_notices: bool,
 }
 
 /// Settings → Devices, as the screen shows it.
@@ -400,6 +420,7 @@ impl Remote {
             meetings_stopped_until: (!st.meetings.answering(now))
                 .then(|| st.meetings.stopped_until()),
             relay_problem: st.relay_problem.clone(),
+            phone_notices: !st.config.phone_notices_off,
         }
     }
 
@@ -479,6 +500,91 @@ impl Remote {
     }
 
     /// The approvals kept on the PC (Settings → Devices).
+    /// Settings → Notifications → **Notices on my phones** (part 14C, ADR-144 §7).
+    pub fn set_phone_notices(&self, on: bool) -> Result<()> {
+        let mut st = lock(&self.state);
+        let mut config = st.config.clone();
+        config.phone_notices_off = !on;
+        config.write(self.config_file.as_ref())?;
+        st.config = config;
+        drop(st);
+        self.host
+            .record(None, "remote.phone_notices_switched", json!({ "on": on }));
+        self.host.changed(Change::Switch);
+        Ok(())
+    }
+
+    /// `notice`, sealed for each phone that takes notices now (part 14C, ADR-144): the phone
+    /// asked for them, it is not paused, phone access is on, the PC is on Pro, and notices on
+    /// your phones are on. What the PC sends: one sealed notice to each phone's own notice
+    /// service, signed with the PC's notice key.
+    pub fn sealed_notices(
+        &self,
+        notice: &PhoneNotice,
+    ) -> Vec<(Phone, std::result::Result<SealedNotice, NoticeError>)> {
+        if !self.host.pro() {
+            return Vec::new();
+        }
+        let now = self.now();
+        let mut st = lock(&self.state);
+        if !st.config.switched_on || st.config.phone_notices_off {
+            return Vec::new();
+        }
+        let Ok(keys) = self.keys(&mut st) else {
+            return Vec::new();
+        };
+        let key = keys.notice_key();
+        let payload = serde_json::to_vec(notice).expect("a notice is JSON");
+        // What waits for you comes at once, and is kept by the notice service only while it
+        // can still be answered; the rest can wait an hour for a phone that is off.
+        let urgent = matches!(notice.kind.as_str(), "approvals" | "checks");
+        let delivery = Delivery {
+            urgency: if urgent { "high" } else { "normal" },
+            keep_for_secs: if urgent { 600 } else { 3600 },
+            topic: Some(topic(&notice.tag)),
+        };
+        st.devices
+            .iter()
+            .filter(|d| !d.paused)
+            .filter_map(|d| {
+                let to = d.notices.clone()?;
+                let phone = Phone {
+                    id: d.id.clone(),
+                    name: d.name.clone(),
+                };
+                Some((
+                    phone,
+                    webpush::seal(&to, &payload, &key, secs(now), &delivery),
+                ))
+            })
+            .collect()
+    }
+
+    /// What a notice service said about a notice to `phone` (recorded with its kind, never what
+    /// it said). A phone whose notice address is gone stops getting notices until it asks again.
+    pub fn notice_delivered(&self, phone: &Phone, kind: &str, delivered: Delivered) {
+        match delivered {
+            Delivered::Sent => self.host.record(
+                None,
+                "remote.notice_sent",
+                json!({ "device": phone.id, "name": phone.name, "kind": kind }),
+            ),
+            Delivered::Gone => {
+                self.notices_gone(&phone.id);
+                self.host.record(
+                    None,
+                    "remote.notice_failed",
+                    json!({ "device": phone.id, "name": phone.name, "kind": kind, "why": "gone" }),
+                );
+            }
+            Delivered::Failed(why) => self.host.record(
+                None,
+                "remote.notice_failed",
+                json!({ "device": phone.id, "name": phone.name, "kind": kind, "why": why }),
+            ),
+        }
+    }
+
     pub fn set_kept(&self, kept: KeptOnPc) -> Result<KeptOnPc> {
         let kept = kept.tidy();
         let mut st = lock(&self.state);
@@ -1295,6 +1401,8 @@ impl Remote {
     fn everyday_meeting(&self, mut st: MutexGuard<'_, State>, conn: &str, id: &str, bytes: &[u8]) {
         let now = self.now();
         let signed = st.live.get(id).is_some_and(|l| signed_in(l, now));
+        // The PC's notice key, for the phone to sign up for notices (part 14C).
+        let notice_key = st.keys.as_ref().map(PcKeys::notice_public);
         let c = st.conns.get_mut(conn).expect("looked up");
         let Lock::Meeting(hs) = &mut c.lock else {
             return;
@@ -1319,6 +1427,7 @@ impl Remote {
             challenge: challenge.map(|c| b64::encode(&c)),
             pc_name: self.settings.pc_name.clone(),
             version: self.settings.version.clone(),
+            notice_key,
         };
         let written = noise::write(
             hs,

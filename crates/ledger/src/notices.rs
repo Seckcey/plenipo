@@ -102,6 +102,18 @@ pub struct Notice {
     pub kind: NoticeKind,
     pub title: String,
     pub body: String,
+    /// The one thing it is about, when it can be answered right from a phone's notice (Phase 14,
+    /// ADR-144 §6): an approval or a lesson. Notices joined together have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item: Option<NoticeItem>,
+}
+
+/// What a notice is about, by its ID.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum NoticeItem {
+    Approval { id: String },
+    Lesson { id: String },
 }
 
 impl Notice {
@@ -110,7 +122,13 @@ impl Notice {
             kind,
             title: title.into(),
             body: body.into(),
+            item: None,
         }
+    }
+
+    fn about(mut self, item: Option<NoticeItem>) -> Self {
+        self.item = item;
+        self
     }
 }
 
@@ -337,17 +355,20 @@ impl Ledger {
             // Phase 16 Wave 3 (ADR-085): once a month per cap, each.
             "spending.warning" => Some(spending_warning(p)),
             "spending.stopped" => Some(spending_stopped(p)),
-            "lesson.added" if text(p, "state") == Some("waiting") => Some(Notice::new(
-                NoticeKind::Lessons,
-                format!(
-                    "{} learned something",
-                    text(p, "worker").unwrap_or("A worker")
-                ),
-                format!(
-                    "{}\nKeep it or discard it on the Approvals page.",
-                    line(p["text"].as_str().unwrap_or(""))
-                ),
-            )),
+            "lesson.added" if text(p, "state") == Some("waiting") => Some(
+                Notice::new(
+                    NoticeKind::Lessons,
+                    format!(
+                        "{} learned something",
+                        text(p, "worker").unwrap_or("A worker")
+                    ),
+                    format!(
+                        "{}\nKeep it or discard it on the Approvals page.",
+                        line(p["text"].as_str().unwrap_or(""))
+                    ),
+                )
+                .about(text(p, "lessonId").map(|id| NoticeItem::Lesson { id: id.to_owned() })),
+            ),
             _ => None,
         })
     }
@@ -382,6 +403,8 @@ impl Ledger {
             |s| capitalized(&line(s)),
         );
         let production = text(&request, "environment") == Some("production");
+        let item =
+            text(&event.payload, "approvalId").map(|id| NoticeItem::Approval { id: id.to_owned() });
         Ok(Notice::new(
             NoticeKind::Approvals,
             format!("{worker} is waiting for your OK"),
@@ -390,7 +413,8 @@ impl Ledger {
             } else {
                 summary
             },
-        ))
+        )
+        .about(item))
     }
 
     /// An objective (a task nobody handed on) that failed or finished. Diagnostics' test tasks
@@ -596,13 +620,18 @@ mod tests {
                 .unwrap()
         };
         let push = ask(json!({ "worker": "Backend Developer", "summary": "git push origin" }));
+        // It names the approval, so a phone's notice can answer it (Phase 14).
+        let id = push.payload["approvalId"].as_str().unwrap().to_owned();
         assert_eq!(
             l.notice_for(&push, &tool).unwrap(),
-            Some(note(
-                NoticeKind::Approvals,
-                "Backend Developer is waiting for your OK",
-                "Git push origin"
-            ))
+            Some(
+                note(
+                    NoticeKind::Approvals,
+                    "Backend Developer is waiting for your OK",
+                    "Git push origin"
+                )
+                .about(Some(NoticeItem::Approval { id }))
+            )
         );
         let restart = ask(json!({
             "worker": "Operations Engineer",
@@ -745,15 +774,18 @@ mod tests {
         let waiting = event(
             "agent:codex",
             "lesson.added",
-            json!({ "worker": "Senior Developer", "text": "Run the tests first.\nThey are quick.", "state": "waiting" }),
+            json!({ "lessonId": "l1", "worker": "Senior Developer", "text": "Run the tests first.\nThey are quick.", "state": "waiting" }),
         );
         assert_eq!(
             l.notice_for(&waiting, &tool).unwrap(),
-            Some(note(
-                NoticeKind::Lessons,
-                "Senior Developer learned something",
-                "Run the tests first.\nKeep it or discard it on the Approvals page."
-            ))
+            Some(
+                note(
+                    NoticeKind::Lessons,
+                    "Senior Developer learned something",
+                    "Run the tests first.\nKeep it or discard it on the Approvals page."
+                )
+                .about(Some(NoticeItem::Lesson { id: "l1".into() }))
+            )
         );
         let kept = event("agent:codex", "lesson.added", json!({ "state": "kept" }));
         assert_eq!(l.notice_for(&kept, &tool).unwrap(), None);
@@ -787,6 +819,8 @@ mod tests {
             .pass(vec![a.clone(), b.clone()], 40_000 + NOTICE_REPEAT_MS)
             .unwrap();
         assert_eq!(two.title, "2 requests are waiting for your OK");
+        // Joined, it is about no one thing: a phone's notice opens Plenipo instead of answering.
+        assert_eq!(two.item, None);
         assert_eq!(two.body, "Git push origin\nSend the form");
         let mixed = combine(vec![a.clone(), b.clone(), c.clone(), c.clone(), a]).unwrap();
         assert_eq!(mixed.title, "5 things need you");
