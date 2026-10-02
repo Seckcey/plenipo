@@ -191,24 +191,34 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
 - [x] **Found by the first Mac and Linux runs:** the desktop app built its settings twice, which a
       Mac does not allow; and a run whose output closed slowly waited twice on a finished output
       reader, which tokio does not allow (possible on any system; a test repeats it).
-- [ ] **Programs Plenipo uses itself** (git, cargo, PowerShell, the browser) are found the same careful
+- [x] **Programs Plenipo uses itself** (git, cargo, PowerShell, the browser) are found the same careful
       way as AI tools, since a Mac app opened from the Dock gets a short list of program folders.
-- [ ] **Saved keys on Linux.** Today's kernel keyring forgets every key at each restart: server
+      Done with the next item: Plenipo's own PATH gets the known folders.
+- [x] **Saved keys on Linux.** Today's kernel keyring forgets every key at each restart: server
       sign-ins, Connection sign-ins, paid AI keys, and the license key. Use the Secret Service (GNOME
       Keyring or KWallet), which keeps them (ADR-153), and say plainly when a PC has none or it is
       locked. Add tests for the real password store on each system (today only the in-memory test
       store is tested). How: `keyring`'s Secret Service store alone, in pure Rust (`zbus`, so nothing
       to build against); the kernel keyring and its every-thread workaround go. GitHub's Linux
       machine starts GNOME Keyring for the real-store test and the end-to-end tests; Windows and
-      the Mac test their own stores.
-- [ ] **What AI tools get to see.** The list of settings passed to a worker's program is right for
+      the Mac test their own stores. It passes on Windows and the Mac (GitHub) and on Linux (Coastline,
+      against GNOME Keyring).
+- [x] **What AI tools get to see.** The list of settings passed to a worker's program is right for
       Windows; on Mac and Linux it leaves out a few that AI tools need to sign in or open a browser
       (`XDG_*`, `DBUS_SESSION_BUS_ADDRESS`, `DISPLAY`, `WAYLAND_DISPLAY`, `SHELL`, `LOGNAME`). Add only
-      the ones a tool proves it needs, each with a test.
-- [ ] **Finding AI tools.** A Mac app opened from the Dock does not get the owner's usual list of
+      the ones a tool proves it needs, each with a test. Done: `SHELL` (Claude Code runs its commands
+      in it), `LOGNAME`, and the `XDG_*` folders (where the owner keeps programs' settings and
+      sign-ins). Never the screen, the session bus, or the owner's SSH agent, and a test says so. A
+      tool that proves it needs the session bus (to read its sign-in from the password store) is
+      checked in Wave 4.
+- [x] **Finding AI tools.** A Mac app opened from the Dock does not get the owner's usual list of
       program folders, so Plenipo looks in the known places itself: Homebrew, npm's global folder,
       nvm and Volta, `/Applications/Ollama.app`, `/usr/bin`. It never takes the list blindly from a
-      login shell, because Guard must know exactly which program it approved.
+      login shell, because Guard must know exactly which program it approved. Done: as Plenipo
+      starts, the folders of a fixed list that exist go after its own PATH (Homebrew, `/usr/local`,
+      the system's own, `/snap/bin`, `~/.local/bin`, `~/bin`, `~/.cargo/bin`, Volta, bun, npm's
+      global folder, fnm's and nvm's default Node.js), so AI tools are found, and tools installed
+      with npm find `node` to start. Ollama is also looked for in the Mac's `Ollama.app`.
 - [ ] **Sign-in checks.** Record each AI tool's real answers on Mac and Linux (today's samples were
       recorded on Windows) and check that giving a tool its own home folder (Antigravity, Copilot)
       does not hide the Mac Keychain from it.
@@ -269,6 +279,12 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       so clicks must be scaled, and the allowed keys are checked against the Mac's own shortcuts.
 - [ ] **The workers' browser** stays out of the owner's Keychain (Chrome's own switch for that), as it
       already stays out of the Linux password store.
+- [ ] **Screen permissions stay with computer use.** A Mac counts the app that started a program as
+      responsible for it, so once the owner allows Plenipo Accessibility and Screen Recording, the
+      programs a worker runs could use them too, without computer use's questions (ADR-049). Start
+      workers' programs so the Mac treats them as their own, or keep those permissions in a small
+      helper that only computer use starts. A test proves a worker's program cannot take a
+      screenshot. (Found while choosing what AI tools get to see, Wave 1.)
 - [ ] **Keychain:** the Vault already uses it. A signed Plenipo keeps access after updates, so the
       signing identity must never change.
 - [ ] **Updates:** Plenipo swaps in the new signed app and restarts.
