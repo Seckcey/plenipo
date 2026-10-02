@@ -204,6 +204,15 @@ pub fn configure<R: Runtime>(
             if let Some(Err(e)) = private {
                 log::warn!("The data folder could not be made readable by this account only: {e}");
             }
+            // Phase 23 (ADR-157): on a Mac and Linux, the keeper ends the workers' programs if
+            // Plenipo stops suddenly. Started before any organization's supervisor.
+            if let Err(e) = std::env::current_exe()
+                .and_then(|exe| plenipo_runtime::keeper::start(&exe))
+            {
+                log::warn!(
+                    "The keeper did not start, so a crash could leave workers' programs running: {e}"
+                );
+            }
             // How the last run ended (read before this run's note replaces it).
             let (previous, keeper) = match &data {
                 Some(data) => {

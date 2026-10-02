@@ -3,6 +3,8 @@
 - **Status:** Accepted (owner, 2026-09-26)
 - **Date:** 2026-09-26
 - **Phase:** 1
+- **Amended by:** [ADR-157 (a keeper ends programs after a crash)](ADR-157-a-keeper-ends-programs-after-a-crash.md):
+  on a Mac and Linux, a crash no longer leaves a worker's programs running
 
 ## Context
 

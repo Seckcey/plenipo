@@ -639,6 +639,9 @@ async fn supervise(
         read_limit,
         observer,
     } = run;
+    // On a Mac and Linux, the keeper ends this program's group if Plenipo stops suddenly; it is
+    // taken off the keeper's list when this run is over (ADR-157). The program leads its group.
+    let _kept = child.id().map(crate::keeper::Kept::new);
     let (tx, rx) = mpsc::channel::<RawLine>(1024);
     let mut readers: Vec<JoinHandle<()>> = Vec::new();
     if let Some(out) = stdout {

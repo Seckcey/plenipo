@@ -2,19 +2,24 @@
 //!
 //! `plenipo-diag --plenipo-diagnostic=<scenario>` runs a harmless scenario (see
 //! `plenipo_runtime::diagnostic`). `plenipo-diag --host <work-dir>` runs a Supervisor that
-//! owns one long-running child; tests kill the host to prove its children do not survive.
+//! owns one long-running child, as Plenipo does (with its keeper on a Mac and Linux, ADR-157);
+//! tests kill the host to prove its children do not survive. `plenipo-diag --plenipo-keeper` is
+//! that keeper.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use plenipo_runtime::diagnostic::{self, Scenario};
 use plenipo_runtime::{
-    EventSink, ExecutablePolicy, LaunchProfile, MetadataStore, ProfileRegistry, RuntimeEvent,
-    Supervisor, SupervisorConfig,
+    keeper, EventSink, ExecutablePolicy, LaunchProfile, MetadataStore, ProfileRegistry,
+    RuntimeEvent, Supervisor, SupervisorConfig,
 };
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if let Some(code) = keeper::maybe_run_from_args(args.clone()) {
+        std::process::exit(code);
+    }
     if args.get(1).map(String::as_str) == Some("--host") {
         std::process::exit(host(args.get(2).map(String::as_str)));
     }
@@ -36,6 +41,7 @@ fn host(work_dir: Option<&str>) -> i32 {
         return 64;
     };
     let exe = std::env::current_exe().expect("current exe");
+    keeper::start(&exe).expect("the keeper starts");
     let policy = ExecutablePolicy::new([&exe]).expect("policy");
     let profile = LaunchProfile {
         id: "host.long".into(),

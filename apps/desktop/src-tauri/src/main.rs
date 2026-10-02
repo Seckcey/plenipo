@@ -2,6 +2,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    // Keeper mode (Phase 23, ADR-157): on a Mac and Linux, end the workers' programs if Plenipo
+    // stops suddenly. First of all, since it needs nothing else, not even the Vault.
+    if let Some(code) = plenipo_runtime::keeper::maybe_run_from_args(std::env::args()) {
+        std::process::exit(code);
+    }
     // The Vault first, before any other thread starts: on Linux every thread then shares it.
     plenipo_capabilities::OsSecretStore::prepare();
     // Tool relay mode (Phase 7): an AI tool started Plenipo as its MCP server for a worker;
