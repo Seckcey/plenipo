@@ -1,0 +1,58 @@
+[package]
+name = "plenipo-remote"
+description = "Plenipo on your phone (Phase 14): pairing, the sealed line through 8 West's relay, passkeys, and the phone's fixed list of requests."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+# A stand-in relay, a stand-in phone, and a stand-in passkey, for the tests only (ADR-143 §14).
+# A release never builds them.
+stand-in = ["plenipo-licensing/test-keys"]
+
+[[bin]]
+# Test helper: a stand-in for 8 West's relay on 127.0.0.1, for the Phase 14 end-to-end tests (the
+# Rust tests run the same stand-in in-process). Never shipped.
+name = "plenipo-test-relay"
+path = "tests/support/relay_main.rs"
+required-features = ["stand-in"]
+test = false
+
+[dependencies]
+plenipo-guard = { path = "../guard" }
+# 8 West's signed weekly answer, which the PC shows the relay (ADR-143 §3).
+plenipo-licensing = { path = "../licensing" }
+base64 = "0.22"
+# The PC's relay key, and passkeys made with Ed25519.
+ed25519-dalek = "3"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+getrandom = "0.3"
+log = "0.4"
+# Passkeys made with P-256 (most phones).
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
+# The picture code (QR code) for pairing.
+qrcode = { version = "0.14", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+hkdf = "0.13"
+# Noise, the lock between the phone and the PC (ADR-143 §5).
+# (`use-chacha20poly1305` is on only because snow 0.10 needs it to build its AES-GCM; the lock
+# uses AES-GCM.)
+snow = { version = "0.10", default-features = false, features = ["default-resolver", "use-aes-gcm", "use-chacha20poly1305", "use-sha2", "use-curve25519", "use-getrandom"] }
+thiserror = "2"
+tokio = { version = "1", features = ["net", "time", "sync", "rt", "macros"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake", "native-tls"] }
+ts-rs = "11"
+url = "2"
+
+[dev-dependencies]
+plenipo-licensing = { path = "../licensing", features = ["test-keys"] }
+# The end-to-end tests in `tests/` use the stand-ins.
+plenipo-remote = { path = ".", features = ["stand-in"] }
+tokio = { version = "1", features = ["net", "time", "sync", "rt", "rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true

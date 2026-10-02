@@ -19,6 +19,7 @@ pub fn free_has(limit: Limit) -> &'static str {
         Limit::Connections => "Connections are part of Pro.",
         Limit::AddOnTools => "Add-on tools are part of Pro.",
         Limit::Lessons => "Workers that learn from their work are part of Pro.",
+        Limit::PhoneAccess => "Using Plenipo from your phone is part of Pro.",
     }
 }
 
@@ -41,6 +42,10 @@ pub fn pro_adds(limit: Limit) -> &'static str {
         }
         Limit::AddOnTools => "Plenipo Pro lets your workers use the add-on tools you set up.",
         Limit::Lessons => "Plenipo Pro keeps the lessons your workers learn, and uses them.",
+        Limit::PhoneAccess => {
+            "Plenipo Pro lets you see your work, answer approvals, and give objectives from your \
+             phone, while your PC stays in charge."
+        }
     }
 }
 
@@ -120,6 +125,9 @@ mod tests {
                 "Workers that learn from their work are part of Pro. Plenipo Pro keeps the \
                  lessons your workers learn, and uses them. Enter a license key in Settings → \
                  License.",
+                "Using Plenipo from your phone is part of Pro. Plenipo Pro lets you see your \
+                 work, answer approvals, and give objectives from your phone, while your PC \
+                 stays in charge. Enter a license key in Settings → License.",
             ]
         );
     }

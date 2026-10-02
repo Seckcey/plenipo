@@ -51,10 +51,12 @@ pub enum Limit {
     AddOnTools,
     /// Workers that learn from their work (ADR-112).
     Lessons,
+    /// Using Plenipo from a phone or another device (Phase 14, ADR-145 §1).
+    PhoneAccess,
 }
 
 impl Limit {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Organizations,
         Self::Departments,
         Self::Projects,
@@ -63,6 +65,7 @@ impl Limit {
         Self::Connections,
         Self::AddOnTools,
         Self::Lessons,
+        Self::PhoneAccess,
     ];
 }
 
@@ -281,9 +284,11 @@ impl Entitlements {
             Limit::Departments => count(|u| u.departments()) >= FREE_DEPARTMENTS,
             Limit::Projects => count(|u| u.projects()) >= FREE_PROJECTS,
             Limit::WorkersAtOnce => self.on_the_job(usage.as_deref()) >= FREE_WORKERS_AT_ONCE,
-            Limit::BusinessDepartment | Limit::Connections | Limit::AddOnTools | Limit::Lessons => {
-                true
-            }
+            Limit::BusinessDepartment
+            | Limit::Connections
+            | Limit::AddOnTools
+            | Limit::Lessons
+            | Limit::PhoneAccess => true,
         };
         if reached {
             Decision::Blocked(Blocked::new(limit))
@@ -514,6 +519,7 @@ pub(crate) mod tests {
             Limit::Connections,
             Limit::AddOnTools,
             Limit::Lessons,
+            Limit::PhoneAccess,
         ] {
             let Decision::Blocked(b) = e.check(limit) else {
                 panic!("{limit:?}");
