@@ -102,13 +102,26 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev \
+            gnome-keyring dbus
       - name: Install Rust toolchain (from rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+      # ADR-153: the Vault's test of the system's own store. On Linux that is the desktop's
+      # password store, which this machine has none of, so GNOME Keyring is started for it, its
+      # login keyring made and unlocked with a throwaway password (it must be started as a
+      # daemon, and the password must end in a line break, or it stays locked).
+      - name: The Vault in the system's own store (GNOME Keyring)
+        run: |
+          # The output is shown whether the test passes or not (set -e would stop before it).
+          status=0
+          out=$(dbus-run-session -- bash -c 'gnome-keyring-daemon --components=secrets --daemonize --unlock <<< plenipo-ci > /dev/null && PLENIPO_TEST_REAL_VAULT=1 cargo test --locked -p plenipo-capabilities --lib vault::tests::the_systems_own_store_keeps_and_forgets_a_value -- --exact' 2>&1) || status=$?
+          echo "$out"
+          [ "$status" -eq 0 ] || { echo "::error::The Vault's test of the system's own store failed (exit $status)"; exit 1; }
+          echo "$out" | grep -q "test result: ok. 1 passed" || { echo "::error::The Vault's test of the system's own store did not run and pass"; exit 1; }
       - name: Generated TypeScript bindings are up to date
         run: |
           if [ -n "$(git status --porcelain packages/types/src/generated)" ]; then
@@ -155,7 +168,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
             libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev \
-            webkit2gtk-driver xvfb
+            webkit2gtk-driver xvfb gnome-keyring dbus
       - name: Install Rust toolchain (from rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -228,7 +241,10 @@ jobs:
           PLENIPO_E2E_SCREENSHOTS: ${{ github.workspace }}/e2e-screenshots
           # The runner's browsers can take close to 30 seconds to start; allow 90 (ADR-028).
           PLENIPO_BROWSER_START_SECONDS: "90"
-        run: xvfb-run -a pnpm e2e
+        # ADR-153: the Vault on Linux is the desktop's password store. This machine has none, so
+        # GNOME Keyring is started for the run, unlocked, on the run's own session bus.
+        run: |
+          dbus-run-session -- bash -c 'gnome-keyring-daemon --components=secrets --daemonize --unlock <<< plenipo-ci > /dev/null && xvfb-run -a pnpm e2e'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -260,6 +276,9 @@ jobs:
         timeout-minutes: 45
         # Every test group runs even after one fails, so the summary lists all that still fail.
         run: cargo test --workspace --locked --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/mac-test.log"
+        env:
+          # ADR-153: the Vault's test of the system's own store (the Mac's Keychain).
+          PLENIPO_TEST_REAL_VAULT: "1"
       - name: What still fails on a Mac
         if: always()
         env:
@@ -316,7 +335,10 @@ jobs:
       # used only on Unix is caught here, not only on the owner's PC.
       - run: node --test scripts/*.test.mjs
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # ADR-153: the Vault's test of the system's own store (Windows Credential Manager).
       - run: cargo test --workspace --locked
+        env:
+          PLENIPO_TEST_REAL_VAULT: "1"
       # Phase 13 (ADR-038): this run's copy trusts a throwaway updater key and looks for updates
       # only on this machine (127.0.0.1), so the installer tests can install an update the way
       # Plenipo does. The key is made here and never kept. Released copies are built by the
