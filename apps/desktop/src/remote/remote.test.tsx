@@ -8,6 +8,7 @@ import * as commands from "../api/commands";
 import { a11yProblems } from "../test/a11y";
 import { DevicesSettings, PictureCode } from "./DevicesSettings";
 import { describeRemoteEvent, minutesLeft } from "./words";
+import { PhoneNotices } from "./PhoneNotices";
 import { PhoneSwitch } from "./PhoneSwitch";
 
 vi.mock("../api/commands", async (importOriginal) => {
@@ -23,6 +24,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     removeDevice: vi.fn(),
     unpauseDevice: vi.fn(),
     setKeptOnPc: vi.fn(),
+    setPhoneNotices: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -63,6 +65,7 @@ function settings(
       connected: true,
       devices: [],
       kept: { every: false, productionServers: false, kinds: [] },
+      phoneNotices: true,
       ...remote,
     },
   };
@@ -303,5 +306,44 @@ describe("Activity, for phones", () => {
       "You turned on using Plenipo from another device",
     );
     expect(describeRemoteEvent("task.created", {})).toBeNull();
+  });
+});
+
+describe("Notices on my phones", () => {
+  const phone = {
+    id: "AAAAAAAAAAAAAAAAAAAAAA",
+    name: "Frank's iPhone",
+    browser: "Safari on iPhone",
+    addedAt: NOW,
+    lastSeenAt: NOW,
+    paused: false,
+    signedIn: true,
+    notices: true,
+  };
+
+  it("is on to begin with, says which phones get them, and turns off for every phone", async () => {
+    api.getRemote.mockResolvedValue(settings({}, { devices: [phone] }));
+    api.setPhoneNotices.mockResolvedValue(settings({}, { devices: [phone], phoneNotices: false }));
+    const user = userEvent.setup();
+    render(<PhoneNotices />);
+    const toggle = await screen.findByRole("switch", { name: "Notices on my phones" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText(/1 phone gets the notices you choose above/)).toBeInTheDocument();
+    await user.click(toggle);
+    expect(api.setPhoneNotices).toHaveBeenCalledWith(false);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
+  });
+
+  it("says what is missing first: Pro, the switch, or a phone that asked", async () => {
+    for (const [patch, remote, words] of [
+      [{ pro: false }, {}, /Part of Plenipo Pro/],
+      [{}, { switchedOn: false }, /Turn on Use Plenipo from another device first/],
+      [{}, { devices: [] }, /No phone has asked for notices yet/],
+    ] as const) {
+      api.getRemote.mockResolvedValue(settings(patch, remote));
+      const { unmount } = render(<PhoneNotices />);
+      expect(await screen.findByText(words)).toBeInTheDocument();
+      unmount();
+    }
   });
 });

@@ -219,6 +219,7 @@ const COMMANDS: &[&str] = &[
     "remove_device",
     "unpause_device",
     "set_kept_on_pc",
+    "set_phone_notices",
 ];
 
 fn main() {

@@ -710,6 +710,7 @@ pub fn configure<R: Runtime>(
             remote_commands::remove_device,
             remote_commands::unpause_device,
             remote_commands::set_kept_on_pc,
+            remote_commands::set_phone_notices,
         ])
 }
 
@@ -3708,7 +3709,7 @@ mod ipc_boundary_tests {
 
     /// Settings → Devices: adding a phone, the switch, and the approvals kept on the PC widen who
     /// may connect, so they are the main window's alone (ADR-145 §3, §8).
-    const PHONE_ACCESS: [&str; 9] = [
+    const PHONE_ACCESS: [&str; 10] = [
         "get_remote",
         "set_remote_switch",
         "start_phone_pairing",
@@ -3718,6 +3719,7 @@ mod ipc_boundary_tests {
         "remove_device",
         "unpause_device",
         "set_kept_on_pc",
+        "set_phone_notices",
     ];
 
     #[test]

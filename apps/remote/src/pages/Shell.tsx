@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ControlStatus, PhoneAsk } from "@plenipo/types";
 import { Button, Icon, type IconName } from "@plenipo/ui";
 
 import type { ControlRead } from "../control";
+import { parseTarget } from "../notice";
+import { subscribeOpen, takeInitialTarget } from "../open-target";
 import { useRead, useSession } from "../session-context";
 import { ActivityPage } from "./Activity";
 import { ApprovalsPage } from "./Approvals";
@@ -102,10 +104,42 @@ function Control({ control, reload }: { control: ControlStatus | null; reload: (
  * What a phone may do is a fixed list (ADR-145); the terminal, files, the screen, Plenipo's browser,
  * secrets, and every setting stay on your PC.
  */
+/** Which page a tapped notice opens, and which item on it. */
+function opened(target: string | null): { tab: Tab; focus: string | null; org: string | null } {
+  if (!target) return { tab: "home", focus: null, org: null };
+  const t = parseTarget(target);
+  const tab: Tab =
+    t.kind === "approval" || t.kind === "approvals" || t.kind === "checks"
+      ? "approvals"
+      : t.kind === "lesson" || t.kind === "lessons"
+        ? "more"
+        : t.kind === "finished" || t.kind === "problems"
+          ? "work"
+          : "home";
+  return { tab, focus: t.id, org: t.org || null };
+}
+
 export function Shell() {
   const { organizations, org, setOrg, kept, status, note, clearNote, unknown, connect } =
     useSession();
-  const [tab, setTab] = useState<Tab>("home");
+  // A tapped notice opens its item (part 14C): once when the page opened on it, and again
+  // whenever another is tapped while the page is open.
+  const [first] = useState(() => opened(takeInitialTarget()));
+  const [tab, setTab] = useState<Tab>(first.tab);
+  const [focus, setFocus] = useState<string | null>(first.focus);
+  useEffect(() => {
+    if (first.org) setOrg(first.org);
+  }, [first.org, setOrg]);
+  useEffect(
+    () =>
+      subscribeOpen((target) => {
+        const next = opened(target);
+        if (next.org) setOrg(next.org);
+        setTab(next.tab);
+        setFocus(next.focus);
+      }),
+    [setOrg],
+  );
   const offline = status.kind === "offline";
   const control = useRead<ControlRead>(offline ? null : { kind: "readControl" }, ["control"]);
   return (
@@ -155,10 +189,10 @@ export function Shell() {
             {tab === "home" && (
               <HomePage go={setTab} control={control.data} reloadControl={control.reload} />
             )}
-            {tab === "approvals" && <ApprovalsPage />}
+            {tab === "approvals" && <ApprovalsPage focus={focus} />}
             {tab === "work" && <WorkPage />}
             {tab === "activity" && <ActivityPage key={org} />}
-            {tab === "more" && <MorePage />}
+            {tab === "more" && <MorePage focus={focus} />}
           </PageGuard>
         )}
       </main>
@@ -169,7 +203,10 @@ export function Shell() {
             type="button"
             className="shell__tab"
             aria-current={tab === t.id ? "page" : undefined}
-            onClick={() => setTab(t.id)}
+            onClick={() => {
+              setTab(t.id);
+              setFocus(null);
+            }}
           >
             <Icon name={t.icon} size={20} />
             <span>{t.label}</span>

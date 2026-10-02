@@ -87,6 +87,21 @@ pub async fn set_remote_switch<R: Runtime>(
     .await
 }
 
+/// Settings → Notifications → **Notices on my phones** (part 14C, ADR-144 §7). Each phone still
+/// asks for notices itself; off stops them for every phone at once.
+#[tauri::command]
+pub async fn set_phone_notices<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, Arc<RemoteState>>,
+    license: State<'_, Arc<LicenseHost>>,
+    on: bool,
+) -> Result<RemoteSettings, CommandError> {
+    off_main(&app, &state, &license, move |s| {
+        s.remote.set_phone_notices(on).map_err(error)
+    })
+    .await
+}
+
 /// **Add a phone**: a new picture code and typed code, for 10 minutes (ADR-141).
 #[tauri::command]
 pub async fn start_phone_pairing<R: Runtime>(

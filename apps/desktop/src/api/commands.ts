@@ -1434,3 +1434,8 @@ export function unpauseDevice(id: string): Promise<RemoteSettings> {
 export function setKeptOnPc(kept: KeptOnPc): Promise<RemoteSettings> {
   return call<RemoteSettings>("set_kept_on_pc", { kept });
 }
+
+/** Settings → Notifications → **Notices on my phones** (Phase 14 part 14C). */
+export function setPhoneNotices(on: boolean): Promise<RemoteSettings> {
+  return call<RemoteSettings>("set_phone_notices", { on });
+}

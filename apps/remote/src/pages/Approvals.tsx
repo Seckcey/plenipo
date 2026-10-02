@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ApprovalQueue, ApprovalView } from "@plenipo/types";
 import { Button, StatusPill } from "@plenipo/ui";
 
@@ -19,14 +19,21 @@ function Card({
   org,
   approval: a,
   keptOnPc,
+  focused = false,
   onAnswered,
 }: {
   org: string;
   approval: ApprovalView;
   keptOnPc: boolean;
+  /** A notice opened the page on this one: it is shown first. */
+  focused?: boolean;
   onAnswered: () => void;
 }) {
   const { ask } = useSession();
+  const card = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    if (focused) card.current?.scrollIntoView?.({ block: "center" });
+  }, [focused]);
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
   const answer = (approve: boolean) => {
@@ -46,7 +53,7 @@ function Card({
   };
   const left = timeLeft(a.expiresAt === null ? null : Number(a.expiresAt));
   return (
-    <li className="card approval">
+    <li ref={card} className={focused ? "card approval approval--focused" : "card approval"}>
       <div className="card__head">
         <strong>{a.summary}</strong>
         {left && <StatusPill status="warn" label={left} />}
@@ -92,7 +99,7 @@ function Card({
  * Guard decides, the first answer counts (on the PC or here), and Activity records which phone
  * answered.
  */
-export function ApprovalsPage() {
+export function ApprovalsPage({ focus = null }: { focus?: string | null }) {
   const { data, error, reload } = useRead<OrgApprovals[]>({ kind: "readApprovals" }, ["approvals"]);
   if (error) {
     return (
@@ -108,9 +115,23 @@ export function ApprovalsPage() {
   if (!data) return <p role="status">Loading Approvals…</p>;
   const several = data.length > 1;
   const waiting = data.reduce((n, o) => n + o.queue.pending.length, 0);
+  // A notice opened this page on one approval (part 14C): it shows as it is now. An old notice
+  // cannot fool you: one already answered says so (ADR-144 §8).
+  const stillWaiting =
+    focus !== null && data.some((o) => o.queue.pending.some((a) => a.id === focus));
+  const answered =
+    focus === null || stillWaiting
+      ? null
+      : data.flatMap((o) => o.queue.recent).find((a) => a.id === focus);
   return (
     <section className="page" aria-labelledby="approvals-title">
       <h1 id="approvals-title">Approvals</h1>
+      {focus !== null && !stillWaiting && (
+        <p className="notice-box" role="status">
+          <strong>Already answered.</strong>{" "}
+          {answered?.note ?? "It was answered on your PC, or it ran out of time."}
+        </p>
+      )}
       {waiting === 0 && <p className="muted">Nothing is waiting for you.</p>}
       {data.map((o) =>
         o.queue.pending.length === 0 ? null : (
@@ -123,6 +144,7 @@ export function ApprovalsPage() {
                   org={o.org}
                   approval={a}
                   keptOnPc={o.keptOnPc.includes(a.id)}
+                  focused={a.id === focus}
                   onAnswered={reload}
                 />
               ))}

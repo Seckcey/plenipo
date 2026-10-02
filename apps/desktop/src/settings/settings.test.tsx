@@ -172,6 +172,7 @@ beforeEach(() => {
       connected: false,
       devices: [],
       kept: { every: false, productionServers: false, kinds: [] },
+      phoneNotices: true,
     },
   });
   api.getLocalPaths.mockResolvedValue([

@@ -200,7 +200,11 @@ describe("a paired phone", () => {
     const card = (await screen.findByText("git push to Website")).closest("li")!;
     expect(within(card).getByText("git push origin main")).toBeInTheDocument();
     await user.click(within(card).getByRole("button", { name: "Approve" }));
-    expect(await screen.findByText("Approved.")).toBeInTheDocument();
+    // Answered: the PC has it, and nothing is left waiting.
+    await waitFor(() =>
+      expect(pc.asked).toContainEqual({ kind: "approve", org: "first", approval: "a1" }),
+    );
+    expect(await screen.findByText("Nothing is waiting for you.")).toBeInTheDocument();
     expect(pc.asked).toContainEqual({ kind: "approve", org: "first", approval: "a1" });
   });
 
@@ -218,7 +222,11 @@ describe("a paired phone", () => {
     const approve = await screen.findByRole("button", { name: "Approve" });
     await tabTo(approve);
     await user.keyboard("{Enter}");
-    expect(await screen.findByText("Approved.")).toBeInTheDocument();
+    // Answered: the PC has it, and nothing is left waiting.
+    await waitFor(() =>
+      expect(pc.asked).toContainEqual({ kind: "approve", org: "first", approval: "a1" }),
+    );
+    expect(await screen.findByText("Nothing is waiting for you.")).toBeInTheDocument();
     expect(pc.asked).toContainEqual({ kind: "approve", org: "first", approval: "a1" });
   });
 
@@ -529,15 +537,17 @@ describe("part 14B: everything else that is safe from the page", () => {
     expect(give).toBeDisabled();
     await user.type(box, "Check the shop's pages");
     await user.click(give);
-    expect(pc.asked).toContainEqual({
-      kind: "sendObjective",
-      org: "first",
-      position: "p1",
-      text: "Check the shop's pages",
-    });
+    await waitFor(() =>
+      expect(pc.asked).toContainEqual({
+        kind: "sendObjective",
+        org: "first",
+        position: "p1",
+        text: "Check the shop's pages",
+      }),
+    );
     // Its conversation opens, with the worker on it.
-    expect(await screen.findByText("Check the shop's pages")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Stop the worker" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Stop the worker" })).toBeInTheDocument();
+    expect(screen.getByText("Check the shop's pages")).toBeInTheDocument();
   });
 
   it("keeps or discards a lesson as written", async () => {
