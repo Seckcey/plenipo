@@ -160,9 +160,10 @@ export function HomePage({
           <ul className="list">
             {data.stuck.map((s) => (
               <li key={s.event.id} className="card card--problem">
-                <strong>{s.task?.objective ?? describe(s.event)}</strong>
+                <strong>{s.task?.objective ?? describe(s.event) ?? "Something is stuck"}</strong>
                 <p className="muted">
-                  {describe(s.event)} · {ago(s.event.createdAt)}
+                  {describe(s.event) ?? "Open it on your PC to see what happened"} ·{" "}
+                  {ago(s.event.createdAt)}
                 </p>
               </li>
             ))}

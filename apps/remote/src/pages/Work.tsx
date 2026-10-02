@@ -186,12 +186,15 @@ function Decisions({ record }: { record: WorkRecord }) {
           <p className="muted">{p.url}</p>
         </li>
       ))}
-      {record.decisions.map((e) => (
-        <li key={e.id} className="card card--quiet">
-          <span>{describe(e)}</span>
-          <p className="muted">{ago(e.createdAt)}</p>
-        </li>
-      ))}
+      {record.decisions.map((e) => {
+        const words = describe(e);
+        return words ? (
+          <li key={e.id} className="card card--quiet">
+            <span>{words}</span>
+            <p className="muted">{ago(e.createdAt)}</p>
+          </li>
+        ) : null;
+      })}
     </ul>
   );
 }

@@ -57,10 +57,14 @@ function text(p: unknown, key: string): string | null {
   return null;
 }
 
-/** One line for an Activity entry. */
-export function describe(event: LedgerEvent): string {
+/**
+ * One line for an Activity entry, in plain words; `null` for an event the phone has no words for
+ * (it stays in Activity on the PC, under All events).
+ */
+export function describe(event: LedgerEvent): string | null {
   const p = event.payload;
   const who = text(p, "name");
+  const worker = text(p, "worker") ?? "A worker";
   switch (event.eventType) {
     case "approval.requested":
       return `Asked you: ${text(p, "summary") ?? "an approval"}`;
@@ -78,6 +82,38 @@ export function describe(event: LedgerEvent): string {
       return "Everything was stopped";
     case "control.allowed":
       return "Work was allowed again";
+    case "control.taken_over":
+      return text(p, "kind") === "server"
+        ? `You disconnected ${worker} from its servers`
+        : `You took over from ${worker}`;
+    case "guard.denied":
+      return `Blocked: ${worker} tried to ${text(p, "summary") ?? "do something"}`;
+    case "browser.tab_stopped":
+      return `Plenipo stopped ${worker}'s use of the browser`;
+    case "ssh.command_stop_requested":
+      return `You pressed Stop on ${worker}'s command`;
+    case "ssh.host_key_changed":
+      return "A server's ID changed: check it in Settings → Servers on your PC";
+    case "org.worker_spawned":
+      return "A worker was brought in";
+    case "liaison.handoff_rejected":
+      return "A handoff was refused";
+    case "liaison.dispatch_failed":
+      return "A handoff's worker could not start";
+    case "liaison.delivery_failed":
+      return "A handoff's replies could not be delivered";
+    case "plenipo.recovered":
+      return "Plenipo closed unexpectedly on your PC, and is running again";
+    case "plenipo.run_again":
+      return "A stopped task was run again";
+    case "remote.switched_on":
+      return "You turned on using Plenipo from another device";
+    case "remote.switched_off":
+      return "You turned off using Plenipo from another device";
+    case "remote.device_renamed":
+      return `You renamed a phone: ${who ?? "a phone"}`;
+    case "remote.notice_sent":
+      return `A notice went to ${who ?? "a phone"}`;
     case "remote.request":
       return `${who ?? "A phone"} asked to ${text(p, "kind") ?? "do something"}`;
     case "remote.refused":
@@ -97,7 +133,7 @@ export function describe(event: LedgerEvent): string {
     case "lesson.discarded":
       return "A lesson was discarded";
     default:
-      return event.eventType.replace(/[._]/g, " ");
+      return null;
   }
 }
 
