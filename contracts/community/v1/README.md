@@ -467,7 +467,8 @@ is not needed: the stamp and the tag already tie the words to the sender.
 
 - **About someone who left:** an `items` report may be about a member who has since left Community
   or deleted their 8 West account, because the stamps prove what they sent. A `person` or `profile`
-  report needs a member still in Community (`not_found`).
+  report needs a member the reporting member could look up (§4), or one they blocked; otherwise
+  the answer is `not_found`, the same as for a member who left, so a report never shows a block.
 - **Reported twice:** an item this member already reported for the same reason, in a report 8 West
   has not finished, is not kept again. When every item in a report was, the answer is that earlier
   report's `report_id`. A different reason makes a new report.
@@ -560,6 +561,7 @@ The service enforces these; the numbers may change without a new version, and Pl
 | Thanks, per member                         | 30 a day; once for each person each 7 days                                                                                |
 | Email invitations, per member              | 10 a day; one per address per 30 days                                                                                     |
 | GIF searches, per member                   | 60 a minute                                                                                                               |
+| The leaderboard and your points            | 120 an hour per member, together                                                                                          |
 | A picture                                  | 256 × 256 pixels, 256 KB                                                                                                  |
 | A request body                             | 1.5 MiB for `items`; 400 KiB for `picture` and `reports`; 16 KiB for the rest                                             |
 
