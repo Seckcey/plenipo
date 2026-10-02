@@ -281,7 +281,8 @@
         "profile",
         "has_picture",
         "picture_version",
-        "name_change_at"
+        "name_change_at",
+        "hidden_parts"
       ],
       "properties": {
         "member_id": { "$ref": "#/$defs/MemberId" },
@@ -298,9 +299,16 @@
         "picture_version": {
           "oneOf": [{ "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" }, { "type": "null" }]
         },
-        "name_change_at": { "oneOf": [{ "$ref": "#/$defs/Time" }, { "type": "null" }] }
+        "name_change_at": { "oneOf": [{ "$ref": "#/$defs/Time" }, { "type": "null" }] },
+        "hidden_parts": {
+          "description": "Profile parts 8 West hid (ADR-167 §9). They stay hidden whatever the PC sends.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/HiddenPart" }
+        }
       }
     },
+    "HiddenPart": { "enum": ["picture", "display_name", "message", "company", "business_line"] },
     "Me": {
       "type": "object",
       "additionalProperties": false,
@@ -625,6 +633,18 @@
           "additionalProperties": false,
           "required": ["type"],
           "properties": { "type": { "const": "my_devices_changed" } }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["type", "parts"],
+          "properties": {
+            "type": { "const": "profile_hidden" },
+            "parts": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/HiddenPart" }
+            }
+          }
         }
       ]
     },

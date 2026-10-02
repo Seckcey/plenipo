@@ -43,7 +43,8 @@
       },
       "has_picture": true,
       "picture_version": "jlRgB1mfpt8TeGYCpQHMKT",
-      "name_change_at": null
+      "name_change_at": null,
+      "hidden_parts": []
     }
   }
 }

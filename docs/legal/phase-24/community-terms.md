@@ -128,9 +128,13 @@ for another look at a decision.
   thanked by many people). 8 West decides who has earned a badge, and may remove one that was earned
   unfairly or when your use of Community is ended. Badges have no money value.
 - **Thanks** may be given only to people who really helped you.
-- **A free month of Pro for invitations.** When a person you invited buys Plenipo Pro and keeps it
-  past the 14-day refund window, you and that person each receive a credit equal to one month of
-  Pro on your next bill, up to 12 months of credit a year for each person. You must be 18 or older.
+- **Inviting by email.** Invite only people you know. 8 West sends the invitation, naming you by
+  your Community name, and each invitation lets the person stop all invitations to their address.
+- **A free month of Pro for invitations.** When a person you invited buys Plenipo Pro within 120
+  days of making their account and keeps it past the 14-day refund window, you and that person each
+  receive a credit equal to one month of Pro on your next bill, up to 12 months of credit a year for
+  each person. For an invitation by email, the person must make their account with the address you
+  invited. You must be 18 or older.
   You cannot invite yourself, or use more than one account to earn rewards. A reward is taken back
   if the purchase is refunded or charged back before the credit is used, or if the invitation was
   fake. Credits have no cash value and cannot be moved to another account. 8 West may change or end

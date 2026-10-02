@@ -172,6 +172,7 @@ account joins, otherwise:
 | `has_picture`     | Whether a picture is shown                                                         |
 | `picture_version` | Changes when the picture changes, or `null`                                        |
 | `name_change_at`  | The earliest time the name may change again, or `null`                             |
+| `hidden_parts`    | Profile parts 8 West hid (ADR-167 §9), which stay hidden (below)                   |
 
 **Joining:** `POST /v1/community/join`, body `Join`: `name`, `birth_month` (1–12), `birth_year`,
 and `terms` (the version the person accepted on screen). Answer `Me`.
@@ -206,7 +207,10 @@ and `terms` (the version the person accepted on screen). Answer `Me`.
 `PUT /v1/community/me/profile` with the whole `Profile` replaces it; answer `Me`. Texts are one
 line, with no control characters. **Hiding** parts (sending them as `null`, or fewer business
 kinds) is always allowed, even while paused or before new terms are accepted; showing or changing
-anything needs full standing. `DELETE /v1/community/me/picture` is always allowed too.
+anything needs full standing. `DELETE /v1/community/me/picture` is always allowed too. Parts in
+`hidden_parts` (any of `picture`, `display_name`, `message`, `company`, and `business_line`) stay
+hidden until 8 West shows them again: the service drops them from what the member sends, and
+refuses a new picture (`bad_request`) while `picture` is one of them.
 
 **The picture:** `PUT /v1/community/me/picture`, body `{"png": "<base64url>"}`: a PNG of at most
 256 × 256 pixels and 256 KB, not interlaced. The service checks that it is a real PNG (the chunks,
@@ -327,19 +331,20 @@ PC's copy), `tag`, `stamp`, `accepted_at`, `request`, and `notice` (`null`).
 **Notices** are items the service itself makes, not sealed: `kind` is `notice`, `from`, `sealed`,
 `tag`, and `stamp` are `null`, and `notice` is `Notice`:
 
-| `notice.type`        | Fields                     | When                                                               |
-| -------------------- | -------------------------- | ------------------------------------------------------------------ |
-| `contact_accepted`   | `member_id`                | Someone accepted this member's first message                       |
-| `link_requested`     | `link_id`, `member_id`     | Someone asked to link (their note comes as a `link_note`)          |
-| `link_accepted`      | `link_id`                  | The other owner accepted                                           |
-| `link_paused`        | `link_id`, `paused`        | The other owner paused or unpaused objectives                      |
-| `link_ended`         | `link_id`                  | Either side unlinked or blocked, or a request lapsed               |
-| `collab_invited`     | `collab_id`, `member_id`   | An owner invited this member (details come as a `collab_note`)     |
-| `collab_accepted`    | `collab_id`                | The invited person accepted                                        |
-| `collab_ended`       | `collab_id`                | Removed, left, lapsed, or ended by a block                         |
-| `standing_changed`   | `standing`, `paused_until` | 8 West warned, paused, or ended this member's Community            |
-| `report_closed`      | `report_id`, `outcome`     | 8 West finished a report this member made: `action` or `no_action` |
-| `my_devices_changed` | none                       | A PC of this member signed in or out                               |
+| `notice.type`        | Fields                     | When                                                                                              |
+| -------------------- | -------------------------- | ------------------------------------------------------------------------------------------------- |
+| `contact_accepted`   | `member_id`                | Someone accepted this member's first message                                                      |
+| `link_requested`     | `link_id`, `member_id`     | Someone asked to link (their note comes as a `link_note`)                                         |
+| `link_accepted`      | `link_id`                  | The other owner accepted                                                                          |
+| `link_paused`        | `link_id`, `paused`        | The other owner paused or unpaused objectives                                                     |
+| `link_ended`         | `link_id`                  | Either side unlinked or blocked, or a request lapsed                                              |
+| `collab_invited`     | `collab_id`, `member_id`   | An owner invited this member (details come as a `collab_note`)                                    |
+| `collab_accepted`    | `collab_id`                | The invited person accepted                                                                       |
+| `collab_ended`       | `collab_id`                | Removed, left, lapsed, or ended by a block                                                        |
+| `standing_changed`   | `standing`, `paused_until` | 8 West warned, paused, or ended this member's Community                                           |
+| `report_closed`      | `report_id`, `outcome`     | 8 West finished a report this member made: `action` or `no_action`                                |
+| `my_devices_changed` | none                       | A PC of this member signed in or out                                                              |
+| `profile_hidden`     | `parts`                    | 8 West hid parts of this member's profile, or showed them again: `parts` is every part hidden now |
 
 **Done:** `POST /v1/community/items/ack`, body `{"item_ids": [...]}` (up to 100), answer `204`.
 The service deletes this PC's copy; when every copy of an item is picked up, the item is deleted.
@@ -393,8 +398,9 @@ report key and tag, its signature by a test PC key, and its stamp by the test st
 once (ADR-167 §1–4): deletes the sealed items still waiting between the two, both ways; ends their
 conversation (a new one starts with a new request); ends every link and collaboration between them
 (with `link_ended` and `collab_ended` notices); and, from then on, gives the blocked person
-`not_delivered` or `not_found` for everything about the member who blocked them. They are not told
-they were blocked. Unblocking brings none of it back.
+`not_delivered` or `not_found` for everything about the member who blocked them, and leaves each
+off the other's leaderboard (§12). They are not told they were blocked. Unblocking brings none of it
+back.
 
 ## 9. Linked organizations
 
@@ -455,10 +461,17 @@ For each item the service checks: the stamp's signature (by a stamping key it ha
 stamp's `from` is `about` and its `to` is the reporting member; the HMAC of `payload` with `fk`
 equals the stamp's `tag`; and `item_id`, `kind`, `from`, `to`, and `ref` in the payload equal the
 stamp's. If any item fails, the whole report is refused with `proof_failed` and `item` (the index),
-so a report can never carry words nobody sent. The service keeps the payloads it checked, as
-evidence, for the time in ADR-168. The signature inside the seal is not needed: the stamp and the
-tag already tie the words to the sender. When 8 West is done, the reporting member gets the
-`report_closed` notice.
+so a report can never carry words nobody sent. The service keeps each item as it came (its
+`payload`, `stamp`, and `fk`), as evidence, for the time in ADR-168. The signature inside the seal
+is not needed: the stamp and the tag already tie the words to the sender.
+
+- **About someone who left:** an `items` report may be about a member who has since left Community
+  or deleted their 8 West account, because the stamps prove what they sent. A `person` or `profile`
+  report needs a member still in Community (`not_found`).
+- **Reported twice:** an item this member already reported for the same reason, in a report 8 West
+  has not finished, is not kept again. When every item in a report was, the answer is that earlier
+  report's `report_id`. A different reason makes a new report.
+- When 8 West is done, the reporting member gets the `report_closed` notice.
 
 ## 12. Thanks, points, badges, and the leaderboard
 
@@ -466,7 +479,8 @@ ADR-169. The service works out points and badges from its own records; a PC neve
 
 - **Thanks:** `POST /v1/community/thanks`, body `Thanks`: `to`, `for` (`link_answer` or
   `collaborator`), and `ref` (the `cl_…` or `cc_…` it was for, between the two). Once for each
-  person each 7 days (`already_thanked`); only members 7 days in Community (`too_new_to_thank`).
+  person each 7 days (`already_thanked`), and at most 30 a day; only members 7 days in Community
+  (`too_new_to_thank`).
   Answer `204`.
 - **Points** go to a member for: a first message they sent being accepted (2, once for each
   person); a thanks (3); a person they invited joining Community (5); a link lasting 7 days (10, to
@@ -482,16 +496,27 @@ ADR-169. The service works out points and badges from its own records; a PC neve
   `reason`, `at`), and `free_months` (`{this_year, max}`; `null` for a member under 18).
 - `GET /v1/community/leaderboard?period=week|all` answers `Leaderboard`: `period`, `since`, `top`
   (up to 50: `place`, `member_id`, `name`, `display_name`, `has_picture`, `picture_version`,
-  `badges`, `points`), and `me` (this member's `place` and `points`, `place` `null` when not on the
-  board). Members under 18, appearing offline, or not in good standing are left out.
+  `badges`, `points`), and `me` (this member's `place`, even outside the top 50, and `points`;
+  `place` is `null` when this member is left out). **Left out:** members under 18; members appearing
+  offline or not in good standing; members 8 West kept off it for cheating (ADR-167 §9); and, for
+  the member asking, anyone blocked either way between them (§8). Places count only the members
+  shown, and `place_week` and `place_all` in `Points` follow the same rule.
 
 ## 13. Inviting by email
 
 `POST /v1/community/invite-email`, body `{"email": "…"}`, answer `202` with `{}` every time, so
-nobody learns whether an address has an account (ADR-163 §6). Needs `can_start`. 8 West emails the
-address a link to join, from `hello@getplenipo.com`, naming the member who invited them. The same
-address gets at most one invitation every 30 days, from anyone. The link carries the invitation, so
-the service knows who invited a new member (for points and the free month, ADR-169 §6).
+nobody learns whether an address has an account, or anything else about it (ADR-163 §6). Needs
+`can_start`.
+
+- 8 West emails the address a link to join, from `hello@getplenipo.com`. The email names the member
+  who invited only by their Community name (`@name`), never by words they wrote.
+- Two spellings of one mailbox are one address: capital letters, a `+tag`, and, for Gmail, dots
+  don't count.
+- The same address gets at most one invitation every 30 days, from anyone.
+- Every invitation has a link that stops all invitations to that address. An address that used it
+  is never invited again; the member who asked is not told.
+- The link to join carries the invitation. The member who invited gets points and the free month
+  (ADR-169 §6) only when the new account's email is the address that was invited.
 
 ## 14. GIFs and stickers
 
@@ -532,6 +557,7 @@ The service enforces these; the numbers may change without a new version, and Pl
 | Cards seen (directory and look-ups)        | 200 a day per member, 1,000 a day per internet address; name look-ups 60 an hour                                          |
 | Picking up                                 | 1 waiting request per PC; 720 an hour                                                                                     |
 | Reports, per member                        | 20 a day                                                                                                                  |
+| Thanks, per member                         | 30 a day; once for each person each 7 days                                                                                |
 | Email invitations, per member              | 10 a day; one per address per 30 days                                                                                     |
 | GIF searches, per member                   | 60 a minute                                                                                                               |
 | A picture                                  | 256 × 256 pixels, 256 KB                                                                                                  |

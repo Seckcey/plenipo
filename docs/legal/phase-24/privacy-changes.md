@@ -83,6 +83,9 @@ Update **Last updated** to the day the attorney-approved text is published.
 >   **thanked** you and whom you thanked, and when;
 > - for **rewards for invitations**: who invited whom, and whether a free month was earned, given, or
 >   taken back;
+> - for **invitations by email**: the address a member gives us, used once to send the invitation.
+>   We keep only a scrambled code of it and who sent it, so an address gets at most one invitation
+>   a month, and so we can honor a request never to be invited again;
 > - **sealed messages** and their envelopes (who from, who to, when, and size) until they are picked
 >   up. We cannot read sealed messages;
 > - the people you **block**, your **links** with other organizations, and your **collaborators** and
@@ -113,13 +116,18 @@ named here.]**
 > - **Points, badges, and thanks:** while you are in Community. Each week's top member (for the Top
 >   helper badge): 1 year.
 > - **GIF searches:** not kept.
-> - **Who invited whom:** until the reward is given or refused, then 60 days. A free month given is
->   kept with payment records (7 years, for tax law).
+> - **Who invited whom:** until the reward is given or refused, then 60 days. If the person invited
+>   never buys Pro, 150 days after they made their account. A free month given is kept with payment
+>   records (7 years, for tax law).
+> - **An invitation by email:** 30 days, as a scrambled code of the address. If you ask never to be
+>   invited, a scrambled code of your address until you ask us to invite you again.
 > - **Your Community name:** while you are in Community. After you leave, nobody else can take it
 >   for 90 days.
 > - **A computer's pass and keys:** until you sign that computer out or remove it.
 > - **Blocks, links, and collaborators:** while they are on.
-> - **Reports:** 1 year after we close them. If a report shows apparent child sexual abuse material,
+> - **Reports:** 1 year after we close them. A report keeps a scrambled code of the reported
+>   person's email, so a ban still works if they delete their account. If a report shows apparent
+>   child sexual abuse material,
 >   we report it to the National Center for Missing & Exploited Children and keep it only as the law
 >   requires. **[Attorney: the time.]**
 > - **If we end your use of Community:** a scrambled code of your email, so it cannot rejoin, for as
