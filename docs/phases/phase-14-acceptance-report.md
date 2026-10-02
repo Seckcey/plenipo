@@ -143,6 +143,12 @@ in part 14A's section 5.
 Also: every one of these is recorded with the phone that sent it (the real-app test reads them
 back from Activity), and a PC on v1.19.0 never sees a request it cannot read.
 
+**Also fixed in part 14B,** from part 14A's screenshots: More → **AI tools** named each AI tool by
+its code ("claude-code") and said **Ready** for every one. Your PC now sends each AI tool's own
+name and whether it can work now (never where it is installed), and the phone lists them in plain
+words (page test; desktop `a_phone_reads_the_same_pages`). A notice that is one paragraph no
+longer puts each bold word on its own line ("Click / **Add** / on your PC.").
+
 ### 3. Screenshots
 
 _Added from the pull request's test run._
