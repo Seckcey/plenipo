@@ -37,12 +37,12 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | 11A delivered (v1.18.0). Phase 22 built in the private repository `plenipo-account` (ADR-101), and **live** (the owner's word, 2026-10-01); its go-live was finished in its own session |
 | Final push 1 | 14 | Plenipo on your phone: a web interface built from scratch | **Delivered** (2026-10-01): part 14A in v1.19.0 (the sealed line, adding a phone, sign-in with a passkey, every page to read, Approve and Refuse, Stop all, and approvals kept on the PC), part 14B in v1.19.1 (Allow again, Stop the worker, Run again and Leave stopped, lessons, and objectives from the phone), and part 14C in v1.19.2 (notices when the page is closed). Plenipo's own relay, built in this repository, ships in v1.19.3 (ADR-149), and runs at `relay.getplenipo.com` since 2026-10-02; v1.19.4 turns phone access on (ADR-140 §4). Decisions: ADR-140 to ADR-149 |
 | Final push 2 | 23 | Mac and Linux | **In progress** (started 2026-10-02; ADR-150 to ADR-156): Wave 0 delivered (a Mac job in CI, and unsigned Mac and Linux trial builds); Wave 1, the shared base, next |
-| Final push 3 | 24 | Community | After Phase 23; last (ADR-132) |
+| Final push 3 | 24 | Community | **Started beside Phase 23** (2026-10-02, ADR-160): its records and the attorney's drafts first; Guard's request path after Phase 23's Wave 1 |
 | Parked | 16, Wave 4 | Tools for any model, then specialist jobs | No place in the order until the owner schedules it (ADR-131, ADR-132) |
 | Parked | 15 | Additional providers, departments, Windows servers, and Milepost | No place in the order until the owner schedules it (ADR-132) |
 | Parked | 9 | Sales department on HubSpot | Postponed (ADR-018), parked by ADR-132 |
 
-Phases 0–8, 10, 11, 11A, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered, and Phase 16's Waves 1 to 3. Phase 22 is live (the owner's word, 2026-10-01). Phase 14, the first of the final push, is delivered (v1.19.0 to v1.19.2, its own relay in v1.19.3, and phone access on in v1.19.4); **Phase 23** is in progress (ADR-150), then **Phase 24** (ADR-132). Parked: Phase 16's Wave 4, Phase 15, and Phase 9.
+Phases 0–8, 10, 11, 11A, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered, and Phase 16's Waves 1 to 3. Phase 22 is live (the owner's word, 2026-10-01). Phase 14, the first of the final push, is delivered (v1.19.0 to v1.19.2, its own relay in v1.19.3, and phone access on in v1.19.4); **Phase 23** is in progress (ADR-150), and **Phase 24** is being built beside it (ADR-160). Parked: Phase 16's Wave 4, Phase 15, and Phase 9.
 
 ---
 
@@ -2279,7 +2279,7 @@ Phase 13 (installer and updates on Windows as the model). The owner's MacBook Pr
 
 # Phase 24 — Community
 
-**Added at the owner's direction (2026-09-28), ADR-039.** Third and last in the final push (ADR-132, 2026-10-01), after Phase 23.
+**Added at the owner's direction (2026-09-28), ADR-039.** Third and last in the final push (ADR-132, 2026-10-01). **Built beside Phase 23 from 2026-10-02** (ADR-160, building Phase 24 alongside Phase 23), with ADR-160 to ADR-169.
 
 ## Goal
 
