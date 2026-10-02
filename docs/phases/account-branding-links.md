@@ -30,15 +30,18 @@ Both sites say paid purchases are not open yet. Free needs no account or card.
       and landing/sign-in/reset/signup navigation passed. Stripe remains in test mode. Its
       checked updater is enabled and the first run passed. Full branding acceptance was then
       withdrawn when an existing browser kept the old dark stylesheet in its fresh cache.
-      Account PR #14 adds content-versioned assets; marketing remains held until normal
-      navigation in that affected browser shows the bright white Inter/Pip design. Private
-      release evidence stays in the account repository.
-- [ ] Merge this website change after account acceptance, then verify the existing Coastline
-      updater publishes the expected source and public links.
+      Account PR #14 resolved this with content-versioned assets at source
+      `f364fa1b96f7967f3f241d2e3306ba0aff77d5cd`. Normal navigation in an affected browser,
+      fresh desktop and 390px mobile checks all showed the white Inter/Pip design, including
+      under dark OS preference. Private release evidence stays in the account repository.
+- [x] Website PR #125 merged after account acceptance. Exact merged-source CI passed and
+      the existing Coastline updater published `3a00a9cc984e4e0429ecdb32683345baf161f830`.
+      Header/mobile-menu Sign in, account creation and protected account management all passed
+      live browser checks. See the [final receipt](../development/website-releases/2026-10-01-account-links.md).
 
 The account updater's design, tests, credentials and recovery procedure are documented in the
 private `plenipo-account` repository. The website's existing checked updater remains in place.
 No account secrets or customer records belong in this public repository. A merge alone is not
-proof that either public service has updated. Final marketing release evidence will record both
+proof that either public service has updated. The final marketing receipt records both verified
 revisions. The completed preview containers/network, temporary ports, SSH forwards and test
 browser tabs have been cleaned up; evidence and rollback images remain retained.
