@@ -126,8 +126,13 @@ test("search metadata describes the actual free Windows release without fabricat
   assert.ok(!("aggregateRating" in data));
   assert.ok(!("review" in data));
   assert.match(data.license, /\/LICENSE$/);
-  assert.match(html, /Free\s+<span>Planned<\/span>/);
-  assert.match(html, /Pro\s+<span>Planned<\/span>/);
+  assert.ok(!/Free\s+<span>Planned<\/span>/.test(html));
+  assert.ok(!/Pro\s+<span>Planned<\/span>/.test(html));
+  for (const path of ["/", "/signin", "/signup", "/account"]) {
+    assert.ok(html.includes(`href="https://account.getplenipo.com${path}"`));
+  }
+  assert.match(html, /Paid purchases are not open yet/);
+  assert.ok(!html.includes("$9") && !html.includes("$99"));
 });
 
 test("the page carries no version typed by hand", async () => {
