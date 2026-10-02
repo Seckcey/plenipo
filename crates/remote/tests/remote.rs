@@ -655,6 +655,21 @@ async fn notices_go_only_to_phones_that_asked_and_only_they_can_read_them() {
         .await
         .unwrap();
     assert_eq!(ok(&r)["notices"], true);
+    // An address that is not a phone's own notice service is refused, and nothing is kept.
+    let r = quiet
+        .ask(Ask::NoticesOn {
+            subscription: plenipo_remote::protocol::Subscription {
+                endpoint: "https://example.com/push/quiet".into(),
+                ..to.clone()
+            },
+        })
+        .await
+        .unwrap();
+    let refused = r.refused.as_ref().expect("refused");
+    assert!(
+        refused.message.contains("a phone's own notice service"),
+        "{refused:?}"
+    );
 
     // One sealed notice, for the phone that asked, to its own notice service.
     let sealed = w.remote.sealed_notices(&a_notice());

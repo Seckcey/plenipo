@@ -254,6 +254,13 @@ fn plain<E: std::fmt::Display>(e: E) -> String {
 }
 
 impl<R: Runtime> Host for AppSide<R> {
+    fn notice_address(&self, endpoint: &str) -> Result<(), String> {
+        self.built
+            .rules
+            .check(Purpose::PhoneNotices, endpoint)
+            .map(|_| ())
+    }
+
     fn pro(&self) -> bool {
         self.license
             .entitlements()
