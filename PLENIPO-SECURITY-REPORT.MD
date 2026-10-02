@@ -46,6 +46,7 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 - **Confidence** says how sure the reviewer is. _High_ means the code path was read end to end and the lines are quoted. Anything not confirmed by reading code is marked, or left out.
 - Every finding has: **Where** (file and line numbers at the commits above), **What the code does now**, **Why it matters**, **How to fix** (the actual change), and **How to check** (a test or a manual step).
 - Finding IDs: `A-` is the account service, `P-` is plenipo (desktop, servers, website), `G-` is GitHub and process, `D-` is dependencies.
+- **Suggested model and effort:** each finding names the Claude model and effort level recommended for a Claude Code session that does the fix. _Opus 5.5_ for well-specified changes (the finding already gives the lines, the code, and the test); _Fable 5.1_ for changes that cut across several pieces or touch cryptography, protocol state, or concurrency. Effort _xhigh_ (Claude Code's default) for code changes, _high_ for small configuration and documentation changes, _max_ only where noted. Use Fable 5.1 at xhigh for a final review of all the fix pull requests before merging. One caution: Fable 5.1's safety filter can stop a session that writes out attack details; defensive fixes rarely trip it, but if a session stalls with a safeguards message, restart that one task on Opus 5.5.
 - **How the review was done:** the whole of `plenipo-account` and the security-relevant parts of `plenipo` were read by hand (appendix B lists exactly what was and was not read); automated scans ran on top (`cargo audit`, `pnpm audit`, `npm audit`, `detect-secrets`, a git-history pattern sweep, GitHub API checks of rulesets, vulnerability reporting, and recent pull requests, and a live header check of the websites). Every finding from the automated and assisted passes was re-verified against the source by the author before it went in.
 
 ## 3. The account service (plenipo-account): findings
@@ -53,6 +54,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 ### 3.1 Customer accounts, billing, email, licensing
 
 ### A-CUST-1 [Medium] One confirmed account can stall the whole service by hammering `POST /buy`
+
+**Suggested model and effort:** Opus 5.5, effort xhigh.
 
 - **Where:** `src/accounts/routes.ts:853-1049` (the `/buy` handler; the lock at `:917-919`; Stripe calls inside the transaction at `:969, 983, 1005-1006, 1014-1018, 1023`), `src/db/db.ts:27` (`new pg.Pool({ connectionString, max: 10 })`, no `connectionTimeoutMillis`) and `:36-44` (`pool.connect()` happens before `BEGIN`), `src/billing/stripe-api.ts:329-330` (`maxNetworkRetries: 2, timeout: 20_000`).
 - **What the code does now:** `/buy` opens a transaction (which takes one of the 10 pooled connections), then waits on `pg_advisory_xact_lock('buy:<customer>')`, then makes three to five Stripe calls while still holding the connection. There is no rate limit on `/buy` or `/billing` (every `limiter.take` in `routes.ts` is on sign-up, sign-in, links, confirm-resend, or password checks; see lines 186-491, 815, 1155, 1216).
@@ -78,6 +81,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### A-CUST-2 [Medium] A plan switch to a bigger plan hands out the bigger license key before the upgrade invoice is paid
 
+**Suggested model and effort:** Opus 5.5, effort xhigh.
+
 - **Where:** `src/billing/notices.ts:477-482`; `src/licensing/keys.ts:173-213` (`replaceKeyIfPlanChanged`); `src/licensing/state.ts:4` and `:97-101` (`past_due` counts as running and the weekly answer says `active`); portal settings in `scripts/stripe-setup.ts:239-255` (switching between all eight prices, `proration_behavior: 'always_invoice'`).
 - **What the code does now:**
   ```ts
@@ -96,6 +101,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### A-CUST-3 [Low] `/account?m=` looks the message up on the object's prototype chain
 
+**Suggested model and effort:** Opus 5.5, effort high.
+
 - **Where:** `src/accounts/routes.ts:796`: `const message = req.query.m ? (ACCOUNT_MESSAGES[req.query.m] ?? null) : null;` with `ACCOUNT_MESSAGES` a plain object (`src/accounts/pages.ts:408`).
 - **Why it matters:** `GET /account?m=constructor` renders a status box containing `function Object() { [native code] }`; `?m=__proto__` renders `[object Object]`. Output is HTML-escaped, so it is not XSS, only odd text on a signed-in page, and a trap if the lookup is ever reused for a redirect or raw render.
 - **How to fix:** `const m = typeof req.query.m === 'string' ? req.query.m : ''; const message = Object.hasOwn(ACCOUNT_MESSAGES, m) ? ACCOUNT_MESSAGES[m] : null;`
@@ -103,6 +110,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 - **Confidence:** High.
 
 ### A-CUST-4 [Low] Un-sent emails keep live one-time links in plain text in the database for up to about 22 hours
+
+**Suggested model and effort:** Opus 5.5, effort xhigh.
 
 - **Where:** `src/email/outbox.ts:29-56` (`enqueueEmail` stores `text_body` and `html_body`), `:26-27` and `:105-137` (retry waits of 1, 5, 15, 60, 180, 360, 720 minutes before giving up; bodies are cleared only on success or after the last try). Link lifetimes: confirm 24 h, sign-in 15 min, reset 30 min (`src/accounts/sessions.ts:20-24`), email change 24 h, invitations 1 to 30 days.
 - **Why it matters:** the service's stated property is that a copy of the database cannot be used to sign in, because tokens are stored only as SHA-256 hashes. While Microsoft Graph is down, every confirmation, email-change, and invitation link sits in clear text in `email_outbox` (and in any backup taken then) and stays valid. Someone with a database copy during an email outage could confirm attacker-made accounts, accept invitations (complimentary keys), or finish an email change. Precondition: database or backup read access plus an email outage.
@@ -112,12 +121,16 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### A-CUST-5 [Info] Notes on customer accounts (no change strictly needed)
 
+**Suggested model and effort:** Opus 5.5, effort high, for any note you choose to act on.
+
 - The "restricted account cannot buy" check at `src/accounts/routes.ts:131` is a raw-URL string match (`['/buy', '/billing'].includes(req.url.split('?')[0])`). The two POST handlers re-check `restricted_at` under the lock (`:925-929`, `:1057-1064`), so there is no bypass today; move the check into `requireCustomer` so it does not depend on URL spelling.
 - The service-wide cap of 200 sign-up emails an hour (`src/accounts/rate-limit.ts`) is a global pause switch: 200 valid sign-ups from 20 or more addresses pause all new accounts for the rest of the hour. This is the documented design, and the Cloudflare rule on `/signup` (5 in 10 minutes, then a 1-hour block) raises the cost. Keep that rule in place.
 
 ### 3.2 The owner console
 
 ### A-ADM-1 [Low] A refused owner action is written to the audit journal as "succeeded"
+
+**Suggested model and effort:** Opus 5.5, effort high.
 
 - **Where:** `src/accounts/admin-support.ts:159-170` (the `catch` block of `customerOperation`), used by `src/admin/customers.ts` and `src/admin/invitations.ts`. The journal is shown on `src/admin/console-routes.ts:365` and `src/admin/customers.ts:715`.
 - **What the code does now:** when an owner action is refused or fails, the catch block writes an audit row with the real result only inside the JSON `detail` field (`detail.outcome: 'denied' | 'failed'`). The `outcome` column itself is left empty, and `audit()` in `src/admin/audit.ts` fills an empty outcome with `'succeeded'`.
@@ -140,6 +153,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### A-ADM-2 [Low] Posting a finished "reveal" or "export" again shows the secret again without a new audit row
 
+**Suggested model and effort:** Opus 5.5, effort high.
+
 - **Where:** `src/admin/licenses.ts:780-869` (reveal a signed license key) and `src/admin/customers.ts:902-930` (customer data export); the replay rule is in `src/admin/operations.ts:93-97`.
 - **What the code does now:** an "action reference" (operation id) protects against double submission by replaying the first result. For reveal and export, the replay re-reads the key text or rebuilds the export file and returns it, but writes no audit row because `atomicOperation` treats a replay as "nothing new happened". The current tests lock this in (`test/admin-console.test.ts:270-287`, `test/admin-licenses.test.ts:551-554` expect exactly one audit row after two posts).
 - **Why it matters:** pressing F5 on the result page (browser "resubmit form") shows the signed key again, and the journal under-counts how many times a secret was shown. `docs/owner-console.md` promises keys appear only on an explicitly confirmed reveal.
@@ -149,6 +164,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### A-ADM-3 [Low] The billing search does not escape `%` and `_` (the other two lists do)
 
+**Suggested model and effort:** Opus 5.5, effort high.
+
 - **Where:** `src/admin/billing.ts:181` and `:198-201`.
 - **What the code does now:** `[query, \`%${query}%\`, ...]`goes straight into`ILIKE`. `src/admin/customers.ts:253`and`src/admin/invitations.ts:454`escape with`search.replace(/[\\%_]/g, '\\$&')`.
 - **Why it matters:** this is not SQL injection (the value is a bound parameter). But `_` and `%` act as wildcards, so a search for `sub_1` matches `subX1…`, and `%` alone lists every subscription with a full table scan. Owner-only input, so impact is wrong results and load.
@@ -157,6 +174,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 - **Confidence:** High.
 
 ### A-ADM-4 [Low] The audit journal is "append-only" by habit, not by the database
+
+**Suggested model and effort:** Opus 5.5, effort xhigh.
 
 - **Where:** `migrations/005_owner_console.sql` (the `admin_audit` table), `compose.yaml:36` (one database role, `plenipo_account`, owns everything and also runs migrations).
 - **What the code does now:** no trigger, `GRANT`, or `REVOKE` exists anywhere in `migrations/`, `src/`, or `docs/` (checked with grep). Only an `INSERT` path exists in code.
@@ -174,6 +193,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 - **Confidence:** High.
 
 ### A-ADM-5 [Low] A failed Stripe step is marked "needs attention" with no server log of why
+
+**Suggested model and effort:** Opus 5.5, effort high.
 
 - **Where:** `src/admin/operations.ts:247-268` (`externalOperation` catch block).
 - **What the code does now:** `catch {` drops the error. The operation row gets a fixed sentence ("One or more steps may have completed…"). Nothing goes to the log.
@@ -195,6 +216,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### A-ADM-6 [Info] Notes on the owner console (no change strictly needed)
 
+**Suggested model and effort:** Opus 5.5, effort high, for any note you choose to act on.
+
 - After a recovery-code sign-in, registering a new passkey makes the session fully "fresh" for 5 minutes (`src/admin/auth.ts:315-318`, exemption at `src/admin/routes.ts:134-147`). `docs/owner-console.md:19-20` says a recovery sign-in "does not unlock billing or support changes"; that is true only until the new passkey is registered. Either fix the sentence, or leave `verified_at` empty on that registration so the owner must pass `/reauth` with the new key first.
 - `GET <admin>/billing/invoices/:id` (`src/admin/billing.ts:442-460`) calls Stripe with the raw path value before checking it belongs to a local subscription, and runs an `UPDATE refunds` on a GET. Harmless (owner-only, same-site cookie). Hardening: check `/^in_[A-Za-z0-9]{8,}$/` first.
 - `scripts/stripe-setup.ts --live` reads the key from the environment or a hidden prompt (never the command line, good) but on a host where `STRIPE_SECRET_KEY` and `STRIPE_ALLOW_LIVE=yes` are both set it changes live products, prices, and the default customer-portal settings with no "are you sure". Hardening: require typing the `acct_…` id, and an explicit `--key-from-env` flag.
@@ -206,6 +229,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 ### 4.1 The servers: relay, phone page, website updaters, and the phone lock
 
 ### P-SRV-1 [High] The relay, the phone page, and the website are installed from GitHub Releases or `main` with no signature, and the relay updater runs the download as root
+
+**Suggested model and effort:** Fable 5.1, effort xhigh (max if the signing design needs more than one try).
 
 - **Where:**
   - `crates/relay/deploy/update-relay.sh`: runs as root every 15 minutes (`:62-64` requires root; `plenipo-relay-update.service` has no `User=`). `:87` asks GitHub for the latest release; `:122-128` downloads the binary and a `.sha256` from the same release and compares them; `:130` runs `"$staging/plenipo-relay" --version` as root before any sandbox; `:149-150` switches and restarts.
@@ -232,6 +257,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### P-SRV-2 [High] Pairing a phone can be taken over by whoever scans the code first; the "Is this your phone?" question shows only a name the phone chose
 
+**Suggested model and effort:** Fable 5.1, effort xhigh.
+
 - **Where:** `crates/remote/src/service.rs:1258-1266` (`pairing_meeting`, third handshake message): the first phone to finish the Noise handshake with the right code becomes the only candidate; any later phone with the same correct code is closed with no message (`self.close(&mut st, conn)`). `service.rs:446-450` (`PairingView::Asking { name, browser, since }`) shows exactly what the phone sent in `PairHello` (`protocol.rs:26-31`), cleaned only for length and control characters. The owner's own phone, if it loses the race, shows "That didn't work: the code may be wrong or used" (`apps/remote/src/pages/pairing-words.ts:16`). Design claim: `docs/adr/ADR-141-pairing-a-phone.md:55-57` says the question "stops someone who photographed your screen from adding their phone first".
 - **Why it matters:** the owner clicks **Add a phone**; the code and QR are on screen for up to 10 minutes. Someone who can see the screen (a screen share, a video call, a photo, screenshot malware) scans first, naming their phone "iPhone". The owner's own scan a moment later fails with a generic error. The PC now asks "Is this your phone? iPhone · Safari on iPhone · just now", the owner, who just scanned, clicks **Add**, and the stranger's phone completes the passkey step and becomes a paired device with the full ADR-145 list: approve, stop, send objectives. Nothing on the PC lets the owner tell the two phones apart, so the ADR's claim does not hold. Precondition: seeing the screen during the window and scanning first. The cryptography is sound; this is a user-verification gap.
 - **How to fix:**
@@ -252,6 +279,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### P-SRV-3 [Medium] The 30-minute phone sign-in idle limit is extended by reads the PC itself triggers
 
+**Suggested model and effort:** Opus 5.5, effort high.
+
 - **Where:** `crates/remote/src/service.rs:1527-1529`: `if signed && !from_notice { live.last_request = now; }` (`again` is in scope at `:1473` but unused). `apps/remote/src/session-context.ts:93-96`: on every `changed` event from the PC the page re-reads with `again: true`. The PC emits `changed` for task state, agent results, approvals, and more. Promise: ADR-142 (the phone proves it is you), "30 minutes after your last tap, 12 hours at most".
 - **Why it matters:** while workers run, the PC pushes `changed` every few seconds, the open page re-reads automatically, and each re-read resets the idle clock. The 30-minute window becomes 12 hours exactly when approvals arrive. A phone left unlocked on a desk can approve all day.
 - **How to fix:** `if signed && !from_notice && !again { live.last_request = now; }` and note in the doc comment on `PhoneSays::Ask.again` (`protocol.rs:346-352`) that automatic re-reads do not extend the sign-in.
@@ -259,6 +288,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 - **Confidence:** High.
 
 ### P-SRV-4 [Medium] A hostile relay can grow the PC's connection table without limit
+
+**Suggested model and effort:** Fable 5.1, effort xhigh (do P-SRV-4, 5, and 6 in one session).
 
 - **Where:** `crates/remote/src/service.rs:984-997` (`Joined` from the relay), `:1056-1113` (`phone_joined`), insert at `:1093-1100`. No count of `st.conns` exists anywhere (grep for `conns.len()` finds nothing); entries leave only on `Left`, `Close`, a failed meeting, or `relay_down`.
 - **Why it matters:** ADR-143 treats the relay as untrusted, and the relay knows every paired phone's ID from the passes. It can send `{"t":"joined","conn":"cN","phone":"<known id>"}` with a fresh `conn` forever and never send `left`. Each one allocates a Noise handshake state plus an assembler (a kilobyte or two). At network speed that is hundreds of MB a minute until Windows kills the Plenipo process and the owner's workers stop. These joins never fail, so the failed-meeting brake never trips.
@@ -277,6 +308,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### P-SRV-5 [Medium] One leaked weekly answer lets anyone register unlimited PC identities at the relay, and the per-connection outgoing queue is bounded by count, not bytes
 
+**Suggested model and effort:** Fable 5.1, effort xhigh (same session as P-SRV-4).
+
 - **Where:** `crates/relay/src/pc.rs:82-90`: the hello is accepted when the Ed25519 proof checks and the weekly answer verifies; nothing ties the answer to the relay key or limits how many keys one answer may bring. The answer is a plain file on every Pro PC (`apps/desktop/src-tauri/src/license_host.rs:36`, `license.json`) and the relay accepts one up to 30 days old. `crates/relay/src/http.rs:103` and `crates/relay/src/limits.rs:58`: each connection's outgoing queue is `mpsc::channel::<Message>(256)`, and a message can be up to 96 KB, so a phone that never reads can hold about 24 MB before the writer kills it. `limits.rs:45-49`: 512 connections in all, 40 phones per PC; `plenipo-relay.service`: `MemoryMax=128M`, `Restart=always`.
 - **Why it matters:** with one Pro `license.json` (a backup, a support bundle, a second-hand PC), a handful of addresses, a few fake PC keys, and a few phone connections that never read, an attacker can queue more than 128 MB; systemd kills and restarts the relay, every real PC and phone drops, and the attacker repeats. The same answer also gives a non-customer free use of the relay, which ADR-143 §3 set out to prevent.
 - **How to fix:** (1) bound the outgoing queue by bytes: keep a per-link `AtomicUsize` of queued bytes in `hub.rs`; in `Link::send_message`, if `queued + m.len() > 1_048_576` then kill the connection instead of queuing; subtract after each write; lower `outgoing_queue` to 32. (2) Limit PCs per license without keeping the key ID: after `verify`, hash the key ID with a random per-process salt, keep a `HashMap<[u8;32], usize>` of live PCs per hash in `State`, and refuse above 3 (`Limits::pcs_per_license: 3`). (3) Count PC connections per address (`Limits::pcs_per_address: 4`). (4) Longer term, in the account service, let the weekly answer carry the PC's relay-key fingerprint so the relay can bind answer to key.
@@ -284,6 +317,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 - **Confidence:** High for the mechanics; Medium for how easy it is in practice.
 
 ### P-SRV-6 [Medium] The relay's per-address table is never swept
+
+**Suggested model and effort:** Fable 5.1, effort xhigh (same session as P-SRV-4).
 
 - **Where:** `crates/relay/src/hub.rs:162-211`. `forget_idle_address` runs only from `enter` (on a refusal) and `leave`, and only for that same address, and only when `new.count(now) == 0`. A connection that opens and closes within its first minute leaves `new.count == 1`, so its entry stays; nothing looks at it again unless the same address returns. The comment at `:202` ("takes no memory") promises the opposite.
 - **Why it matters:** each entry is about 100 bytes. An attacker with many source addresses (IPv6 is keyed by /64 and providers hand out millions of /64s; or a modest IPv4 pool) makes one connection per address, closes it, and moves on. Around 1.3 million entries reach `MemoryMax=128M`, the relay is killed and restarted, and all customers drop. No credentials needed.
@@ -301,12 +336,16 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### P-SRV-7 [Low] Relay and pairing hardening items
 
+**Suggested model and effort:** Fable 5.1, effort max for the Noise pattern change; effort xhigh for the other three items.
+
 - **No `Origin` check on the WebSocket upgrade** (`crates/relay/src/http.rs:60-72, 171-179`). Any website the owner visits can open 40 sockets to `wss://relay.getplenipo.com/plenipo/v1/phone` and send junk; each is refused `bad_pass` and counted against the visitor's address, so the owner's own phone and PC behind the same home address get `429` for the rest of the minute. A nuisance, not a break-in. Fix: after computing the role, read the `Origin` header; for the phone path accept only `https://remote.getplenipo.com` (or `http://localhost:*`/`http://127.0.0.1:*` under the `test-hooks` feature) or no `Origin` at all; for the PC path refuse any `Origin` (the PC is not a browser); make the allowed origin a `Config` field. Test in `hardening.rs`: upgrade with `Origin: https://evil.example` → 403.
 - **Online/offline oracle for a PC** (`crates/relay/src/hub.rs:374-387`): the reply differs (`pc_offline` vs `bad_pass`) before the pass signature is checked, so an unsigned payload naming a PC's fingerprint tells whether that PC is connected. A removed phone still knows the fingerprint. Fix: keep a bounded memory of recently seen PC keys (fingerprint → key, last seen; cap 10,000, forget after 24 h), check the pass against it when the PC is absent, and only then answer `pc_offline`; otherwise `bad_pass`.
 - **Pairing uses `Noise_XXpsk3`** (`crates/remote/src/noise.rs:22`, `apps/remote/src/lock/noise.ts:204-205`): the pairing code is mixed in only at the end of message 3, after the phone's long-term public key was sent, so a relay that answers message 1 itself can learn the phone's static public key (not the name, and it cannot finish the meeting). That key is the phone's identity in every later meeting, so the relay could link one phone across pairings. Fix: switch both sides to `Noise_XXpsk2_25519_AESGCM_SHA256` (`[["e"], ["e","ee","s","es","psk"], ["s","se"]]`), regenerate `contracts/phone-relay/v1/noise-vectors.json` (`PLENIPO_WRITE_CONTRACT=1 cargo test -p plenipo-remote contract`), re-run `apps/remote/src/lock/lock.test.ts`, and note it in ADR-143 §5.
 - **`cloudflare` client-address mode trusts `CF-Connecting-IP` from any direct connection** (`crates/relay/src/http.rs:207-214`). The README has the operator start with a DNS-only record (origin IP public) and later switch to the orange cloud with `PLENIPO_RELAY_CLIENT_ADDRESS=cloudflare`; anyone who reaches the proxy directly can then send a random `CF-Connecting-IP` per connection and dodge every per-address limit. Fix: trust the header only when the proxy's peer (the last `X-Forwarded-For` hop) is in Cloudflare's published ranges (a const table refreshed with releases), else fall back to `forwarded()`; and tell the operator to firewall 80/443 to Cloudflare's ranges when switching.
 
 ### P-SRV-8 [Info] Phone notes (by design, recorded so the accepted risk is understood)
+
+**Suggested model and effort:** No change needed; nothing to run.
 
 - Passkey registration uses `attestation: "none"` (`apps/remote/src/lock/passkey.ts:518`), so the PC cannot tell a platform passkey from a key the page made itself. Standard for passkeys and fine against the stated threats; it is why P-SRV-1 (page signing) is the real guarantee. Add a sentence to ADR-142 §2.
 - No per-phone request rate limit on the PC (`crates/remote/src/service.rs:1578-1583`); only the page can produce sealed asks, so this is robustness. Optional: a token bucket per sign-in (60 asks per 10 s).
@@ -315,6 +354,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 ### 4.2 The desktop app and licensing
 
 ### P-DESK-1 [Medium] Pro can be kept without a successful check by deleting one file every 30 days; the key's own paid-through date is never enforced
+
+**Suggested model and effort:** Opus 5.5, effort xhigh.
 
 - **Where:** `crates/licensing/src/license.rs:136-162` (`License::load`), `crates/licensing/src/state.rs:83-95` (`Record::entered`) and `:164-223` (`Record::status`), `apps/desktop/src-tauri/src/license_host.rs:154-156` and `:435-437` (`read_record_bytes` → `unwrap_or_default()`).
 - **What the code does now:** the 30-day "no check" grace (ADR-022, the 30 days with no successful check) is anchored in a plain JSON file, `license.json`, next to the Ledger. If the file is missing or unreadable, `Record::default()` is used; its `key_id` is empty, so `License::load` calls `Record::entered(...)`, which sets `entered_at = now` and `answer = None`. `Record::status` then returns Pro with reason "not checked yet" for another 30 days. `status()` copies the key's `paid_through` for display (lines 193-196) but never compares it with `now`.
@@ -347,6 +388,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### P-DESK-2 [Low] "Open in another program" still hands a few script types to Windows
 
+**Suggested model and effort:** Opus 5.5, effort high.
+
 - **Where:** `crates/capabilities/src/broker/owner_files.rs:46-204` (the `RUNS` list), `:206-212` (`runs`), `:847-868`; `apps/desktop/src-tauri/src/files_commands.rs:195-212` (`open_file_outside`).
 - **What the code does now:** before starting `explorer.exe <file>`, the name's extension is checked against `RUNS`, a long list of things that run when double-clicked (exe, ps1, py, bat, lnk, Office macro types, installers…).
 - **Why it matters:** these run-on-double-click types are missing (confirmed with grep: zero matches): `ahk`, `ahk2` (AutoHotkey), `rb`, `rbw` (Ruby), `php`, `lua`, `tcl`, `tk`, `r`, `jl` (Julia), `nu` (Nushell), `groovy`. A worker can write such a file into the project and name it something tempting; if the owner picks "Open in another program" and has that interpreter installed, the file runs. Impact depends on what is installed, so Low.
@@ -356,6 +399,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### P-DESK-3 [Low] AI-tool updates run each vendor's own updater with no check of what it downloads, and SECURITY.md reads as if every update is signed
 
+**Suggested model and effort:** Opus 5.5, effort high.
+
 - **Where:** `crates/capabilities/src/ai_tools.rs:1373-1376` and `:1558-1584`; adapters `crates/runtime/src/agent/claude_code.rs:175-177` (`claude update`), `codex.rs:231-238`, `kimi.rs:178-180` (`kimi upgrade --yes`), `grok.rs:227-229`, `copilot.rs:337-339`; Guard check `crates/guard/src/ai_tools.rs:83-122`.
 - **What the code does now:** "Update" runs the vendor's command through the supervisor with a cleared environment and no shell. Guard only checks the tool is not busy; there is no approval card, checksum, or signature. With "update by themselves" switched on (off by default), the daily look starts these on its own. Plenipo's own updater, by contrast, verifies a minisign signature bound to the version.
 - **Why it matters:** this is a reasonable design (Plenipo cannot sign Anthropic's or OpenAI's binaries), but SECURITY.md's line "Plenipo installs an update only when the owner chooses Install now, and only an installer signed with 8 West's updater key" reads as if it covers AI tools too. The newest-version look itself is safe: read-only GETs to fixed npm/GitHub addresses through Guard, and the test stand-in address is accepted only when it starts with `http://127.0.0.1:` (an empty value from the Release workflow is ignored).
@@ -364,6 +409,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 - **Confidence:** High.
 
 ### P-DESK-4 [Info] Desktop notes (no change strictly needed)
+
+**Suggested model and effort:** Opus 5.5, effort high, for any note you choose to act on.
 
 - **Ledger JSON export is not run through the secret filter** (`crates/ledger/src/maintenance.rs:208-248`, `export_json`), unlike the diagnostics zip (`apps/desktop/src-tauri/src/diagnostics.rs:90-102, 150-168`). Secrets are redacted when events are written, so this is defence in depth: give `export_json` an optional text filter and pass the broker's filter from `commands::export_ledger`.
 - **Tool-server admission falls open** when Windows cannot say which process owns a connection (`crates/capabilities/src/broker.rs:1527-1562`: `Holders::Unavailable` → admitted with a notice and a Ledger event). Same-user attackers are out of scope in SECURITY.md; a Guard option "refuse tools when the connecting program cannot be checked" would let cautious owners fail closed.
@@ -375,6 +422,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### P-GUARD-1 [Medium] The default approved-commands list lets a worker run code it wrote itself with no approval card, and the list contradicts its own comment
 
+**Suggested model and effort:** Opus 5.5, effort xhigh.
+
 - **Where:** `crates/guard/src/defaults.rs:230-286`. The comment at `:230-233` says "Script runners (`npm run`, `make test`) run a project's own scripts with the owner's account, so they are not approved for every project: the owner approves them where the project is trusted (ADR-034)." The `approved` list that follows includes `cargo test *`, `cargo build *`, `npm test *`, `pnpm test *`, `pnpm build *`, `pnpm check *`, `yarn test *`, `yarn build *`, `jest *`, `vitest *`, `pytest *`, `./gradlew test *`, `./gradlew build *`, `make lint *`, `make check *`. A `./gradlew` program resolves to a file inside the project and runs as `Origin::Project` (`crates/capabilities/src/broker.rs:3374-3417`, `program_path`); `program_key` strips `.bat`/`.cmd`/`.exe`/`.com` (`crates/guard/src/commands.rs:12-29`), so a worker-written `gradlew.bat` matches the rule `./gradlew test *`. An approved-list match is allowed with no card (`crates/guard/src/engine.rs`).
 - **What this means:** every one of those commands runs whatever the project says: `npm test` runs the `test` script in `package.json`, `cargo test` compiles and runs `build.rs` and the tests, `make lint` runs the `Makefile`, and `./gradlew` runs a file the worker can create. A Developer worker that can change project files can therefore run any program it likes, with the owner's account, by writing it into one of these hooks and calling the approved command. `SECURITY.md` says this openly ("treat a project's scripts as code you trust, and approve script runners only for projects you trust"), so this is a documented trade-off, not a hidden hole. The defaults do not match that advice, though: the comment excludes `npm run` and `make test` but the list approves `npm test`, `make lint`, `make check`, and a project-local `./gradlew`, which are the same thing.
 - **How to fix:** (1) Make the default list match the comment: move `npm test *`, `pnpm test *`, `pnpm build *`, `pnpm check *`, `yarn test *`, `yarn build *`, `yarn lint *`, `make lint *`, `make check *`, `./gradlew test *`, `./gradlew build *` from `approved` to `ask`, so the first use in each project shows a card; keep tool invocations that do not run project hooks approved where they truly do not (note that `cargo test`/`cargo build` run `build.rs` and proc-macros, so they belong with the script runners too). (2) Never approve an `Origin::Project` program from the default list: in `engine.rs`, when the resolved origin is `Origin::Project`, treat an `approved` match as `ask` unless the owner's own rule names `./<path>` explicitly. (3) In the "Hire a Developer" flow, show the SECURITY.md sentence once ("Build and test commands run this project's own scripts with your account; approve them only for projects you trust"). (4) Say in `docs/faq.md` which default commands run project code.
@@ -382,6 +431,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 - **Confidence:** High on the list contents and resolution (read `defaults.rs`, `commands.rs`, `broker.rs:3374-3417`); the severity reflects that the behaviour is documented.
 
 ### P-GUARD-2 [Medium] `git diff`, `git log`, and `git status` with no path cover the whole repository, not only the project folder
+
+**Suggested model and effort:** Opus 5.5, effort xhigh (do P-GUARD-2 and P-GUARD-6 in one session).
 
 - **Where:** `crates/capabilities/src/broker.rs:3833-3866` (the `GitStatus`, `GitDiff`, and `GitLog` arms add `-- <path>` only when the worker gave a path) and `:3959` (`programs::git_args(w.root(), &op)` → `git -C <project folder> …` with no pathspec). `crates/capabilities/src/broker/git_tools.rs:69-76` (`prefix()` via `rev-parse --show-prefix`, `in_folder()`) and its test at `:607-640` show that a project folder may be a sub-folder of its repository.
 - **What the code does now:** with no path argument, git runs from the project folder but, as git does, reports on the whole work tree. When the project folder is a sub-folder of a larger repository, `git diff` prints the contents of changed files above the project folder, and `git status` and `git log` print their names and commit lines. Only blocked-list files above the folder are excluded (`git_tools.rs:106-112`).
@@ -398,6 +449,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 - **Confidence:** High (lines read; `git_args` adds no pathspec).
 
 ### P-GUARD-3 [Medium] The project-folder check happens once at resolve time; the later read, write, rename, or delete does not check again
+
+**Suggested model and effort:** Fable 5.1, effort xhigh.
 
 - **Where:** `crates/guard/src/paths.rs:206-233` (follow links of the deepest existing part, then `real.starts_with(&self.root)`); `crates/capabilities/src/files.rs:121, 178, 396, 407, 433, 447, 457, 464` (`fs::read`/`write`/`rename`/`remove_*` on `file.abs` with no root available and no re-check); `crates/capabilities/src/broker.rs:2644-2686` (carry-out hands the earlier `Resolved` to `files::*`), with an approval card possibly waiting in between (`broker.rs:2092-2107` then `:2174-2258`).
 - **What the code does now:** `Workspace::resolve` canonicalises the path and checks it is inside the folder. The result (`Resolved.abs`) is used later as a plain path. Nothing re-canonicalises or opens with `O_NOFOLLOW` at the moment of the I/O.
@@ -416,6 +469,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### P-GUARD-4 [Medium] A PowerShell script is a shell the owner's command lists never see
 
+**Suggested model and effort:** Fable 5.1, effort xhigh.
+
 - **Where:** `crates/capabilities/src/broker.rs:3602-3630` (`Action::Script` → `powershell -Command -` with the script on stdin; `p.script = Some(script)`, `p.command` stays `None`); `crates/guard/src/engine.rs:623-637, 753-767, 788-804` (the blocked, always-ask, and approved lists are consulted only `if let Some(cmd) = request.command`); `crates/guard/src/sensitive.rs:352-354` (`script()` runs the word classifier only; the "deletes outside the project folder" check at `:342-347` is in `command()` and never runs for scripts); `crates/guard/src/defaults.rs:46, 164` (`PowershellExec` defaults to **Ask** in both built-in permission sets).
 - **What the code does now:** by default every script asks, which is right. If an owner sets `PowershellExec` to **Allow** for a role, a script runs whatever programs it names with only the best-effort word scan standing in the way: the blocked-commands list (for example `rm *`) does not apply inside it, and the "outside the project folder" risk is never raised.
 - **Why it matters:** "A worker cannot do anything its permission set does not allow" stops being true for that role the moment the switch is on, and the Settings page does not say so.
@@ -433,6 +488,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### P-GUARD-5 [Low] An absolute path skips the name checks that a relative path gets
 
+**Suggested model and effort:** Opus 5.5, effort high.
+
 - **Where:** `crates/guard/src/paths.rs:187-196` (absolute input: only `is_absolute()` is checked) versus `:197-202` (relative input: `check_name` on every component) and `:234-237` (`check_name` again, but only for components still to be created). `check_name` (`:77-106`) refuses `:` (drive or alternate data stream), trailing dots or spaces, device names, and `<>"|?*`.
 - **What the code does now:** for an absolute path, the existing components never go through `check_name`. Confinement itself still holds (`:225-233` compares the canonical real path with the root), and the blocked-list name comes from the canonical path.
 - **Why it matters:** the module header promises that alternate-stream names and names Windows silently changes are refused. Whether Windows' canonicalisation turns an existing `name:stream` into the plain file name was not verified from this Linux session; the fix costs nothing either way.
@@ -442,6 +499,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### P-GUARD-6 [Low] `git status` and `git log` still name blocked files
 
+**Suggested model and effort:** Opus 5.5, effort xhigh (same session as P-GUARD-2).
+
 - **Where:** `crates/capabilities/src/broker.rs:3833-3836` (`git status --short --branch`, no files list) and `:3853-3866` (`git log … -- <path>`: the path is resolved but not pushed into `files`, so Guard's blocked-file check at `crates/guard/src/engine.rs:564-575` does not run for it). `git_tools.rs:15` documents it: "`git status` and `git log` show names and commit lines, never contents, and stay as they are."
 - **Why it matters:** names only, never contents. But the promise is "A folder listing leaves them out", and the file-tool listing does hide them (`files.rs:60-86`); `git status` shows `?? .env`, and `git log -- .env` lists the commits that touched it.
 - **How to fix:** in the `GitLog` arm, push the resolved path into `files` so Guard refuses a blocked path as it does for `diff`; for `GitStatus`, append the same `:(top,literal,exclude)<blocked>` pathspecs that `git diff` uses (`git status` accepts pathspecs), or filter the `--porcelain -z` lines through `blocked_by` before returning them.
@@ -450,6 +509,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### P-GUARD-7 [Low] "Is this program inside the project?" is decided on an un-canonicalised PATH entry
 
+**Suggested model and effort:** Opus 5.5, effort high.
+
 - **Where:** `crates/capabilities/src/broker.rs:3413-3416` (`Ok(p) if p.starts_with(ws.root()) => Origin::Project`), with `p` from `crates/capabilities/src/programs.rs:125-134` (`dir.join(n)` from PATH, never canonicalised) and `ws.root()` canonical (`crates/guard/src/paths.rs:144`).
 - **Why it matters:** ADR-048 (secrets reach only the programs they are for) says a program inside the project folder gets no stored secret. The comparison is lexical, so a PATH or search-folder entry that reaches the project folder through a link, a short 8.3 name, or different letter case is classed as installed, and `secrets_for` (`broker.rs:634-658`) hands that file the secrets bound to its name. Precondition: an owner-configured search folder or PATH entry that points into the project through a link.
 - **How to fix:** `Ok(p) if dunce::canonicalize(p).is_ok_and(|real| real.starts_with(ws.root())) => Origin::Project`.
@@ -457,6 +518,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 - **Confidence:** High.
 
 ### P-GUARD-8 [Low] The typed-text filter is a list, so some invisible Unicode format characters get through
+
+**Suggested model and effort:** Opus 5.5, effort high.
 
 - **Where:** `crates/capabilities/src/desktop.rs:137-157` (`refuse_hidden_characters`: `is_control()` except tab and line breaks, plus an explicit list of code points).
 - **Why it matters:** the rule is "Text a worker types holds only visible characters, tabs, and line breaks." Unicode format characters outside the list are accepted, for example U+1D173 to U+1D17A (musical format controls) and U+1BCA0 to U+1BCA3 (shorthand format controls). The key filter itself matches the documented list.
@@ -467,6 +530,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 ### 4.4 The marketing website and the release workflow
 
 ### P-WEB-1 [Low] The marketing website sends no `Strict-Transport-Security` header
+
+**Suggested model and effort:** Opus 5.5, effort high.
 
 - **Where:** `apps/website/nginx.conf:41-46` (the `add_header` block). Checked live: `curl -sI https://getplenipo.com/` returns CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, and no `strict-transport-security`. Cloudflare is not adding one either.
 - **Why it matters:** without HSTS, a browser sent to `http://getplenipo.com` (typed without https, an old link, a captive portal) makes one plain-HTTP request before the redirect. On a hostile network that one request can be answered with a fake page whose "Download" button points at a bad installer. This page is how customers get the installer.
@@ -480,6 +545,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### P-WEB-2 [Low] The website's Docker base images are pinned by tag, not by digest, and are built on the production host
 
+**Suggested model and effort:** Opus 5.5, effort high.
+
 - **Where:** `apps/website/Dockerfile:1` (`FROM node:22-alpine AS build`) and `:21` (`FROM nginx:1.30.5-alpine`); `apps/website/deploy/auto-release.sh:206-209` builds this on the server every 15 minutes when something changed.
 - **Why it matters:** a tag can move. Two builds of the same commit can differ, and a mistaken or hostile upstream push reaches production with no review. The account repo already pins every runtime image by digest.
 - **How to fix:** `FROM node:22-alpine@sha256:<digest> AS build` and `FROM nginx:1.30.5-alpine@sha256:<digest>` (get digests with `docker buildx imagetools inspect node:22-alpine`). Add a `docker` entry for `/apps/website` to `.github/dependabot.yml` so the digests are bumped weekly.
@@ -487,6 +554,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 - **Confidence:** High.
 
 ### P-WEB-3 [Info] Release workflow: `contents: write` is granted to both jobs, and release safety depends on GitHub settings that live outside the repo
+
+**Suggested model and effort:** Opus 5.5, effort high for the workflow change; the GitHub settings are checked by hand.
 
 - **Where:** `.github/workflows/release.yml:36-37` (top-level `permissions: contents: write`), `:94` (`environment: release` / `dry-run`), `:96-103`.
 - **What the code does now:** both the `relay` job (Linux build) and the `windows` job inherit `contents: write`; only `windows` needs it (`gh release create`).
@@ -496,6 +565,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### P-WEB-4 [Info] The account repo's publish job: what it assumes
 
+**Suggested model and effort:** No change needed; nothing to run.
+
 - **Where:** `plenipo-account/.github/workflows/ci.yml:76-154`.
 - **What it does:** only on a push to `main`, after the check and docker jobs pass, logs in to GHCR with the job's own token, builds for arm64, pushes `ghcr.io/seckcey/plenipo-account:sha-<commit>`, and records the digest in an artifact. No stored secret.
 - **What it assumes:** that `main` is protected (anyone who can push to `main` can publish a production image that the checked updater may deploy within 15 minutes), and that the GHCR package stays private. See the process findings.
@@ -503,6 +574,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 ## 5. GitHub settings and process (both repositories)
 
 ### G-1 [High] `main` is the production deployment gate in both repos, and no branch ruleset enforces how code gets onto it
+
+**Suggested model and effort:** By hand in the GitHub web interface; no model needed.
 
 - **What was checked (GitHub API, 2026-10-02):**
   - `Seckcey/plenipo-account`: `GET /repos/Seckcey/plenipo-account/rulesets` → `[]` (no rulesets). The classic branch-protection API answered 403 (this session's token has no admin scope), so a classic rule may or may not exist.
@@ -519,6 +592,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### G-2 [Medium] Private vulnerability reporting is off on the public repo, and SECURITY.md says so
 
+**Suggested model and effort:** By hand in the GitHub web interface; no model needed.
+
 - **What was checked:** `GET /repos/Seckcey/plenipo/private-vulnerability-reporting` → `{"enabled": false}`. `SECURITY.md` ("Current intake status, September 27, 2026") tells reporters there is no private channel.
 - **Why it matters:** a researcher who finds a real hole in a product that runs AI agents with file, git, browser, and SSH access has no safe place to send it, so it either goes public or goes nowhere.
 - **How to fix:** **Settings → Code security → Private vulnerability reporting → Enable** (free for public repos). Then update `SECURITY.md`: replace the "intake status" paragraph with "Use **Report a vulnerability** on the Security tab. We answer within 5 business days." Optionally add `security@8westventures.com` as a second channel.
@@ -526,6 +601,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 - **Confidence:** High.
 
 ### G-3 [Medium] `plenipo-account` has no Dependabot (or Renovate); `plenipo`'s Dependabot misses the website lockfile and Docker images
+
+**Suggested model and effort:** Opus 5.5, effort high.
 
 - **Where:** `plenipo-account/.github/` holds only `workflows/ci.yml`. `plenipo/.github/dependabot.yml` covers `github-actions`, `npm` at `/`, and `cargo` at `/`; the website is built with `npm ci` from `apps/website/package-lock.json` (a separate lockfile Dependabot's root `npm` entry does not update), and no `docker` ecosystem is listed.
 - **Why it matters:** the live payment service gets no automated proposals for security patches at all. For the website, a root Dependabot bump of a website package makes `npm ci` fail in the Website workflow until someone regenerates `apps/website/package-lock.json` by hand.
@@ -535,6 +612,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### G-4 [Low] `plenipo-account`'s Dockerfile base image is not pinned by digest
 
+**Suggested model and effort:** Opus 5.5, effort high.
+
 - **Where:** `Dockerfile:8` and `:19` (`FROM node:22-bookworm-slim`), while every runtime image in `compose.yaml` is required to carry `@sha256:` (and CI tests that).
 - **How to fix:** `FROM node:22-bookworm-slim@sha256:<digest>` on both lines; the `docker` Dependabot entry from G-3 keeps it current.
 - **Confidence:** High.
@@ -542,6 +621,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 ## 6. Dependencies and secret scans
 
 ### D-1 Rust crates (`cargo audit`, 760 crates in `plenipo/Cargo.lock`)
+
+**Suggested model and effort:** Opus 5.5, effort high (the lockfile update and the docs note).
 
 | Advisory                                                                              | Crate                    | How it gets in                                                                                                            | What it means                                                                                                                                                                                                                       | What to do                                                                                                                                                                                                         |
 | ------------------------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -553,6 +634,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 
 ### D-2 npm packages (`pnpm audit`)
 
+**Suggested model and effort:** Opus 5.5, effort high.
+
 - **plenipo-account:** no known vulnerabilities (fastify 5.12.5, @fastify/cookie 11.1.2, @fastify/formbody 9.0.0, @node-rs/argon2 2.2.1, @simplewebauthn/server 14.0.3, jose 6.2.12, marked 18.0.14, nodemailer 10.0.13, pg 8.23.1, pino 10.3.1, stripe 22.6.2 pinned exactly, @aws-sdk/client-kms 3.1144.0).
 - **plenipo:** 3 high + 1 low, all in development-only packages that are never shipped to customers:
   - `extract-zip` ≤ 2.0.1 (GHSA-jmr9-qjv8-65gv, GHSA-7pqw-9j4j-h8q3; **no patched version exists**) and `basic-ftp` 5.3.1 (GHSA-c475-qrg2-pj4r, fixed in ≥ 6.2.1), both under `tests/e2e > webdriverio > @wdio/utils > @puppeteer/browsers`. `tests/e2e/package.json` has only `devDependencies`; the installer is built from `apps/desktop`. The code runs only when webdriverio has to download a browser, which does not happen on GitHub runners (they set `CHROMEWEBDRIVER`).
@@ -561,6 +644,8 @@ Dependencies: no secret was found in either repository or its history. One Rust 
 - **Lockfile hygiene (both repos):** every entry resolves to the npm registry with an integrity hash; no `git+`, `http://`, or tarball dependencies; `--frozen-lockfile` / `npm ci` everywhere. pnpm 10 blocks dependency install scripts by default (plenipo lists none; plenipo-account allow-lists only `esbuild`).
 
 ### D-3 Secrets in the repositories
+
+**Suggested model and effort:** No change needed; nothing to run.
 
 - **detect-secrets** (all files, both repos, excluding lockfiles): 252 hits in plenipo, 46 in plenipo-account. Every hit was read: test fixtures used to prove redaction works (`ghp_abcdefghijklmnopqrstuvwxyz0123456789`, `GOCSPX-ipc-test-…`, `AKIAIOSFODNN7EXAMPLE`), alphabets and constants, SHA-256 hashes of brand assets, published Noise/WebAuthn/web-push test vectors, the **public** license keys in `crates/licensing/src/trust.rs`, the contract's **published test** signing key (`contracts/license-check/v1/test-signing-key.json`, trusted only by test builds; see "What is sound"), and CI placeholders such as `POSTGRES_PASSWORD=ci-only-not-a-secret`.
 - **Git history** (plenipo: all 326 commits; plenipo-account: deepened to its full 51 commits): pattern sweep for AWS keys, Stripe live keys, webhook secrets, GitHub/Slack/Google tokens, JWTs, private-key blocks, and `password=`/`secret=`/`token=` literals. Every hit is a placeholder or a refusal-test string (`rk_live_PLENIPO-TEST-…`, `sk_live_51IpcSecretKey`). No `.env`, `*.pem`, `*.key`, `*.p12`, `id_rsa`, `.netrc`, or token-bearing `.npmrc` was ever committed to either repo.

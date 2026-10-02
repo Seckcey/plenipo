@@ -1,7 +1,8 @@
 # ADR-157: On a Mac and Linux, a keeper ends a worker's programs if Plenipo stops suddenly
 
-- **Status:** Proposed (the builder's recommendation, 2026-10-02). It changes how Wave 1 does one
-  item of [the Phase 23 checklist](../phases/phase-23-checklist.md), not what it does.
+- **Status:** Accepted (by the owner, 2026-10-02: "Go ahead and merge", for pull request #138,
+  which said that merging it accepts this record). It changes how Wave 1 does one item of
+  [the Phase 23 checklist](../phases/phase-23-checklist.md), not what it does.
 - **Date:** 2026-10-02
 - **Phase:** 23
 - **Part of:** [ADR-150 (Phase 23 starts)](ADR-150-phase-23-starts.md)
