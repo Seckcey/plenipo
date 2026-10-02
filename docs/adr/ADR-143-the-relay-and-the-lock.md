@@ -144,3 +144,26 @@ stop listening for a while.
   and a public name of its own. Far more parts, for the same result as Noise.
 - **Keeping requests at the relay until the PC is back.** An approval could then run hours later,
   after you changed your mind. The plan says the phone changes nothing when the PC is off.
+
+## As built (v1.19.0, part 14A)
+
+Built as decided, with the 90-day passes of [ADR-147](ADR-147-relay-passes-last-90-days.md). The
+lock is `snow` on the PC and the browser's own cryptography on the phone; both match the test
+answers in `contracts/phone-relay/v1` byte for byte. Small differences, none of them a change of
+substance:
+
+- **Recorded (§13):** `remote.signed_in` and `remote.signed_out` (with why: you, idle, 12 hours,
+  removed, switched off, Pro ended, paused) stand for `remote.session_ended`; `remote.meetings_stopped`
+  (once, when wrong tries stop new meetings) stands for `remote.meeting_refused`; passkey answers the
+  PC refuses are `remote.check_refused` and `remote.device_paused`. Activity says each in plain
+  words.
+- **A removed phone that comes back later.** The PC tells the relay to drop its pass, and the relay
+  tells that phone "bad pass" and closes it. The relay keeps nothing, so after it meets the PC again
+  it would take that pass once more; the PC, which no longer knows the phone, then drops it again.
+  Either way the phone shows "This phone is no longer on your PC's list". The contract and the
+  change request say so.
+- **What the PC said last counts first.** A meeting ends only after the phone has read everything
+  the PC sent before the line closed, so a "removed" or "signed out" just before it is never lost.
+- **Tests:** the stand-in relay and its bad modes (`crates/remote/tests/remote.rs`), the page against
+  the contract's test answers (`apps/remote`), a test of exactly what the PC sends the relay (§10),
+  and the real app with a real browser as the phone (`tests/e2e/specs/remote.e2e.mjs`).

@@ -188,7 +188,10 @@ mod tests {
         assert_eq!(b64::decode(&keys.notice_public(), 65).unwrap().len(), 65);
         // Never in a log.
         let shown = format!("{keys:?}");
-        assert!(!shown.contains(&b64::encode(keys.noise_private())), "{shown}");
+        assert!(
+            !shown.contains(&b64::encode(keys.noise_private())),
+            "{shown}"
+        );
     }
 
     #[test]

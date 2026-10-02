@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as commands from "../api/commands";
 import { a11yProblems } from "../test/a11y";
 import { DevicesSettings, PictureCode } from "./DevicesSettings";
-import { minutesLeft } from "./words";
+import { describeRemoteEvent, minutesLeft } from "./words";
 import { PhoneSwitch } from "./PhoneSwitch";
 
 vi.mock("../api/commands", async (importOriginal) => {
@@ -257,5 +257,51 @@ describe("the picture code", () => {
     expect(minutesLeft(NOW + 9.5 * 60_000, NOW)).toBe("9 minutes");
     expect(minutesLeft(NOW + 61_000, NOW)).toBe("1 minute");
     expect(minutesLeft(NOW + 30_000, NOW)).toBe("less than a minute");
+  });
+});
+
+describe("Activity, for phones", () => {
+  it("says which phone asked, and why Guard refused", () => {
+    const phone = { device: "AAAA", name: "Frank's phone" };
+    expect(describeRemoteEvent("remote.request", { ...phone, kind: "approve" })).toBe(
+      "Frank's phone asked to approve",
+    );
+    expect(
+      describeRemoteEvent("remote.request", { ...phone, kind: "refuse", fromNotice: true }),
+    ).toBe("Frank's phone asked to refuse (from a notice)");
+    expect(
+      describeRemoteEvent("remote.refused", { ...phone, kind: "approve", why: "keptOnPc" }),
+    ).toBe("Guard refused Frank's phone: approve (you keep that kind of approval on this PC)");
+    expect(
+      describeRemoteEvent("remote.refused", { ...phone, kind: "stop all", why: "copied" }),
+    ).toBe("Guard refused Frank's phone: stop all (it was a copy of a request already made)");
+  });
+
+  it("says when phones are added, signed in, paused, and removed", () => {
+    expect(
+      describeRemoteEvent("remote.device_added", {
+        name: "Frank's phone",
+        browser: "Safari on iPhone",
+      }),
+    ).toBe("You added Frank's phone (Safari on iPhone)");
+    expect(describeRemoteEvent("remote.signed_in", { name: "Frank's phone" })).toBe(
+      "Frank's phone signed in",
+    );
+    expect(describeRemoteEvent("remote.signed_out", { name: "Frank's phone", why: "idle" })).toBe(
+      "Frank's phone signed out after 30 minutes without use",
+    );
+    expect(describeRemoteEvent("remote.device_paused", { name: "Frank's phone" })).toBe(
+      "Frank's phone was paused after 3 failed checks",
+    );
+    expect(describeRemoteEvent("remote.device_removed", { name: "Frank's phone", by: "pc" })).toBe(
+      "You removed Frank's phone",
+    );
+    expect(
+      describeRemoteEvent("remote.pairing_refused", { reason: "wrong_code", pairingPaused: true }),
+    ).toBe("Wrong pairing codes were tried: Add a phone is paused for 15 minutes");
+    expect(describeRemoteEvent("remote.switched_on", {})).toBe(
+      "You turned on using Plenipo from another device",
+    );
+    expect(describeRemoteEvent("task.created", {})).toBeNull();
   });
 });

@@ -128,7 +128,10 @@ pub fn hex(bytes: &[u8]) -> String {
 
 /// Is `text` a mailbox name (32 lower-case hex digits)?
 pub fn is_mailbox(text: &str) -> bool {
-    text.len() == 32 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    text.len() == 32
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 #[cfg(test)]
@@ -158,7 +161,11 @@ pub(crate) mod tests {
     fn typed_codes_are_read_kindly() {
         let c = Code::parse(FIXED).unwrap();
         assert_eq!(c.shown(), "7K3Q-M9TX-2HFD-R8WB");
-        for typed in ["7k3q-m9tx-2hfd-r8wb", " 7K3Q M9TX 2HFD R8WB ", "7K3QM9TX2HFDR8WB"] {
+        for typed in [
+            "7k3q-m9tx-2hfd-r8wb",
+            " 7K3Q M9TX 2HFD R8WB ",
+            "7K3QM9TX2HFDR8WB",
+        ] {
             assert_eq!(Code::parse(typed).as_ref(), Some(&c), "{typed}");
         }
         // O is 0, and I and L are 1.

@@ -17,13 +17,13 @@ use tokio::sync::mpsc::UnboundedSender;
 use ts_rs::TS;
 
 use crate::code::Code;
-use crate::devices::{clean_name, Config, ConfigFile, Device, DeviceView, KeyStore, Kept};
+use crate::devices::{clean_name, Config, ConfigFile, Device, DeviceView, Kept, KeyStore};
 use crate::keys::PcKeys;
 use crate::limits::{Checks, DeadCodes, Meetings, CODE_TRIES};
 use crate::noise::{self, Assembler};
 use crate::protocol::{
-    Ask, Changed, Event, MeetingHello, MeetingWelcome, PairHello, PairStep, PasskeyRequest,
-    PcSays, PhoneSays, Reply, SignedIn, SignedOutWhy,
+    Ask, Changed, Event, MeetingHello, MeetingWelcome, PairHello, PairStep, PasskeyRequest, PcSays,
+    PhoneSays, Reply, SignedIn, SignedOutWhy,
 };
 use crate::webauthn::{self, Expect};
 use crate::wire::{PcToRelay, RelayToPc};
@@ -125,7 +125,11 @@ impl ToRelay {
 
 /// Adding a phone, as Settings → Devices shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(tag = "step", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "step",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 #[ts(export, rename = "PairingView")]
 pub enum PairingView {
     /// The code is shown: scan it or type it on the phone.
@@ -536,9 +540,9 @@ impl Remote {
             ));
         }
         if !self.host.pro() {
-            return Err(RemoteError::Refused(
-                plenipo_licensing::words::message(plenipo_licensing::Limit::PhoneAccess),
-            ));
+            return Err(RemoteError::Refused(plenipo_licensing::words::message(
+                plenipo_licensing::Limit::PhoneAccess,
+            )));
         }
         if let Some(until) = st.dead_codes.paused_until(now) {
             let minutes = (until - now).div_ceil(60_000);
@@ -583,9 +587,13 @@ impl Remote {
             return;
         };
         if let Some((conn, ..)) = &p.candidate {
-            self.send_pair(&mut st, conn, PairStep::Refused {
-                message: "Adding this phone was cancelled on your PC.".into(),
-            });
+            self.send_pair(
+                &mut st,
+                conn,
+                PairStep::Refused {
+                    message: "Adding this phone was cancelled on your PC.".into(),
+                },
+            );
             self.close(&mut st, conn);
         }
         drop(st);
@@ -604,10 +612,14 @@ impl Remote {
         let mut st = lock(&self.state);
         let keys = self.keys(&mut st)?;
         let Some(pairing) = st.pairing.as_mut() else {
-            return Err(RemoteError::Invalid("No phone is waiting to be added.".into()));
+            return Err(RemoteError::Invalid(
+                "No phone is waiting to be added.".into(),
+            ));
         };
         let Some((conn, hello, _, step, _)) = pairing.candidate.as_mut() else {
-            return Err(RemoteError::Invalid("No phone is waiting to be added.".into()));
+            return Err(RemoteError::Invalid(
+                "No phone is waiting to be added.".into(),
+            ));
         };
         if !matches!(step, Candidate::AskingOwner) {
             return Err(RemoteError::Invalid("That phone was already added.".into()));
@@ -616,9 +628,13 @@ impl Remote {
         let name = hello.name.clone();
         if !add {
             st.pairing = None;
-            self.send_pair(&mut st, &conn, PairStep::Refused {
-                message: "Your PC said this is not your phone.".into(),
-            });
+            self.send_pair(
+                &mut st,
+                &conn,
+                PairStep::Refused {
+                    message: "Your PC said this is not your phone.".into(),
+                },
+            );
             self.close(&mut st, &conn);
             drop(st);
             self.host.record(
@@ -661,11 +677,10 @@ impl Remote {
     pub fn rename(&self, id: &str, name: &str) -> Result<()> {
         let mut st = lock(&self.state);
         let ids = ids(&st.devices);
-        let device = st
-            .devices
-            .iter_mut()
-            .find(|d| d.id == id)
-            .ok_or_else(|| RemoteError::Invalid("That phone is not on your PC's list.".into()))?;
+        let device =
+            st.devices.iter_mut().find(|d| d.id == id).ok_or_else(|| {
+                RemoteError::Invalid("That phone is not on your PC's list.".into())
+            })?;
         let name = clean_name(name, &device.name);
         device.name.clone_from(&name);
         let copy = device.clone();
@@ -684,11 +699,10 @@ impl Remote {
     pub fn unpause(&self, id: &str) -> Result<()> {
         let mut st = lock(&self.state);
         let ids = ids(&st.devices);
-        let device = st
-            .devices
-            .iter_mut()
-            .find(|d| d.id == id)
-            .ok_or_else(|| RemoteError::Invalid("That phone is not on your PC's list.".into()))?;
+        let device =
+            st.devices.iter_mut().find(|d| d.id == id).ok_or_else(|| {
+                RemoteError::Invalid("That phone is not on your PC's list.".into())
+            })?;
         device.paused = false;
         let copy = device.clone();
         self.kept().put(&copy, &ids)?;
@@ -731,9 +745,13 @@ impl Remote {
             .map(|(k, _)| k.clone())
             .collect();
         for conn in conns {
-            self.send_event(&mut st, &conn, Event::SignedOut {
-                why: SignedOutWhy::Removed,
-            });
+            self.send_event(
+                &mut st,
+                &conn,
+                Event::SignedOut {
+                    why: SignedOutWhy::Removed,
+                },
+            );
             self.close(&mut st, &conn);
         }
         st.live.remove(id);
@@ -945,9 +963,15 @@ impl Remote {
             .find(|d| d.phone == phone)
             .and_then(|d| Some((d.id.clone(), d.noise_key()?)));
         let Some((id, key)) = device else {
-            // A pass the relay still takes, for a phone the PC does not know (removed).
+            // A pass the relay still takes, for a phone this PC does not know: removed while it
+            // was away, and the relay has met this PC again since. The relay refuses its pass
+            // from now on, telling the phone it is no longer on the list (`bad_pass`).
             drop(st);
-            self.failed_meeting(conn);
+            self.send(ToRelay::Drop {
+                phone: phone.to_owned(),
+                until: secs(now) + crate::PASS_LIFE_SECS,
+            });
+            self.count_failed_meeting();
             return;
         };
         let prologue = noise::everyday_prologue(&keys.fingerprint(), phone);
@@ -1118,10 +1142,7 @@ impl Remote {
             name: clean_name(&hello.name, "Phone"),
             browser: clean_name(&hello.browser, "A web browser"),
         };
-        let taken = st
-            .pairing
-            .as_ref()
-            .is_none_or(|p| p.candidate.is_some());
+        let taken = st.pairing.as_ref().is_none_or(|p| p.candidate.is_some());
         if taken {
             self.close(&mut st, conn);
             return;
@@ -1176,11 +1197,17 @@ impl Remote {
             self.close(&mut st, conn);
             return;
         };
-        let Some((cc, hello, key, Candidate::MakingPasskey {
-            device,
-            phone,
-            challenge,
-        }, _)) = pairing.candidate.as_ref()
+        let Some((
+            cc,
+            hello,
+            key,
+            Candidate::MakingPasskey {
+                device,
+                phone,
+                challenge,
+            },
+            _,
+        )) = pairing.candidate.as_ref()
         else {
             self.close(&mut st, conn);
             return;
@@ -1201,9 +1228,13 @@ impl Remote {
         let passkey = match made {
             Ok(p) => p,
             Err(e) => {
-                self.send_pair(&mut st, conn, PairStep::Failed {
-                    message: format!("Your PC could not check this phone's passkey: {e}."),
-                });
+                self.send_pair(
+                    &mut st,
+                    conn,
+                    PairStep::Failed {
+                        message: format!("Your PC could not check this phone's passkey: {e}."),
+                    },
+                );
                 self.close(&mut st, conn);
                 drop(st);
                 self.host.record(
@@ -1230,9 +1261,13 @@ impl Remote {
         let mut all = ids(&st.devices);
         all.push(device.clone());
         if let Err(e) = self.kept().put(&record, &all) {
-            self.send_pair(&mut st, conn, PairStep::Failed {
-                message: e.to_string(),
-            });
+            self.send_pair(
+                &mut st,
+                conn,
+                PairStep::Failed {
+                    message: e.to_string(),
+                },
+            );
             self.close(&mut st, conn);
             drop(st);
             self.host.changed(Change::Pairing);
@@ -1621,10 +1656,7 @@ impl Remote {
                 self.reply(
                     conn,
                     id,
-                    Reply::ok(
-                        request,
-                        serde_json::to_value(signed).expect("JSON"),
-                    ),
+                    Reply::ok(request, serde_json::to_value(signed).expect("JSON")),
                 );
             }
             Err(e) => {
@@ -1662,7 +1694,10 @@ impl Remote {
                         guard_remote::Refusal::new(Why::Paused).message,
                     )
                 } else {
-                    (None, format!("Your PC could not check that it is you: {e}."))
+                    (
+                        None,
+                        format!("Your PC could not check that it is you: {e}."),
+                    )
                 };
                 self.reply(conn, id, Reply::refused(request, why, message));
             }
@@ -1701,14 +1736,17 @@ impl Remote {
         );
     }
 
-    fn set_notices(&self, id: &str, subscription: Option<crate::protocol::Subscription>) -> Result<()> {
+    fn set_notices(
+        &self,
+        id: &str,
+        subscription: Option<crate::protocol::Subscription>,
+    ) -> Result<()> {
         let mut st = lock(&self.state);
         let all = ids(&st.devices);
-        let device = st
-            .devices
-            .iter_mut()
-            .find(|d| d.id == id)
-            .ok_or_else(|| RemoteError::Invalid("That phone is not on your PC's list.".into()))?;
+        let device =
+            st.devices.iter_mut().find(|d| d.id == id).ok_or_else(|| {
+                RemoteError::Invalid("That phone is not on your PC's list.".into())
+            })?;
         device.notices = subscription;
         let copy = device.clone();
         self.kept().put(&copy, &all)?;
@@ -1758,10 +1796,14 @@ impl Remote {
             .map(|(k, _)| k.clone())
             .collect();
         for conn in conns {
-            self.send_event(&mut st, &conn, Event::Changed {
-                org: org.map(str::to_owned),
-                what,
-            });
+            self.send_event(
+                &mut st,
+                &conn,
+                Event::Changed {
+                    org: org.map(str::to_owned),
+                    what,
+                },
+            );
         }
     }
 
@@ -1800,9 +1842,14 @@ impl Remote {
             if expired {
                 st.pairing = None;
                 if let Some(conn) = conn {
-                    self.send_pair(&mut st, &conn, PairStep::Refused {
-                        message: "Adding this phone took too long. Start again on your PC.".into(),
-                    });
+                    self.send_pair(
+                        &mut st,
+                        &conn,
+                        PairStep::Refused {
+                            message: "Adding this phone took too long. Start again on your PC."
+                                .into(),
+                        },
+                    );
                     self.close(&mut st, &conn);
                 }
                 self.send(ToRelay::CloseMailbox);

@@ -74,15 +74,25 @@ export function SessionProvider({
         ...(make ? { make } : {}),
       });
     } catch (e) {
-      if (e instanceof RelayRefused && e.code === "bad_pass") setStatus({ kind: "notListed" });
-      else if (e instanceof RelayRefused || e instanceof LineEnded) setStatus({ kind: "offline" });
+      // The relay no longer takes this phone's pass: the PC removed it.
+      if (
+        (e instanceof RelayRefused && e.code === "bad_pass") ||
+        (e instanceof LineEnded && e.why === "notListed")
+      ) {
+        setStatus({ kind: "notListed" });
+      } else if (e instanceof RelayRefused || e instanceof LineEnded)
+        setStatus({ kind: "offline" });
       // The meeting itself failed: the PC does not know this phone's key any more.
       else setStatus({ kind: "notListed" });
       return;
     }
-    m.onEnd(() => {
+    m.onEnd((e) => {
       setMeeting((now) => (now === m ? null : now));
-      setStatus((s) => (s.kind === "notListed" ? s : { kind: "offline" }));
+      setStatus((s) =>
+        s.kind === "notListed" || e.why === "notListed"
+          ? { kind: "notListed" }
+          : { kind: "offline" },
+      );
     });
     m.onEvent((event) => {
       if (event.kind !== "signedOut") return;

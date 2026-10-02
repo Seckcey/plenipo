@@ -53,8 +53,10 @@ working exactly as before**: Plenipo gets its own paths, its own limits, and its
 5. **Passing messages.** Binary messages of at most 64 KB, passed in order, as they are. Nothing is
    stored or queued. If the PC is not connected, the relay tells the phone at once ("PC offline"), and
    drops the message.
-6. **Dropping a pass.** The PC may tell the relay to drop a phone's pass. The relay closes that
-   phone's connections at once, and refuses that pass until its end date.
+6. **Dropping a pass.** The PC may tell the relay to drop a phone's pass. The relay tells each of
+   that phone's connections "bad pass" and closes it at once, and refuses that pass until its end
+   date. The relay may forget this when the PC disconnects (it stores nothing): the PC drops the
+   pass again if the phone comes back.
 7. **Limits**, so Plenipo cannot crowd out Milepost:
    - connections and tries from each internet address (IPv6 counted by its /64), and per PC;
    - messages and bytes per PC and per phone, per minute;

@@ -236,6 +236,8 @@ struct Hub {
     to_pc: Vec<(String, String)>,
     /// Relay messages refused, by code.
     refused: Vec<String>,
+    /// Every message a PC sent, as it arrived (to check what Plenipo sends, ADR-143 §10).
+    pc_said: Vec<String>,
 }
 
 /// A stand-in for 8 West's relay on 127.0.0.1.
@@ -277,7 +279,11 @@ impl Relay {
 
     /// The address a PC connects to.
     pub fn pc_address(&self) -> String {
-        format!("http://{}{}", self.address, plenipo_guard::outbound::RELAY_PATH)
+        format!(
+            "http://{}{}",
+            self.address,
+            plenipo_guard::outbound::RELAY_PATH
+        )
     }
 
     /// The address a phone connects to.
@@ -297,6 +303,11 @@ impl Relay {
     /// The relay's refusals so far, by code.
     pub fn refused(&self) -> Vec<String> {
         lock(&self.hub).refused.clone()
+    }
+
+    /// Every message a PC sent the relay, as it arrived.
+    pub fn pc_said(&self) -> Vec<String> {
+        lock(&self.hub).pc_said.clone()
     }
 
     /// Is a PC connected?
@@ -387,6 +398,7 @@ impl Relay {
         let Some(Ok(Message::Text(text))) = stream.next().await else {
             return;
         };
+        lock(&self.hub).pc_said.push(text.to_string());
         let refuse = |code: &str| {
             lock(&self.hub).refused.push(code.to_owned());
             send(
@@ -465,6 +477,7 @@ impl Relay {
                 }
                 continue;
             };
+            lock(&self.hub).pc_said.push(text.to_string());
             let Some(m) = wire::read::<PcToRelay>(text.as_str()) else {
                 continue;
             };
@@ -491,9 +504,17 @@ impl Relay {
                         .filter(|(_, l)| l.pc == pc && l.phone.as_deref() == Some(&phone))
                         .map(|(k, _)| k.clone())
                         .collect();
+                    // Each is told its pass is no longer good, then closed.
                     for conn in gone {
                         if let Some(l) = hub.phones.remove(&conn) {
+                            send(
+                                &l.out,
+                                wire::write(&RelayToPhone::Refused {
+                                    code: codes::BAD_PASS.into(),
+                                }),
+                            );
                             let _ = l.out.send(Message::Close(None));
+                            hub.refused.push(codes::BAD_PASS.into());
                         }
                     }
                 }
@@ -527,11 +548,7 @@ impl Relay {
         }
         // The PC went away: its phones are told.
         let mut hub = lock(&self.hub);
-        if hub
-            .pcs
-            .get(&pc)
-            .is_some_and(|p| p.out.same_channel(&out))
-        {
+        if hub.pcs.get(&pc).is_some_and(|p| p.out.same_channel(&out)) {
             hub.pcs.remove(&pc);
             let gone: Vec<String> = hub
                 .phones
@@ -795,7 +812,9 @@ impl NetPhone {
                     return wire::read(t.as_str())
                         .ok_or_else(|| PhoneError::Other("not a relay message".into()))
                 }
-                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return Err(PhoneError::Closed),
+                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => {
+                    return Err(PhoneError::Closed)
+                }
                 Some(Ok(_)) => {}
             }
         }
@@ -822,7 +841,12 @@ impl NetPhone {
 
     /// Send a whole message on the open line.
     pub async fn say(&mut self, message: &PhoneSays) -> Result<(), PhoneError> {
-        let bytes = serde_json::to_vec(message).expect("JSON");
+        self.say_bytes(serde_json::to_vec(message).expect("JSON"))
+            .await
+    }
+
+    /// Send anything, sealed on the open line (a page that asks for what is not on the list).
+    pub async fn say_bytes(&mut self, bytes: Vec<u8>) -> Result<(), PhoneError> {
         let line = self.line.as_mut().ok_or(PhoneError::Closed)?;
         let pieces = noise::seal(line, &bytes).map_err(|_| PhoneError::Meeting)?;
         for p in pieces {

@@ -32,7 +32,7 @@ business departments you can create.
 | Add-on tools you set up (Phase 20)                                                      | No             | Yes                                |
 | GitHub's tools for the Development department                                           | Yes            | Yes                                |
 | Your servers over SSH, and the Operations Engineer role                                 | Yes            | Yes                                |
-| Plenipo on your phone, with notices (planned, Phase 14)                                 | No             | Yes                                |
+| Plenipo on your phone: your work, approvals, and Stop all (Phase 14, from v1.19.0)      | No             | Yes                                |
 | Ledger, Activity trail, and screenshots of every step                                   | Yes            | Yes                                |
 | Ranks, titles, and the rest of Personalization                                          | Yes            | Yes                                |
 | Full source code, and the right to change it for your own use                           | Yes            | Yes                                |
@@ -105,6 +105,32 @@ computer ([ADR-002](adr/ADR-002-local-first-architecture.md), local-first archit
 checks the contents of that request byte for byte, and you can read it in the source.
 
 **A Free copy never checks in at all.** If you have not paid, Plenipo never contacts 8 West.
+
+## Plenipo on your phone, and what it sends to 8 West's relay
+
+**Plenipo on your phone is part of Pro** (from v1.19.0, Phase 14:
+[ADR-143](adr/ADR-143-the-relay-and-the-lock.md), the relay and the lock, and
+[ADR-145](adr/ADR-145-what-a-phone-may-ask.md), the fixed list of what a phone may ask). Turn it on
+at your PC in **Settings → Switches → Use Plenipo from another device**, and add your phone in
+**Settings → Devices**. Your phone opens Plenipo's page at `remote.getplenipo.com` and talks to your
+PC through 8 West's relay, sealed end to end: the relay passes messages along and cannot read or
+change them. Your PC stays in charge. Guard decides every request, and Activity shows each one with
+the phone that sent it. It turns on in a release once 8 West's relay is ready; until then the
+switch says **Coming soon**.
+
+Exactly what Plenipo sends to the relay, and nothing else (a test checks it):
+
+- **From your PC:** its relay key (a public key Plenipo made for this), its proof that it holds that
+  key, 8 West's signed weekly answer (the one the weekly check brings back: the key's ID, whether
+  Pro is paid, and until when), the relay ID of each phone you remove, and sealed messages.
+- **From your phone:** the pass your PC gave it, and sealed messages.
+
+The relay can see that a PC and some phones are connected, when, how much they send, and their
+internet addresses. **It cannot see** what they say: no approvals, objectives, workers, names, or
+anything from your projects. It keeps nothing.
+
+**A Free copy never connects to the relay**, even with the switch saved on. When Pro ends, phone
+access pauses: your phones stay on the list, and work again when Pro is back.
 
 **Checking for a new version is separate, and the same for Free and Pro** (from v1.9.0,
 [ADR-038](adr/ADR-038-updates.md), updates). Every copy asks GitHub once a day whether a newer

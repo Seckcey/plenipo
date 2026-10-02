@@ -212,7 +212,9 @@ pub struct Kept<'a> {
 
 impl Kept<'_> {
     fn err(e: String) -> RemoteError {
-        RemoteError::Store(format!("Plenipo couldn't use the Vault for your phones: {e}"))
+        RemoteError::Store(format!(
+            "Plenipo couldn't use the Vault for your phones: {e}"
+        ))
     }
 
     /// The PC's keys, made and kept the first time.

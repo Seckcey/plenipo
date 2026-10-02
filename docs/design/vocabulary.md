@@ -320,6 +320,19 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | Paid / Cancelled (Pro until the paid period ends) / Ended                      | subscription state, active, past_due, canceled, lapsed                                     |
 | waits its turn (Free runs 3 workers at a time)                                 | concurrency limit, slot, queued for capacity                                               |
 | paused (Connections, add-on tools, and lessons on Free)                        | disabled, deactivated, revoked                                                             |
+| Use Plenipo from another device (the switch, Phase 14)                         | remote access, remote control, mobile client                                               |
+| Settings → Devices / your phones                                               | paired devices, endpoints, clients                                                         |
+| Add a phone / Pair this phone                                                  | enroll device, register client, provision                                                  |
+| picture code (QR code) / typed code                                            | QR payload, pairing token, PSK, one-time secret                                            |
+| Is this your phone? / Add / Cancel                                             | confirm device fingerprint, approve enrollment                                             |
+| your face, fingerprint, or passcode / Check it's you                           | passkey, WebAuthn, biometric assertion, user verification                                  |
+| Signed in / Sign out (a phone)                                                 | session, authenticated, token expiry                                                       |
+| 8 West's relay / sealed end to end                                             | relay server, WebSocket tunnel, end-to-end encryption, Noise                               |
+| Your PC can't be reached. Nothing was changed.                                 | host offline, 503, connection refused                                                      |
+| This phone is no longer on your PC's list                                      | device revoked, unauthorized, 401                                                          |
+| Approve on your PC (an approval kept on the PC)                                | remote approval disabled, policy-restricted action                                         |
+| Paused after 3 failed checks / Un-pause                                        | locked out, rate limited, lockout                                                          |
+| Coming soon (phone access before 8 West's relay is ready)                      | feature flag off, not provisioned                                                          |
 
 ## Where technical words may stay
 

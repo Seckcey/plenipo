@@ -148,10 +148,7 @@ mod tests {
         assert_eq!(write(&m), r#"{"t":"joined","conn":"c1","phone":"p"}"#);
         let m: RelayToPc = read(r#"{"t":"joined","conn":"c2","mailbox":true}"#).unwrap();
         assert_eq!(write(&m), r#"{"t":"joined","conn":"c2","mailbox":true}"#);
-        assert_eq!(
-            write(&PcToRelay::CloseMailbox),
-            r#"{"t":"close_mailbox"}"#
-        );
+        assert_eq!(write(&PcToRelay::CloseMailbox), r#"{"t":"close_mailbox"}"#);
         assert_eq!(write(&RelayToPhone::PcOffline), r#"{"t":"pc_offline"}"#);
         // Nothing else.
         assert!(read::<RelayToPc>(r#"{"t":"joined","conn":"c","extra":1}"#).is_none());

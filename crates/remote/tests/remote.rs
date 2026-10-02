@@ -212,7 +212,11 @@ impl World {
             self.relay.pc_address(),
             host,
         )));
-        wait_for(|| self.remote.view().connected && self.relay.pc_connected(), "the PC to connect").await;
+        wait_for(
+            || self.remote.view().connected && self.relay.pc_connected(),
+            "the PC to connect",
+        )
+        .await;
     }
 
     async fn disconnect(&mut self) {
@@ -349,7 +353,10 @@ async fn a_wrong_code_fails_three_times_and_dies() {
             .await
             .unwrap_err();
         assert!(
-            matches!(err, PhoneError::Closed | PhoneError::Timeout | PhoneError::Meeting),
+            matches!(
+                err,
+                PhoneError::Closed | PhoneError::Timeout | PhoneError::Meeting
+            ),
             "try {n}: {err:?}"
         );
         wait_for(
@@ -469,6 +476,121 @@ async fn a_removed_phone_is_refused_at_once() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_phone_removed_while_away_is_told_it_is_not_listed() {
+    let mut w = World::new().await;
+    let mut phone = w.paired_phone("Drawer phone").await;
+    phone.meet(false).await.unwrap();
+    phone.close().await;
+    let id = w.remote.view().devices[0].id.clone();
+    w.remote.remove(&id).unwrap();
+    // The relay keeps nothing: once it meets the PC again, it has forgotten the drop.
+    w.disconnect().await;
+    w.connect().await;
+    let failed = w.app.records("remote.meetings_stopped").len();
+    // The phone comes back: its pass still opens the relay, but the PC does not know it, so the
+    // relay is told to refuse it, and the phone hears it is no longer on the list.
+    assert_eq!(
+        phone.meet(false).await.unwrap_err(),
+        PhoneError::Relay("bad_pass".into())
+    );
+    // From then on the relay refuses it before the PC hears of it.
+    assert_eq!(
+        phone.meet(false).await.unwrap_err(),
+        PhoneError::Relay("bad_pass".into())
+    );
+    assert_eq!(
+        w.relay
+            .refused()
+            .iter()
+            .filter(|c| *c == "bad_pass")
+            .count(),
+        2
+    );
+    assert_eq!(w.app.records("remote.meetings_stopped").len(), failed);
+    assert!(w.remote.view().devices.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_pc_sends_the_relay_only_what_the_contract_lists() {
+    let w = World::new().await;
+    let mut phone = w.paired_phone("Frank's phone").await;
+    // Paired is signed in.
+    assert!(phone.meet(false).await.unwrap().signed_in);
+    phone.ask(Ask::ReadControl).await.unwrap();
+    let id = w.remote.view().devices[0].id.clone();
+    w.remote.remove(&id).unwrap();
+    wait_for(
+        || {
+            w.relay
+                .pc_said()
+                .iter()
+                .any(|t| t.contains(r#""t":"drop""#))
+        },
+        "the PC to drop the phone's pass",
+    )
+    .await;
+    let said = w.relay.pc_said();
+    // First: the PC's relay key, its proof that it holds it, and 8 West's signed weekly answer.
+    let hello: Value = serde_json::from_str(&said[0]).unwrap();
+    let mut fields: Vec<&String> = hello.as_object().unwrap().keys().collect();
+    fields.sort();
+    assert_eq!(fields, ["answer", "key", "proof", "t", "v"]);
+    assert_eq!(hello["t"], "hello");
+    let shown: SignedAnswer = serde_json::from_value(hello["answer"].clone()).unwrap();
+    assert_eq!(
+        answer::verify(&shown).unwrap().key_id,
+        "lk_01J9XW3T5B8K2M4N6P7Q8R9S0T"
+    );
+    // Then only the pairing mailbox, sealed messages, and the passes it drops: never a word of
+    // what the phone and the PC said, the phone's name, or the PC's.
+    for text in &said[1..] {
+        let m: Value = serde_json::from_str(text).unwrap();
+        let t = m["t"].as_str().unwrap();
+        assert!(
+            ["mailbox", "close_mailbox", "drop", "send", "close"].contains(&t),
+            "{text}"
+        );
+        for words in [
+            "Frank's phone",
+            "Office PC",
+            "readControl",
+            "signIn",
+            "passkey",
+        ] {
+            assert!(!text.contains(words), "{words} in {text}");
+        }
+    }
+    assert!(said.iter().any(|t| t.contains(r#""t":"send""#)));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_cannot_ask_for_anything_off_the_list() {
+    let w = World::new().await;
+    let mut phone = w.paired_phone("Mine").await;
+    assert!(phone.meet(false).await.unwrap().signed_in);
+    let id = b64::encode(&[7u8; 16]);
+    // A program, the terminal, a file, a setting: none is on the phone's list.
+    for asked in [
+        json!({ "kind": "runProgram", "program": "cmd.exe", "args": ["/c", "dir"] }),
+        json!({ "kind": "readFile", "path": "C:/Users/me/secrets.txt" }),
+        json!({ "kind": "openTerminal" }),
+        json!({ "kind": "setSwitch", "switch": "remote", "on": true }),
+        json!({ "kind": "approve", "org": "first", "approval": "a1", "andAlso": "rm -rf" }),
+    ] {
+        let said = json!({ "t": "ask", "id": id, "again": false, "ask": asked });
+        phone
+            .say_bytes(serde_json::to_vec(&said).unwrap())
+            .await
+            .unwrap();
+        // The PC ends the meeting at once, and carries out nothing.
+        assert!(phone.hear().await.is_err(), "{asked}");
+        assert!(w.app.carried.lock().unwrap().is_empty(), "{asked}");
+        phone.meet(false).await.unwrap();
+    }
+    assert!(w.app.records("remote.request").is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn signing_out_and_lapsing_end_the_sign_in() {
     let w = World::new().await;
     let mut phone = w.paired_phone("Phone").await;
@@ -545,7 +667,10 @@ async fn three_refused_checks_pause_the_phone() {
     phone.passkey.verify_user = true;
     phone.close().await;
     phone.meet(false).await.unwrap();
-    assert_eq!(refused_why(&phone.sign_in().await.unwrap()), Some(Why::Paused));
+    assert_eq!(
+        refused_why(&phone.sign_in().await.unwrap()),
+        Some(Why::Paused)
+    );
     w.remote.unpause(&view.devices[0].id).unwrap();
     phone.close().await;
     phone.meet(false).await.unwrap();
@@ -609,10 +734,7 @@ async fn the_relay_cannot_read_change_replay_or_invent_a_request() {
     phone.meet(false).await.unwrap();
     w.app.add_approval("a1", ApprovalFacts::default());
     let secret_objective = "Ship the quarterly numbers to Contoso";
-    phone
-        .ask(Ask::ReadApprovals { org: None })
-        .await
-        .unwrap();
+    phone.ask(Ask::ReadApprovals { org: None }).await.unwrap();
     phone
         .ask(Ask::SendObjective {
             org: "first".into(),
@@ -625,7 +747,14 @@ async fn the_relay_cannot_read_change_replay_or_invent_a_request() {
     // Read: nothing the relay passed holds the words, in any form.
     for sealed in w.relay.seen() {
         let text = String::from_utf8_lossy(&sealed);
-        for word in ["git push", "Contoso", "quarterly", "Frank", "approve", "first"] {
+        for word in [
+            "git push",
+            "Contoso",
+            "quarterly",
+            "Frank",
+            "approve",
+            "first",
+        ] {
             assert!(!text.contains(word), "the relay saw {word:?}");
         }
     }
@@ -647,7 +776,11 @@ async fn the_relay_cannot_read_change_replay_or_invent_a_request() {
     let carried = w.app.carried.lock().unwrap().len();
     assert!(w.relay.replay_last_to_pc());
     assert!(phone.ask(Ask::ReadControl).await.is_err());
-    assert_eq!(w.app.carried.lock().unwrap().len(), carried, "nothing ran twice");
+    assert_eq!(
+        w.app.carried.lock().unwrap().len(),
+        carried,
+        "nothing ran twice"
+    );
 
     // Invented: the PC ends the meeting, and nothing runs.
     phone.meet(false).await.unwrap();
@@ -785,9 +918,13 @@ async fn the_relay_serves_only_a_pc_on_pro() {
     assert!(problem.message.contains("not on Pro"), "{problem:?}");
     assert_eq!(w.relay.refused(), ["not_pro"]);
     // Guard's rule: only the relay's own address.
-    let elsewhere = link::connect_once(&w.remote, "https://example.com/plenipo/v1/pc", host.as_ref())
-        .await
-        .unwrap_err();
+    let elsewhere = link::connect_once(
+        &w.remote,
+        "https://example.com/plenipo/v1/pc",
+        host.as_ref(),
+    )
+    .await
+    .unwrap_err();
     assert!(elsewhere.message.contains("refused"), "{elsewhere:?}");
 }
 

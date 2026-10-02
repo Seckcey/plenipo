@@ -26,6 +26,8 @@ export class FakePc {
   signedIn = new Set<string>();
   online = true;
   removed = new Set<string>();
+  /** Phones removed while they were away: the relay still takes their pass, once. */
+  forgotten = new Set<string>();
   answer: (ask: PhoneAsk) => unknown = () => ({});
   asked: PhoneAsk[] = [];
   /** The pairing's next step: what the owner says to "Is this your phone?". */
@@ -56,6 +58,19 @@ export class FakePc {
     this.online = false;
     for (const s of this.sockets) s.pcGone();
   }
+
+  /** Phone access switched off on the PC: its phones are signed out, then the PC leaves. */
+  async switchOff(): Promise<void> {
+    for (const s of this.sockets) await s.event({ kind: "signedOut", why: "switchedOff" });
+    this.goOffline();
+  }
+
+  /** The phone removed on the PC: told, and its connection closed right after. */
+  async removeAndClose(phone = "cGhvbmUtMQ"): Promise<void> {
+    for (const s of this.sockets) await s.event({ kind: "signedOut", why: "removed" });
+    this.removed.add(phone);
+    for (const s of this.sockets) s.close();
+  }
 }
 
 export class FakeSocket {
@@ -70,6 +85,7 @@ export class FakeSocket {
   private challenge: string | null = null;
   private pairingKey: Uint8Array | null = null;
   private closed = false;
+  private dropOnData = false;
   private queue: Promise<void> = Promise.resolve();
 
   constructor(
@@ -117,6 +133,12 @@ export class FakeSocket {
     if (m.t === "pass") {
       const [phone] = (m.pass ?? "").split(".");
       if (!this.pc.online) return this.refuse("pc_offline");
+      if (phone && this.pc.forgotten.has(phone)) {
+        // The PC does not know it: it tells the relay to refuse the pass, after the meeting began.
+        this.say({ t: "ready" });
+        this.dropOnData = true;
+        return;
+      }
       if (!phone || this.pc.removed.has(phone) || !this.pc.phones.has(phone)) {
         return this.refuse("bad_pass");
       }
@@ -143,6 +165,7 @@ export class FakeSocket {
       return;
     }
     if (m.t !== "data" || !m.data) return;
+    if (this.dropOnData) return this.refuse("bad_pass");
     const bytes = decode(m.data)!;
     if (this.hs && !this.hs.finished) {
       const payload = await this.hs.readMessage(bytes);

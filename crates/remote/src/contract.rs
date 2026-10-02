@@ -38,8 +38,12 @@ fn write_or_check(name: &str, text: &str) {
         std::fs::write(&path, text).expect("written");
         return;
     }
-    let kept = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("{} is missing ({e}); write it with PLENIPO_WRITE_CONTRACT=1", path.display()));
+    let kept = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+        panic!(
+            "{} is missing ({e}); write it with PLENIPO_WRITE_CONTRACT=1",
+            path.display()
+        )
+    });
     assert_eq!(
         kept.replace("\r\n", "\n"),
         text,

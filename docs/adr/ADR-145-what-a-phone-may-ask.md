@@ -125,3 +125,16 @@ begin with, there are none, as the plan says.
   text pasted into the objective instead.
 - **A new `source` for phones** (for example `phone:…`). The Ledger would be more exact, but every
   check that looks for the owner would need to change, and the owner is still the one acting.
+
+## As built (v1.19.0, part 14A)
+
+Built as decided. The fixed list is one `enum`, `guard::remote::RequestKind`, and Guard's checks run
+in the order of §4 (`guard::remote::decide`). Anything not on the list, or with a field the list
+does not have, ends the meeting at once and runs nothing (a test asks for a program, a file, the
+terminal, and a switch). Every request is recorded with the phone that sent it: `remote.request`
+(the phone's ID and name, the kind, and its target) or `remote.refused` (with Guard's reason); a page
+read again after a change is not recorded twice. An approval answered from a phone carries "Approved
+by you, from Frank's phone.", and Activity says "Frank's phone asked to approve" and "Approved: git
+push origin (from Frank's phone)". **Stop all** from a phone is the PC's own Stop all (browser,
+desktop, and server work, in every organization), and the phone's words say so. The PC already
+carries out part 14B's requests; the page offers them in 14B.

@@ -3775,31 +3775,51 @@ mod ipc_boundary_tests {
         let main = window(&app, "main");
         let settings: plenipo_remote::service::RemoteSettings = body(invoke(&main, "get_remote"));
         assert!(settings.pro);
-        assert!(!settings.coming_soon, "a copy built for the tests has its stand-in");
+        assert!(
+            !settings.coming_soon,
+            "a copy built for the tests has its stand-in"
+        );
         assert!(!settings.remote.switched_on, "off to begin with");
         assert_eq!(settings.page, "http://localhost:8771");
         // Adding a phone needs the switch on.
         let err = invoke(&main, "start_phone_pairing").expect_err("off");
-        assert!(err["message"].as_str().unwrap().contains("Use Plenipo from another device"));
-        let on: plenipo_remote::service::RemoteSettings =
-            body(invoke_json(&main, "set_remote_switch", serde_json::json!({ "on": true })));
+        assert!(err["message"]
+            .as_str()
+            .unwrap()
+            .contains("Use Plenipo from another device"));
+        let on: plenipo_remote::service::RemoteSettings = body(invoke_json(
+            &main,
+            "set_remote_switch",
+            serde_json::json!({ "on": true }),
+        ));
         assert!(on.remote.switched_on);
         let showing: plenipo_remote::service::RemoteSettings =
             body(invoke(&main, "start_phone_pairing"));
         let Some(plenipo_remote::service::PairingView::Showing {
-            code, link, qr, wrong, ..
+            code,
+            link,
+            qr,
+            wrong,
+            ..
         }) = showing.remote.pairing
         else {
             panic!("no code shown");
         };
         assert_eq!(code.len(), 19, "{code}");
         assert_eq!(code.matches('-').count(), 3);
-        assert_eq!(link, format!("http://localhost:8771/#pair={}", code.replace('-', "")));
+        assert_eq!(
+            link,
+            format!("http://localhost:8771/#pair={}", code.replace('-', ""))
+        );
         assert!(qr.size >= 21);
         assert_eq!(wrong, 0);
         // Nobody is waiting yet: there is nothing to answer.
-        let err = invoke_json(&main, "answer_phone_pairing", serde_json::json!({ "add": true }))
-            .expect_err("no phone");
+        let err = invoke_json(
+            &main,
+            "answer_phone_pairing",
+            serde_json::json!({ "add": true }),
+        )
+        .expect_err("no phone");
         assert!(err["message"].as_str().unwrap().contains("No phone"));
         let cancelled: plenipo_remote::service::RemoteSettings =
             body(invoke(&main, "cancel_phone_pairing"));
@@ -3812,10 +3832,16 @@ mod ipc_boundary_tests {
         assert!(kept.remote.kept.production_servers);
         assert_eq!(
             kept.remote.kept.kinds,
-            [plenipo_guard::SensitiveKind::Dns, plenipo_guard::SensitiveKind::Payment]
+            [
+                plenipo_guard::SensitiveKind::Dns,
+                plenipo_guard::SensitiveKind::Payment
+            ]
         );
-        let off: plenipo_remote::service::RemoteSettings =
-            body(invoke_json(&main, "set_remote_switch", serde_json::json!({ "on": false })));
+        let off: plenipo_remote::service::RemoteSettings = body(invoke_json(
+            &main,
+            "set_remote_switch",
+            serde_json::json!({ "on": false }),
+        ));
         assert!(!off.remote.switched_on);
         // Recorded in the first organization's Ledger, as the owner's.
         let ledger = app.state::<std::sync::Arc<plenipo_ledger::Ledger>>();
@@ -3844,7 +3870,13 @@ mod ipc_boundary_tests {
                 serde_json::json!({ "id": "AAAAAAAAAAAAAAAAAAAAAA", "name": "x" }),
             )
             .expect_err("unknown phone");
-            assert!(err["message"].as_str().unwrap().contains("not on your PC's list"), "{cmd}");
+            assert!(
+                err["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("not on your PC's list"),
+                "{cmd}"
+            );
         }
         let err = invoke_json(&main, "remove_device", serde_json::json!({ "id": "../x" }))
             .expect_err("not an ID");
@@ -3925,7 +3957,13 @@ mod ipc_boundary_tests {
             serde_json::json!({ "approvalId": first.id, "approve": false }),
         )
         .expect_err("already answered");
-        assert!(err["message"].as_str().unwrap().contains("already approved"), "{err}");
+        assert!(
+            err["message"]
+                .as_str()
+                .unwrap()
+                .contains("already approved"),
+            "{err}"
+        );
         assert!(host.approval(orgs::FIRST, &first.id).is_none());
         // The PC first, then the phone: nothing changes.
         let _: plenipo_capabilities::ApprovalQueue = body(invoke_json(
@@ -3945,7 +3983,10 @@ mod ipc_boundary_tests {
         assert!(err.contains("already refused"), "{err}");
         let q: plenipo_capabilities::ApprovalQueue = body(invoke(&main, "get_approvals"));
         let refused = q.recent.iter().find(|a| a.id == second.id).unwrap();
-        assert_eq!(refused.status, plenipo_capabilities::ApprovalStatus::Rejected);
+        assert_eq!(
+            refused.status,
+            plenipo_capabilities::ApprovalStatus::Rejected
+        );
         assert_eq!(refused.note.as_deref(), Some("Refused by you."));
     }
 
@@ -3968,10 +4009,23 @@ mod ipc_boundary_tests {
         for ask in [
             Ask::ReadHome { org: first() },
             Ask::ReadOrganization { org: first() },
-            Ask::ReadProjects { org: first(), project: None },
-            Ask::ReadWorkers { org: first(), position: None },
-            Ask::ReadTasks { org: first(), task: None, conversation: None },
-            Ask::ReadActivity { org: first(), before: None },
+            Ask::ReadProjects {
+                org: first(),
+                project: None,
+            },
+            Ask::ReadWorkers {
+                org: first(),
+                position: None,
+            },
+            Ask::ReadTasks {
+                org: first(),
+                task: None,
+                conversation: None,
+            },
+            Ask::ReadActivity {
+                org: first(),
+                before: None,
+            },
             Ask::ReadAiTools,
             Ask::ReadDiagnostics,
             Ask::ReadControl,
@@ -3987,7 +4041,12 @@ mod ipc_boundary_tests {
         assert_eq!(control["control"]["stopped"], false);
         // Another organization's ID that is not open is refused in plain words.
         let err = host
-            .carry_out(&phone, &Ask::ReadHome { org: "other".into() })
+            .carry_out(
+                &phone,
+                &Ask::ReadHome {
+                    org: "other".into(),
+                },
+            )
             .unwrap_err();
         assert_eq!(err, "That organization is not open on your PC.");
         // Stop all from a phone stops everything, and Allow again lets it go again.

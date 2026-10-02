@@ -9,6 +9,7 @@ import type {
 import { HANDOFF_OUTCOME_LABEL, OUTCOME_LABEL } from "../agents/format";
 import { capabilityLabel } from "../guard/format";
 import { describeLicenseEvent } from "../license/words";
+import { describeRemoteEvent } from "../remote/words";
 
 export const TASK_STATE_LABEL: Record<TaskState, string> = {
   queued: "Queued",
@@ -79,8 +80,11 @@ export function describeEvent(e: LedgerEvent): string {
     }
     case "approval.resolved": {
       const what = str(p.summary) ?? capabilityLabel(str(p.actionType) ?? "");
-      const note =
-        str(p.note) && !/^(Approved|Refused) by you\.$/.test(str(p.note) ?? "")
+      // Answered from a phone (Phase 14): "Approved by you, from Frank's phone."
+      const phone = /^(?:Approved|Refused) by you, from (.+)\.$/.exec(str(p.note) ?? "")?.[1];
+      const note = phone
+        ? ` (from ${phone})`
+        : str(p.note) && !/^(Approved|Refused) by you\.$/.test(str(p.note) ?? "")
           ? ` (${str(p.note)})`
           : "";
       return `${p.state === "approved" ? "Approved" : "Not approved"}: ${what}${note}`;
@@ -128,6 +132,8 @@ export function describeEvent(e: LedgerEvent): string {
   if (upkeep !== null) return upkeep;
   const license = describeLicenseEvent(e.eventType, p);
   if (license !== null) return license;
+  const phone = describeRemoteEvent(e.eventType, p);
+  if (phone !== null) return phone;
   const aiTool = describeAiToolEvent(e.eventType, p);
   if (aiTool !== null) return aiTool;
   if (e.eventType.startsWith("org.")) {

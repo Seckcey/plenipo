@@ -20,7 +20,10 @@ const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: "more", label: "More", icon: "more" },
 ];
 
-/** Stop all: every worker on your PC stops, until you allow work again on the PC. */
+/**
+ * Stop all, the same as on your PC: browser, desktop, and server work stops, until you allow it
+ * again on the PC.
+ */
 function StopAll() {
   const { ask } = useSession();
   const [asking, setAsking] = useState(false);
@@ -41,7 +44,7 @@ function StopAll() {
   }
   return (
     <div className="stop-all__ask" role="alertdialog" aria-label="Stop all?">
-      <span>Stop every worker now?</span>
+      <span>Stop all browser, desktop, and server work on your PC?</span>
       <Button
         size="sm"
         variant="danger"
@@ -52,7 +55,7 @@ function StopAll() {
               const stopped = (r.ok as ControlStatus | undefined)?.stopped;
               setSaid(
                 stopped
-                  ? "Everything is stopped. Allow work again on your PC."
+                  ? "Browser, desktop, and server work is stopped. Allow it again on your PC."
                   : (r.refused?.message ?? r.failed ?? "Your PC did not stop."),
               );
             })

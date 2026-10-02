@@ -209,7 +209,8 @@ export class Meeting {
         fromUtf8(await hs.readMessage(await relay.next())),
       ) as MeetingWelcome;
       const meeting = new Meeting(relay, await hs.open(), welcome);
-      relay.onEnd((e) => meeting.endWith(e));
+      // The meeting ends when `listen` reaches the end of the line: after everything the PC said
+      // before it (a "removed" or "signed out" just before the line closes counts first).
       void meeting.listen();
       return meeting;
     } catch (e) {

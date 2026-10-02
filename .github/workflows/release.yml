@@ -166,9 +166,15 @@ jobs:
           # service yet (an organization or workspace can use its own).
           PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
           PLENIPO_SLACK_CLIENT_ID: ${{ vars.PLENIPO_SLACK_CLIENT_ID }}
+          # Phase 14 (ADR-140 §4): phone access reaches 8 West's relay only once the owner sets
+          # the repository variable PLENIPO_RELAY_LIVE to "true" (the relay change is live).
+          # Until then the switch says "Coming soon".
+          PLENIPO_RELAY_LIVE: ${{ vars.PLENIPO_RELAY_LIVE }}
           # Never a test stand-in in a release (an empty value is ignored).
           PLENIPO_CONNECTIONS_STAND_IN: ""
           PLENIPO_AI_TOOL_RELEASES: ""
+          PLENIPO_REMOTE_STAND_IN: ""
+          PLENIPO_REMOTE_PAGE: ""
         # Only releases sign: tauri.signing.conf.json is merged here, never in CI or `pnpm build`.
         # --verbose shows the signing tool's own error if it fails; Tauri hides it otherwise.
         run: |
@@ -195,8 +201,11 @@ jobs:
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
           PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
           PLENIPO_SLACK_CLIENT_ID: ${{ vars.PLENIPO_SLACK_CLIENT_ID }}
+          PLENIPO_RELAY_LIVE: ${{ vars.PLENIPO_RELAY_LIVE }}
           PLENIPO_CONNECTIONS_STAND_IN: ""
           PLENIPO_AI_TOOL_RELEASES: ""
+          PLENIPO_REMOTE_STAND_IN: ""
+          PLENIPO_REMOTE_PAGE: ""
         run: pnpm --filter @plenipo/desktop tauri build --verbose
       - name: Keep the unsigned installer (dry run)
         if: inputs.dry_run

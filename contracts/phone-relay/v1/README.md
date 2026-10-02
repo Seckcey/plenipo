@@ -48,8 +48,10 @@ base64url.
    - `{"t":"mailbox","mailbox":"<32 hex digits>"}`: open the pairing mailbox (one at a time; a
      new one replaces the old);
    - `{"t":"close_mailbox"}`;
-   - `{"t":"drop","phone":"<phone ID>","until":<Unix seconds>}`: close that phone's connections
-     now, and refuse its pass until then;
+   - `{"t":"drop","phone":"<phone ID>","until":<Unix seconds>}`: send each of that phone's
+     connections `{"t":"refused","code":"bad_pass"}` and close it now, and refuse its pass until
+     then (the relay may forget this when the PC disconnects; the PC drops it again if the phone
+     comes back);
    - `{"t":"send","conn":"<connection>","data":"<sealed>"}`: one sealed message to one of its
      phones' connections;
    - `{"t":"close","conn":"<connection>"}`.
@@ -70,7 +72,8 @@ its phones gets `{"t":"pc_offline"}` and is closed. Nothing is stored or queued,
    `{"t":"mailbox","mailbox":"<32 hex digits>"}` (pairing).
 2. The relay answers `{"t":"ready"}`, or `{"t":"refused","code":"…"}` and closes.
 3. Then `{"t":"data","data":"<sealed>"}` both ways. If the PC goes away, the relay sends
-   `{"t":"pc_offline"}` and closes.
+   `{"t":"pc_offline"}` and closes. If the PC drops this phone's pass, the relay sends
+   `{"t":"refused","code":"bad_pass"}` and closes.
 
 A pairing mailbox takes at most 3 phone connections in all, and only while the PC keeps it open
 (at most 10 minutes).

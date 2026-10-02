@@ -151,12 +151,11 @@ pub const NOTICE_SERVICE_SUFFIX: &str = ".notify.windows.com";
 /// Is `host` one of the phones' notice services?
 pub fn notice_service(host: &str) -> bool {
     NOTICE_SERVICE_HOSTS.contains(&host)
-        || host.strip_suffix(NOTICE_SERVICE_SUFFIX).is_some_and(|name| {
-            !name.is_empty()
-                && name
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '-')
-        })
+        || host
+            .strip_suffix(NOTICE_SERVICE_SUFFIX)
+            .is_some_and(|name| {
+                !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            })
 }
 
 /// The GitHub repository whose releases Plenipo updates from.
@@ -604,7 +603,10 @@ mod tests {
             "http://127.0.0.1:8769/plenipo/v1/pc",
         ] {
             let err = rules.check(Purpose::PhoneAccess, bad).unwrap_err();
-            assert!(err.contains("using Plenipo from your phone"), "{bad}: {err}");
+            assert!(
+                err.contains("using Plenipo from your phone"),
+                "{bad}: {err}"
+            );
         }
         // A user name or password is never sent anywhere.
         assert!(rules

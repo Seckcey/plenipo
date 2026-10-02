@@ -1,6 +1,6 @@
 # Phase 14 — Implementation Checklist
 
-**Status: building part 14A.** The owner said Phase 22 is live on 2026-10-01, and Phase 14 started
+**Status: part 14A built (v1.19.0); part 14B next.** The owner said Phase 22 is live on 2026-10-01, and Phase 14 started
 on branch `claude/phase-14-phone` (ADR-132, the final push). The owner answered the questions the
 same day, and the decision records below are **Accepted**. Below, "[x]" is done. Plenipo is made by 8 West Ventures, LLC.
 
@@ -76,38 +76,38 @@ is truly needed.
 
 ### Part 14A — the sealed line and the approvals (`1.19.0`)
 
-- [ ] `Limit::PhoneAccess` (Pro only), with its plain words; pauses when Pro ends (ADR-145 §1)
-- [ ] The switch **Use Plenipo from another device**, off to begin with; "Part of Pro" on Free;
+- [x] `Limit::PhoneAccess` (Pro only), with its plain words; pauses when Pro ends (ADR-145 §1)
+- [x] The switch **Use Plenipo from another device**, off to begin with; "Part of Pro" on Free;
       "Coming soon" until the relay is live (ADR-140 §4)
-- [ ] Guard's purpose **phone access**: only `relay.getplenipo.com`, only on Pro with the switch on;
+- [x] Guard's purpose **phone access**: only `relay.getplenipo.com`, only on Pro with the switch on;
       a stand-in only in test copies (ADR-143 §12)
-- [ ] The PC's relay key and its Noise key, in the Vault; the relay connection, built only on Pro
+- [x] The PC's relay key and its Noise key, in the Vault; the relay connection, built only on Pro
       (ADR-143 §2, §12)
-- [ ] `contracts/phone-relay/v1`: the messages, codes, and limits (ADR-143 §14)
-- [ ] A stand-in relay for the tests, with a **bad relay** mode (ADR-143 §14)
-- [ ] Noise on the PC (`snow`) and on the phone (Web Crypto), each passing Noise's test answers and
+- [x] `contracts/phone-relay/v1`: the messages, codes, and limits (ADR-143 §14)
+- [x] A stand-in relay for the tests, with a **bad relay** mode (ADR-143 §14)
+- [x] Noise on the PC (`snow`) and on the phone (Web Crypto), each passing Noise's test answers and
       each other (ADR-143 §5)
-- [ ] Settings → Devices: **Add a phone** (picture code, typed code, 10 minutes, 3 tries), **Is this
+- [x] Settings → Devices: **Add a phone** (picture code, typed code, 10 minutes, 3 tries), **Is this
       your phone?**, the list, **Rename**, **Remove**, un-pause (ADR-141)
-- [ ] The passkey: made at pairing, checked by the PC at sign-in (ADR-142)
-- [ ] Sign-in and its end: 30 minutes idle, 12 hours, **Sign out**, **Remove**, switch off, Pro ends
+- [x] The passkey: made at pairing, checked by the PC at sign-in (ADR-142)
+- [x] Sign-in and its end: 30 minutes idle, 12 hours, **Sign out**, **Remove**, switch off, Pro ends
       (ADR-143 §7)
-- [ ] Wrong tries: pairing codes, failed meetings, refused passkey answers (ADR-141 §5, ADR-142 §7,
+- [x] Wrong tries: pairing codes, failed meetings, refused passkey answers (ADR-141 §5, ADR-142 §7,
       ADR-143 §8)
-- [ ] `guard::remote`: the fixed list as one `enum`, and Guard's checks in order (ADR-145 §2, §4)
-- [ ] The Ledger: `remote.*` events with the phone's ID and name; "Approved by you, from …" (ADR-145
+- [x] `guard::remote`: the fixed list as one `enum`, and Guard's checks in order (ADR-145 §2, §4)
+- [x] The Ledger: `remote.*` events with the phone's ID and name; "Approved by you, from …" (ADR-145
       §6)
-- [ ] **Keep these approvals on my PC only**, none ticked; "Approve on your PC" on the phone (ADR-145
+- [x] **Keep these approvals on my PC only**, none ticked; "Approve on your PC" on the phone (ADR-145
       §5)
-- [ ] `apps/remote`: the page, phone screen first, both themes, from the keyboard, design system and
+- [x] `apps/remote`: the page, phone screen first, both themes, from the keyboard, design system and
       plain words; **Pair this phone**, sign-in, every read page, Approvals with **Approve** and
       **Refuse**, **Stop all**, **Sign out**, **Remove this phone**, more than one organization
       (ADR-145 §7)
-- [ ] The page's rules: no outside scripts, only its own files and the relay (ADR-146 §3)
-- [ ] PC offline, and a request lost part way (ADR-143 §9)
-- [ ] New desktop commands are the main window's alone, with refusal tests (ADR-145 §8)
-- [ ] `docs/editions.md`: what Plenipo sends to the relay, and phone access on Pro (ADR-143 §10)
-- [ ] Release notes, the plan's status line, the order of work, `docs/roadmap.md`, the vocabulary,
+- [x] The page's rules: no outside scripts, only its own files and the relay (ADR-146 §3)
+- [x] PC offline, and a request lost part way (ADR-143 §9)
+- [x] New desktop commands are the main window's alone, with refusal tests (ADR-145 §8)
+- [x] `docs/editions.md`: what Plenipo sends to the relay, and phone access on Pro (ADR-143 §10)
+- [x] Release notes, the plan's status line, the order of work, `docs/roadmap.md`, the vocabulary,
       and part 14A's section of the acceptance report with screenshots of the real app
 
 ### Part 14B — everything else that is safe from the page (`1.19.1`)
@@ -140,22 +140,22 @@ authenticator), and made-up data. None uses the real relay.
 
 | Test (the plan's list)                                                                                                                                                                               | Part | Done |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---- |
-| Pairing a device, and a wrong or expired pairing code                                                                                                                                                | 14A  | [ ]  |
-| Signed-in connection                                                                                                                                                                                 | 14A  | [ ]  |
-| Unknown device (never paired)                                                                                                                                                                        | 14A  | [ ]  |
-| Removed device and ended session, refused at once                                                                                                                                                    | 14A  | [ ]  |
-| Replay protection (a copied request is refused)                                                                                                                                                      | 14A  | [ ]  |
-| Too many wrong tries (the connection slows down, then refuses)                                                                                                                                       | 14A  | [ ]  |
-| Approving and refusing from the web interface, after the phone confirms it is the owner                                                                                                              | 14A  | [ ]  |
-| An approval answered on the PC first, then on the phone, and the other way round: the first answer counts                                                                                            | 14A  | [ ]  |
-| An approval kept "on the PC only" cannot be answered from another device                                                                                                                             | 14A  | [ ]  |
-| Stop all from another device                                                                                                                                                                         | 14A  | [ ]  |
-| PC offline, and connection lost part way through                                                                                                                                                     | 14A  | [ ]  |
-| The relay cannot read a request, answer one, or make one up, and a request replayed through it is refused                                                                                            | 14A  | [ ]  |
-| Free edition: nothing connects to the relay, and the switch says it comes with Pro                                                                                                                   | 14A  | [ ]  |
-| The owner turns the switch off on the PC while a device is connected                                                                                                                                 | 14A  | [ ]  |
-| The web interface cannot start an AI tool, run a program, reach a shell, the terminal, files, the screen, the browser, or secrets, or change permissions, switches, Guard's rules, or paired devices | 14A  | [ ]  |
-| The web interface on a phone-sized screen, in both themes, from the keyboard, with no errors                                                                                                         | 14A  | [ ]  |
+| Pairing a device, and a wrong or expired pairing code                                                                                                                                                | 14A  | [x]  |
+| Signed-in connection                                                                                                                                                                                 | 14A  | [x]  |
+| Unknown device (never paired)                                                                                                                                                                        | 14A  | [x]  |
+| Removed device and ended session, refused at once                                                                                                                                                    | 14A  | [x]  |
+| Replay protection (a copied request is refused)                                                                                                                                                      | 14A  | [x]  |
+| Too many wrong tries (the connection slows down, then refuses)                                                                                                                                       | 14A  | [x]  |
+| Approving and refusing from the web interface, after the phone confirms it is the owner                                                                                                              | 14A  | [x]  |
+| An approval answered on the PC first, then on the phone, and the other way round: the first answer counts                                                                                            | 14A  | [x]  |
+| An approval kept "on the PC only" cannot be answered from another device                                                                                                                             | 14A  | [x]  |
+| Stop all from another device                                                                                                                                                                         | 14A  | [x]  |
+| PC offline, and connection lost part way through                                                                                                                                                     | 14A  | [x]  |
+| The relay cannot read a request, answer one, or make one up, and a request replayed through it is refused                                                                                            | 14A  | [x]  |
+| Free edition: nothing connects to the relay, and the switch says it comes with Pro                                                                                                                   | 14A  | [x]  |
+| The owner turns the switch off on the PC while a device is connected                                                                                                                                 | 14A  | [x]  |
+| The web interface cannot start an AI tool, run a program, reach a shell, the terminal, files, the screen, the browser, or secrets, or change permissions, switches, Guard's rules, or paired devices | 14A  | [x]  |
+| The web interface on a phone-sized screen, in both themes, from the keyboard, with no errors                                                                                                         | 14A  | [x]  |
 | Allowing (Allow again) from the web interface, after the phone confirms it is the owner                                                                                                              | 14B  | [ ]  |
 | Stop a task, Allow again, Run again, and Leave stopped from another device                                                                                                                           | 14B  | [ ]  |
 | Sending an objective from another device                                                                                                                                                             | 14B  | [ ]  |

@@ -132,7 +132,9 @@ pub fn read(hs: &mut HandshakeState, message: &[u8]) -> Result<Vec<u8>> {
 /// Seal a whole message, in as many pieces as it needs.
 pub fn seal(transport: &mut TransportState, message: &[u8]) -> Result<Vec<Vec<u8>>> {
     if message.len() > MAX_ASSEMBLED {
-        return Err(RemoteError::Invalid("a message was too long to send".into()));
+        return Err(RemoteError::Invalid(
+            "a message was too long to send".into(),
+        ));
     }
     let mut pieces = Vec::new();
     let mut chunks = message.chunks(PIECE).peekable();
@@ -160,7 +162,9 @@ fn seal_piece(transport: &mut TransportState, flag: u8, chunk: &[u8]) -> Result<
 /// Open one sealed piece: (more follow?, its bytes).
 pub fn open(transport: &mut TransportState, sealed: &[u8]) -> Result<(bool, Vec<u8>)> {
     if sealed.len() > MAX_NOISE_MESSAGE || sealed.len() < TAG + 1 {
-        return Err(RemoteError::Refused("a sealed message was the wrong size".into()));
+        return Err(RemoteError::Refused(
+            "a sealed message was the wrong size".into(),
+        ));
     }
     let mut plain = vec![0u8; sealed.len()];
     let n = transport.read_message(sealed, &mut plain).map_err(broken)?;
@@ -168,7 +172,9 @@ pub fn open(transport: &mut TransportState, sealed: &[u8]) -> Result<(bool, Vec<
     match plain.first() {
         Some(&MORE) => Ok((true, plain.split_off(1))),
         Some(&LAST) => Ok((false, plain.split_off(1))),
-        _ => Err(RemoteError::Refused("a sealed message was not one of ours".into())),
+        _ => Err(RemoteError::Refused(
+            "a sealed message was not one of ours".into(),
+        )),
     }
 }
 
@@ -223,7 +229,10 @@ pub(crate) mod tests {
         let (mut phone, mut pc) = kk_pair(&prologue);
         let pieces = seal(&mut phone, b"approve").unwrap();
         assert_eq!(pieces.len(), 1);
-        assert_eq!(open(&mut pc, &pieces[0]).unwrap(), (false, b"approve".to_vec()));
+        assert_eq!(
+            open(&mut pc, &pieces[0]).unwrap(),
+            (false, b"approve".to_vec())
+        );
 
         // A stranger who knows the PC's public key, but is not the phone the PC knows.
         let pc_keys = new_keypair();

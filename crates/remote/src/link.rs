@@ -13,9 +13,9 @@ use futures_util::{SinkExt as _, StreamExt as _};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 
+use crate::b64;
 use crate::service::{Remote, ToRelay};
 use crate::wire::{self, codes, PcToRelay, RelayToPc, SignedAnswer, PC_PROOF_CONTEXT};
-use crate::b64;
 
 /// What the link needs from the app each time it connects.
 pub trait LinkHost: Send + Sync + 'static {
@@ -143,10 +143,14 @@ pub async fn connect_once(
     // The relay's challenge.
     let first = next_text(&mut ws).await?;
     let Some(RelayToPc::Challenge { nonce }) = wire::read(&first) else {
-        return Err(Problem::new("8 West's relay said something Plenipo does not know."));
+        return Err(Problem::new(
+            "8 West's relay said something Plenipo does not know.",
+        ));
     };
     if b64::decode_exact::<32>(&nonce).is_none() {
-        return Err(Problem::new("8 West's relay said something Plenipo does not know."));
+        return Err(Problem::new(
+            "8 West's relay said something Plenipo does not know.",
+        ));
     }
     let hello = PcToRelay::Hello {
         v: 1,
@@ -160,7 +164,11 @@ pub async fn connect_once(
     match wire::read::<RelayToPc>(&next_text(&mut ws).await?) {
         Some(RelayToPc::Welcome { pc }) if pc == keys.fingerprint() => {}
         Some(RelayToPc::Refused { code }) => return Err(refused(&code)),
-        _ => return Err(Problem::new("8 West's relay said something Plenipo does not know.")),
+        _ => {
+            return Err(Problem::new(
+                "8 West's relay said something Plenipo does not know.",
+            ))
+        }
     }
 
     let (out, mut commands) = tokio::sync::mpsc::unbounded_channel::<ToRelay>();
@@ -211,7 +219,9 @@ where
                 return Err(Problem::new("8 West's relay closed the connection."))
             }
             Some(Ok(_)) => {
-                return Err(Problem::new("8 West's relay said something Plenipo does not know."))
+                return Err(Problem::new(
+                    "8 West's relay said something Plenipo does not know.",
+                ))
             }
             Some(Err(e)) => {
                 return Err(Problem::new(format!(
@@ -269,6 +279,9 @@ mod tests {
             let p = refused(code);
             assert!(p.message.contains("relay"), "{code}: {}", p.message);
         }
-        assert_eq!(refused(codes::NOT_PRO).wait, Some(Duration::from_secs(3600)));
+        assert_eq!(
+            refused(codes::NOT_PRO).wait,
+            Some(Duration::from_secs(3600))
+        );
     }
 }

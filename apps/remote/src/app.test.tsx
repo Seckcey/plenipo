@@ -203,6 +203,24 @@ describe("a paired phone", () => {
     expect(pc.asked).toContainEqual({ kind: "approve", org: "first", approval: "a1" });
   });
 
+  it("works from the keyboard alone", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await screen.findByText("Make the website faster");
+    const tabTo = async (target: HTMLElement) => {
+      for (let i = 0; i < 40 && document.activeElement !== target; i++) await user.tab();
+      expect(target).toHaveFocus();
+    };
+    await tabTo(screen.getByRole("button", { name: "Approvals" }));
+    await user.keyboard("{Enter}");
+    const approve = await screen.findByRole("button", { name: "Approve" });
+    await tabTo(approve);
+    await user.keyboard("{Enter}");
+    expect(await screen.findByText("Approved.")).toBeInTheDocument();
+    expect(pc.asked).toContainEqual({ kind: "approve", org: "first", approval: "a1" });
+  });
+
   it("shows an approval kept on the PC with no buttons", async () => {
     pc.signedIn.add("cGhvbmUtMQ");
     const answer = pc.answer;
@@ -250,6 +268,27 @@ describe("a paired phone", () => {
     expect(await screen.findByText("Make the website faster")).toBeInTheDocument();
   });
 
+  it("switched off on the PC: the phone hears it, then says the PC can't be reached", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await screen.findByText("Make the website faster");
+    await pc.switchOff();
+    expect(
+      await screen.findByText("Your PC can’t be reached. Nothing was changed."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Check it’s you" })).toBeNull();
+  });
+
+  it("removed just before the line closes: the phone still forgets the PC", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    const keep = memoryKeep(await pairedWith(pc));
+    render(<App keep={keep} make={pc.make} />);
+    await screen.findByText("Make the website faster");
+    await pc.removeAndClose();
+    expect(await screen.findByRole("heading", { name: "Pair this phone" })).toBeInTheDocument();
+    expect(keep.kept).toBeNull();
+  });
+
   it("a removed phone is told, and can be paired again", async () => {
     pc.removed.add("cGhvbmUtMQ");
     const user = userEvent.setup();
@@ -259,6 +298,14 @@ describe("a paired phone", () => {
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Pair this phone again" }));
     expect(await screen.findByRole("heading", { name: "Pair this phone" })).toBeInTheDocument();
+  });
+
+  it("a phone removed while it was away is told so when it comes back", async () => {
+    pc.forgotten.add("cGhvbmUtMQ");
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    expect(
+      await screen.findByRole("heading", { name: "This phone is no longer on your PC’s list" }),
+    ).toBeInTheDocument();
   });
 
   it("Stop all asks first, then stops", async () => {
@@ -272,7 +319,9 @@ describe("a paired phone", () => {
     await user.click(screen.getByRole("button", { name: "Stop all" }));
     const ask = screen.getByRole("alertdialog", { name: "Stop all?" });
     await user.click(within(ask).getByRole("button", { name: "Stop all" }));
-    expect(await screen.findByText(/Everything is stopped/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/work is stopped\. Allow it again on your PC/),
+    ).toBeInTheDocument();
     expect(pc.asked).toContainEqual({ kind: "stopAll" });
   });
 

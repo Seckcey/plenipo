@@ -170,12 +170,26 @@ jobs:
       # can turn Pro on and check the request byte for byte. Never a release.
       - name: A stand-in for 8 West's license check
         run: echo "PLENIPO_LICENSE_STAND_IN=http://127.0.0.1:8768" >> "$GITHUB_ENV"
+      # Phase 14 (ADR-143 §14, ADR-146 §5): this copy reaches a stand-in for 8 West's relay on this
+      # machine (127.0.0.1), and makes pairing links and passkeys for the phone's page served here
+      # (localhost). The page is built for the same stand-in, and a test browser plays the phone.
+      # Never a release; the real relay is never used here.
+      - name: A stand-in for 8 West's relay, and the phone's page
+        run: |
+          echo "PLENIPO_REMOTE_STAND_IN=http://127.0.0.1:8769" >> "$GITHUB_ENV"
+          echo "PLENIPO_REMOTE_PAGE=http://localhost:8771" >> "$GITHUB_ENV"
+          echo "PLENIPO_RELAY_PHONE=ws://127.0.0.1:8769/plenipo/v1/phone" >> "$GITHUB_ENV"
       - name: Build release app
         run: pnpm --filter @plenipo/desktop tauri build --no-bundle --features license-test-keys
       - name: Build fake agent CLIs for Phase 3 tests
         run: cargo build --release --locked -p plenipo-runtime --bin plenipo-fake-agent
       - name: Build the synthetic SSH server and the connections' stand-in, and the test add-on program
         run: cargo build --release --locked -p plenipo-capabilities --bin plenipo-test-sshd --bin plenipo-test-services --bin plenipo-test-addon
+      - name: Build the stand-in relay and the phone's page for Phase 14 tests
+        run: |
+          cargo build --release --locked -p plenipo-remote --features stand-in --bin plenipo-test-relay
+          pnpm --filter @plenipo/remote build
+          grep -q "ws://127.0.0.1:8769" apps/remote/dist/index.html
       # Phase 10 starts the runner's Google Chrome, with its sandbox on (as on Windows). Ubuntu's
       # AppArmor keeps unprivileged programs from the user namespaces that sandbox needs.
       - name: Let Chrome's sandbox use user namespaces

@@ -136,7 +136,9 @@ fn check_device_id(id: &str) -> Result<(), CommandError> {
     if plenipo_remote::b64::is_id(id, 16) {
         Ok(())
     } else {
-        Err(CommandError::invalid_input("That is not a phone on your PC's list."))
+        Err(CommandError::invalid_input(
+            "That is not a phone on your PC's list.",
+        ))
     }
 }
 
@@ -198,7 +200,9 @@ pub async fn set_kept_on_pc<R: Runtime>(
     kept: KeptOnPc,
 ) -> Result<RemoteSettings, CommandError> {
     if kept.kinds.len() > 64 {
-        return Err(CommandError::invalid_input("That is not a list Plenipo knows."));
+        return Err(CommandError::invalid_input(
+            "That is not a list Plenipo knows.",
+        ));
     }
     off_main(&app, &state, &license, move |s| {
         s.remote.set_kept(kept).map(drop).map_err(error)

@@ -15,9 +15,12 @@ export class RelayRefused extends Error {
   }
 }
 
-/** The connection ended: the PC went away, or the connection closed. */
+/**
+ * The connection ended: the PC went away, the connection closed, or the relay stopped taking this
+ * phone's pass (`notListed`: the PC removed this phone).
+ */
 export class LineEnded extends Error {
-  constructor(readonly why: "pcOffline" | "closed" | "timeout") {
+  constructor(readonly why: "pcOffline" | "closed" | "timeout" | "notListed") {
     super(`the connection ended (${why})`);
   }
 }
@@ -86,7 +89,7 @@ export class Relay {
         } else if (m.t === "pc_offline") {
           relay.end(new LineEnded("pcOffline"));
         } else if (m.t === "refused") {
-          relay.end(new LineEnded("closed"));
+          relay.end(new LineEnded(m.code === "bad_pass" ? "notListed" : "closed"));
         }
       };
       socket.onclose = () => {

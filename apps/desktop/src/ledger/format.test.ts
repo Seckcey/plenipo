@@ -285,6 +285,15 @@ describe("describeEvent (Phase 7 permissions)", () => {
     ).toBe("Not approved: run x (Permissions revoked.)");
     expect(
       describeEvent(
+        event("approval.resolved", {
+          state: "approved",
+          summary: "git push origin",
+          note: "Approved by you, from Frank's phone.",
+        }),
+      ),
+    ).toBe("Approved: git push origin (from Frank's phone)");
+    expect(
+      describeEvent(
         event("approval.expired", {
           actionType: "shell.exec",
           note: "No answer within 10 minute(s).",

@@ -68,9 +68,13 @@ pub struct MeetingWelcome {
 #[ts(export, rename = "PhoneAsk")]
 pub enum Ask {
     /// Sign in with the passkey's answer to the meeting's challenge.
-    SignIn { answer: PasskeyAnswer },
+    SignIn {
+        answer: PasskeyAnswer,
+    },
     /// What happened to an earlier request (by its ID), after a dropped connection.
-    Outcome { of: String },
+    Outcome {
+        of: String,
+    },
     // ---- Reading (part 14A) ----
     ReadOrganizations,
     ReadHome {

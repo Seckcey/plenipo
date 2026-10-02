@@ -486,7 +486,10 @@ mod tests {
         let kept = kept.tidy();
         assert_eq!(kept.kinds, [SensitiveKind::Dns, SensitiveKind::Payment]);
         assert!(serde_json::from_str::<KeptOnPc>(r#"{"other":true}"#).is_err());
-        assert_eq!(serde_json::from_str::<KeptOnPc>("{}").unwrap(), KeptOnPc::default());
+        assert_eq!(
+            serde_json::from_str::<KeptOnPc>("{}").unwrap(),
+            KeptOnPc::default()
+        );
     }
 
     #[test]

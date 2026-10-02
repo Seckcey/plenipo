@@ -25,7 +25,7 @@ use plenipo_guard::remote::ApprovalFacts;
 use plenipo_guard::{OutboundRules, OWNER, PLENIPO};
 use plenipo_ledger::{ActivityScope, Ledger, LedgerEvent, NewEvent};
 use plenipo_licensing::{Limit, SignedAnswer};
-use plenipo_remote::devices::{ConfigFile, KeyStore, Kept};
+use plenipo_remote::devices::{ConfigFile, Kept, KeyStore};
 use plenipo_remote::link::LinkHost;
 use plenipo_remote::protocol::{Ask, Changed, SignedOutWhy};
 use plenipo_remote::service::{RemoteSettings, RemoteView};
@@ -181,6 +181,7 @@ pub struct RemoteState {
     pub remote: Arc<Remote>,
     pub built: Built,
     /// The app, as phone access sees it (the tests call it directly).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) host: Arc<dyn Host>,
     /// The relay link, while it runs.
     link: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
@@ -274,7 +275,11 @@ impl<R: Runtime> Host for AppSide<R> {
             "remote.switched_off",
             "remote.kept_on_pc_changed",
         ];
-        let source = if owners.contains(&event) { OWNER } else { PLENIPO };
+        let source = if owners.contains(&event) {
+            OWNER
+        } else {
+            PLENIPO
+        };
         if let Err(e) = ledger.append_event(NewEvent {
             source: source.into(),
             event_type: event.into(),
@@ -394,9 +399,9 @@ fn carry_out<R: Runtime>(side: &AppSide<R>, phone: &Phone, ask: &Ask) -> Result<
             let stack = side.stack(org)?;
             match (task, conversation) {
                 (Some(t), _) => value(stack.broker.task_record(t).map_err(plain)?),
-                (None, Some(c)) => value(
-                    tauri::async_runtime::block_on(stack.agents.session(c)).map_err(plain)?,
-                ),
+                (None, Some(c)) => {
+                    value(tauri::async_runtime::block_on(stack.agents.session(c)).map_err(plain)?)
+                }
                 (None, None) => value(stack.ledger.list_tasks(200).map_err(plain)?),
             }
         }
@@ -443,9 +448,10 @@ fn carry_out<R: Runtime>(side: &AppSide<R>, phone: &Phone, ask: &Ask) -> Result<
         }
         Ask::StopAll => {
             let first = side.first()?;
-            let status = tauri::async_runtime::block_on(
-                crate::commands::stop_control_everywhere(app, first.broker.clone()),
-            )
+            let status = tauri::async_runtime::block_on(crate::commands::stop_control_everywhere(
+                app,
+                first.broker.clone(),
+            ))
             .map_err(plain)?;
             value(status)
         }
@@ -704,13 +710,12 @@ fn changed_by(event_type: &str) -> Option<Changed> {
         "control.stopped" | "control.allowed" | "plenipo.recovered" | "plenipo.run_again" => {
             Changed::Control
         }
-        "lesson.added" | "lesson.kept" | "lesson.discarded" | "lesson.removed" => {
-            Changed::Lessons
-        }
+        "lesson.added" | "lesson.kept" | "lesson.discarded" | "lesson.removed" => Changed::Lessons,
         "task.created" | "task.state_changed" | "agent.result" => Changed::Tasks,
-        "ai_tool.updated" | "ai_tool.update_failed" | "ai_tool.signed_in" | "ai_tool.signed_out" => {
-            Changed::AiTools
-        }
+        "ai_tool.updated"
+        | "ai_tool.update_failed"
+        | "ai_tool.signed_in"
+        | "ai_tool.signed_out" => Changed::AiTools,
         "organization.renamed" => Changed::Organizations,
         _ => return None,
     })
@@ -786,12 +791,14 @@ mod tests {
         assert!(b.live);
         assert_eq!(b.origin, "http://localhost:8771");
         assert_eq!(b.rp_id, "localhost");
-        assert!(b
-            .rules
-            .check(Purpose::PhoneAccess, &b.relay)
-            .is_ok());
+        assert!(b.rules.check(Purpose::PhoneAccess, &b.relay).is_ok());
         // Not this computer: not a stand-in.
-        let b = built_for(Some("http://10.0.0.5:8769"), Some("http://evil.example"), None, true);
+        let b = built_for(
+            Some("http://10.0.0.5:8769"),
+            Some("http://evil.example"),
+            None,
+            true,
+        );
         assert_eq!(b.relay, RELAY_ADDRESS);
         assert_eq!(b.origin, "https://remote.getplenipo.com");
     }
@@ -803,6 +810,10 @@ mod tests {
         assert_eq!(changed_by("lesson.added"), Some(Changed::Lessons));
         assert_eq!(changed_by("task.state_changed"), Some(Changed::Tasks));
         assert_eq!(changed_by("guard.request_refused"), None);
-        assert_eq!(changed_by("remote.request"), None, "the phone's own requests do not echo");
+        assert_eq!(
+            changed_by("remote.request"),
+            None,
+            "the phone's own requests do not echo"
+        );
     }
 }
