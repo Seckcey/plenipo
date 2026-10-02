@@ -1,15 +1,16 @@
 # ADR-165: Linked organizations — linking, sending an objective, the answer, and unlinking
 
-- **Status:** Proposed (2026-10-02), waiting for the owner's answers to questions 6 and 11 in
-  [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md).
+- **Status:** Accepted (2026-10-02): the owner answered questions 6 and 11 in
+  [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md) "as recommended".
 - **Date:** 2026-10-02
 - **Phase:** 24 (Community)
 - **Part of:** [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md)
 - **Builds on:** [ADR-145 (the fixed list of what a phone may ask)](ADR-145-what-a-phone-may-ask.md),
   whose shape this follows: a fixed list, Guard first, the same core function as the PC;
   [ADR-164 (private messages, sealed)](ADR-164-private-messages-sealed.md) for how things travel
-- **Waits for:** pull requests #136 (Guard on a Mac and Linux) and #138 (the keeper), before any of
-  Guard's code changes ([ADR-160](ADR-160-phase-24-alongside-phase-23.md) §4)
+- **Waited for:** pull requests #136 (Guard on a Mac and Linux) and #138 (the keeper), before any
+  of Guard's code changes ([ADR-160](ADR-160-phase-24-alongside-phase-23.md) §4). Both merged on
+  2026-10-02.
 
 > **On screen** (ADR-010, plain words and rank names): **Linked organizations**, **Link with
 > another organization**, **Pat Lee wants to link Acme Builders with your organization**,

@@ -1,15 +1,21 @@
 # ADR-161: Phase 24 starts — what the check found, its six parts, and the owner's questions
 
-- **Status:** Proposed (2026-10-02), waiting for the owner's answers to the thirteen questions
-  below. Coding starts after the owner answers (ADR-160 §2).
+- **Status:** Accepted, with the owner's changes (2026-10-02). The owner answered the thirteen
+  questions: ten "as recommended", and three changed: "**13 and up**" (question 4), "**Everything
+  that's on a phone's keyboard**" (question 8), and "**We need a way for people to find each other.
+  We need to encourage community participation. Come up with ways to reward users for community
+  participation.**" (question 9). The owner sends the attorney the drafts on 2026-10-02, and reads
+  reports "until it gets to be too much". Follow-up questions 14 to 18, from those three changes,
+  wait for the owner's answers (below). Coding starts after (ADR-160 §2).
 - **Date:** 2026-10-02
 - **Phase:** 24 (Community)
 - **Carries out:** [ADR-160 (building Phase 24 alongside Phase 23)](ADR-160-phase-24-alongside-phase-23.md)
   §2: records and the attorney's drafts first, as
   [ADR-140 (Phase 14 starts)](ADR-140-phase-14-starts.md) and
   [ADR-150 (Phase 23 starts)](ADR-150-phase-23-starts.md) did
-- **Number:** Phase 24 uses ADR-160 to ADR-169 (ADR-160). This record is 161; ADR-162 to ADR-168
-  follow, and **169** stays free for what the build finds.
+- **Number:** Phase 24 uses ADR-160 to ADR-169 (ADR-160). This record is 161; ADR-162 to ADR-169
+  follow. ADR-169 (rewards for taking part) answers question 9, so Phase 24 has no free number left;
+  a later change amends one of these records, or the owner gives the phase more numbers.
 
 > **On screen** (ADR-010, plain words and rank names): nothing yet. Each record below names its
 > words, and they go into `docs/design/vocabulary.md` when they are built. Proposed: **Community**
@@ -24,15 +30,16 @@ the records it points at, and the code, and wrote one record for each big choice
 record means** Phase 24 is built in **six parts** (each its own pull request, and each release
 takes the next free version number), with the answers below:
 
-| Record | What it settles                                                                                        |
-| ------ | ------------------------------------------------------------------------------------------------------ |
-| 162    | Your 8 West account in Plenipo: signing in with a code, 18 and older, and who needs Pro                |
-| 163    | Your profile, hidden until you choose, and finding people by their exact Community name or by email    |
-| 164    | Private messages, sealed end to end, text only, with reports that carry a proof                        |
-| 165    | Linked organizations: linking, sending an objective, the answer you choose to send back, and unlinking |
-| 166    | Collaborators: viewer, approver, and manager; what each may do; and removing them at once              |
-| 167    | Block, report, and leave, and who handles reports (8 West, at first its owner)                         |
-| 168    | What Community keeps, where, and for how long                                                          |
+| Record | What it settles                                                                                                    |
+| ------ | ------------------------------------------------------------------------------------------------------------------ |
+| 162    | Your 8 West account in Plenipo: signing in with a code, 13 and older with protections for teens, and who needs Pro |
+| 163    | Your profile, and finding people: the Community directory, an exact Community name, or an email invitation         |
+| 164    | Private messages, sealed end to end, with everything a phone's keyboard types, and reports with a proof            |
+| 165    | Linked organizations: linking, sending an objective, the answer you choose to send back, and unlinking             |
+| 166    | Collaborators: viewer, approver, and manager; what each may do; and removing them at once                          |
+| 167    | Block, report, and leave, and who handles reports (8 West, at first its owner)                                     |
+| 168    | What Community keeps, where, and for how long                                                                      |
+| 169    | Rewards for taking part: badges, thanks, and a free month of Pro for each invited person who buys it               |
 
 The drafts for the attorney are in [`docs/legal/phase-24/`](../legal/phase-24/README.md). The full
 list of work is in [the Phase 24 checklist](../phases/phase-24-checklist.md).
@@ -95,14 +102,14 @@ service's repository at `7f30d67`):
 2. **Six parts**, each its own pull request; each release takes the next free version number when it
    is made (ADR-160 §5):
 
-   | Part    | What                                                                                                                                                                                                                                                             | Where                                   | Waits for                   |
-   | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | --------------------------- |
-   | **24A** | These records, the checklist, and the attorney's drafts                                                                                                                                                                                                          | this repository (documents only)        | nothing                     |
-   | **24B** | The contract (`contracts/community/v1`), then the account service's side: sign-in with a code, PC keys, Community names, profiles, the sealed mailbox, blocks, reports and the **Reports** admin page, and the nightly cleanup. Switched off on the live service | this repository, then `plenipo-account` | the owner's answers         |
-   | **24C** | Plenipo's side of the people part: the switch, signing in, your profile, finding people, messages, block, report, and leave. Shows **Coming soon** until 24F                                                                                                     | this repository (a release)             | 24B's contract              |
-   | **24D** | Linked organizations: link, send an objective, approve it, send the answer back, and unlink, through Guard                                                                                                                                                       | this repository (a release)             | pull requests #136 and #138 |
-   | **24E** | Collaborators: invite, roles, parts, the approvals only you can answer, the collaborator pass on the relay (`contracts/phone-relay/v2`), and removing at once, through Guard                                                                                     | this repository, the relay (a release)  | pull requests #136 and #138 |
-   | **24F** | Launch: the security review at the highest effort, the attorney's approved pages on the website and the account site, Community switched on, and the acceptance report                                                                                           | both repositories (a release)           | the attorney, the review    |
+   | Part    | What                                                                                                                                                                                                                                                             | Where                                   | Waits for                                       |
+   | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ----------------------------------------------- |
+   | **24A** | These records, the checklist, and the attorney's drafts                                                                                                                                                                                                          | this repository (documents only)        | nothing                                         |
+   | **24B** | The contract (`contracts/community/v1`), then the account service's side: sign-in with a code, PC keys, Community names, profiles, the sealed mailbox, blocks, reports and the **Reports** admin page, and the nightly cleanup. Switched off on the live service | this repository, then `plenipo-account` | the owner's answers                             |
+   | **24C** | Plenipo's side of the people part: the switch, signing in, your profile, finding people, messages, block, report, and leave. Shows **Coming soon** until 24F                                                                                                     | this repository (a release)             | 24B's contract                                  |
+   | **24D** | Linked organizations: link, send an objective, approve it, send the answer back, and unlink, through Guard                                                                                                                                                       | this repository (a release)             | pull requests #136 and #138 (merged 2026-10-02) |
+   | **24E** | Collaborators: invite, roles, parts, the approvals only you can answer, the collaborator pass on the relay (`contracts/phone-relay/v2`), and removing at once, through Guard                                                                                     | this repository, the relay (a release)  | pull requests #136 and #138 (merged 2026-10-02) |
+   | **24F** | Launch: the security review at the highest effort, the attorney's approved pages on the website and the account site, Community switched on, and the acceptance report                                                                                           | both repositories (a release)           | the attorney, the review                        |
 
 3. **Each part is tested with made-up people and a stand-in account service and relay** built for
    the tests, never real accounts. The acceptance scenario uses two test accounts on a test copy of
@@ -120,7 +127,8 @@ service's repository at `7f30d67`):
 
 ## The owner's questions
 
-Each has the builder's recommendation first. Answering "as recommended" accepts them all.
+Each has the builder's recommendation first. **The owner's answers (2026-10-02)** follow the
+thirteen questions.
 
 1. **Are private messages sealed end to end?** _Recommended:_ **yes**. Only you and the other person
    can read them; 8 West carries them and cannot. 8 West sees only messages someone reports, with a
@@ -170,8 +178,61 @@ Each has the builder's recommendation first. Answering "as recommended" accepts 
     and the admin page. It moves to its own server only if it grows. _Or:_ a new service of its own,
     sharing sign-in.
 
-**The owner's part, before launch:** hire the attorney and send the drafts in `docs/legal/phase-24/`;
-decide who reads reports and when; and say when Community may reach real people.
+### The owner's answers (2026-10-02)
+
+| Question                     | Answer                                                                                                                                                                                                                                                         |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Sealed messages           | As recommended                                                                                                                                                                                                                                                 |
+| 2. How long things are kept  | As recommended                                                                                                                                                                                                                                                 |
+| 3. Reports                   | As recommended. "I'll read the reports until it gets to be too much."                                                                                                                                                                                          |
+| 4. Age                       | **"13 and up"**. ADR-162 §4 now says 13 and older, with protections for people under 18 (question 14)                                                                                                                                                          |
+| 5. Collaborator roles        | As recommended                                                                                                                                                                                                                                                 |
+| 6. Linking and unlinking     | As recommended                                                                                                                                                                                                                                                 |
+| 7. Who needs Pro             | As recommended                                                                                                                                                                                                                                                 |
+| 8. What a message holds      | **"Everything that's on a phone's keyboard."** ADR-164 §4 now allows every letter, number, symbol, and emoji, in any language (question 15 asks about GIFs and stickers)                                                                                       |
+| 9. Finding people            | **"We need a way for people to find each other. We need to encourage community participation. Come up with ways to reward users for community participation."** ADR-163 adds the Community directory (question 16); ADR-169 adds rewards (questions 17 and 18) |
+| 10. What a collaborator sees | As recommended                                                                                                                                                                                                                                                 |
+| 11. What comes back          | As recommended                                                                                                                                                                                                                                                 |
+| 12. Phone                    | As recommended                                                                                                                                                                                                                                                 |
+| 13. Where it runs            | As recommended                                                                                                                                                                                                                                                 |
+
+### Follow-up questions, from the owner's changes
+
+Each has the builder's recommendation first.
+
+14. **Protections for people 13 to 17** (ADR-162 §4). _Recommended:_ Community asks for your **birth
+    month and year**, never the day, so a 17-year-old becomes an adult by themselves, and 8 West
+    keeps as little as it can. Under 13 cannot join. For 13 to 17: never in the directory, and a
+    profile only people they already talk with can see; a message from an adult always lands in
+    **Requests**, with a safety note; adults never see a teen's status or mood; no Pro (buying needs
+    18, as the terms of sale say), so no starting conversations or links, but they can answer and be
+    a collaborator; reports about a teen are urgent; and no money rewards. _Or:_ fewer protections
+    (simpler, less safe); or 16 and up after all. The attorney checks whether any state also needs a
+    parent's consent (`docs/legal/phase-24/age-requirement.md`).
+15. **GIFs and stickers.** A phone's keyboard also offers GIFs and stickers, which are pictures.
+    _Recommended:_ **not at launch:** every letter, number, symbol, and emoji, in any language, yes;
+    GIFs, stickers, and pictures later, with their own checks, because 8 West cannot look at sealed
+    pictures and some members are now 13. _Or:_ GIFs and stickers now, as pictures in sealed messages.
+16. **The Community directory** (ADR-163). _Recommended:_ a directory of people who choose to be in
+    it (asked plainly when you turn Community on, with no answer chosen for you), searchable by name,
+    company, what your business does, and state or country; a **New this week** list inside it; your
+    own **share link and picture code** to hand out; adults only; and limits that stop anyone copying
+    the whole list. Still no posts or feeds (the plan keeps those out). _Or:_ everyone in the
+    directory unless they opt out (more people to find; less private).
+17. **Badges and thanks** (ADR-169). _Recommended:_ badges on your profile that only real help earns
+    (**Founding member**, **Helper**, **Connector**, **Good neighbor**, and **Trusted**), a **Thanks**
+    button after someone helps you, and a **Getting started** list on the People page. No points,
+    rankings, or streaks: they reward sending lots of messages, which is spam. _Or:_ points and a
+    ranking as well.
+18. **A free month of Pro for invitations** (ADR-169). _Recommended:_ when someone you invited buys
+    Pro and keeps it past the 14-day refund window, **you both get one month of Pro free**, up to 12
+    free months a year for you; adults only; taken back if the purchase is refunded or was a fake.
+    Each free month costs 8 West one month's price. _Or:_ no money rewards, badges only; or a
+    different amount.
+
+**The owner's part, before launch:** send the attorney the drafts in `docs/legal/phase-24/` (the
+owner: tonight, 2026-10-02); read reports, at first (the owner); and say when Community may reach
+real people.
 
 ## Consequences
 

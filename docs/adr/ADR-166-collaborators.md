@@ -1,7 +1,7 @@
 # ADR-166: Collaborators — viewer, approver, and manager, and what each may do
 
-- **Status:** Proposed (2026-10-02), waiting for the owner's answers to questions 5 and 10 in
-  [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md).
+- **Status:** Accepted (2026-10-02): the owner answered questions 5 and 10 in
+  [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md) "as recommended".
 - **Date:** 2026-10-02
 - **Phase:** 24 (Community)
 - **Part of:** [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md)
@@ -11,8 +11,8 @@
 - **Changes:** [ADR-145](ADR-145-what-a-phone-may-ask.md) §6 keeps `source` as `owner` for your
   phone, because the phone is you. A collaborator is **not** you, so their actions get a source of
   their own (Decision 6).
-- **Waits for:** pull requests #136 and #138 before any of Guard's code changes
-  ([ADR-160](ADR-160-phase-24-alongside-phase-23.md) §4)
+- **Waited for:** pull requests #136 and #138 before any of Guard's code changes
+  ([ADR-160](ADR-160-phase-24-alongside-phase-23.md) §4). Both merged on 2026-10-02.
 
 > **On screen** (ADR-010, plain words and rank names): **Collaborators**, **Invite someone to help
 > with this organization**, **Viewer**, **Approver**, **Manager**, **What they can see**: **The whole

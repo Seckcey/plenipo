@@ -1,19 +1,21 @@
 # Phase 24 — Implementation Checklist
 
-**Status: part 24A in progress** (started 2026-10-02), beside Phase 23. Builds on v1.19.4. Below,
+**Status: part 24A in progress** (started 2026-10-02), beside Phase 23. The owner answered the
+thirteen questions on 2026-10-02; follow-up questions 14 to 18 are open. Builds on v1.19.4. Below,
 "[x]" is done. Plenipo is made by 8 West Ventures, LLC.
 
 Source: `ROLLOUT_PLAN.md`, Phase 24 — Community, and the records written for it:
 
 - [ADR-160 (building Phase 24 alongside Phase 23)](../adr/ADR-160-phase-24-alongside-phase-23.md)
 - [ADR-161 (Phase 24 starts: what the check found, six parts, the owner's questions)](../adr/ADR-161-phase-24-starts.md)
-- [ADR-162 (your 8 West account in Plenipo: signing in, 18 and older, who needs Pro)](../adr/ADR-162-your-account-in-plenipo.md)
-- [ADR-163 (your profile, and how people find each other)](../adr/ADR-163-profiles-and-finding-people.md)
+- [ADR-162 (your 8 West account in Plenipo: signing in, 13 and older with protections for teens, who needs Pro)](../adr/ADR-162-your-account-in-plenipo.md)
+- [ADR-163 (your profile, and how people find each other: the directory, a name, or an email)](../adr/ADR-163-profiles-and-finding-people.md)
 - [ADR-164 (private messages, sealed end to end)](../adr/ADR-164-private-messages-sealed.md)
 - [ADR-165 (linked organizations)](../adr/ADR-165-linked-organizations.md)
 - [ADR-166 (collaborators: viewer, approver, and manager)](../adr/ADR-166-collaborators.md)
 - [ADR-167 (block, report, and leave, and who handles reports)](../adr/ADR-167-block-report-leave.md)
 - [ADR-168 (what Community keeps, where, and for how long)](../adr/ADR-168-what-is-kept-and-for-how-long.md)
+- [ADR-169 (rewards for taking part: badges, thanks, and a free month for invitations)](../adr/ADR-169-rewards-for-taking-part.md)
 
 **Numbers:** ADR-160 to ADR-169. Dates are Pacific time. The app uses the plain words in
 [`docs/design/vocabulary.md`](../design/vocabulary.md).
@@ -23,32 +25,36 @@ reaching into anyone else's PC, files, sign-ins, or keys."
 
 ## In short, for the owner
 
-- **First, your answers.** ADR-161 has thirteen questions, each with a recommendation. Nothing is
-  coded before you answer.
+- **Your answers are in** (2026-10-02): ten as recommended, and three changes: **13 and up**,
+  **everything on a phone's keyboard** in messages, and a **directory** and **rewards** so people
+  find each other and take part. Five follow-up questions (14 to 18) come from those changes.
 - **Then the attorney.** The drafts in [`docs/legal/phase-24/`](../legal/phase-24/README.md) go to
   an attorney. Community reaches real people only after the attorney approves them and a security
   review passes.
 - **Six parts:** records and drafts → the account service's side → people (profiles, messages,
   block, report, leave) → linked organizations → collaborators → launch.
-- **Linked organizations and collaborators wait** for Phase 23's Guard work (pull requests #136 and
-  #138) to merge, so Guard never takes two sets of changes at once.
+- **Linked organizations and collaborators waited** for Phase 23's Guard work (pull requests #136
+  and #138), so Guard never took two sets of changes at once. Both merged on 2026-10-02.
 
 ## The owner's part
 
-- [ ] Answer the thirteen questions in ADR-161 (or "as recommended").
-- [ ] Hire an attorney, and send them the drafts in `docs/legal/phase-24/`.
-- [ ] Decide who reads reports at launch, and plan the time for it (ADR-167).
+- [x] Answer the thirteen questions in ADR-161 (2026-10-02)
+- [ ] Answer follow-up questions 14 to 18 in ADR-161
+- [ ] Send the attorney the drafts in `docs/legal/phase-24/` (the owner: the night of 2026-10-02)
+- [x] Decide who reads reports at launch: the owner, "until it gets to be too much" (ADR-167)
 - [ ] After the review and the attorney: say when Community may reach real people (24F).
 
 ## Part 24A — records and drafts (documents only)
 
-- [x] ADR-161 to ADR-168, proposed, with the check of today's code
+- [x] ADR-161 to ADR-169, with the check of today's code
 - [x] This checklist
 - [x] Drafts for the attorney in `docs/legal/phase-24/`: terms of service for Community, changes to
       the privacy statement and the account privacy notice, the age requirement, and the moderation
       and report process
 - [x] The ADR index and the plan's order-of-work row
-- [ ] The owner's answers written into each record (status **Accepted**, with the owner's words)
+- [x] The owner's answers written into each record (status **Accepted**, with the owner's words),
+      and the drafts changed to match
+- [ ] The answers to follow-up questions 14 to 18 written in (ADR-162, ADR-163, ADR-164, ADR-169)
 
 ## Part 24B — the contract, then the account service's side
 
@@ -63,8 +69,15 @@ In `plenipo-account`, under its own rules (ADR-101, ADR-102):
 
 - [ ] Sign-in with a code, **Allow** on the account site, the Community pass, and **Remove** for each
       PC (ADR-162 §2)
-- [ ] "I am 18 or older", recorded with its time (ADR-162 §4)
+- [ ] The birth month and year, refused under 13 with nothing kept, and changed only by 8 West
+      (ADR-162 §4)
+- [ ] The protections for members 13 to 17, enforced by the service (ADR-162 §4)
 - [ ] PC keys, Community names, profiles, and the picture check (ADR-163)
+- [ ] The directory: listing, search, **New this week**, adults only, and the limits against copying
+      (ADR-163 §4)
+- [ ] Badges worked out each day, thanks, and its limits (ADR-169 §1, §2)
+- [ ] Rewards for invitations: who invited whom, the 14-day wait, Stripe credit, 12 a year, the
+      card and email checks, taking back, and the admin switch (ADR-169 §4)
 - [ ] The sealed mailbox, the stamping key, and the limits (ADR-164 §3, §6, §8)
 - [ ] Blocks, enforced by the service (ADR-167 §4)
 - [ ] Reports, the proof check, and the **Reports** admin page with its emails (ADR-167 §5 to §11)
@@ -80,9 +93,13 @@ In `plenipo-account`, under its own rules (ADR-101, ADR-102):
 - [ ] The **Community** switch, signing in with a code, the age box, signing out (ADR-162)
 - [ ] Each PC's Community key in the Vault (ADR-162 §3)
 - [ ] Your profile: hidden to begin with, each part's box, **What people see** (ADR-163)
-- [ ] **Find someone** and **Invite by email** (ADR-163 §4)
+- [ ] The directory, **Find someone**, **Invite by email**, and **Share my profile** (ADR-163 §4,
+      §5), with the share page on the website (the same page for every name)
 - [ ] Messages: HPKE sealing with test answers, signing, **Requests**, the safety code, "**Pat's
       computers changed**", **Delete for me** (ADR-164)
+- [ ] Every letter, number, symbol, and emoji, emoji reactions, and hidden control characters shown
+      as visible marks (ADR-164 §4)
+- [ ] Badges, **Thanks**, **Getting started**, and **Invite someone** (ADR-169)
 - [ ] **Give to a worker**, fenced as outside words (a new `fence::Source` kind) (ADR-164 §9)
 - [ ] Block, report (with the proof), and leave, everywhere (ADR-167)
 - [ ] **Delete my Community data from this PC** (ADR-168 §3)
@@ -91,7 +108,7 @@ In `plenipo-account`, under its own rules (ADR-101, ADR-102):
 - [ ] **Coming soon** until 24F
 - [ ] Words added to `docs/design/vocabulary.md`
 
-## Part 24D — linked organizations (after pull requests #136 and #138)
+## Part 24D — linked organizations (pull requests #136 and #138 merged)
 
 - [ ] Link requests, accepting, the receiving position, the safety code, and **What crosses this
       link** (ADR-165 §1)
@@ -104,7 +121,7 @@ In `plenipo-account`, under its own rules (ADR-101, ADR-102):
 - [ ] Ledger events `link.*` in both Ledgers (ADR-165 §7)
 - [ ] New desktop commands, main window only, with IPC tests
 
-## Part 24E — collaborators (after pull requests #136 and #138)
+## Part 24E — collaborators (pull requests #136 and #138 merged)
 
 - [ ] Invitations: role, part, and the approvals only you can answer, all ticked (ADR-166 §3 to §5)
 - [ ] Each role's fixed list in code, and Guard's checks with **who is asking** (ADR-166 §1, §6)
@@ -138,6 +155,11 @@ In `plenipo-account`, under its own rules (ADR-101, ADR-102):
 - [ ] An approval only the owner can answer refuses a collaborator's answer (ADR-166 §3)
 - [ ] Each time in ADR-168 is enforced by the cleanup
 - [ ] A Free copy that never signs in to Community still never contacts 8 West (ADR-162 §5)
+- [ ] Under 13 cannot join, and nothing of the answer is kept (ADR-162 §4)
+- [ ] A member under 18 is never in the directory, an adult never sees their status or mood, and an
+      adult's message to them lands in **Requests** (ADR-162 §4)
+- [ ] The directory cannot be copied whole (ADR-163 §4)
+- [ ] A reward cannot be earned by inviting yourself, and is taken back on a refund (ADR-169 §4)
 
 ## Acceptance (plan)
 

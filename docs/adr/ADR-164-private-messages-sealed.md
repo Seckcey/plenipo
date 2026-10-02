@@ -1,7 +1,9 @@
 # ADR-164: Private messages, sealed end to end
 
-- **Status:** Proposed (2026-10-02), waiting for the owner's answers to questions 1 and 8 in
-  [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md).
+- **Status:** Accepted, with the owner's change (2026-10-02): question 1 (sealed end to end) "as
+  recommended"; question 8 (what a message may hold) "**Everything that's on a phone's keyboard**",
+  instead of plain text only (§4). Whether that includes GIFs and stickers waits for the owner's
+  answer to question 15 in [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md).
 - **Date:** 2026-10-02
 - **Phase:** 24 (Community)
 - **Part of:** [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md)
@@ -18,8 +20,9 @@
 
 A private message is **sealed on your PC for the other person's PCs**, so only the two of you can
 read it. 8 West carries it and cannot read it. It waits on 8 West's server only until the other
-person's PCs have picked it up, then it is deleted there (at most 30 days). Messages are **plain
-text**: no pictures, no files. Someone you have never talked with lands in **Requests**, and can
+person's PCs have picked it up, then it is deleted there (at most 30 days). A message holds
+**everything a phone's keyboard types**: letters, numbers, symbols, and every emoji, in any
+language. No files. Someone you have never talked with lands in **Requests**, and can
 send one message until you **Accept**. If you **Report** a message, your PC sends that message to
 8 West with a proof that it is real, so a report cannot be made up and only what you report is seen.
 
@@ -57,9 +60,19 @@ send one message until you **Accept**. If you **Report** a message, your PC send
 3. **Held only until picked up.** The account service keeps a sealed message until every PC it is
    sealed for has picked it up, or 30 days, whichever comes first, then deletes it (ADR-168). Your
    PC calls out to pick messages up while Community is on; nothing listens on your PC.
-4. **What a message may hold** (question 8): plain text, up to 4,000 characters. No pictures, no
-   files, no voice, and no link previews at launch. A web address shows as text; opening it asks
-   "**Open this link in your web browser?**" and opens your own browser, never Plenipo's.
+4. **What a message may hold** (question 8, the owner: "Everything that's on a phone's keyboard"):
+   - **every letter, number, symbol, and emoji**, in any language and any writing direction, up to
+     4,000 characters (an emoji counts as one). What people say into a keyboard's microphone arrives
+     as these words too;
+   - **emoji reactions** on a message (one of a short list, such as 👍 ❤️ 😂 😮 🙏), sealed like the
+     message;
+   - **not at launch** (question 15): GIFs, stickers, and pictures. They are pictures, which 8 West
+     cannot look at once sealed, and some members are 13. They come later with their own checks;
+   - **never:** files, voice recordings, or link previews;
+   - Plenipo shows every character safely: hidden control characters that could disguise words
+     (such as right-to-left overrides) are shown as visible marks, and a message is always shown as
+     text, never as a web page. A web address shows as text; opening it asks
+     "**Open this link in your web browser?**" and opens your own browser, never Plenipo's.
 5. **One to one only** at launch. No group conversations.
 6. **Reports carry a proof** ("message franking", as large sealed messengers use):
    - The sender puts a fresh random key inside the seal, and a tag made from that key and the words

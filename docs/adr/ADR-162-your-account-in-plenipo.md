@@ -1,11 +1,13 @@
 # ADR-162: Your 8 West account in Plenipo — signing in, who may join, and who needs Pro
 
-- **Status:** Proposed (2026-10-02), waiting for the owner's answers to questions 4 and 7 in
+- **Status:** Accepted, with the owner's change (2026-10-02): question 7 (who needs Pro) "as
+  recommended"; question 4 (the age) "**13 and up**", instead of the 18 first recommended. The
+  protections for people 13 to 17 (§4) wait for the owner's answer to question 14 in
   [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md).
 - **Date:** 2026-10-02
 - **Phase:** 24 (Community)
 - **Part of:** [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md)
-- **Would amend:** [ADR-115 (a Free copy never contacts 8 West)](ADR-115-free-never-contacts-8-west.md),
+- **Amends:** [ADR-115 (a Free copy never contacts 8 West)](ADR-115-free-never-contacts-8-west.md),
   only for a Free copy whose owner signs in to Community on purpose (Decision 5)
 - **Builds on:** [ADR-118 (customer accounts)](ADR-118-customer-accounts.md),
   [ADR-110 (one person, any of their PCs)](ADR-110-one-person-any-of-their-pcs.md),
@@ -13,16 +15,17 @@
 
 > **On screen** (ADR-010, plain words and rank names): **Community** (the switch in Settings →
 > Switches), **Sign in to your 8 West account**, **Open the sign-in page**, **Enter this code:
-> 4KQ-7TD**, **Signed in as Frank Gonzalez**, **Sign out of your account**, **I am 18 or older**,
-> **Part of Pro**.
+> 4KQ-7TD**, **Signed in as Frank Gonzalez**, **Sign out of your account**, **Your birth month and
+> year**, **Community is for people 13 and older**, **Part of Pro**.
 
 ## In short
 
 Community is about **people**, so Plenipo needs to know who you are. Today it does not: a Pro copy
 holds a license key, and the weekly check sends only the key's ID (ADR-115, ADR-116). This record
 says how you sign in to your **8 West account** inside Plenipo, that **everyone in Community must
-be 18 or older**, and that **starting** things (a conversation, a link, an invitation) is part of
-**Pro**, while **answering** needs only a free account.
+be 13 or older**, with **extra protections for anyone under 18**, and that **starting** things (a
+conversation, a link, an invitation) is part of **Pro**, while **answering** needs only a free
+account.
 
 ## Context
 
@@ -53,10 +56,28 @@ be 18 or older**, and that **starting** things (a conversation, a link, an invit
 3. **Each PC also makes its own Community key** (Ed25519 for signing, X25519 for sealing), kept in
    the Vault. The account service learns only the public halves, tied to your account. Messages and
    objectives are sealed for these keys (ADR-164). A second PC of yours gets its own key and pass.
-4. **Who may join:** a person **18 or older** (question 4). Turning Community on asks once, with a
-   box "**I am 18 or older**" that must be ticked, and the account service records that you said so,
-   and when. The terms of service say the same (draft in `docs/legal/phase-24/`). Plenipo does not
-   ask for a birth date or an ID.
+4. **Who may join:** a person **13 or older** (question 4, the owner: "13 and up").
+   1. **Asked once:** turning Community on asks for **your birth month and year**, never the day,
+      and never an ID. Under 13, Plenipo says "**Community is for people 13 and older**", sends
+      nothing, and keeps nothing of the answer. Otherwise the account service keeps the month and
+      year (ADR-168), so a member who turns 18 becomes an adult member by themselves. Changing it
+      later goes through 8 West (by email), so nobody can type their way past the protections. The
+      terms of service say the same (draft in `docs/legal/phase-24/`).
+   2. **Buying Pro needs 18**, as the terms of sale already say ("for adults"). So a member 13 to 17
+      is always on a free account: they can answer, and be a collaborator, but not start a
+      conversation, invite, or link (§5).
+   3. **Protections for members 13 to 17** (waiting for question 14), enforced by the account
+      service, not only by Plenipo:
+      - never listed in the Community directory (ADR-163), and their profile card is shown only to
+        people they already talk with, help as a collaborator, or are helped by;
+      - a message from an adult always lands in **Requests** first, with "**You don't know this
+        person yet. Never share passwords, keys, or where you live.**", and **Block** and **Report**
+        right there;
+      - adults never see a teen's status or mood;
+      - every report about a member under 18, or made by one, is urgent (ADR-167 §8);
+      - no money rewards (ADR-169).
+   4. **The attorney checks** whether any state also needs a parent's consent for members under 18,
+      and what else the law asks (`docs/legal/phase-24/age-requirement.md`).
 5. **Who needs Pro** (question 7):
    - **Starting** needs Pro on the PC that starts it: writing to someone who has never written to
      you, and inviting a collaborator (ADR-166).
@@ -91,6 +112,9 @@ be 18 or older**, and that **starting** things (a conversation, a link, an invit
 - The account service now holds more than billing: profiles, envelopes, blocks, reports. ADR-168
   says how long each is kept, and the security review checks the service again.
 - Spam has to come from paid accounts, which 8 West can end.
+- Members as young as 13 can join. Because messages are sealed, 8 West cannot watch for adults who
+  try to harm them; the protections in §4.3, fast reports, and the attorney's review carry that load.
+- The account service keeps a birth month and year for every member (ADR-168).
 
 ## Alternatives considered
 
@@ -101,8 +125,11 @@ be 18 or older**, and that **starting** things (a conversation, a link, an invit
   two paid copies.
 - **Community for everyone, Free included, with no Pro step.** Free accounts cost nothing to make,
   so spam and fake accounts would be cheap.
-- **No age requirement, or 13 and older.** Younger members bring children's privacy laws (COPPA
-  under 13, and several state laws for teenagers) and a much heavier moderation duty. Plenipo is a
-  business tool; 18 fits it.
-- **Check age with an ID or a birth date.** More data to keep and protect, for a business tool that
-  already takes a payment card on Pro.
+- **18 and older** (the builder's first recommendation). Fewer laws and duties, but the owner chose
+  13 and up, so younger people can take part.
+- **No age requirement.** Under 13 brings COPPA, the children's privacy law, and its parental
+  consent.
+- **A box "I am 13 or older" only.** Plenipo could not tell who is under 18, so it could not protect
+  them.
+- **Check age with an ID, or the full birth date.** More data to keep and protect than a month and
+  year.

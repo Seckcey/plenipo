@@ -1,7 +1,9 @@
 # ADR-167: Block, report, and leave — and who handles reports, and how
 
-- **Status:** Proposed (2026-10-02), waiting for the owner's answer to question 3 in
-  [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md).
+- **Status:** Accepted (2026-10-02): the owner answered question 3 in
+  [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md) "as recommended", and: "**I'll read the
+  reports until it gets to be too much.**" Because the owner chose 13 and up (ADR-162 §4), the
+  reasons and the urgent reports (§5, §8) cover young members.
 - **Date:** 2026-10-02
 - **Phase:** 24 (Community)
 - **Part of:** [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md)
@@ -11,7 +13,7 @@
 
 > **On screen** (ADR-010, plain words and rank names): **Block**, **Unblock**, **Report**, **What is
 > wrong?**, **Spam**, **Harassment or threats**, **A scam**, **Hate**, **Sexual content**, **Someone
-> under 18**, **Pretending to be someone else**, **Something else**, **Thanks. 8 West will look at
+> under 13**, **A risk to a young person**, **Pretending to be someone else**, **Something else**, **Thanks. 8 West will look at
 > this.**, **Leave this conversation**, **Leave**, **Leave Community**, **Not delivered**.
 
 ## In short
@@ -65,7 +67,8 @@ end it.
    earlier reports about them. 8 West can add trained helpers later; each has their own admin
    sign-in, and every action is in `admin_audit`.
 8. **How fast:** 8 West looks within **2 business days**. A report of **Harassment or threats** or
-   **Someone under 18** emails the owner at once, and is looked at the same day where possible.
+   **Someone under 13**, or **A risk to a young person**, and every report about or by a member under
+   18 (ADR-162 §4), emails the owner at once, and is looked at the same day where possible.
 9. **What 8 West can do**, with a plain reason each time:
    - nothing, if nothing broke the rules;
    - a **warning** by email;

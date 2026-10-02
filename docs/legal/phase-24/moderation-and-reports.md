@@ -2,7 +2,9 @@
 
 > **Draft for attorney review. Not in force.** From
 > [ADR-167 (block, report, and leave)](../../adr/ADR-167-block-report-leave.md). Proposed as a
-> public page linked from the Community terms. **[Owner's answer: question 3]**
+> public page linked from the Community terms. The owner accepted it on 2026-10-02, and reads
+> reports at first: "I'll read the reports until it gets to be too much." Members may be 13 and up,
+> so reports about young members come first.
 
 ---
 
@@ -25,14 +27,15 @@ you report messages or objectives, you choose which ones (up to 20), and your Pl
 words with a proof that they are real. We see only what you send. For a profile, we look at the
 profile itself. We never receive your files, your activity history, or your other conversations.
 
-You choose a reason: spam; harassment or threats; a scam; hate; sexual content; someone under 18;
-pretending to be someone else; or something else. You can add a note.
+You choose a reason: spam; harassment or threats; a scam; hate; sexual content; someone under 13;
+a risk to a young person; pretending to be someone else; or something else. You can add a note.
 
 ### Who looks at reports, and how fast
 
 People at 8 West read every report, on 8 West's own secure admin site. Reports are not sent to AI
 workers or AI companies. We look at each report within **2 business days**. Reports of **harassment
-or threats** or of **someone under 18** are looked at the same day where possible.
+or threats**, **someone under 13**, or **a risk to a young person**, and every report about or by a
+member under 18, are looked at the same day where possible.
 
 ### What we may do
 
@@ -70,7 +73,6 @@ look. If more than one person works on reports at 8 West, someone else looks. We
 ### How long we keep reports
 
 A report, what it carried, and what we did are kept for 1 year after we close it, then deleted.
-**[Owner's answer: question 2]**
 
 ### Contact
 

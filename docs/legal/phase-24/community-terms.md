@@ -15,30 +15,38 @@ another owner's organization, and invite people to help with your organization a
 
 ### Who may use Community
 
-You must be **18 or older** to use Community. **[Owner's answer: question 4]** When you turn it on,
-you confirm that you are. If we learn that someone under 18 is using Community, we will end their
-use of it.
+You must be **13 or older** to use Community. When you turn it on, you give your birth month and
+year, and you confirm that it is true. If we learn that someone under 13 is using Community, we will
+end their use of it and delete their Community data. Members under 18 have extra protections, as
+Plenipo shows (for example, they are never listed in the directory, and messages from adults they
+do not know wait as requests). **[Owner's answer: question 14]** You must be 18 or older to buy
+Plenipo Pro. **[Attorney: whether members 13 to 17 need a parent's agreement to these terms.]**
 
 You need an 8 West account to use Community. Some things in Community need a paid Plenipo Pro
 subscription, as Plenipo shows on screen: starting a conversation, inviting a collaborator, and
-linking organizations. **[Owner's answer: question 7]** Using Community on a free copy of Plenipo
+linking organizations. Using Community on a free copy of Plenipo
 makes that copy contact 8 West while you are signed in to Community.
 
 If you use Community for a business or another organization, you must have authority to act for it.
 
-### Your profile and your Community name
+### Your profile, the directory, and your Community name
 
 Your profile is hidden until you choose to show it. If you show it, people signed in to Community
-who find you can see the parts you choose: your picture, name, status, mood, message, and company.
-Your Community name must not copy 8 West, Plenipo, or another person or business, or mislead people
-about who you are.
+who find you can see the parts you choose: your picture, name, status, mood, message, company, what
+your business does, and your state or country. You may choose to be listed in the Community
+directory, where people signed in to Community can search for you. **[Owner's answer: question
+16]** Members under 18 are never listed. What you put in your profile must be true and must follow
+the rules below. Your Community name must not copy 8 West, Plenipo, or another person or business,
+or mislead people about who you are.
+
+Do not copy the directory, collect people's details from it, or use it to send advertising.
 
 ### Private messages
 
 Private messages are sealed on your computer so that only you and the person you write to can read
 them. 8 West carries them but cannot read them, unless someone reports a message and sends it to
-us. **[Owner's answer: question 1]** Messages are plain text, one to one.
-**[Owner's answer: question 8]**
+us. Messages are one to one, and hold letters, numbers, symbols, and emoji. Pictures, GIFs,
+stickers, and files are not part of messages at launch. **[Owner's answer: question 15]**
 
 Because 8 West cannot read messages, we cannot find abuse that nobody reports. Please report
 anything that breaks these terms.
@@ -49,7 +57,7 @@ If you lose every computer that holds your messages, and you have no backup, you
 ### Linked organizations
 
 You and another owner may link one of your organizations with one of theirs, if both of you agree.
-Then either of you may send the other an objective in words. **[Owner's answer: question 6]**
+Then either of you may send the other an objective in words.
 
 - An objective you receive runs only if you approve it. It runs on your computer, with your AI tools,
   your permissions, and your accounts. You are responsible for what you approve, and for checking
@@ -59,7 +67,6 @@ Then either of you may send the other an objective in words. **[Owner's answer: 
   the terms of the services they use.
 - Only the words of an objective, whether it was approved, refused, stopped, or finished, and an
   answer the receiving owner chooses to send back, pass between linked organizations.
-  **[Owner's answer: question 11]**
 - Either owner may unlink at any time.
 
 **[Attorney: responsibility for work done for another business through a link, and whether any
@@ -69,10 +76,10 @@ left to the owners.]**
 ### Collaborators
 
 You may invite a person to help with one of your organizations as a Viewer, an Approver, or a
-Manager. **[Owner's answer: question 5]** Plenipo shows what each role may do.
+Manager. Plenipo shows what each role may do.
 
-- You choose what each collaborator may see and which approvals only you can answer.
-  **[Owner's answer: question 10]** A collaborator sees your work, which may include business or
+- You choose what each collaborator may see and which approvals only you can answer. A
+  collaborator sees your work, which may include business or
   personal information. Invite only people you trust with it, and remove them when they no longer
   need it.
 - Everything a collaborator does in your organization is recorded on your computer with their name.
@@ -100,12 +107,29 @@ Do not use Community to:
 
 You can block anyone, at any time. You can report a person, a message, a profile, a link request, an
 invitation, or an objective. How reports are handled is described in our
-[moderation and reports process](moderation-and-reports.md). **[Owner's answer: question 3]**
+[moderation and reports process](moderation-and-reports.md).
 
 If you break these rules, 8 West may warn you, hide parts of your profile, pause your use of
 Community, or end it, with a reason. Ending your use of Community does not by itself end your Pro
 subscription. **[Attorney: Pro and refunds when Community is ended for a breach.]** You may ask once
 for another look at a decision.
+
+### Badges, thanks, and rewards for invitations
+
+**[Owner's answer: questions 17 and 18]**
+
+- **Badges** on your profile show help you have given (for example, being a collaborator, or being
+  thanked by many people). 8 West decides who has earned a badge, and may remove one that was earned
+  unfairly or when your use of Community is ended. Badges have no money value.
+- **Thanks** may be given only to people who really helped you.
+- **A free month of Pro for invitations.** When a person you invited buys Plenipo Pro and keeps it
+  past the 14-day refund window, you and that person each receive a credit equal to one month of
+  Pro on your next bill, up to 12 months of credit a year for each person. You must be 18 or older.
+  You cannot invite yourself, or use more than one account to earn rewards. A reward is taken back
+  if the purchase is refunded or charged back before the credit is used, or if the invitation was
+  fake. Credits have no cash value and cannot be moved to another account. 8 West may change or end
+  this program for new invitations at any time; credits already earned stay.
+  **[Attorney: promotion rules, taxes, and anything a state requires.]**
 
 ### Leaving
 
