@@ -5,6 +5,8 @@
 - **Phase:** 7 (follow-up)
 - **Amends:** [ADR-013 (Guard and the capability broker)](ADR-013-guard-capability-broker.md),
   sections 3 (the relay), 7 (commands), and 12 (the Vault)
+- **Amended by:** [ADR-156 (refuse when the ticket check cannot run)](ADR-156-refuse-unchecked-tool-calls.md):
+  §1's last sentence; where the system offers no way to tell, the connection is now refused
 
 ## Context
 

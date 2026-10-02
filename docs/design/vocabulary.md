@@ -40,6 +40,10 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 
 ## Say this, not that
 
+On a Mac and on Linux, rows that name Windows (where keys are kept, Start Plenipo with Windows, the
+shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
+[Words that change with the system](#words-that-change-with-the-system) instead (ADR-155).
+
 | Say                                                                            | Not                                                                                        |
 | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
 | AI tool (Claude Code, Codex)                                                   | runtime, agent runtime, provider                                                           |
@@ -337,6 +341,31 @@ owner wrote them, and agents are always told the Business titles (ADR-010).
 | On the lock screen: Show what it is / Show only “Something needs you”          | notification privacy, redacted payload                                                     |
 | Already answered                                                               | stale notification, conflict, 409                                                          |
 | Add Plenipo to your Home Screen (iPhone)                                       | install the PWA, A2HS                                                                      |
+
+## Words that change with the system
+
+Plenipo runs on Windows, on a Mac, and on Linux (Phase 23). Where the words differ, each system
+uses its own (ADR-155). The rows above that name Windows are the Windows column of this table.
+The Rust side picks the words for the system it runs on; the screens never guess. Names in the
+code and in the Ledger (such as \`windowsRestart\`) stay as they are.
+
+| What it is                                        | Windows                                                               | Mac                                                                                         | Linux                                                                 |
+| ------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| This computer                                     | this PC                                                               | this Mac                                                                                    | this computer                                                         |
+| Where keys are kept                               | Windows Credential Manager                                            | your Mac's Keychain                                                                         | your computer's password store (GNOME Keyring or KWallet)             |
+| No place to keep keys (Linux only)                | —                                                                     | —                                                                                           | This computer has no password store, so Plenipo can't save keys here. |
+| Start at sign-in (the switch)                     | Start Plenipo with Windows                                            | Open Plenipo when you log in                                                                | Start Plenipo when you sign in                                        |
+| Where Plenipo waits with its window closed        | the tray                                                              | the menu bar                                                                                | the tray                                                              |
+| A notice                                          | a pop-up from Windows                                                 | a notification from your Mac                                                                | a notification from your desktop                                      |
+| Where to change notices                           | Windows Settings → System → Notifications                             | System Settings → Notifications                                                             | your desktop's notification settings                                  |
+| The system closed Plenipo                         | Windows closed Plenipo (restart, sign-out)                            | Your Mac closed Plenipo (restart, log out)                                                  | Your computer closed Plenipo (restart, sign-out)                      |
+| Show a file                                       | Show in folder                                                        | Show in Finder                                                                              | Show in folder                                                        |
+| The program that shows files                      | File Explorer                                                         | Finder                                                                                      | your file manager                                                     |
+| The terminal's shells (fine as is)                | Windows PowerShell, PowerShell 7, Command Prompt                      | zsh, bash (from the Mac's list of shells)                                                   | bash, zsh, fish (from the computer's list of shells)                  |
+| Keys in labels                                    | Ctrl, Alt, Shift                                                      | Cmd (⌘), Option (⌥), Control (⌃), Shift (⇧)                                                 | Ctrl, Alt, Shift                                                      |
+| Removing Plenipo                                  | Settings → Apps → Plenipo → Uninstall ("Also delete my Plenipo data") | Delete my Plenipo data, then drag Plenipo to the Trash                                      | Delete my Plenipo data, then remove it with your software manager     |
+| Letting a worker see the screen and use the mouse | —                                                                     | Allow Plenipo in System Settings → Privacy & Security → Accessibility, and Screen Recording | Your desktop asks to share the screen and allow control (Wayland)     |
+| The SSH agent                                     | Windows' OpenSSH Authentication Agent, or Pageant                     | the SSH agent                                                                               | the SSH agent                                                         |
 
 ## Where technical words may stay
 

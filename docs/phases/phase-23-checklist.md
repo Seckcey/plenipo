@@ -1,0 +1,319 @@
+# Phase 23 — Implementation Checklist
+
+**Status: Wave 0 in progress** (started 2026-10-02). Builds on v1.19.3. Below, "[x]" is done.
+Plenipo is made by 8 West Ventures, LLC.
+
+Source: `ROLLOUT_PLAN.md`, Phase 23 — Mac and Linux, and the records written for it:
+
+- [ADR-150 (Phase 23 starts: numbers 150 to 159, what the check found, five waves)](../adr/ADR-150-phase-23-starts.md)
+- [ADR-151 (one repository for Windows, Mac, and Linux)](../adr/ADR-151-one-repository-for-every-system.md)
+- [ADR-152 (which systems, and in what order: Linux first, then every Mac from macOS 13)](../adr/ADR-152-which-systems-and-in-what-order.md)
+- [ADR-153 (saved keys on Linux live in the system's password store)](../adr/ADR-153-saved-keys-on-linux.md)
+- [ADR-154 (computer use on Linux: X11 in Wave 2, Wayland in Wave 4)](../adr/ADR-154-computer-use-on-linux.md)
+- [ADR-155 (each system's own words on screen)](../adr/ADR-155-each-systems-own-words.md)
+- [ADR-156 (when Plenipo cannot tell which program sent a tool call, it refuses)](../adr/ADR-156-refuse-unchecked-tool-calls.md)
+
+**Numbers:** ADR-150 to ADR-159. Dates are Pacific time. The app uses the plain words in
+[`docs/design/vocabulary.md`](../design/vocabulary.md), including its table "Words that change with
+the system".
+
+**Goal (plan):** "Plenipo runs on macOS and Linux as well as on Windows, with the same safety."
+
+## In short, for the owner
+
+- **One repository** for all three systems (ADR-151). Mac, Linux, and Windows Plenipo are the same
+  program; Tauri, the tool Plenipo is built with, makes all three from one copy of the code.
+- **Linux is close.** GitHub already builds and tests Plenipo on Linux for every change, including
+  the full test that drives the real app. What is missing is mostly the installer, updates, and the
+  parts that touch the desktop.
+- **The Mac has never been built.** It needs the Apple Developer Program for 8 West Ventures, LLC
+  (the D-U-N-S number is in hand) and the owner's MacBook Pro for checks.
+- **Problems found, all fixed before any Mac or Linux download:** Linux forgets saved keys at each
+  restart (ADR-153); a Mac would let every tool call through unchecked (ADR-156); a worker's
+  programs outlive a Plenipo crash; nothing checks for root; and Guard ignores upper and lower case
+  in program names, which is wrong on Linux.
+- **Five waves:** get ready → the shared base → Linux first look → Mac first look → for everyone.
+
+## Where we start from (v1.19.3, 2026-10-02)
+
+- **One code base.** 12 Rust crates and one Tauri app in one Cargo workspace; one React front end.
+- **162 lines in 53 Rust files choose by system** (the plan's 2026-09-28 sketch said about 110).
+- **Linux is built and tested on every change** (`.github/workflows/ci.yml`): `cargo clippy`,
+  `cargo test --workspace`, and the end-to-end suite that drives the real app through
+  `tauri-driver` all run on Ubuntu. So the Linux branches compile and the shared tests pass.
+- **The Mac is never built.** No CI job, no Mac installer settings, no signing.
+- **Releases are Windows only** (`.github/workflows/release.yml`): one Windows job builds the NSIS
+  installer, signs it as 8 West Ventures, LLC through Azure Artifact Signing (ADR-052), signs it
+  again with the updater key (ADR-038), and writes a `latest.json` that lists only Windows.
+- **The installer settings are Windows only:** `tauri.conf.json` builds `"targets": ["nsis"]`.
+- **Licensing and the phone's line are the same everywhere.** A Pro license already covers any of a
+  person's computers (ADR-110).
+
+## What the check found
+
+Checked against the code on 2026-10-02 (v1.18.1, then v1.19.3). "Works" means a branch for that system exists and runs in
+CI; "never run" means the code is shared with Linux but no Mac has ever run it. Sizes: S small,
+M medium, L large.
+
+### The parts that keep work safe (Guard and the supervisor)
+
+| Part                                                                                         | Windows                                   | Linux                                                                                                        | Mac                                                                                           | Size |
+| -------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- | ---- |
+| A worker's programs all end together (`crates/runtime/src/supervisor.rs`)                    | Job object, even after a crash            | Process group: a normal stop works; **after a Plenipo crash they keep running**                              | Same as Linux, never run                                                                      | M    |
+| Private pipes to the AI tools (`crates/runtime/src/pipes`)                                   | Works                                     | Works and tested                                                                                             | Same code as Linux, never run                                                                 | S    |
+| Tool tickets bound to the AI tool's programs (ADR-034; `crates/capabilities/src/process.rs`) | Works                                     | Works and tested (reads `/proc`)                                                                             | **Cannot tell, so every call is allowed** with a notice (`broker.rs`, `Admission::Unchecked`) | M    |
+| The settings a worker's programs get (`crates/runtime/src/policy.rs`)                        | Works                                     | Works, but leaves out a few that AI tools need to sign in                                                    | Same as Linux                                                                                 | S–M  |
+| Refusing to run as administrator (`terminal.rs`, `runs_as_administrator`)                    | Works                                     | **Never checks for root**                                                                                    | **Never checks for root**                                                                     | S    |
+| Program names in Guard's rules (`crates/guard/src/commands.rs`, `program_key`)               | Ignores upper/lower case, as Windows does | **Also ignores case**, so `./Deploy` and `./deploy` share one approval though Linux treats them as two files | Ignores case, which matches the Mac's usual disk                                              | S    |
+| Guard's folder rules (`crates/guard/src/paths.rs`)                                           | Works                                     | Works, tested with links                                                                                     | Case mismatches refuse too much (safe); `/var` is really `/private/var`                       | S–M  |
+| Lists of risky programs (Guard's defaults and add-on lists)                                  | Windows entries                           | Some Unix entries                                                                                            | **None for the Mac** (`osascript`, `security`, `launchctl`, `defaults`)                       | S    |
+| Owner-only data folder (`crates/ledger/src/owner_only.rs`)                                   | Windows folder rights                     | Works (`0700`); the browser profile and screenshots rely on it                                               | Same code, never run                                                                          | S    |
+
+### The Vault, the AI tools, and the owner's tools
+
+| Part                                                                            | Windows                                       | Linux                                                                                                                            | Mac                                                                        | Size |
+| ------------------------------------------------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ---- |
+| The Vault (`crates/capabilities/src/vault.rs`)                                  | Credential Manager                            | Kernel keyring: **forgets every key at each restart**                                                                            | Keychain, never run                                                        | M    |
+| Finding each AI tool (`crates/runtime/src/agent/discovery.rs` and each adapter) | Works                                         | Works; misses some install places (Ollama, npm's global folder, nvm)                                                             | Same, and an app opened from the Dock gets a short list of program folders | M    |
+| Sign-in checks for each AI tool                                                 | Works                                         | Same code; test samples were recorded on Windows                                                                                 | Same; check the own-home trick and the Keychain                            | M    |
+| Install and update hints for AI tools                                           | `winget`, PowerShell                          | Shown the Windows hint                                                                                                           | Shown the Windows hint                                                     | S    |
+| The owner's terminal (`crates/capabilities/src/terminal.rs`)                    | Three Windows shells; closing ends everything | The owner's own shell works, but closing only signals the shell, so its programs can linger; Settings offers Windows shells only | Same as Linux, never run                                                   | S–M  |
+| "Run PowerShell scripts" (`programs.rs`)                                        | Works                                         | Needs PowerShell 7 installed; no bash or sh choice                                                                               | Same                                                                       | S    |
+| The browser workers use (`crates/capabilities/src/browser/mod.rs`)              | Edge or Chrome                                | Works (CI drives Chrome); no snap or flatpak handling                                                                            | Finds `/Applications`; may use the owner's Keychain; no Brave              | S–M  |
+| Signing in to a server with the SSH agent (`ssh.rs`)                            | OpenSSH agent or Pageant                      | `SSH_AUTH_SOCK`, never tested                                                                                                    | Same                                                                       | S    |
+| Opening a Connection's sign-in page (`connections/mod.rs`)                      | Works                                         | Probably fails: started without the screen's settings                                                                            | `open`, never run                                                          | S    |
+| Computer use (`crates/capabilities/src/desktop.rs`)                             | Works (`xcap` and Windows input)              | X11 only (`enigo`, `x11rb`); **nothing under Wayland**, Ubuntu's default                                                         | **Nothing:** no screen or mouse code                                       | L    |
+
+### The app around the work (`apps/desktop/src-tauri`)
+
+| Part                                                     | Windows                             | Linux                                             | Mac                                                        | Size |
+| -------------------------------------------------------- | ----------------------------------- | ------------------------------------------------- | ---------------------------------------------------------- | ---- |
+| Tray, and closing hides the window (ADR-037)             | Works                               | Works; menu only (Linux sends no tray clicks)     | Works through Tauri; needs a menu bar icon and Dock reopen | S    |
+| Start when you sign in                                   | Autostart plugin (Run key)          | Same plugin writes the autostart file; words only | Same plugin writes a launch agent; words only              | S    |
+| One Plenipo at a time                                    | Works                               | **Turned off** (test runs start several copies)   | **Turned off**                                             | S    |
+| Finding an update (`crates/capabilities/src/updates.rs`) | Works                               | **Always asks for `windows-x86_64`**              | **Always asks for `windows-x86_64`**                       | S    |
+| Installing an update (`upkeep_commands.rs`)              | Works                               | **"Updates are installed on Windows only."**      | **Same**                                                   | L    |
+| Installer and uninstall                                  | NSIS, with quit and keep-data hooks | None                                              | None; the uninstall code looks in the Linux data folder    | L    |
+| Signing                                                  | Azure Artifact Signing (ADR-052)    | Not required                                      | Developer ID and notarization, none yet                    | M    |
+| Data folder, backups, logs, diagnostics, recovery        | Works                               | Works (owner-only folder)                         | Same code, never run                                       | S    |
+| "Show in folder"                                         | File Explorer                       | Opens the parent folder                           | **Fails** (it calls Linux's `xdg-open`)                    | S    |
+
+### What people see and read
+
+| Part                                                                                                                                                                                                        | Size |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| About 46 lines of screen text say Windows (Credential Manager, "Start Plenipo with Windows", Windows Settings pages, File Explorer, Edge, PowerShell, a `D:\` example), plus 37 "this PC" and 10 tray lines | S–M  |
+| Keyboard labels say Ctrl and Alt only; a Mac says Cmd and Option. The editor's Save already uses Cmd on a Mac                                                                                               | S    |
+| `docs/design/vocabulary.md` **requires** Windows words in nine places, so it changes first                                                                                                                  | S    |
+| The website: two "Download for Windows" buttons, "Windows 11 · x64", its build script, tests, and `auto-release.sh` expect one Windows file                                                                 | M    |
+| README, FAQ, CONTRIBUTING, SECURITY, SUPPORT, the privacy notice, and `docs/development/setup.md` say Windows only                                                                                          | M    |
+
+### Building, testing, and releasing
+
+| Part                                                              | Windows                                      | Linux                                            | Mac                                                        | Size |
+| ----------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------- | ---- |
+| CI checks on every change                                         | `cargo test`, installer tests, launch test   | clippy, `cargo test`, end-to-end on the real app | **None**                                                   | S    |
+| End-to-end tests of the real app                                  | —                                            | `tauri-driver`                                   | `tauri-driver` does not support Macs; needs another driver | M    |
+| Installer tests (`scripts/windows/installer-tests.ps1`)           | 374 lines of PowerShell                      | None                                             | None                                                       | M    |
+| The release job and `latest.json` (`scripts/update-manifest.mjs`) | One Windows job, one system in `latest.json` | None                                             | None                                                       | M    |
+
+## The waves (ADR-150)
+
+Waves 2 to 4 each end with a release; Wave 4 also ends with the Phase 23 acceptance report. Waves 2
+and 3 can run side by side once Wave 1 is merged, if the Apple account is ready.
+
+| Wave | Name              | Size         | Who waits on whom                                                    |
+| ---- | ----------------- | ------------ | -------------------------------------------------------------------- |
+| 0    | Get ready         | small        | The records and the word table (done); a Mac job in CI; trial builds |
+| 1    | The shared base   | large        | Builder. Ends with a Guard safety review on Mac and Linux            |
+| 2    | Linux, first look | medium       | Builder, then the owner's check on a Linux PC                        |
+| 3    | Mac, first look   | large        | Needs the Apple account. Builder, then the owner's check on a Mac    |
+| 4    | For everyone      | small–medium | Builder. Wayland computer use, website, documents, Homebrew          |
+
+"Size" compares with earlier phases: large is about Phase 13 (installer, updates, and recovery);
+medium is about one wave of Phase 16. The owner's paperwork and hands-on checks set the calendar
+more than the coding does.
+
+### Wave 0 — Get ready
+
+- [x] The records for the owner's answers (ADR-150 to ADR-156) and the plan's Phase 23 section
+- [x] The word table for each system in `docs/design/vocabulary.md` (ADR-155), with a note above
+      "Say this, not that" for the nine Windows-only rows
+- [ ] The plan's order-of-work row and summary, and the roadmap, say Phase 23 is in progress. This
+      waits for the v1.19.4 pull request to merge, because it edits the same lines
+- [ ] A Mac job in CI that builds and runs `cargo test`, reported but not yet required, so every
+      later change shows what still fails on a Mac
+- [ ] The release workflow's dry run also builds unsigned Mac and Linux files, to see what Tauri
+      makes
+
+### Wave 1 — The shared base Mac and Linux both need
+
+This is the safety wave. No Mac or Linux download comes from it, and Windows owners see no change.
+
+- [ ] **Doors first.** Move each Windows-only job behind a `platform` door, with no change in what it
+      does. The Windows tests prove nothing moved.
+- [ ] **Program trees that never outlive Plenipo.** On Windows a job object ends every program a
+      worker started, even if Plenipo crashes. On Mac and Linux today, a normal stop works (a process
+      group), but if Plenipo itself crashes, the programs keep running. Linux: tell the kernel to end
+      them when Plenipo ends (`PR_SET_PDEATHSIG` or a subreaper). Mac has no such switch, so a small
+      watcher does it. Stop gently first, then for certain. The test that only runs on Windows today
+      (`children_do_not_outlive_a_crashed_owner`) runs on all three.
+- [ ] **Tool tickets on the Mac (ADR-034, approved programs run as the owner).** Plenipo checks that a
+      tool call comes from the AI tool's own program tree. On Linux this works. On the Mac the check
+      cannot tell today (`crates/capabilities/src/process.rs`), and when it cannot tell, the rule is
+      "allow, and say so" (`Admission::Unchecked`). On a Mac that would be every call. Build the Mac
+      lookup, and until it works, **refuse** on a Mac instead of allowing (ADR-156).
+- [ ] **The terminal's programs end with it.** Closing a terminal on Mac and Linux only signals the
+      shell, so programs started in it can keep running. End its whole group, as Windows does.
+- [ ] **Never as root.** On Windows, Plenipo refuses to open a terminal while it runs as
+      administrator. On Mac and Linux it never checks for root; add that check, for the terminal and
+      for the browser (which runs without its sandbox as root on Linux).
+- [ ] **Program names keep their case on Linux.** Guard treats `./Deploy` and `./deploy` as one
+      program because Windows does. On Linux they are two files, so one approval must not cover both.
+      Mac and Windows keep ignoring case. The same goes for folder checks that lower-case paths
+      (`sensitive.rs`), and project paths are compared only after links are resolved.
+- [ ] **Risky-program lists for the Mac:** `osascript`, `security`, `launchctl`, `defaults`,
+      `diskutil`, and `open` are added to Guard's lists, so a worker asks before using them.
+- [ ] **Programs Plenipo uses itself** (git, cargo, PowerShell, the browser) are found the same careful
+      way as AI tools, since a Mac app opened from the Dock gets a short list of program folders.
+- [ ] **Saved keys on Linux.** Today's kernel keyring forgets every key at each restart: server
+      sign-ins, Connection sign-ins, paid AI keys, and the license key. Use the Secret Service (GNOME
+      Keyring or KWallet), which keeps them (ADR-153; `keyring`'s `linux-native-sync-persistent` feature), and
+      say plainly when a PC has none or it is locked. Add tests for the real password store on each
+      system (today only the in-memory test store is tested).
+- [ ] **What AI tools get to see.** The list of settings passed to a worker's program is right for
+      Windows; on Mac and Linux it leaves out a few that AI tools need to sign in or open a browser
+      (`XDG_*`, `DBUS_SESSION_BUS_ADDRESS`, `DISPLAY`, `WAYLAND_DISPLAY`, `SHELL`, `LOGNAME`). Add only
+      the ones a tool proves it needs, each with a test.
+- [ ] **Finding AI tools.** A Mac app opened from the Dock does not get the owner's usual list of
+      program folders, so Plenipo looks in the known places itself: Homebrew, npm's global folder,
+      nvm and Volta, `/Applications/Ollama.app`, `/usr/bin`. It never takes the list blindly from a
+      login shell, because Guard must know exactly which program it approved.
+- [ ] **Sign-in checks.** Record each AI tool's real answers on Mac and Linux (today's samples were
+      recorded on Windows) and check that giving a tool its own home folder (Antigravity, Copilot)
+      does not hide the Mac Keychain from it.
+- [ ] **Guard's path rules** on the Mac's file system, which ignores upper and lower case, and on
+      Linux's, which does not; and on Mac folders that are really links (`/tmp` is `/private/tmp`).
+- [ ] **The terminal's shells.** Today the choice is Windows PowerShell, PowerShell 7, or Command
+      Prompt. Add the owner's own shell on Mac and Linux (zsh, bash, fish from `/etc/shells`).
+- [ ] **One Plenipo at a time** on every system (the single-instance switch is Windows only today
+      because Linux test runs start several copies; give tests their own switch instead).
+- [ ] **Updates know which system they are on** (today the update check always asks for
+      `windows-x86_64`). Installing an update on each system comes in Waves 2 and 3.
+- [ ] **Screen words** come from the new vocabulary table: the system's own name for the password
+      store, "Start Plenipo when you sign in", Cmd and Option on a Mac, no "Windows" where it does not
+      apply.
+- [ ] **Done when:** every test suite passes on Windows, Linux, and Mac in CI, and a Guard safety
+      review of Wave 1 finds nothing open.
+
+### Wave 2 — Linux, first look
+
+- [ ] **Downloads:** a `.deb` (Ubuntu 22.04, 24.04, and 26.04 LTS, and Debian 12 or newer) and an
+      AppImage (most other Linux). Built on Ubuntu 22.04 so it runs on all of them (ADR-152).
+- [ ] **Updates:** the AppImage updates itself, signed with the same updater key as Windows (ADR-038).
+      The `.deb` shows "A new version is ready" with a download button (an `apt` list can come later).
+- [ ] **The release job** becomes one job per system and one final job that writes a single
+      `latest.json` listing every system, and publishes once.
+- [ ] **Tray:** works through AppIndicator. On Linux it is menu only (no click, no tooltip). Where a
+      desktop has no tray (plain Fedora GNOME), closing the window quits, as the code already does.
+- [ ] **Start when you sign in:** already written by the autostart plugin; only the words change.
+- [ ] **Browser choice:** find Chrome, Chromium, Edge, or Brave on Linux, and say plainly when a
+      "snap" Chromium cannot be used.
+- [ ] **Computer use:** works on X11. Under Wayland (Ubuntu's default, and the only desktop on
+      26.04) Plenipo refuses and says plainly that it is not ready yet (ADR-154).
+- [ ] **Delete my data:** `apt remove` never touches a person's home folder, so Plenipo gets a
+      "Delete my Plenipo data" button, like the Windows uninstaller's tick box.
+- [ ] **Installer tests** in bash on GitHub's Ubuntu: install, upgrade, update, remove, what is left.
+- [ ] **The owner's check on a Linux PC:** install, sign in to Claude Code, run a Development objective
+      end to end with the same approvals as Windows, restart the PC, and the Vault still has its keys.
+- [ ] **Release** as "Linux (first look)".
+
+### Wave 3 — Mac, first look
+
+- [ ] **Signing as 8 West Ventures, LLC:** Apple's Developer ID certificate and notarization (Apple's
+      malware check), with the secrets in the GitHub Environment `release` behind the owner's approval,
+      like Windows (ADR-052). The release job checks the signature, the notarization, and that macOS
+      will open it, just as it checks the Windows signature today.
+- [ ] **One download for every Mac** (Apple's chips and Intel), as a `.dmg`.
+- [ ] **Fit in on a Mac:** a menu bar icon, clicking the Dock icon brings the window back, the system's
+      Edit menu so Cmd+C and Cmd+V work, Cmd and Option in labels, "Show in Finder" (`open -R`; today
+      it would fail on a Mac).
+- [ ] **The right data folder:** `~/Library/Application Support/com.eightwest.plenipo` (the uninstall
+      code looks in the Linux folder on a Mac today).
+- [ ] **Computer use on a Mac** is new work: there is no screen or mouse code for the Mac today. macOS
+      makes the owner allow "Accessibility" and "Screen Recording" in System Settings. Plenipo
+      explains why, opens the right page, and never works around it. Each step is still asked
+      (ADR-049, computer use asks every step). A Mac's sharp screen has two pixels for each point,
+      so clicks must be scaled, and the allowed keys are checked against the Mac's own shortcuts.
+- [ ] **The workers' browser** stays out of the owner's Keychain (Chrome's own switch for that), as it
+      already stays out of the Linux password store.
+- [ ] **Keychain:** the Vault already uses it. A signed Plenipo keeps access after updates, so the
+      signing identity must never change.
+- [ ] **Updates:** Plenipo swaps in the new signed app and restarts.
+- [ ] **End-to-end tests on a Mac:** Tauri's own test driver does not support Macs. Use WebdriverIO's
+      driver built into **test copies only**; a release check proves it is not inside the real app
+      (it would let any program on the Mac drive Plenipo). A paid driver (CrabNebula) is the backup.
+- [ ] **The owner's check on the MacBook Pro** (GitHub's Mac machines test the other kind of chip): download from the website, it opens with no warning, sign
+      in to Claude Code, run a Development objective end to end, try computer use and see the
+      permission steps.
+- [ ] **Release** as "Mac (first look)".
+
+### Wave 4 — For everyone
+
+- [ ] **Computer use under Wayland,** through the desktop's own portals (screen sharing and
+      remote control): explained first, every step still asked, and working on Ubuntu 26.04 (ADR-154).
+- [ ] **Website:** a download for each system (showing the visitor's own first), system requirements,
+      and the build script, its tests, and `auto-release.sh` expecting every system's file.
+- [ ] **Documents:** README, FAQ, SUPPORT, SECURITY, the privacy notice (where keys are kept on each
+      system, and how to remove Plenipo), and `docs/development/setup.md` sections for Mac and Linux
+      contributors.
+- [ ] **Each AI tool on each system:** install hints for Mac and Linux (Homebrew, curl, npm), not
+      `winget`.
+- [ ] **Homebrew:** the optional `homebrew-plenipo` repository.
+- [ ] **Out of "first look",** with the Phase 23 acceptance report and the roadmap row.
+
+## What the owner needs to do or buy
+
+| What                                                                                                                     | Cost                            | Needed by                  | State                                                               |
+| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------- | -------------------------- | ------------------------------------------------------------------- |
+| A D-U-N-S number for 8 West Ventures, LLC                                                                                | free                            | —                          | [x] in hand                                                         |
+| A Mac to test on                                                                                                         | —                               | Wave 3                     | [x] the owner's MacBook Pro (its chip: Apple menu → About This Mac) |
+| The Apple Developer Program, as an organization. The owner enrolls, because it accepts Apple's agreement and pays        | US$99 a year                    | start of Wave 3            | [ ] the owner checks whether 8 West is already enrolled             |
+| A Linux PC (a spare PC or old laptop): Ubuntu 24.04 LTS for Wave 2, which has both desktops; Ubuntu 26.04 LTS for Wave 4 | free                            | end of Wave 2              | [ ]                                                                 |
+| The Apple signing secrets, typed into GitHub's own Environment page                                                      | —                               | start of Wave 3            | [ ]                                                                 |
+| GitHub's Mac and Linux test machines                                                                                     | free (the repository is public) | Wave 0                     | —                                                                   |
+| Optional: a paid Mac test driver (CrabNebula)                                                                            | paid                            | only if the free way fails | —                                                                   |
+
+The Apple secrets (the certificate, its password, and an App Store Connect key) go into the GitHub
+Environment `release` the same way the Windows signing secrets did: the owner types them into
+GitHub's own page, never into a chat (the owner's standing rule).
+
+## The owner's answers (2026-10-02)
+
+| #   | Question                             | Answer                                                                                                                                                   | Record  |
+| --- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| 1   | One repository or several?           | One                                                                                                                                                      | ADR-151 |
+| 2   | When does Phase 23 start?            | Now, from `main`; ADR-132 already puts it next                                                                                                           | ADR-150 |
+| 3   | Does Pro wait for the Mac?           | No; Mac and Linux join Pro as each is ready                                                                                                              | ADR-150 |
+| 4   | Linux first or Mac first?            | Linux first look, then the Mac right behind                                                                                                              | ADR-152 |
+| 5   | Which Linux?                         | Ubuntu 22.04, 24.04, and 26.04 LTS, and Debian 12 or newer; `.deb` and AppImage; `x86_64` (26.04 added by the builder: the recommendation had missed it) | ADR-152 |
+| 6   | Which Macs?                          | macOS 13 or newer, Apple's chips and Intel, one download                                                                                                 | ADR-152 |
+| 7   | A Linux PC without a password store? | Use the Secret Service; with none, say so and do not save keys                                                                                           | ADR-153 |
+| 8   | Computer use under Wayland?          | X11 in Wave 2, Wayland in Wave 4 (chosen after the 26.04 finding)                                                                                        | ADR-154 |
+| 9   | The Mac App Store?                   | No                                                                                                                                                       | ADR-152 |
+| 10  | "This PC" on screen?                 | Each system's own word                                                                                                                                   | ADR-155 |
+| 11  | When the ticket check cannot run?    | Refuse                                                                                                                                                   | ADR-156 |
+
+## Risks to watch
+
+| Risk                                                                                                                                                                                                          | What we do about it                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **A careless port quietly weakens Guard.** Programs that outlive a crash, a tool ticket that says "unavailable", a path rule fooled by upper case or a link, a setting passed to a worker that should not be. | Wave 1 is a safety wave with a Guard review at the end. No Mac or Linux release until tool tickets and program trees hold on that system (the plan already says so).                       |
+| **The Mac test driver ships by mistake.** It would let any program on the Mac drive Plenipo.                                                                                                                  | It is built into test copies only, and the release job proves it is absent.                                                                                                                |
+| **Linux desktops differ** (GNOME or KDE, X11 or Wayland, tray or none, password store or none).                                                                                                               | Promise Ubuntu LTS and Debian; elsewhere Plenipo says plainly what is missing instead of failing silently.                                                                                 |
+| **Apple's paperwork is slow, or notarization fails.**                                                                                                                                                         | The D-U-N-S number is in hand; the owner enrolls during Wave 1. Wave 2 does not need it. A dry run proves the notarization steps before the first real release.                            |
+| **The Mac's Keychain and permissions are tied to the signature.** Changing it later would make every Mac forget its keys and permissions.                                                                     | One signing identity, 8 West Ventures, LLC, from the first Mac release, never changed.                                                                                                     |
+| **The Mac's web view is Safari's engine**, not Edge's, so a screen may look or act differently.                                                                                                               | Linux CI already uses a WebKit engine close to Safari's; the owner's Mac check walks every page once.                                                                                      |
+| **The builder cannot run a Mac here** (this PC is Windows).                                                                                                                                                   | Every Mac change is tested on GitHub's Mac machine and checked on the owner's MacBook Pro, so the loop is slower. Linux builds and tests can also run on Coastline, as the host rules say. |
+| **Three systems mean more support questions.**                                                                                                                                                                | Diagnostics already names the system; the support page gets a section per system.                                                                                                          |
+| **Newer Linux desktops drop X11** (Ubuntu 26.04 already has).                                                                                                                                                 | Wayland computer use in Wave 4; Phase 23 is not delivered without it (ADR-154).                                                                                                            |
