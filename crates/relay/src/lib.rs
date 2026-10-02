@@ -145,11 +145,13 @@ impl Relay {
     /// address the internet can reach: the proxy in front of it is what the internet reaches.
     pub async fn start(config: Config) -> std::io::Result<Handle> {
         if !stays_on_this_machine(config.listen.ip()) {
+            // CI and the updater grep a release build for the line a test copy prints ("the relay
+            // listens on …", main.rs, `test-hooks` only): these words must never say that.
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!(
-                    "the relay listens on 127.0.0.1 (or a private address of this machine, for a \
-                     proxy in a container), never on {}",
+                    "the relay stays on this machine: 127.0.0.1, or a private address of this \
+                     machine (for a proxy in a container), never on {}",
                     config.listen.ip()
                 ),
             ));
