@@ -139,3 +139,4 @@ architecture must be recorded here.
 | [154](ADR-154-computer-use-on-linux.md)                  | Computer use on Linux: X11 in Wave 2, Wayland in Wave 4                                       | Accepted |
 | [155](ADR-155-each-systems-own-words.md)                 | Each system's own words on screen                                                             | Accepted |
 | [156](ADR-156-refuse-unchecked-tool-calls.md)            | When Plenipo cannot tell which program sent a tool call, it refuses (amends 034)              | Accepted |
+| [157](ADR-157-a-keeper-ends-programs-after-a-crash.md)   | On a Mac and Linux, a keeper ends a worker's programs after a crash (amends 005)              | Proposed |

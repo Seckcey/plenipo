@@ -14,6 +14,7 @@ pub mod agent;
 pub mod diagnostic;
 pub mod dto;
 pub mod error;
+pub mod keeper;
 mod output;
 pub mod pipes;
 pub mod policy;

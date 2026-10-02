@@ -530,9 +530,8 @@ async fn metadata_persists_and_restart_recovers_interrupted_runs() {
     drop(first.dir);
 }
 
-/// If the process that owns the supervisor dies abruptly, Windows must still terminate its
-/// children (Job Object with kill-on-close). Unix relies on graceful shutdown; see ADR-005.
-#[cfg(windows)]
+/// If the process that owns the supervisor dies abruptly, its children are still ended: on
+/// Windows by the Job Object (kill-on-close), on a Mac and Linux by the keeper (ADR-157).
 #[tokio::test]
 async fn children_do_not_outlive_a_crashed_owner() {
     use std::io::{BufRead, BufReader};
