@@ -1,8 +1,8 @@
 # ADR-162: Your 8 West account in Plenipo — signing in, who may join, and who needs Pro
 
 - **Status:** Accepted, with the owner's change (2026-10-02): question 7 (who needs Pro) "as
-  recommended"; question 4 (the age) "**13 and up**", instead of the 18 first recommended. The
-  protections for people 13 to 17 (§4) wait for the owner's answer to question 14 in
+  recommended"; question 4 (the age) "**13 and up**", instead of the 18 first recommended; and
+  question 14 (the protections for people 13 to 17, §4.3) "as recommended", in
   [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md).
 - **Date:** 2026-10-02
 - **Phase:** 24 (Community)
@@ -66,7 +66,7 @@ account.
    2. **Buying Pro needs 18**, as the terms of sale already say ("for adults"). So a member 13 to 17
       is always on a free account: they can answer, and be a collaborator, but not start a
       conversation, invite, or link (§5).
-   3. **Protections for members 13 to 17** (waiting for question 14), enforced by the account
+   3. **Protections for members 13 to 17** (question 14, as recommended), enforced by the account
       service, not only by Plenipo:
       - never listed in the Community directory (ADR-163), and their profile card is shown only to
         people they already talk with, help as a collaborator, or are helped by;
@@ -75,7 +75,8 @@ account.
         right there;
       - adults never see a teen's status or mood;
       - every report about a member under 18, or made by one, is urgent (ADR-167 §8);
-      - no money rewards (ADR-169).
+      - no money rewards, and never on the leaderboard (ADR-169);
+      - GIFs rated for everyone only (ADR-164 §4).
    4. **The attorney checks** whether any state also needs a parent's consent for members under 18,
       and what else the law asks (`docs/legal/phase-24/age-requirement.md`).
 5. **Who needs Pro** (question 7):

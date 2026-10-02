@@ -2,8 +2,8 @@
 
 - **Status:** Accepted, with the owner's change (2026-10-02): question 1 (sealed end to end) "as
   recommended"; question 8 (what a message may hold) "**Everything that's on a phone's keyboard**",
-  instead of plain text only (§4). Whether that includes GIFs and stickers waits for the owner's
-  answer to question 15 in [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md).
+  instead of plain text only (§4); and question 15 "**Allow gifs and stickers**", in
+  [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md).
 - **Date:** 2026-10-02
 - **Phase:** 24 (Community)
 - **Part of:** [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md)
@@ -14,15 +14,16 @@
 > **On screen** (ADR-010, plain words and rank names): **Messages**, **New message**, **Requests**
 > (from people you have not talked with), **Accept**, **Block**, **Report**, **Sealed: only you and
 > Pat can read this**, **Check the safety code**, **Pat's computers changed**, **Delete for me**,
-> **Waiting to be delivered**, **Delivered**.
+> **Waiting to be delivered**, **Delivered**, **GIF**, **Stickers**, **Photos can't be sent in
+> Community**.
 
 ## In short
 
 A private message is **sealed on your PC for the other person's PCs**, so only the two of you can
 read it. 8 West carries it and cannot read it. It waits on 8 West's server only until the other
 person's PCs have picked it up, then it is deleted there (at most 30 days). A message holds
-**everything a phone's keyboard types**: letters, numbers, symbols, and every emoji, in any
-language. No files. Someone you have never talked with lands in **Requests**, and can
+**everything a phone's keyboard types**: letters, numbers, symbols, every emoji, in any language,
+**GIFs** from a GIF library, and Plenipo's own **stickers**. No photos, and no files. Someone you have never talked with lands in **Requests**, and can
 send one message until you **Accept**. If you **Report** a message, your PC sends that message to
 8 West with a proof that it is real, so a report cannot be made up and only what you report is seen.
 
@@ -66,8 +67,22 @@ send one message until you **Accept**. If you **Report** a message, your PC send
      as these words too;
    - **emoji reactions** on a message (one of a short list, such as 👍 ❤️ 😂 😮 🙏), sealed like the
      message;
-   - **not at launch** (question 15): GIFs, stickers, and pictures. They are pictures, which 8 West
-     cannot look at once sealed, and some members are 13. They come later with their own checks;
+   - **GIFs** (question 15, the owner: "Allow gifs and stickers"), from a **GIF** button:
+     - they come from one **GIF library** (a service such as GIPHY, chosen when this is built and
+       named in the privacy notice). Plenipo's search goes through the account service, which holds
+       the library's key, so no key is in Plenipo, and which asks only for GIFs rated **PG-13 or
+       milder**, and **G or PG** for members under 18 (ADR-162 §4);
+     - the sealed message carries only the GIF's ID in that library, never a picture or an address.
+       The receiving PC fetches the GIF from the library's own picture address. Guard allows that
+       one address and nothing else (a new purpose, **GIFs**, while Community is on), so a message
+       can never make Plenipo fetch anything else;
+     - the library sees which GIFs a PC fetches, and from what internet address, like any website;
+       the privacy notice says so;
+   - **stickers:** Plenipo's own sets, drawn for Plenipo and built into each release. A message
+     carries the sticker's name; nothing is fetched or loaded at run time (ADR-014);
+   - **not photos or pictures from your PC.** A pasted or dropped picture is refused with
+     "**Photos can't be sent in Community**": a sealed picture is one 8 West could never check, and
+     some members are 13. GIFs and stickers come only from the library and Plenipo's own sets;
    - **never:** files, voice recordings, or link previews;
    - Plenipo shows every character safely: hidden control characters that could disguise words
      (such as right-to-left overrides) are shown as visible marks, and a message is always shown as
@@ -115,6 +130,10 @@ send one message until you **Accept**. If you **Report** a message, your PC send
   8 West would hold every conversation, be a target for it, and have to answer requests for it.
 - **The relay instead of the account service.** The relay keeps nothing by design (ADR-143), so a
   message to a PC that is off would be lost.
-- **Pictures and files.** Much more risk (malware, illegal images, a duty to scan) for a business
-  tool; text first.
+- **Any picture, including photos from your PC.** Much more risk (malware, illegal images, a duty to
+  scan), and 8 West could never check a sealed one; GIFs from a rated library and Plenipo's own
+  stickers give the fun without it.
+- **GIFs uploaded inside the message** instead of a library's ID. The same risk as photos.
+- **Plenipo calling the GIF library with its own key.** The key would be in every copy of Plenipo,
+  and the rating for young members could not be enforced by the account service.
 - **Reports without a proof.** Anyone could report a message nobody sent.

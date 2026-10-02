@@ -2,7 +2,8 @@
 
 - **Status:** Accepted (2026-10-02): the owner answered question 2 in
   [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md) "as recommended". The rows for the birth
-  month and year, the directory, and rewards follow the owner's answers to questions 4 and 9.
+  month and year, the directory, rewards, points, and GIFs follow the owner's answers to questions
+  4, 9, 15, 16, and 17.
 - **Date:** 2026-10-02
 - **Phase:** 24 (Community)
 - **Part of:** [ADR-161 (Phase 24 starts)](ADR-161-phase-24-starts.md)
@@ -48,7 +49,9 @@ rest of your Plenipo records. Backups on 8 West's server still expire after 35 d
    | Your birth month and year (ADR-162 §4)                              | As long as your account; an answer under 13 is never kept                                |
 
 | Your directory listing (what your business does, where) | While you are listed; deleted at once when you leave the directory |
-| Badges and thanks (ADR-169) | While you are in Community |
+| Points, badges, and thanks (ADR-169) | While you are in Community |
+| The leaderboard (ADR-169) | Worked out again each day from points; last week's kept 1 year |
+| A GIF search (ADR-164 §4) | Never kept: the account service passes it to the GIF library and keeps only its limit counters |
 | Who invited whom, for a free month (ADR-169) | Until the reward is given or refused, then 60 days; the free month itself is an invoice record (7 years, for tax) |
 | A report, what it carried, and what 8 West did | **1 year** after it is closed, then deleted |
 | A ban (that an email may not rejoin Community) | As long as the ban, kept as a scrambled code of the email, not the email itself |

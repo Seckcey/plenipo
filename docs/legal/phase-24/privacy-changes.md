@@ -4,8 +4,7 @@
 > (`apps/website/legal/privacy.md`, in this repository) and the account privacy notice
 > (`legal/privacy-notice.md`, in the private repository `plenipo-account`). The times come from
 > [ADR-168 (what Community keeps, and for how long)](../../adr/ADR-168-what-is-kept-and-for-how-long.md)
-> which the owner accepted on 2026-10-02. Parts still waiting for an owner's answer say
-> **[Owner's answer: question N]** (the questions are in ADR-161).
+> which the owner accepted on 2026-10-02, with the answers in ADR-161.
 
 ---
 
@@ -31,8 +30,8 @@
 > 8 West carries them and cannot read them.
 >
 > **What Community sends.** While Community is on, Plenipo sends 8 West only: a pass for your
-> computer, its public keys, sealed messages and who they are for, your profile if you choose to show
-> it, blocks, reports you make, and links and invitations. It never sends your projects, files,
+> computer, its public keys, sealed messages and who they are for, your profile while you do not
+> appear offline, GIF searches, blocks, reports you make, and links and invitations. It never sends your projects, files,
 > folder names, tasks, workers' answers, keys, or your activity history, unless you send something on
 > purpose (for example, the answer to a linked organization's objective, or messages you report).
 >
@@ -40,6 +39,15 @@
 > organization) are shown to your AI workers only if you choose to give them, and then as
 > information, never as instructions. If you give them to an AI worker, the AI tool sends them to its
 > provider like any other task text.
+>
+> **Your profile is shown** to people signed in to Community, and you are listed in the Community
+> directory and on the leaderboard, from the moment you turn Community on, unless you choose
+> **Appear offline**. Members under 18 are never listed or on the leaderboard.
+>
+> **GIFs** in messages come from [the GIF library, named when chosen]. When you search for a GIF,
+> 8 West passes your search words to that library and does not keep them. When a GIF is shown,
+> your computer fetches it from that library, which sees your internet address and which GIF, under
+> its own privacy policy. Stickers are part of Plenipo and fetch nothing.
 >
 > **Collaborators** you invite can see the parts of your organization you choose, including task
 > conversations, from their own computers. Their computers keep only their own record of what they
@@ -68,10 +76,11 @@ Update **Last updated** to the day the attorney-approved text is published.
 >   the protections for members under 18 apply;
 > - for each computer you sign in to Community: a pass and its public keys, and the computer's name
 >   as you approve it;
-> - your **profile**, only if you choose to show it: the parts you choose of your picture, name,
->   status, mood, message, company, what your business does, and your state or country, and whether
->   you chose to be listed in the **Community directory**;
-> - your **badges**, who **thanked** you and whom you thanked, and when;
+> - your **profile**, shown and listed in the **Community directory** unless you choose **Appear
+>   offline**: the parts you leave on of your picture, name, status, mood, message, company, what
+>   your business does, and your state or country;
+> - your **points** and what earned them, your place on the **leaderboard**, your **badges**, and who
+>   **thanked** you and whom you thanked, and when;
 > - for **rewards for invitations**: who invited whom, and whether a free month was earned, given, or
 >   taken back;
 > - **sealed messages** and their envelopes (who from, who to, when, and size) until they are picked
@@ -84,7 +93,8 @@ Update **Last updated** to the day the attorney-approved text is published.
 ### Change: "Why we keep it" — add
 
 > To run Community: to let people find you only as you choose, deliver sealed messages, keep blocks
-> working, keep links and collaborations working, protect members under 18, show badges and thanks,
+> working, keep links and collaborations working, protect members under 18, find GIFs, show points,
+> the leaderboard, badges, and thanks,
 > give rewards for invitations, and keep Community safe by handling reports and stopping abuse.
 
 ### Change: "Who helps us run the service"
@@ -97,10 +107,11 @@ named here.]**
 
 > - **A sealed message:** until every computer it is for picks it up, and 30 days at the most.
 >   Its envelope is deleted with it.
-> - **Your profile and directory listing:** while you show them; deleted at once when you hide them
->   or leave Community.
+> - **Your profile and directory listing:** while you are in Community; deleted at once when you
+>   leave it. While you appear offline, nobody is shown them.
 > - **Your birth month and year:** as long as your account. If you are under 13, it is never kept.
-> - **Badges and thanks:** while you are in Community.
+> - **Points, badges, and thanks:** while you are in Community. Each week's leaderboard: 1 year.
+> - **GIF searches:** not kept.
 > - **Who invited whom:** until the reward is given or refused, then 60 days. A free month given is
 >   kept with payment records (7 years, for tax law).
 > - **Your Community name:** while you are in Community. After you leave, nobody else can take it
@@ -120,8 +131,7 @@ named here.]**
 
 > Buying Plenipo Pro is for adults. Community is only for people 13 and older, and members under 18
 > have extra protections: they are never listed in the directory, adults they do not know can only
-> send them a message request, and adults never see their status or mood. **[Owner's answer:
-> question 14]** If we learn that someone under 13 has an account, we delete it.
+> send them a message request, and adults never see their status or mood. If we learn that someone under 13 has an account, we delete it.
 > **[Attorney: whether a parent's consent is needed for members 13 to 17.]**
 
 ### New: "Requests from authorities"

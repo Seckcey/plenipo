@@ -13,7 +13,7 @@
 
 > **On screen** (ADR-010, plain words and rank names): **Block**, **Unblock**, **Report**, **What is
 > wrong?**, **Spam**, **Harassment or threats**, **A scam**, **Hate**, **Sexual content**, **Someone
-> under 13**, **A risk to a young person**, **Pretending to be someone else**, **Something else**, **Thanks. 8 West will look at
+> under 13**, **A risk to a young person**, **Pretending to be someone else**, **Cheating for points**, **Something else**, **Thanks. 8 West will look at
 > this.**, **Leave this conversation**, **Leave**, **Leave Community**, **Not delivered**.
 
 ## In short
@@ -74,6 +74,7 @@ end it.
    - a **warning** by email;
    - **hide** a profile's picture, message, or name;
    - **pause** the person's Community for 7 or 30 days (they can still use Plenipo and Pro);
+   - **take away points**, or keep someone off the leaderboard, for cheating for points (ADR-169);
    - **end** the person's Community for good. Their profile and waiting messages are deleted, their
      links and collaborations end, and they cannot make a new Community account with the same email.
      Pro itself is not ended by this; the terms say what happens to it (draft for the attorney).

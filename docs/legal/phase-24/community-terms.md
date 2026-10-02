@@ -1,8 +1,7 @@
 # Community terms — draft
 
 > **Draft for attorney review. Not in force.** Proposed as a new section of the website's terms of
-> service (`apps/website/legal/terms.md`). Places that follow the builder's recommendation, not yet
-> the owner's answer, say **[Owner's answer: question N]** (the questions are in ADR-161).
+> service (`apps/website/legal/terms.md`). It follows the owner's answers of 2026-10-02 (ADR-161).
 
 ---
 
@@ -19,7 +18,7 @@ You must be **13 or older** to use Community. When you turn it on, you give your
 year, and you confirm that it is true. If we learn that someone under 13 is using Community, we will
 end their use of it and delete their Community data. Members under 18 have extra protections, as
 Plenipo shows (for example, they are never listed in the directory, and messages from adults they
-do not know wait as requests). **[Owner's answer: question 14]** You must be 18 or older to buy
+do not know wait as requests). You must be 18 or older to buy
 Plenipo Pro. **[Attorney: whether members 13 to 17 need a parent's agreement to these terms.]**
 
 You need an 8 West account to use Community. Some things in Community need a paid Plenipo Pro
@@ -31,11 +30,11 @@ If you use Community for a business or another organization, you must have autho
 
 ### Your profile, the directory, and your Community name
 
-Your profile is hidden until you choose to show it. If you show it, people signed in to Community
-who find you can see the parts you choose: your picture, name, status, mood, message, company, what
-your business does, and your state or country. You may choose to be listed in the Community
-directory, where people signed in to Community can search for you. **[Owner's answer: question
-16]** Members under 18 are never listed. What you put in your profile must be true and must follow
+When you turn Community on, your profile is shown and you are listed in the Community directory,
+where people signed in to Community can find you. They see the parts of your profile you leave on:
+your picture, name, status, mood, message, company, what your business does, and your state or
+country. Choose **Appear offline** at any time to leave the directory and the leaderboard and not be
+shown. Members under 18 are never listed. What you put in your profile must be true and must follow
 the rules below. Your Community name must not copy 8 West, Plenipo, or another person or business,
 or mislead people about who you are.
 
@@ -45,8 +44,9 @@ Do not copy the directory, collect people's details from it, or use it to send a
 
 Private messages are sealed on your computer so that only you and the person you write to can read
 them. 8 West carries them but cannot read them, unless someone reports a message and sends it to
-us. Messages are one to one, and hold letters, numbers, symbols, and emoji. Pictures, GIFs,
-stickers, and files are not part of messages at launch. **[Owner's answer: question 15]**
+us. Messages are one to one, and hold letters, numbers, symbols, emoji, GIFs from the GIF library
+Plenipo uses, and Plenipo's own stickers. Photos and files cannot be sent. GIFs come from an outside
+service under its own terms. **[Attorney: the GIF library's required wording.]**
 
 Because 8 West cannot read messages, we cannot find abuse that nobody reports. Please report
 anything that breaks these terms.
@@ -92,6 +92,8 @@ Manager. Plenipo shows what each role may do.
 
 Do not use Community to:
 
+- cheat for points, badges, or rewards;
+
 - harass, threaten, bully, or intimidate anyone;
 - send spam, bulk or automated messages, or unwanted advertising;
 - scam, phish, or deceive anyone, or ask anyone for passwords, keys, or payment details;
@@ -114,10 +116,14 @@ Community, or end it, with a reason. Ending your use of Community does not by it
 subscription. **[Attorney: Pro and refunds when Community is ended for a breach.]** You may ask once
 for another look at a decision.
 
-### Badges, thanks, and rewards for invitations
+### Points, the leaderboard, badges, thanks, and rewards for invitations
 
-**[Owner's answer: questions 17 and 18]**
-
+- **Points** are earned when other people agree you helped them, as Plenipo shows in **How to earn
+  points**. The **leaderboard** shows who earned the most. Points have no money value, cannot be
+  moved or sold, and may be changed or taken away by 8 West, for example when what earned them is
+  undone, or for cheating. Do not use more than one account, trade points with others, or arrange
+  links, thanks, or invitations only to earn points. Members under 18 and members who appear
+  offline are not shown on the leaderboard.
 - **Badges** on your profile show help you have given (for example, being a collaborator, or being
   thanked by many people). 8 West decides who has earned a badge, and may remove one that was earned
   unfairly or when your use of Community is ended. Badges have no money value.

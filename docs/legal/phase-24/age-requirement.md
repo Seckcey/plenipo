@@ -2,8 +2,8 @@
 
 > **Draft for attorney review. Not in force.** From
 > [ADR-162 (your 8 West account in Plenipo)](../../adr/ADR-162-your-account-in-plenipo.md) §4. The
-> owner chose **13 and up** (2026-10-02). The protections for members 13 to 17 are the builder's
-> recommendation, waiting for the owner's answer **[Owner's answer: question 14]**.
+> owner chose **13 and up** (2026-10-02), and accepted the protections for members 13 to 17 the
+> same day.
 
 ## The rule
 
@@ -36,7 +36,9 @@ needs 18, as the terms of sale already say.
 
 Enforced by the account service, not only by Plenipo:
 
-- never listed in the Community directory, and never in **New this week**;
+- never listed in the Community directory, never in **New this week**, and never on the
+  leaderboard;
+- GIFs rated for everyone only (G or PG);
 - their profile card is shown only to people they already talk with, or work with as a
   collaborator; an adult who types their exact Community name sees only "**Send a message
   request**";

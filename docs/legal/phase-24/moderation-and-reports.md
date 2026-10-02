@@ -28,7 +28,8 @@ words with a proof that they are real. We see only what you send. For a profile,
 profile itself. We never receive your files, your activity history, or your other conversations.
 
 You choose a reason: spam; harassment or threats; a scam; hate; sexual content; someone under 13;
-a risk to a young person; pretending to be someone else; or something else. You can add a note.
+a risk to a young person; pretending to be someone else; cheating for points; or something
+else. You can add a note.
 
 ### Who looks at reports, and how fast
 
@@ -43,6 +44,8 @@ When something breaks the Community terms, we may, with a reason each time:
 
 - send a **warning**;
 - **hide** a profile's picture, message, or name;
+- **take away points**, or keep someone off the leaderboard, for cheating;
+- **block a GIF** from being found again, and ask the GIF library to remove it;
 - **pause** someone's Community for 7 or 30 days;
 - **end** someone's Community. Their profile and waiting messages are deleted, their links and
   collaborations end, and the same email cannot rejoin.

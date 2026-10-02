@@ -5,8 +5,10 @@
   that's on a phone's keyboard**" (question 8), and "**We need a way for people to find each other.
   We need to encourage community participation. Come up with ways to reward users for community
   participation.**" (question 9). The owner sends the attorney the drafts on 2026-10-02, and reads
-  reports "until it gets to be too much". Follow-up questions 14 to 18, from those three changes,
-  wait for the owner's answers (below). Coding starts after (ADR-160 §2).
+  reports "until it gets to be too much". The owner then answered follow-up questions 14 to 18 the
+  same day: 14 and 18 "as recommended"; "**Allow gifs and stickers**" (15); "**Default is on and
+  shows users listed. They have to appear offline to not be shown.**" (16); and "**Definitely need
+  points and a leaderboard**" (17). Coding starts now (ADR-160 §2), part by part.
 - **Date:** 2026-10-02
 - **Phase:** 24 (Community)
 - **Carries out:** [ADR-160 (building Phase 24 alongside Phase 23)](ADR-160-phase-24-alongside-phase-23.md)
@@ -229,6 +231,16 @@ Each has the builder's recommendation first.
     free months a year for you; adults only; taken back if the purchase is refunded or was a fake.
     Each free month costs 8 West one month's price. _Or:_ no money rewards, badges only; or a
     different amount.
+
+### The owner's answers to the follow-up questions (2026-10-02)
+
+| Question                     | Answer                                                                                                                                                                             |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 14. Protections for 13 to 17 | As recommended (ADR-162 §4)                                                                                                                                                        |
+| 15. GIFs and stickers        | **"Allow gifs and stickers."** ADR-164 §4: GIFs from a GIF library, rated for everyone, and Plenipo's own stickers; photos from your PC stay out                                   |
+| 16. The directory            | **"Default is on and shows users listed. They have to appear offline to not be shown."** ADR-163 §4: every adult member is listed and shown, unless they choose **Appear offline** |
+| 17. Badges and thanks        | **"Definitely need points and a leaderboard."** ADR-169 adds points for help other people agree to, and a leaderboard, beside badges and thanks                                    |
+| 18. A free month of Pro      | As recommended (ADR-169 §4)                                                                                                                                                        |
 
 **The owner's part, before launch:** send the attorney the drafts in `docs/legal/phase-24/` (the
 owner: tonight, 2026-10-02); read reports, at first (the owner); and say when Community may reach

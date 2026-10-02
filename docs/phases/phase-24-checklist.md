@@ -1,7 +1,7 @@
 # Phase 24 — Implementation Checklist
 
 **Status: part 24A in progress** (started 2026-10-02), beside Phase 23. The owner answered the
-thirteen questions on 2026-10-02; follow-up questions 14 to 18 are open. Builds on v1.19.4. Below,
+thirteen questions and the five follow-up questions on 2026-10-02. Builds on v1.19.4. Below,
 "[x]" is done. Plenipo is made by 8 West Ventures, LLC.
 
 Source: `ROLLOUT_PLAN.md`, Phase 24 — Community, and the records written for it:
@@ -15,7 +15,7 @@ Source: `ROLLOUT_PLAN.md`, Phase 24 — Community, and the records written for i
 - [ADR-166 (collaborators: viewer, approver, and manager)](../adr/ADR-166-collaborators.md)
 - [ADR-167 (block, report, and leave, and who handles reports)](../adr/ADR-167-block-report-leave.md)
 - [ADR-168 (what Community keeps, where, and for how long)](../adr/ADR-168-what-is-kept-and-for-how-long.md)
-- [ADR-169 (rewards for taking part: badges, thanks, and a free month for invitations)](../adr/ADR-169-rewards-for-taking-part.md)
+- [ADR-169 (rewards for taking part: points, a leaderboard, badges, thanks, and a free month for invitations)](../adr/ADR-169-rewards-for-taking-part.md)
 
 **Numbers:** ADR-160 to ADR-169. Dates are Pacific time. The app uses the plain words in
 [`docs/design/vocabulary.md`](../design/vocabulary.md).
@@ -27,7 +27,9 @@ reaching into anyone else's PC, files, sign-ins, or keys."
 
 - **Your answers are in** (2026-10-02): ten as recommended, and three changes: **13 and up**,
   **everything on a phone's keyboard** in messages, and a **directory** and **rewards** so people
-  find each other and take part. Five follow-up questions (14 to 18) come from those changes.
+  find each other and take part. Then five follow-up answers: protections for teens, **GIFs and
+  stickers**, everyone **listed in the directory by default** (with **Appear offline** to hide),
+  **points and a leaderboard**, and a free month of Pro for invitations.
 - **Then the attorney.** The drafts in [`docs/legal/phase-24/`](../legal/phase-24/README.md) go to
   an attorney. Community reaches real people only after the attorney approves them and a security
   review passes.
@@ -39,7 +41,9 @@ reaching into anyone else's PC, files, sign-ins, or keys."
 ## The owner's part
 
 - [x] Answer the thirteen questions in ADR-161 (2026-10-02)
-- [ ] Answer follow-up questions 14 to 18 in ADR-161
+- [x] Answer follow-up questions 14 to 18 in ADR-161 (2026-10-02)
+- [ ] Choose the GIF library (for example GIPHY) and accept its terms for 8 West, so the account
+      service can hold its key (ADR-164 §4)
 - [ ] Send the attorney the drafts in `docs/legal/phase-24/` (the owner: the night of 2026-10-02)
 - [x] Decide who reads reports at launch: the owner, "until it gets to be too much" (ADR-167)
 - [ ] After the review and the attorney: say when Community may reach real people (24F).
@@ -54,7 +58,8 @@ reaching into anyone else's PC, files, sign-ins, or keys."
 - [x] The ADR index and the plan's order-of-work row
 - [x] The owner's answers written into each record (status **Accepted**, with the owner's words),
       and the drafts changed to match
-- [ ] The answers to follow-up questions 14 to 18 written in (ADR-162, ADR-163, ADR-164, ADR-169)
+- [x] The answers to follow-up questions 14 to 18 written in (ADR-162, ADR-163, ADR-164, ADR-169),
+      and the drafts changed to match
 
 ## Part 24B — the contract, then the account service's side
 
@@ -73,11 +78,15 @@ In `plenipo-account`, under its own rules (ADR-101, ADR-102):
       (ADR-162 §4)
 - [ ] The protections for members 13 to 17, enforced by the service (ADR-162 §4)
 - [ ] PC keys, Community names, profiles, and the picture check (ADR-163)
-- [ ] The directory: listing, search, **New this week**, adults only, and the limits against copying
-      (ADR-163 §4)
-- [ ] Badges worked out each day, thanks, and its limits (ADR-169 §1, §2)
+- [ ] The directory: every adult listed unless they appear offline, search, **New this week**, and
+      the limits against copying (ADR-163 §4, §5)
+- [ ] GIF search through the service, with the library's key and the ratings by age, keeping no
+      search words (ADR-164 §4)
+- [ ] Points with their limits, the leaderboard (this week and all time, adults who do not appear
+      offline), and taking points away (ADR-169 §1, §2)
+- [ ] Badges worked out each day, thanks, and its limits (ADR-169 §3, §4)
 - [ ] Rewards for invitations: who invited whom, the 14-day wait, Stripe credit, 12 a year, the
-      card and email checks, taking back, and the admin switch (ADR-169 §4)
+      card and email checks, taking back, and the admin switch (ADR-169 §6)
 - [ ] The sealed mailbox, the stamping key, and the limits (ADR-164 §3, §6, §8)
 - [ ] Blocks, enforced by the service (ADR-167 §4)
 - [ ] Reports, the proof check, and the **Reports** admin page with its emails (ADR-167 §5 to §11)
@@ -93,13 +102,19 @@ In `plenipo-account`, under its own rules (ADR-101, ADR-102):
 - [ ] The **Community** switch, signing in with a code, the age box, signing out (ADR-162)
 - [ ] Each PC's Community key in the Vault (ADR-162 §3)
 - [ ] Your profile: hidden to begin with, each part's box, **What people see** (ADR-163)
+- [ ] Turning Community on says "**You'll be listed in the Community directory**", and **Appear
+      offline** sits beside your status (ADR-163 §1, §5)
 - [ ] The directory, **Find someone**, **Invite by email**, and **Share my profile** (ADR-163 §4,
-      §5), with the share page on the website (the same page for every name)
+      §6), with the share page on the website (the same page for every name)
 - [ ] Messages: HPKE sealing with test answers, signing, **Requests**, the safety code, "**Pat's
       computers changed**", **Delete for me** (ADR-164)
 - [ ] Every letter, number, symbol, and emoji, emoji reactions, and hidden control characters shown
       as visible marks (ADR-164 §4)
-- [ ] Badges, **Thanks**, **Getting started**, and **Invite someone** (ADR-169)
+- [ ] **GIF** (a GIF's ID in the sealed message; Guard's **GIFs** purpose allows only the library's
+      picture address) and **Stickers** (Plenipo's own sets, built in); a pasted photo is refused
+      (ADR-164 §4)
+- [ ] Points, the leaderboard, badges, **Thanks**, **Getting started**, and **Invite someone**
+      (ADR-169)
 - [ ] **Give to a worker**, fenced as outside words (a new `fence::Source` kind) (ADR-164 §9)
 - [ ] Block, report (with the proof), and leave, everywhere (ADR-167)
 - [ ] **Delete my Community data from this PC** (ADR-168 §3)
@@ -158,8 +173,12 @@ In `plenipo-account`, under its own rules (ADR-101, ADR-102):
 - [ ] Under 13 cannot join, and nothing of the answer is kept (ADR-162 §4)
 - [ ] A member under 18 is never in the directory, an adult never sees their status or mood, and an
       adult's message to them lands in **Requests** (ADR-162 §4)
-- [ ] The directory cannot be copied whole (ADR-163 §4)
-- [ ] A reward cannot be earned by inviting yourself, and is taken back on a refund (ADR-169 §4)
+- [ ] The directory cannot be copied whole, and **Appear offline** removes you from it and the
+      leaderboard at once (ADR-163 §4, §5)
+- [ ] A message can never make Plenipo fetch anything but the GIF library's pictures (ADR-164 §4)
+- [ ] Sending messages earns no points, and one person can give another at most 20 points a month
+      (ADR-169 §1)
+- [ ] A reward cannot be earned by inviting yourself, and is taken back on a refund (ADR-169 §6)
 
 ## Acceptance (plan)
 
