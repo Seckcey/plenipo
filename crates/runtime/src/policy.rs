@@ -119,8 +119,27 @@ pub const BASELINE_ENV: &[&str] = &[
     "OS",
 ];
 
+/// On a Mac and Linux (Phase 23, ADR-150): also the owner's shell, which an AI tool runs its
+/// commands in (Claude Code reads `SHELL`), the login name, and where the owner keeps programs'
+/// settings and sign-ins when they moved them (`XDG_*`). Never the screen (`DISPLAY`,
+/// `WAYLAND_DISPLAY`, `XAUTHORITY`), the session bus, or the owner's SSH agent: workers see and
+/// control the screen only through computer use, which asks every step (ADR-049).
 #[cfg(not(windows))]
-pub const BASELINE_ENV: &[&str] = &["PATH", "HOME", "USER", "LANG", "LC_ALL", "TMPDIR", "TZ"];
+pub const BASELINE_ENV: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "TZ",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_STATE_HOME",
+];
 
 /// `[A-Za-z_][A-Za-z0-9_]*`, at most 128 bytes.
 pub fn validate_env_name(name: &str) -> Result<(), PolicyError> {
@@ -178,6 +197,25 @@ mod tests {
         assert!(!BASELINE_ENV
             .iter()
             .any(|name| name.eq_ignore_ascii_case("PSModulePath")));
+    }
+
+    /// Phase 23 (ADR-150): a worker's programs never get the screen, the session bus, or the
+    /// owner's SSH agent through Plenipo's environment, on any system.
+    #[test]
+    fn programs_never_get_the_screen_the_session_bus_or_the_ssh_agent() {
+        for name in [
+            "DISPLAY",
+            "WAYLAND_DISPLAY",
+            "XAUTHORITY",
+            "DBUS_SESSION_BUS_ADDRESS",
+            "XDG_RUNTIME_DIR",
+            "SSH_AUTH_SOCK",
+        ] {
+            assert!(
+                !BASELINE_ENV.iter().any(|b| b.eq_ignore_ascii_case(name)),
+                "{name}"
+            );
+        }
     }
 
     fn setup() -> (tempfile::TempDir, PathBuf, PathBuf) {
