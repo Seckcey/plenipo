@@ -41,7 +41,7 @@ takes the next free version number), with the answers below:
 | 166    | Collaborators: viewer, approver, and manager; what each may do; and removing them at once                          |
 | 167    | Block, report, and leave, and who handles reports (8 West, at first its owner)                                     |
 | 168    | What Community keeps, where, and for how long                                                                      |
-| 169    | Rewards for taking part: badges, thanks, and a free month of Pro for each invited person who buys it               |
+| 169    | Rewards for taking part: points, a leaderboard, badges, thanks, and a free month of Pro for invitations            |
 
 The drafts for the attorney are in [`docs/legal/phase-24/`](../legal/phase-24/README.md). The full
 list of work is in [the Phase 24 checklist](../phases/phase-24-checklist.md).
