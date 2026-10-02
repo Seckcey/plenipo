@@ -12,6 +12,17 @@ export const STATE_WORDS: Record<TaskState, string> = {
   cancelled: "Stopped",
 };
 
+/** What a task became, as Activity says it: a whole sentence for each state. */
+export const TASK_NOW: Record<TaskState, string> = {
+  queued: "A task is waiting its turn",
+  running: "A task is working",
+  blocked: "A task is stuck",
+  awaitingApproval: "A task is waiting for you",
+  succeeded: "A task is done",
+  failed: "A task didn't finish",
+  cancelled: "A task was stopped",
+};
+
 /** "just now", "5 minutes ago", "3 hours ago", or the date. */
 export function ago(ms: number, now: number = Date.now()): string {
   const s = Math.max(0, Math.round((now - ms) / 1000));
@@ -59,8 +70,10 @@ export function describe(event: LedgerEvent): string {
       return "An approval ended with no answer";
     case "task.created":
       return `New task: ${text(p, "objective") ?? "a task"}`;
-    case "task.state_changed":
-      return `A task is now ${STATE_WORDS[(text(p, "to") ?? "running") as TaskState]?.toLowerCase() ?? text(p, "to")}`;
+    case "task.state_changed": {
+      const to = text(p, "to");
+      return (to && TASK_NOW[to as TaskState]) ?? "A task changed";
+    }
     case "control.stopped":
       return "Everything was stopped";
     case "control.allowed":
