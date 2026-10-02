@@ -158,10 +158,11 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       does. The Windows tests prove nothing moved.
 - [ ] **Program trees that never outlive Plenipo.** On Windows a job object ends every program a
       worker started, even if Plenipo crashes. On Mac and Linux today, a normal stop works (a process
-      group), but if Plenipo itself crashes, the programs keep running. Linux: tell the kernel to end
-      them when Plenipo ends (`PR_SET_PDEATHSIG` or a subreaper). Mac has no such switch, so a small
-      watcher does it. Stop gently first, then for certain. The test that only runs on Windows today
-      (`children_do_not_outlive_a_crashed_owner`) runs on all three.
+      group), but if Plenipo itself crashes, the programs keep running. A small keeper does it on
+      both (ADR-157, a keeper ends programs after a crash): Linux's `PR_SET_PDEATHSIG` turned out
+      to fire when a worker thread retires, not when Plenipo ends. Stop gently first, then for
+      certain. The test that only ran on Windows (`children_do_not_outlive_a_crashed_owner`) runs
+      on all three.
 - [x] **Tool tickets on the Mac (ADR-034, approved programs run as the owner).** Plenipo checks that a
       tool call comes from the AI tool's own program tree. On Linux this works. On the Mac the check
       cannot tell today (`crates/capabilities/src/process.rs`), and when it cannot tell, the rule is
