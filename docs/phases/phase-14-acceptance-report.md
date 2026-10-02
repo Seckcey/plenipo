@@ -187,7 +187,19 @@ is one paragraph no longer puts each bold word on its own line ("Click / **Add**
 
 ### 3. Screenshots
 
-_Added from the pull request's test run._
+From the real-app test on GitHub's Linux machine (`tests/e2e/specs/remote.e2e.mjs`), as in part
+14A.
+
+- **From the phone:** [a worker's objective, given from the phone, running on the
+  PC](evidence/phase-14/phone-conversation-running.png) · [after Stop all: Allow again in the
+  phone's top bar](evidence/phase-14/phone-stopped-allow-again.png) · [after Plenipo closed
+  unexpectedly: Run again or Leave stopped](evidence/phase-14/phone-stopped-unexpectedly.png)
+- **Fixed from part 14A's screenshots:** More, each AI tool by its name with what it can do now
+  ([dark](evidence/phase-14/phone-14b-more-dark.png),
+  [light](evidence/phase-14/phone-14b-more-light.png)) · Activity, without the pages the phone
+  opened ([dark](evidence/phase-14/phone-14b-activity-dark.png),
+  [light](evidence/phase-14/phone-14b-activity-light.png)) · [waiting for your yes, in one
+  paragraph](evidence/phase-14/phone-14b-pair-waiting.png)
 
 ## Part 14C — notices when the page is closed (v1.19.2; Phase 14 delivered)
 
