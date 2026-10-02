@@ -48,10 +48,23 @@ Sign in to the page's server as `ubuntu` (never run the updater as root).
 
    Then sign out and in again, so `docker` works without `sudo`.
 
-2. **The Tunnel** (the owner, in Cloudflare): **Zero Trust → Networks → Tunnels → Create a
-   tunnel**, named `plenipo-remote`, for Debian on 64-bit Arm. Run the install command it shows on
-   the page's server: it holds the Tunnel's token, a secret, so paste it only into the server's own
-   terminal. Then add the public hostname **`remote.getplenipo.com`** → `http://127.0.0.1:8080`.
+2. **The Tunnel**, with nothing secret typed or pasted anywhere:
+   - Install `cloudflared` from Cloudflare's own package source (`pkg.cloudflare.com`, as
+     Cloudflare's instructions for Ubuntu say).
+   - Run `cloudflared tunnel login` on the server. It prints a link: the owner opens it while
+     signed in to Cloudflare, picks **getplenipo.com** only, and clicks **Authorize**.
+   - Then, on the server:
+
+     ```sh
+     cloudflared tunnel create plenipo-remote
+     cloudflared tunnel route dns plenipo-remote remote.getplenipo.com
+     ```
+
+   - Move the Tunnel's own key (`~/.cloudflared/<id>.json`) to `/etc/cloudflared/` (root only,
+     `chmod 600`), and write `/etc/cloudflared/config.yml`: the Tunnel's ID, that key, and one rule,
+     `remote.getplenipo.com` → `http://127.0.0.1:8080`, with everything else answered 404.
+   - `sudo cloudflared service install`, then **delete `~/.cloudflared/cert.pem`**: it could make
+     tunnels and DNS records for the whole zone, and the server needs only its own Tunnel's key.
 
 3. **The folder and the files** (from this repository's `main` branch):
 
