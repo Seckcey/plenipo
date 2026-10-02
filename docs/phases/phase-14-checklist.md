@@ -1,6 +1,6 @@
 # Phase 14 — Implementation Checklist
 
-**Status: delivered: parts 14A (v1.19.0), 14B (v1.19.1), and 14C (v1.19.2) are built and tested. It reaches real phones once 8 West's relay is live (ADR-140 §4).** The owner said Phase 22 is live on 2026-10-01, and Phase 14 started
+**Status: delivered: parts 14A (v1.19.0), 14B (v1.19.1), and 14C (v1.19.2) are built and tested, and Plenipo's own relay (ADR-149) is built for v1.19.3. It reaches real phones once the relay is set up on 8 West's server and seen answering at `relay.getplenipo.com` (ADR-140 §4).** The owner said Phase 22 is live on 2026-10-01, and Phase 14 started
 on branch `claude/phase-14-phone` (ADR-132, the final push). The owner answered the questions the
 same day, and the decision records below are **Accepted**. Below, "[x]" is done. Plenipo is made by 8 West Ventures, LLC.
 
@@ -14,7 +14,9 @@ the records written for it:
 - [ADR-144 (notices on your phone when the page is closed, sealed for your phone)](../adr/ADR-144-notices-on-your-phone.md)
 - [ADR-145 (the fixed list of what a phone may ask, and what stays on your PC)](../adr/ADR-145-what-a-phone-may-ask.md)
 - [ADR-146 (where the phone's page lives: its own address, never on the relay)](../adr/ADR-146-where-the-phone-page-lives.md)
-- [The change request for the relay's own repository](phase-14-relay-change-request.md)
+- [ADR-148 (the phone's page on its own small AWS server)](../adr/ADR-148-the-phone-page-on-its-own-server.md)
+- [ADR-149 (Plenipo runs its own relay, from this repository, on 8 West's server)](../adr/ADR-149-plenipo-runs-its-own-relay.md),
+  which replaces [the change request for Milepost's relay](phase-14-relay-change-request.md)
 
 **Numbers:** ADR-140 to ADR-149 (ADR-140 sets them aside). ADR-133 was left for the Phase 22
 session; ADR-134 to ADR-139 stay free.
@@ -65,12 +67,21 @@ is truly needed.
 
 ## Before part 14A can reach a real phone (the owner's steps)
 
-- [ ] Approve the [relay change request](phase-14-relay-change-request.md) in the relay's own
-      repository, and have it built there.
-- [ ] In Cloudflare: point `relay.getplenipo.com` at the relay (WebSockets on), and
-      `remote.getplenipo.com` at the page's own Tunnel (ADR-146, ADR-148).
+- [x] ~~Approve the relay change request in Milepost's repository~~ Replaced: Plenipo runs its own
+      relay (ADR-149), built in this repository and carried by release v1.19.3.
+- [ ] On 8 West's server, as root, from a copy of `crates/relay/deploy`: the installer's check
+      (look only), then the installer ([the steps](../../crates/relay/deploy/README.md)). It looks
+      first and keeps what it saw; it stops and changes nothing else.
+- [ ] In Nginx Proxy Manager on that server: a proxy host for `relay.getplenipo.com` to the relay's
+      address and port, WebSockets on, a certificate, Force SSL.
+- [ ] In Cloudflare: an `A` record `relay` pointing at that server (DNS only to begin with).
+      **Done for the page:** `remote.getplenipo.com` points at the page's own Tunnel (ADR-146,
+      ADR-148).
 - [x] The page's own small AWS server, and the page's home on it ([the steps](../../apps/remote/deploy/README.md)): set up 2026-10-02, serving v1.19.2 at `remote.getplenipo.com`.
-- [ ] Tell the builder when the relay answers, for one check by hand before release.
+- [ ] Check the relay from outside with Plenipo's own PC code (the `probe` example in
+      `crates/relay`; the README says how): it answers `not_pro` and `mailbox_closed`.
+- [ ] Set the repository variable `PLENIPO_RELAY_LIVE` to `true`; the next release turns the switch
+      on.
 
 ## Deliverables
 
@@ -133,10 +144,29 @@ is truly needed.
 - [x] The Home Screen guide for iPhone (ADR-144 §9)
 - [x] Release notes, the whole acceptance report, and the plan's status line: Phase 14 delivered
 
+### The relay — Plenipo's own (`1.19.3`; ADR-149)
+
+- [x] `crates/relay-contract`: the relay's messages, codes, passes, fingerprints, and base64url,
+      one definition for the PC and the relay (ADR-149 §2)
+- [x] `crates/relay`: the relay, implementing `contracts/phone-relay/v1` exactly (ADR-149 §3)
+- [x] Hardened: limits per address and per PC, a cap in all, budgets per connection, a deadline for
+      the first message, idle timeouts and pings, the off switch, `/healthz`, a clean stop, and logs
+      with no contents, keys, passes, or codes (ADR-149 §4)
+- [x] Listens on this machine only; refuses any address the internet could reach (ADR-149 §5)
+- [x] The Release workflow builds it static (musl) and attaches it with its `.sha256`; CI builds
+      and runs it (ADR-149 §6)
+- [x] `crates/relay/deploy`: the sandboxed systemd service as its own user, the timer, an installer
+      that looks first, an updater that checks and steps back, and a plain-words README (ADR-149 §7)
+- [x] Tests: Plenipo's PC and phone through the real relay; the hardening by hand; the written
+      contract pinned; the real-app tests on the real relay (ADR-149 §8)
+- [x] ADR-149, the contract's README, this checklist, the acceptance report, the plan, `docs/editions.md`,
+      `docs/roadmap.md`, and release notes for v1.19.3
+
 ## Tests (the plan's list)
 
-Every test uses the stand-in relay, stand-in notice services, a stand-in passkey (the browser's test
-authenticator), and made-up data. None uses the real relay.
+Every test uses a relay on the test machine (Plenipo's own relay built for the tests, or the
+stand-in with its bad-relay modes), stand-in notice services, a stand-in passkey (the browser's test
+authenticator), and made-up data. None uses the relay at `relay.getplenipo.com`.
 
 | Test (the plan's list)                                                                                                                                                                               | Part | Done |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---- |

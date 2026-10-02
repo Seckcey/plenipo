@@ -1,8 +1,8 @@
 //! Plenipo on your phone (Phase 14): the PC's side of the sealed line to the owner's phone.
 //!
 //! The phone opens Plenipo's own page (`remote.getplenipo.com`, ADR-146) and reaches the PC
-//! through 8 West's relay, the one Milepost uses. The PC calls out to the relay; nothing listens
-//! on the PC. Everything the phone and the PC say is sealed end to end with the Noise protocol
+//! through Plenipo's own relay, run by 8 West (`crates/relay`, ADR-149). The PC calls out to the
+//! relay; nothing listens on the PC. Everything the phone and the PC say is sealed end to end with the Noise protocol
 //! (ADR-143): the relay passes sealed messages along, and cannot read, answer, make up, or replay
 //! one.
 //!

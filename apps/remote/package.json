@@ -1,6 +1,6 @@
 {
   "name": "@plenipo/remote",
-  "version": "1.19.2",
+  "version": "1.19.3",
   "private": true,
   "description": "Plenipo on your phone (Phase 14): the page at remote.getplenipo.com. It talks to your PC through 8 West's relay, sealed end to end. Made by 8 West Ventures, LLC.",
   "type": "module",

@@ -1,20 +1,22 @@
 # Phase 14 — Acceptance Report
 
-|              |                                                                                                                                                                                                                                                                                                                                  |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Phase**    | 14 — Plenipo on Your Phone: a Web Interface Built From Scratch                                                                                                                                                                                                                                                                   |
-| **Branches** | `claude/phase-14-phone` (14A), `claude/phase-14b-phone` (14B), `claude/phase-14c-phone` (14C), `claude/phase-14-page-home` (the page's own server, ADR-148)                                                                                                                                                                      |
-| **Verified** | Locally on Windows for each part: `pnpm check`, `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`, `pnpm bindings` (no diff). GitHub CI on each pull request, including Windows and the real-app tests on Linux. The page's server, seen serving v1.19.2 at `https://remote.getplenipo.com` on 2026-10-02.       |
-| **Date**     | 2026-10-01 to 2026-10-02 (Pacific time)                                                                                                                                                                                                                                                                                          |
-| **Result**   | **Phase 14 delivered**, in three parts: 14A as **v1.19.0**, 14B as **v1.19.1**, 14C as **v1.19.2**. Every deliverable and every test in the plan's list passes. The phone's page is live on its own server. Phones reach their PC once the relay answers at `relay.getplenipo.com` (section 5). Plenipo by 8 West Ventures, LLC. |
+|              |                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase**    | 14 — Plenipo on Your Phone: a Web Interface Built From Scratch                                                                                                                                                                                                                                                                                                                                      |
+| **Branches** | `claude/phase-14-phone` (14A), `claude/phase-14b-phone` (14B), `claude/phase-14c-phone` (14C), `claude/phase-14-page-home` (the page's own server, ADR-148), `claude/phase-14-relay` (Plenipo's own relay, ADR-149)                                                                                                                                                                                 |
+| **Verified** | Locally for each part (Windows for 14A to 14C; Linux for the relay): `pnpm check`, `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`, `pnpm bindings` (no diff). GitHub CI on each pull request, including Windows and the real-app tests on Linux (on Plenipo's own relay from v1.19.3). The page's server, seen serving v1.19.2 at `https://remote.getplenipo.com` on 2026-10-02. |
+| **Date**     | 2026-10-01 to 2026-10-02 (Pacific time)                                                                                                                                                                                                                                                                                                                                                             |
+| **Result**   | **Phase 14 delivered**, in three parts: 14A as **v1.19.0**, 14B as **v1.19.1**, 14C as **v1.19.2**; and **Plenipo's own relay** (ADR-149) as **v1.19.3**. Every deliverable and every test in the plan's list passes. The phone's page is live on its own server. Phones reach their PC once the relay is set up on 8 West's server (the relay's section, below). Plenipo by 8 West Ventures, LLC.  |
 
 **In short, for the owner.** Plenipo on your phone is built and released, in three parts: your
 phone pairs with your PC and signs in with its face, fingerprint, or passcode; it reads every page,
 answers approvals, and stops or allows work (14A, 14B); and it gets sealed notices when its page is
-closed (14C). The page is live at `remote.getplenipo.com`, on its own small server. The tests used a
-stand-in relay and a real browser as the phone. A released copy says **Coming soon** until 8 West's
-relay answers at `relay.getplenipo.com` (ADR-140 §4); what is left for that is in part 14A's
-section 5.
+closed (14C). The page is live at `remote.getplenipo.com`, on its own small server. **The relay is
+Plenipo's own** (ADR-149, v1.19.3): one small program in this repository, carried by each release,
+for 8 West's server. The tests used a relay on the test machine (Plenipo's own, and the stand-in
+with its bad modes) and a real browser as the phone. A released copy says **Coming soon** until the
+relay is set up and seen answering at `relay.getplenipo.com` (ADR-140 §4); what is left for that is
+in the relay's section at the end.
 
 ## Part 14A — the sealed line and the approvals (v1.19.0)
 
@@ -128,10 +130,11 @@ with made-up names.
 
 **Before phone access can reach a real phone:**
 
-1. Approve the [relay change request](phase-14-relay-change-request.md) in the relay's own
-   repository, and have it built there.
-2. In Cloudflare: point `relay.getplenipo.com` at the relay (WebSockets on). **Done for the
-   page:** `remote.getplenipo.com` points at the page's own Tunnel (ADR-146).
+1. ~~Approve the relay change request in Milepost's repository.~~ **Replaced (2026-10-02):** Plenipo
+   runs its own relay (ADR-149), built in this repository and carried by v1.19.3. Its setup on 8
+   West's server, the proxy host, and the Cloudflare record are in [the relay's
+   section](#the-relay--plenipos-own-v1193-adr-149) below.
+2. **Done for the page:** `remote.getplenipo.com` points at the page's own Tunnel (ADR-146).
 3. **Done, 2026-10-02:** the phone page's own small AWS server (ADR-148, the phone's page on its
    own server, about $7 to $8 a month), set up by the builder from the steps in
    [`apps/remote/deploy/README.md`](../../apps/remote/deploy/README.md), with the owner's one
@@ -263,3 +266,73 @@ From the real-app test on GitHub's Linux machine (`tests/e2e/specs/remote.e2e.mj
 - [ ] On an iPhone: add Plenipo to the Home Screen, pair from there, turn notices on, and one tap
       from a notice to that approval
 - [ ] **On the lock screen → Show only "Something needs you"**, and see the lock screen say only that
+
+## The relay — Plenipo's own (v1.19.3; ADR-149)
+
+**In short, for the owner.** The one missing piece, the relay in the middle, is now Plenipo's own
+program, built here and tested here with Plenipo's own PC and phone. Each release carries it as one
+small Linux file. It runs on the server you already have, as its own locked-down user, behind that
+server's proxy, at `relay.getplenipo.com`. It keeps nothing, reads nothing, and holds no secret.
+What you do is in section 4.
+
+### 1. Deliverables → result
+
+| #   | Deliverable (ADR-149)                                                                            | Result   | Evidence                                                                                                                                                                                |
+| --- | ------------------------------------------------------------------------------------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | One definition of the contract for the PC and the relay (§2)                                     | **Done** | `crates/relay-contract` (`wire`, `pass`, `b64`, `fingerprint`); `plenipo-remote` re-exports them unchanged; `contract.rs` still writes the JSON files; `crates/relay/tests/contract.rs` |
+| 2   | The relay implements `contracts/phone-relay/v1` exactly (§3)                                     | **Done** | `crates/relay/src/{pc,phone,hub}.rs`; `tests/hardening.rs` (`a_bad_hello_or_proof_is_refused_and_closed`, `the_pc_closes_and_drops_its_phones`, `a_mailbox_takes_three_phones…`)        |
+| 3   | Hardened: limits, budgets, deadlines, pings, the off switch, `/healthz`, a clean stop, logs (§4) | **Done** | `limits.rs`, `line.rs`, `http.rs`; `the_door_keeps_the_limits…`, `a_connection_that_says_nothing…`, `…over_its_budget…`, `the_off_switch…`, `stopping_closes_every_connection…`         |
+| 4   | Listens on this machine only (§5)                                                                | **Done** | `Relay::start` refuses a public address (`the_relay_listens_only_where_the_internet_cannot_reach`, `a_public_address_is_refused…`)                                                      |
+| 5   | Releases carry it; CI builds and runs it (§6)                                                    | **Done** | `release.yml` job `relay` (static musl, version and test-hooks checks, `.sha256`, attached); `ci.yml` job `rust` builds and runs it, job `e2e` runs the real-app tests on it            |
+| 6   | Deploy files: sandboxed service, timer, installer that looks first, updater that steps back (§7) | **Done** | `crates/relay/deploy/` (`plenipo-relay.service`, `install-relay.sh --check`, `update-relay.sh`, README)                                                                                 |
+| 7   | Plenipo's PC and phone through the real relay; the real-app tests on it (§8)                     | **Done** | `crates/relay/tests/with_plenipo.rs`; `tests/e2e/specs/remote.e2e.mjs` with `PLENIPO_TEST_RELAY` (CI)                                                                                   |
+| 8   | The server's address and sign-in stay out of the repository (§9)                                 | **Done** | Plenipo and these documents name only `relay.getplenipo.com`                                                                                                                            |
+
+### 2. Tests → evidence
+
+| Test                                                                                           | Evidence                                                                                                                     |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| A phone pairs, signs in, and asks, through Plenipo's relay; the relay never saw the words      | `a_phone_pairs_signs_in_and_asks_through_plenipos_relay` (also: no pass, key, mailbox name, name, or key ID in any log line) |
+| A PC with an ended or unknown weekly answer is refused `not_pro`; cancelled-but-paid is served | `a_pc_that_is_not_pro_is_refused`; `only_a_fresh_paid_answer_shows_pro`                                                      |
+| A removed phone is cut off at once, and its pass refused by the relay itself                   | `a_removed_phone_is_cut_off_at_once_and_its_pass_is_refused`; `the_pc_closes_and_drops_its_phones`                           |
+| The PC goes away: its phones hear `pc_offline`; back, the sign-in still holds                  | `when_the_pc_goes_away_its_phones_hear_pc_offline`                                                                           |
+| A stranger finds no mailbox; a pass from another PC reaches nothing                            | `a_stranger_cannot_pair_without_an_open_mailbox`                                                                             |
+| Bad hello, bad proof; the largest message passes, one byte more does not; unknown connections  | `a_bad_hello_or_proof_is_refused_and_closed`; `the_pc_sends_to_its_own_phones_only_and_never_over_the_limit`                 |
+| A mailbox takes three phones, closes, is replaced, and runs out after 10 minutes               | `a_mailbox_takes_three_phones_then_closes_and_runs_out`                                                                      |
+| One live connection per PC key                                                                 | `a_new_pc_connection_replaces_the_old_one`                                                                                   |
+| Limits per address (open, new, refusals) and in all: `429` and `503` at the door               | `the_door_keeps_the_limits_per_address_and_in_all`                                                                           |
+| A quiet connection is closed; pongs keep one alive; a connection over its budget is told       | `a_connection_that_says_nothing_is_closed_and_pongs_keep_one_alive`; `a_connection_over_its_budget_of_messages…`             |
+| The off switch, `/healthz`, plain HTTP in plain words, a clean stop                            | `the_off_switch_closes_everything…`; `the_door_answers_plain_http_in_plain_words`; `stopping_closes_every_connection…`       |
+| The written contract: every example message, the example pass, the example proof, the codes    | `crates/relay/tests/contract.rs`                                                                                             |
+| The real app, a real browser as the phone, through Plenipo's own relay                         | `tests/e2e/specs/remote.e2e.mjs` on CI, with `PLENIPO_TEST_RELAY` set to the relay built with its test hooks                 |
+
+### 3. What the relay never does
+
+It never stores or queues a message; never reads one (every message between a phone and its PC is
+sealed before it reaches the relay); never serves the phone's page (ADR-146); never logs a message,
+a key, a pass, a weekly answer, a mailbox name, a challenge, or a key ID (a test reads every log
+line); never listens where the internet can reach it; and never carries its test hooks in a release
+(CI, the Release workflow, and the updater each check).
+
+### 4. What the owner does, and the checks only the owner can do
+
+The builder's session could not reach the server (no SSH from there), so these are written as
+exact steps in [`crates/relay/deploy/README.md`](../../crates/relay/deploy/README.md):
+
+1. **Release v1.19.3** (this pull request, then Actions → Release), so the relay's program exists
+   on GitHub for the updater.
+2. **On the server**, from a copy of `crates/relay/deploy`: `./install-relay.sh --check` (look only;
+   it prints memory, ports, services, containers, and how the proxy reaches the host), then
+   `./install-relay.sh` (or `--listen 172.17.0.1:8790` when the proxy runs in a Docker container,
+   as the README explains). It adds only Plenipo's own user, folders, units, and program.
+3. **In Nginx Proxy Manager:** a proxy host for `relay.getplenipo.com` → the relay's address and
+   port, **Websockets Support on**, a Let's Encrypt certificate, Force SSL.
+4. **In Cloudflare:** an `A` record `relay` → the server, DNS only to begin with.
+5. **From outside, with Plenipo's own PC code:**
+   `cargo run -p plenipo-relay --example probe -- https://relay.getplenipo.com` answers `not_pro`
+   (the path works and the lock on Pro is on) and `mailbox_closed`.
+6. **Then** set the repository variable `PLENIPO_RELAY_LIVE` to `true` and release again: that
+   release's switch says **Use Plenipo from another device**.
+
+**Checks only the owner can do, on real phones and the real relay:** part 14A's section 5 and part
+14C's section 4, unchanged.

@@ -83,7 +83,7 @@ reach the host's `127.0.0.1`, so:
    If the status shows the program stopped with `SIGSYS` (the sandbox's system-call list was too
    strict for this kernel), remove the two `SystemCallFilter=` lines from
    `/etc/systemd/system/plenipo-relay.service`, then `systemctl daemon-reload && systemctl
-   restart plenipo-relay`.
+restart plenipo-relay`.
 
 3. **The proxy host, in Nginx Proxy Manager** (the web page on port 81):
    - **Hosts → Proxy Hosts → Add Proxy Host.**

@@ -90,9 +90,11 @@ impl Settings {
             Some("peer") => ClientAddress::Peer,
             Some("proxy") => ClientAddress::Proxy,
             Some("cloudflare") => ClientAddress::Cloudflare,
-            Some(other) => return Err(format!(
+            Some(other) => {
+                return Err(format!(
                 "PLENIPO_RELAY_CLIENT_ADDRESS must be proxy, cloudflare, or peer, not \"{other}\""
-            )),
+            ))
+            }
         };
         let defaults = Limits::default();
         config.limits = Limits {

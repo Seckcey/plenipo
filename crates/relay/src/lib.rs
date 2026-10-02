@@ -252,7 +252,15 @@ mod tests {
 
     #[test]
     fn the_relay_listens_only_where_the_internet_cannot_reach() {
-        for ok in ["127.0.0.1", "127.0.0.9", "::1", "172.17.0.1", "10.0.0.5", "192.168.1.2", "fd00::1"] {
+        for ok in [
+            "127.0.0.1",
+            "127.0.0.9",
+            "::1",
+            "172.17.0.1",
+            "10.0.0.5",
+            "192.168.1.2",
+            "fd00::1",
+        ] {
             assert!(stays_on_this_machine(ok.parse().unwrap()), "{ok}");
         }
         for no in ["0.0.0.0", "::", "203.0.113.9", "8.8.8.8", "2001:db8::1"] {
