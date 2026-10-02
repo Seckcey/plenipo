@@ -147,6 +147,20 @@ const invoke = (browser, cmd, args = {}) =>
 
 const remoteNow = async (browser) => (await invoke(browser, "get_remote")).ok;
 
+/** Everything the PC's Ledger holds, newest first, page by page (Activity → All events). */
+async function allEvents(browser) {
+  const all = [];
+  let before = null;
+  for (;;) {
+    const page =
+      (await invoke(browser, "get_scope_events", { scope: { kind: "all" }, limit: 200, before }))
+        .ok ?? [];
+    all.push(...page);
+    if (page.length < 200) return all;
+    before = page[page.length - 1].seq;
+  }
+}
+
 const SWITCH = 'button[role="switch"][aria-label="Use Plenipo from another device"]';
 
 async function setSwitch(browser, on) {
@@ -1169,7 +1183,8 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
 
   it("Activity on the PC shows every request with the phone that sent it", async () => {
     const { browser } = app;
-    const events = (await invoke(browser, "list_recent_events")).ok;
+    // The whole record: the phone was added long before the newest 200 events.
+    const events = await allEvents(browser);
     const types = (t) => events.filter((e) => e.eventType === t);
     assert.ok(types("remote.device_added").some((e) => e.payload.name === PHONE_NAME));
     const asked = types("remote.request").map((e) => `${e.payload.name}: ${e.payload.kind}`);
