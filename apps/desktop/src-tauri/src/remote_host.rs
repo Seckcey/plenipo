@@ -431,9 +431,29 @@ fn carry_out<R: Runtime>(side: &AppSide<R>, phone: &Phone, ask: &Ask) -> Result<
         }
         Ask::ReadControl => {
             let first = side.first()?;
+            // Each organization keeps its own notice of work that stopped when Plenipo did.
+            let orgs = side.orgs()?;
+            let mut recovery = Vec::new();
+            for entry in orgs.entries() {
+                if entry.archived_at.is_some() {
+                    continue;
+                }
+                let Some(stack) = orgs.stack(&entry.id) else {
+                    continue;
+                };
+                if let Some(notice) =
+                    crate::upkeep_commands::org_recovery(app, &stack).map_err(|e| e.message)?
+                {
+                    recovery.push(json!({
+                        "org": entry.id,
+                        "name": entry.name,
+                        "recovery": value(notice)?,
+                    }));
+                }
+            }
             Ok(json!({
                 "control": value(first.broker.control_status())?,
-                "recovery": value(crate::upkeep_commands::recovery_status(app, None).map_err(|e| e.message)?)?,
+                "recovery": recovery,
             }))
         }
         Ask::ReadLessons { org } => value(side.stack(org)?.workforce.learning().map_err(plain)?),
@@ -479,12 +499,12 @@ fn carry_out<R: Runtime>(side: &AppSide<R>, phone: &Phone, ask: &Ask) -> Result<
                 task,
             ))
             .map_err(|e| e.message)?;
-            value(crate::upkeep_commands::recovery_status(app, None).map_err(|e| e.message)?)
+            value(crate::upkeep_commands::org_recovery(app, &stack).map_err(|e| e.message)?)
         }
-        Ask::LeaveStopped { notice } => {
-            let first = side.first()?;
-            crate::recovery::dismiss(&first.ledger, notice).map_err(plain)?;
-            value(crate::upkeep_commands::recovery_status(app, None).map_err(|e| e.message)?)
+        Ask::LeaveStopped { org, notice } => {
+            let stack = side.stack(org)?;
+            crate::recovery::dismiss(&stack.ledger, notice).map_err(plain)?;
+            value(crate::upkeep_commands::org_recovery(app, &stack).map_err(|e| e.message)?)
         }
         Ask::KeepLesson { org, lesson } | Ask::DiscardLesson { org, lesson } => {
             let keep = matches!(ask, Ask::KeepLesson { .. });

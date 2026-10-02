@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useId, useState, type FormEvent } from "react";
 import type {
   AgentSessionDetail,
   OrgSnapshot,
+  PositionInfo,
   Task,
   TaskBrief,
   TaskRecord,
@@ -16,10 +17,151 @@ import { STATE_WORDS, ago, describe } from "../words";
 type View = "projects" | "workers" | "tasks";
 type Open =
   | { kind: "project"; id: string; name: string }
-  | { kind: "worker"; id: string; name: string }
+  | { kind: "worker"; position: PositionInfo }
   | { kind: "task"; id: string }
   | { kind: "conversation"; id: string }
   | null;
+
+/** The PC's own size limit for an objective. */
+const MAX_OBJECTIVE_BYTES = 40_000;
+
+/** A position that takes objectives: on the job full-time, with its own AI worker (as on the PC). */
+function takesObjectives(p: PositionInfo): boolean {
+  return p.active && p.staffing === "persistent" && p.agent !== null;
+}
+
+const UNKNOWN = "We don't know if your PC got this. Check again when it's back.";
+
+/** The conversation an objective went to, from the PC's answer. */
+function conversationOf(ok: unknown): string | null {
+  if (typeof ok !== "object" || ok === null || !("conversation" in ok)) return null;
+  return typeof ok.conversation === "string" ? ok.conversation : null;
+}
+
+/**
+ * **Stop the worker**: its task stops now, as on your PC. What it already did stays. It asks
+ * first.
+ */
+function StopTask({ conversation, onDone }: { conversation: string; onDone: () => void }) {
+  const { ask, org } = useSession();
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  if (said) {
+    return (
+      <p className="muted" role="status">
+        {said}
+      </p>
+    );
+  }
+  if (!asking) {
+    return (
+      <Button size="sm" variant="danger" icon="stop" onClick={() => setAsking(true)}>
+        Stop the worker
+      </Button>
+    );
+  }
+  return (
+    <div className="notice-box" role="alertdialog" aria-label="Stop the worker?">
+      <p>Stop this task now? What the worker already did stays.</p>
+      <div className="actions">
+        <Button
+          size="sm"
+          variant="danger"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            ask({ kind: "stopTask", org, conversation })
+              .then((r) => {
+                setSaid(
+                  r.ok !== undefined
+                    ? "Stopped."
+                    : (r.refused?.message ?? r.failed ?? "Your PC did not stop it."),
+                );
+                onDone();
+              })
+              .catch(() => setSaid(UNKNOWN))
+              .finally(() => setBusy(false));
+          }}
+        >
+          Stop the worker
+        </Button>
+        <Button size="sm" onClick={() => setAsking(false)}>
+          Keep going
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * **Give objective** to a position, in words only: files stay on your PC (ADR-145). Its worker
+ * starts on it at once, as when you give it on your PC.
+ */
+function GiveObjective({
+  position,
+  busy,
+  onGiven,
+}: {
+  position: PositionInfo;
+  busy: boolean;
+  onGiven: (conversation: string | null) => void;
+}) {
+  const { ask, org } = useSession();
+  const id = useId();
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  const tooLong = new TextEncoder().encode(text).length > MAX_OBJECTIVE_BYTES;
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!text.trim() || tooLong) return;
+    setSending(true);
+    setSaid(null);
+    ask({ kind: "sendObjective", org, position: position.id, text })
+      .then((r) => {
+        if (r.ok === undefined) {
+          setSaid(r.refused?.message ?? r.failed ?? "Your PC did not take the objective.");
+          return;
+        }
+        setText("");
+        setSaid("Objective given. Follow it in its conversation.");
+        onGiven(conversationOf(r.ok));
+      })
+      .catch(() => setSaid(UNKNOWN))
+      .finally(() => setSending(false));
+  };
+  return (
+    <form className="objective" aria-label="Give an objective" onSubmit={submit}>
+      <label htmlFor={id}>Objective for {position.title}</label>
+      <textarea
+        id={id}
+        rows={4}
+        value={text}
+        aria-describedby={`${id}-hint`}
+        onChange={(e) => {
+          setText(e.target.value);
+          setSaid(null);
+        }}
+      />
+      <p id={`${id}-hint`} className="muted">
+        Say what it should get done. Words only: files stay on your PC.
+        {tooLong ? " That is longer than your PC takes." : ""}
+      </p>
+      {busy && <p className="muted">Busy with its current objective; wait until it finishes.</p>}
+      <div className="actions">
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={sending || busy || !text.trim() || tooLong}
+        >
+          {sending ? "Sending…" : "Give objective"}
+        </Button>
+      </div>
+      {said && <p role="status">{said}</p>}
+    </form>
+  );
+}
 
 function Problem({ error, reload }: { error: string; reload: () => void }) {
   return (
@@ -54,7 +196,15 @@ function Decisions({ record }: { record: WorkRecord }) {
   );
 }
 
-function Brief({ t, onOpen }: { t: TaskBrief; onOpen: (o: Open) => void }) {
+function Brief({
+  t,
+  onOpen,
+  onStopped,
+}: {
+  t: TaskBrief;
+  onOpen: (o: Open) => void;
+  onStopped?: () => void;
+}) {
   return (
     <li className="card">
       <div className="card__head">
@@ -77,6 +227,9 @@ function Brief({ t, onOpen }: { t: TaskBrief; onOpen: (o: Open) => void }) {
           </Button>
         )}
       </div>
+      {t.sessionId && t.state === "running" && onStopped && (
+        <StopTask conversation={t.sessionId} onDone={onStopped} />
+      )}
     </li>
   );
 }
@@ -100,11 +253,12 @@ function ProjectPage({ id, name }: { id: string; name: string }) {
   );
 }
 
-function WorkerPage({ id, name, onOpen }: { id: string; name: string; onOpen: (o: Open) => void }) {
+function WorkerPage({ position, onOpen }: { position: PositionInfo; onOpen: (o: Open) => void }) {
   const { org } = useSession();
-  const { data, error, reload } = useRead<WorkView>({ kind: "readWorkers", org, position: id }, [
-    "tasks",
-  ]);
+  const { data, error, reload } = useRead<WorkView>(
+    { kind: "readWorkers", org, position: position.id },
+    ["tasks"],
+  );
   if (error) return <Problem error={error} reload={reload} />;
   if (!data) return <p role="status">Loading…</p>;
   const sections: [string, TaskBrief[]][] = [
@@ -113,16 +267,27 @@ function WorkerPage({ id, name, onOpen }: { id: string; name: string; onOpen: (o
     ["Waiting its turn", data.queued],
     ["Finished lately", data.recent],
   ];
+  const busy = data.running.length > 0 || data.waiting.length > 0;
   return (
     <>
-      <h2>{name}</h2>
+      <h2>{position.title}</h2>
+      {takesObjectives(position) && (
+        <GiveObjective
+          position={position}
+          busy={busy}
+          onGiven={(conversation) => {
+            reload();
+            if (conversation) onOpen({ kind: "conversation", id: conversation });
+          }}
+        />
+      )}
       {sections.map(([label, tasks]) =>
         tasks.length === 0 ? null : (
           <div key={label}>
             <h3>{label}</h3>
             <ul className="list">
               {tasks.map((t) => (
-                <Brief key={t.id} t={t} onOpen={onOpen} />
+                <Brief key={t.id} t={t} onOpen={onOpen} onStopped={reload} />
               ))}
             </ul>
           </div>
@@ -170,9 +335,11 @@ function ConversationPage({ id }: { id: string }) {
   );
   if (error) return <Problem error={error} reload={reload} />;
   if (!data) return <p role="status">Loading…</p>;
+  const going = data.turns.some((t) => t.running || t.waiting);
   return (
     <>
       <h2>{data.session.title || "Conversation"}</h2>
+      {going && <StopTask conversation={id} onDone={reload} />}
       <ol className="list conversation">
         {data.turns.map((t) => (
           <li key={t.taskId} className="card">
@@ -189,7 +356,10 @@ function ConversationPage({ id }: { id: string }) {
   );
 }
 
-/** Work: the projects, the workers, and the tasks, each with its page. Reading only. */
+/**
+ * Work: the projects, the workers, and the tasks, each with its page. A worker's page can give it
+ * an objective, and a working task can be stopped.
+ */
 export function WorkPage() {
   const { org } = useSession();
   const [view, setView] = useState<View>("workers");
@@ -206,7 +376,7 @@ export function WorkPage() {
           Back
         </Button>
         {open.kind === "project" && <ProjectPage id={open.id} name={open.name} />}
-        {open.kind === "worker" && <WorkerPage id={open.id} name={open.name} onOpen={setOpen} />}
+        {open.kind === "worker" && <WorkerPage position={open.position} onOpen={setOpen} />}
         {open.kind === "task" && <TaskPage id={open.id} />}
         {open.kind === "conversation" && <ConversationPage id={open.id} />}
       </section>
@@ -240,10 +410,7 @@ export function WorkPage() {
                   </div>
                   {p.currentTask && <p>{p.currentTask.objective}</p>}
                   {p.statusDetail && <p className="muted">{p.statusDetail}</p>}
-                  <Button
-                    size="sm"
-                    onClick={() => setOpen({ kind: "worker", id: p.id, name: p.title })}
-                  >
+                  <Button size="sm" onClick={() => setOpen({ kind: "worker", position: p })}>
                     Their work
                   </Button>
                 </li>

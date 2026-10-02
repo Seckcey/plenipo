@@ -1,5 +1,10 @@
 import { useState } from "react";
-import type { AiToolsPage, LearningSnapshot, LedgerStatus } from "@plenipo/types";
+import type {
+  AiToolsPage,
+  LearningSnapshot,
+  LedgerStatus,
+  Lesson as LessonView,
+} from "@plenipo/types";
 import { Button, PropertyList, useTheme } from "@plenipo/ui";
 
 import { useRead, useSession } from "../session-context";
@@ -45,20 +50,68 @@ function Diagnostics() {
   );
 }
 
+/**
+ * One lesson waiting for you: **Keep** it as written (workers in its role use it from then on), or
+ * **Discard** it. Changing its words stays on your PC.
+ */
+function Lesson({ lesson, onDone }: { lesson: LessonView; onDone: () => void }) {
+  const { ask, org } = useSession();
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  const decide = (keep: boolean) => {
+    setBusy(true);
+    setSaid(null);
+    ask({ kind: keep ? "keepLesson" : "discardLesson", org, lesson: lesson.id })
+      .then((r) => {
+        if (r.ok === undefined) {
+          setSaid(r.refused?.message ?? r.failed ?? "Your PC did not take that answer.");
+        }
+        onDone();
+      })
+      .catch(() => setSaid("We don't know if your PC got this. Check again when it's back."))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <li className="card card--quiet">
+      <strong>{lesson.worker}</strong>
+      <p>{lesson.text}</p>
+      {lesson.heldReason && <p className="muted">{lesson.heldReason}</p>}
+      <div className="actions">
+        <Button
+          size="sm"
+          variant="primary"
+          icon="check"
+          disabled={busy}
+          onClick={() => decide(true)}
+        >
+          Keep
+        </Button>
+        <Button size="sm" disabled={busy} onClick={() => decide(false)}>
+          Discard
+        </Button>
+      </div>
+      <p className="muted">To change its words first, open it on your PC.</p>
+      {said && (
+        <p className="form-error" role="alert">
+          {said}
+        </p>
+      )}
+    </li>
+  );
+}
+
 function Lessons() {
   const { org } = useSession();
-  const { data, error } = useRead<LearningSnapshot>({ kind: "readLessons", org }, ["lessons"]);
+  const { data, error, reload } = useRead<LearningSnapshot>({ kind: "readLessons", org }, [
+    "lessons",
+  ]);
   if (error) return <p className="form-error">{error}</p>;
   if (!data) return <p role="status">Loading…</p>;
   if (data.waiting.length === 0) return <p className="muted">No lessons are waiting for you.</p>;
   return (
     <ul className="list">
       {data.waiting.map((l) => (
-        <li key={l.id} className="card card--quiet">
-          <strong>{l.worker}</strong>
-          <p>{l.text}</p>
-          <p className="muted">Keep or discard it on your PC.</p>
-        </li>
+        <Lesson key={l.id} lesson={l} onDone={reload} />
       ))}
     </ul>
   );

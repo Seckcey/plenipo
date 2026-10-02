@@ -81,6 +81,19 @@ pub(crate) fn recovery_status<R: Runtime>(
     recovery::status(&ledger, &state, problems, &tool).map_err(ledger_error)
 }
 
+/// One organization's notice that Plenipo stopped unexpectedly, and what stopped with it, if it
+/// has one (Phase 14: a phone sees each organization's).
+pub(crate) fn org_recovery<R: Runtime>(
+    app: &AppHandle<R>,
+    stack: &crate::orgs::OrgStack,
+) -> Result<Option<plenipo_core::Recovery>, CommandError> {
+    let state = app.state::<Arc<RecoveryState>>();
+    let tool = tool_names(Some(&stack.agents));
+    recovery::status(&stack.ledger, &state, Vec::new(), &tool)
+        .map(|s| s.recovery)
+        .map_err(ledger_error)
+}
+
 async fn recovery_status_off_thread<R: Runtime>(
     app: &AppHandle<R>,
     label: Option<String>,

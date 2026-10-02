@@ -142,7 +142,9 @@ pub enum Ask {
         org: String,
         task: String,
     },
+    /// Leave the work that stopped when Plenipo did stopped: one organization's notice.
     LeaveStopped {
+        org: String,
         notice: String,
     },
     KeepLesson {
@@ -228,6 +230,7 @@ impl Ask {
             | Self::Refuse { org, .. }
             | Self::StopTask { org, .. }
             | Self::RunAgain { org, .. }
+            | Self::LeaveStopped { org, .. }
             | Self::KeepLesson { org, .. }
             | Self::DiscardLesson { org, .. }
             | Self::SendObjective { org, .. } => Some(org),
@@ -242,7 +245,7 @@ impl Ask {
             Self::Approve { approval, .. } | Self::Refuse { approval, .. } => Some(approval),
             Self::StopTask { conversation, .. } => Some(conversation),
             Self::RunAgain { task, .. } => Some(task),
-            Self::LeaveStopped { notice } => Some(notice),
+            Self::LeaveStopped { notice, .. } => Some(notice),
             Self::KeepLesson { lesson, .. } | Self::DiscardLesson { lesson, .. } => Some(lesson),
             Self::SendObjective { position, .. } => Some(position),
             Self::ReadProjects { project, .. } => project.as_deref(),
@@ -586,7 +589,10 @@ mod tests {
                 org: "o".into(),
                 task: "t".into(),
             },
-            Ask::LeaveStopped { notice: "n".into() },
+            Ask::LeaveStopped {
+                org: "o".into(),
+                notice: "n".into(),
+            },
             Ask::KeepLesson {
                 org: "o".into(),
                 lesson: "l".into(),

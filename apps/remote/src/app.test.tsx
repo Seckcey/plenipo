@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PhoneAsk } from "@plenipo/types";
 
 import { App } from "./App";
 import { memoryKeep, type Kept } from "./keep";
@@ -310,9 +311,14 @@ describe("a paired phone", () => {
 
   it("Stop all asks first, then stops", async () => {
     pc.signedIn.add("cGhvbmUtMQ");
+    let stopped = false;
     const answer = pc.answer;
     pc.answer = (ask) =>
-      ask.kind === "stopAll" ? { stopped: true, sessions: [], revision: 1 } : answer(ask);
+      ask.kind === "stopAll"
+        ? ((stopped = true), { stopped: true, sessions: [], revision: 1 })
+        : ask.kind === "readControl"
+          ? { control: { stopped, sessions: [], revision: 1 }, recovery: [] }
+          : answer(ask);
     const user = userEvent.setup();
     render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
     await screen.findByText("Make the website faster");
@@ -320,7 +326,7 @@ describe("a paired phone", () => {
     const ask = screen.getByRole("alertdialog", { name: "Stop all?" });
     await user.click(within(ask).getByRole("button", { name: "Stop all" }));
     expect(
-      await screen.findByText(/work is stopped\. Allow it again on your PC/),
+      await screen.findByText("Browser, desktop, and server work is stopped."),
     ).toBeInTheDocument();
     expect(pc.asked).toContainEqual({ kind: "stopAll" });
   });
@@ -338,5 +344,235 @@ describe("a paired phone", () => {
     expect(await screen.findByRole("heading", { name: "Pair this phone" })).toBeInTheDocument();
     expect(keep.kept).toBeNull();
     expect(pc.asked).toContainEqual({ kind: "removeThisPhone" });
+  });
+});
+
+describe("part 14B: everything else that is safe from the page", () => {
+  const position = {
+    id: "p1",
+    title: "Website Supervisor",
+    roleName: "Supervisor",
+    active: true,
+    staffing: "persistent",
+    agent: { runtimeId: "claude", sessionId: "s1" },
+    currentTask: null,
+    statusDetail: null,
+  };
+  const running = {
+    id: "t5",
+    objective: "Make the website faster",
+    state: "running",
+    positionId: "p1",
+    positionTitle: "Website Supervisor",
+    projectId: null,
+    parentTaskId: null,
+    sessionId: "s1",
+    createdAt: Date.now() - 60_000,
+    startedAt: Date.now() - 60_000,
+    completedAt: null,
+  };
+
+  function withWork(extra: (ask: PhoneAsk) => unknown = () => undefined) {
+    const answer = pc.answer;
+    pc.answer = (ask) => {
+      const mine = extra(ask);
+      if (mine !== undefined) return mine;
+      switch (ask.kind) {
+        case "readOrganization":
+          return { positions: [position], projects: [] };
+        case "readWorkers":
+          return { running: [running], waiting: [], queued: [], recent: [] };
+        case "readTasks":
+          return {
+            session: { id: "s1", title: "Website Supervisor" },
+            turns: [
+              {
+                taskId: "t6",
+                objective: "Check the shop's pages",
+                running: true,
+                waiting: false,
+                result: null,
+              },
+            ],
+          };
+        case "stopTask":
+          return { session: { id: "s1" }, turns: [] };
+        case "sendObjective":
+          return { conversation: "s1", task: "t6" };
+        default:
+          return answer(ask);
+      }
+    };
+  }
+
+  it("Allow again after Stop all, from the phone", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    let stopped = false;
+    const answer = pc.answer;
+    pc.answer = (ask) => {
+      const control = { stopped, sessions: [], revision: 1 };
+      switch (ask.kind) {
+        case "readControl":
+          return { control, recovery: [] };
+        case "stopAll":
+          stopped = true;
+          return { ...control, stopped: true };
+        case "allowAgain":
+          stopped = false;
+          return { ...control, stopped: false };
+        default:
+          return answer(ask);
+      }
+    };
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await screen.findByText("Make the website faster");
+    await user.click(screen.getByRole("button", { name: "Stop all" }));
+    const ask = screen.getByRole("alertdialog", { name: "Stop all?" });
+    await user.click(within(ask).getByRole("button", { name: "Stop all" }));
+    expect(await screen.findByText(/work is stopped\./)).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Allow again" }));
+    expect(await screen.findByRole("button", { name: "Stop all" })).toBeInTheDocument();
+    expect(pc.asked).toContainEqual({ kind: "allowAgain" });
+    expect(screen.queryByText(/work is stopped\./)).toBeNull();
+  });
+
+  it("Run again and Leave stopped, after Plenipo stopped unexpectedly", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    let shown = true;
+    const answer = pc.answer;
+    pc.answer = (ask) => {
+      switch (ask.kind) {
+        case "readControl":
+          return {
+            control: { stopped: false, sessions: [], revision: 1 },
+            recovery: shown
+              ? [
+                  {
+                    org: "first",
+                    name: "8 West Ventures",
+                    recovery: {
+                      id: "r1",
+                      cause: "crash",
+                      lastSeenAt: null,
+                      foundAt: Date.now(),
+                      previousVersion: null,
+                      stoppedPrograms: 0,
+                      stoppedTasks: [
+                        {
+                          taskId: "t9",
+                          objective: "Update the price list",
+                          who: "Senior Developer",
+                          canRunAgain: true,
+                          runAgainAs: null,
+                        },
+                      ],
+                    },
+                  },
+                ]
+              : [],
+          };
+        case "runAgain":
+          return { id: "r1" };
+        case "leaveStopped":
+          shown = false;
+          return null;
+        default:
+          return answer(ask);
+      }
+    };
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    const notice = (
+      await screen.findByRole("heading", { name: "Plenipo closed unexpectedly on your PC" })
+    ).closest("section")!;
+    expect(within(notice).getByText("Update the price list")).toBeInTheDocument();
+    expect(notice).toHaveTextContent("Nothing runs again until you choose Run again.");
+    await user.click(within(notice).getByRole("button", { name: "Run again" }));
+    expect(pc.asked).toContainEqual({ kind: "runAgain", org: "first", task: "t9" });
+    await user.click(within(notice).getByRole("button", { name: "Leave stopped" }));
+    expect(pc.asked).toContainEqual({ kind: "leaveStopped", org: "first", notice: "r1" });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: "Plenipo closed unexpectedly on your PC" }),
+      ).toBeNull(),
+    );
+  });
+
+  it("stops a worker's task, after asking", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    withWork();
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await user.click(await screen.findByRole("button", { name: "Work" }));
+    await user.click(await screen.findByRole("button", { name: "Their work" }));
+    const task = (await screen.findByText("Make the website faster")).closest("li")!;
+    await user.click(within(task).getByRole("button", { name: "Stop the worker" }));
+    expect(pc.asked.some((a) => a.kind === "stopTask")).toBe(false);
+    const ask = within(task).getByRole("alertdialog", { name: "Stop the worker?" });
+    await user.click(within(ask).getByRole("button", { name: "Stop the worker" }));
+    expect(await within(task).findByText("Stopped.")).toBeInTheDocument();
+    expect(pc.asked).toContainEqual({ kind: "stopTask", org: "first", conversation: "s1" });
+  });
+
+  it("gives an objective in words, then shows its conversation", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    withWork((ask) =>
+      ask.kind === "readWorkers" ? { running: [], waiting: [], queued: [], recent: [] } : undefined,
+    );
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await user.click(await screen.findByRole("button", { name: "Work" }));
+    await user.click(await screen.findByRole("button", { name: "Their work" }));
+    const box = await screen.findByLabelText("Objective for Website Supervisor");
+    const give = screen.getByRole("button", { name: "Give objective" });
+    expect(give).toBeDisabled();
+    await user.type(box, "Check the shop's pages");
+    await user.click(give);
+    expect(pc.asked).toContainEqual({
+      kind: "sendObjective",
+      org: "first",
+      position: "p1",
+      text: "Check the shop's pages",
+    });
+    // Its conversation opens, with the worker on it.
+    expect(await screen.findByText("Check the shop's pages")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop the worker" })).toBeInTheDocument();
+  });
+
+  it("keeps or discards a lesson as written", async () => {
+    pc.signedIn.add("cGhvbmUtMQ");
+    let waiting = [
+      {
+        id: "l1",
+        worker: "Senior Developer",
+        text: "Run the tests before a push.",
+        heldReason: null,
+      },
+      { id: "l2", worker: "Code Reviewer", text: "Read the whole file.", heldReason: null },
+    ];
+    const answer = pc.answer;
+    pc.answer = (ask) => {
+      switch (ask.kind) {
+        case "readLessons":
+          return { enabled: true, autoRoles: [], offRoles: [], agents: {}, waiting, kept: [] };
+        case "keepLesson":
+        case "discardLesson":
+          waiting = waiting.filter((l) => l.id !== ask.lesson);
+          return {};
+        default:
+          return answer(ask);
+      }
+    };
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep(await pairedWith(pc))} make={pc.make} />);
+    await user.click(await screen.findByRole("button", { name: "More" }));
+    const first = (await screen.findByText("Run the tests before a push.")).closest("li")!;
+    await user.click(within(first).getByRole("button", { name: "Keep" }));
+    expect(pc.asked).toContainEqual({ kind: "keepLesson", org: "first", lesson: "l1" });
+    const second = (await screen.findByText("Read the whole file.")).closest("li")!;
+    await user.click(within(second).getByRole("button", { name: "Discard" }));
+    expect(pc.asked).toContainEqual({ kind: "discardLesson", org: "first", lesson: "l2" });
+    expect(await screen.findByText("No lessons are waiting for you.")).toBeInTheDocument();
   });
 });

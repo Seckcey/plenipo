@@ -3990,6 +3990,120 @@ mod ipc_boundary_tests {
         assert_eq!(refused.note.as_deref(), Some("Refused by you."));
     }
 
+    /// Part 14B: what else a phone may do goes to the same core functions as the main window's,
+    /// each organization's notice of stopped work is its own, and a bad request is refused in
+    /// plain words before it reaches anything.
+    #[test]
+    fn a_phone_does_the_rest_of_what_is_safe() {
+        let app = app();
+        let state = app.state::<std::sync::Arc<crate::remote_host::RemoteState>>();
+        let host = state.host.clone();
+        let phone = plenipo_remote::Phone {
+            id: "AAAAAAAAAAAAAAAAAAAAAA".into(),
+            name: "Phone".into(),
+        };
+        use plenipo_remote::protocol::Ask;
+        let first = || orgs::FIRST.to_owned();
+        // Nothing stopped: the notice list is empty.
+        let control = host.carry_out(&phone, &Ask::ReadControl).unwrap();
+        assert_eq!(control["recovery"], serde_json::json!([]));
+        // Plenipo stopped unexpectedly last time: the first organization's notice shows, with
+        // its organization, and Leave stopped puts it away for that organization.
+        let stack = crate::orgs::all_stacks(app.handle())
+            .into_iter()
+            .find(|s| s.place.id == orgs::FIRST)
+            .expect("the first organization is open");
+        let event = stack
+            .ledger
+            .append_event(plenipo_ledger::NewEvent {
+                source: "plenipo".into(),
+                event_type: crate::recovery::RECOVERED.into(),
+                payload: serde_json::json!({
+                    "cause": "crash",
+                    "lastSeenAt": null,
+                    "previousVersion": null,
+                    "version": "1.19.1",
+                    "stoppedTasks": [],
+                    "stoppedTaskCount": 0,
+                    "stoppedPrograms": 0,
+                }),
+                ..plenipo_ledger::NewEvent::default()
+            })
+            .unwrap();
+        let control = host.carry_out(&phone, &Ask::ReadControl).unwrap();
+        assert_eq!(control["recovery"][0]["org"], orgs::FIRST);
+        assert_eq!(control["recovery"][0]["recovery"]["id"], event.id.as_str());
+        assert_eq!(control["recovery"][0]["recovery"]["cause"], "crash");
+        let left = host
+            .carry_out(
+                &phone,
+                &Ask::LeaveStopped {
+                    org: first(),
+                    notice: event.id.clone(),
+                },
+            )
+            .unwrap();
+        assert!(left.is_null(), "{left}");
+        let control = host.carry_out(&phone, &Ask::ReadControl).unwrap();
+        assert_eq!(control["recovery"], serde_json::json!([]));
+        // Each is refused in plain words when it names something that is not there, or is not
+        // what the PC takes.
+        for (ask, why) in [
+            (
+                Ask::StopTask {
+                    org: first(),
+                    conversation: "../x".into(),
+                },
+                "",
+            ),
+            (
+                Ask::KeepLesson {
+                    org: first(),
+                    lesson: "no-such-lesson".into(),
+                },
+                "",
+            ),
+            (
+                Ask::SendObjective {
+                    org: first(),
+                    position: "no-such-position".into(),
+                    project: None,
+                    text: "Make the site faster.".into(),
+                },
+                "",
+            ),
+            (
+                Ask::SendObjective {
+                    org: first(),
+                    position: "no-such-position".into(),
+                    project: None,
+                    text: "x".repeat(40_001),
+                },
+                "the objective is too long",
+            ),
+            (
+                Ask::RunAgain {
+                    org: first(),
+                    task: "no-such-task".into(),
+                },
+                "",
+            ),
+            (
+                Ask::LeaveStopped {
+                    org: "other".into(),
+                    notice: event.id.clone(),
+                },
+                "That organization is not open on your PC.",
+            ),
+        ] {
+            let err = host
+                .carry_out(&phone, &ask)
+                .expect_err(&format!("{ask:?} is refused"));
+            assert!(!err.is_empty(), "{ask:?}");
+            assert!(err.contains(why), "{ask:?}: {err}");
+        }
+    }
+
     /// The pages a phone reads come from the same services as the main window's, and an approval
     /// kept on the PC says so.
     #[test]
