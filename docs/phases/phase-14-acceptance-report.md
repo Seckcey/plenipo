@@ -146,8 +146,10 @@ back from Activity), and a PC on v1.19.0 never sees a request it cannot read.
 **Also fixed in part 14B,** from part 14A's screenshots: More → **AI tools** named each AI tool by
 its code ("claude-code") and said **Ready** for every one. Your PC now sends each AI tool's own
 name and whether it can work now (never where it is installed), and the phone lists them in plain
-words (page test; desktop `a_phone_reads_the_same_pages`). A notice that is one paragraph no
-longer puts each bold word on its own line ("Click / **Add** / on your PC.").
+words (page test; desktop `a_phone_reads_the_same_pages`). The phone's **Activity** was mostly
+the pages it had opened ("Test phone asked to read Home"); those stay recorded in the Ledger and
+on the PC's Activity, and the phone's page now leaves them out (same desktop test). A notice that
+is one paragraph no longer puts each bold word on its own line ("Click / **Add** / on your PC.").
 
 ### 3. Screenshots
 
