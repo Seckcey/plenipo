@@ -1,0 +1,15 @@
+{
+  "member_id": "cm_01JA2B3C4D5E6F7G8H9J0K1M2N",
+  "devices": [
+    {
+      "device_id": "cd_01JA2B3C4D5E6F7G8H9J0K1M2P",
+      "signing_key": "xe_jgIYrQn6t0W7rcVM5e7rpDeL3T5DYvgZcCxx2u_c",
+      "sealing_key": "c5nk9CngJSinvB--1qKA8lkZa5D5VtMMcn9EBi6e-Vs"
+    },
+    {
+      "device_id": "cd_01JA2B3C4D5E6F7G8H9J0K1M2Q",
+      "signing_key": "QenqOIwkBe9UdH-52nv5EwhEP7UDOhRc-WOPH9XrFbY",
+      "sealing_key": "WWV9rKHTYaFwXtZZ_Dfc85E4GAu8i3axE3U2Ehc-l3A"
+    }
+  ]
+}

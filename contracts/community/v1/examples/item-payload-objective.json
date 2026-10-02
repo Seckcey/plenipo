@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "item_id": "ci_01JC0D1E2F3G4H5J6K7M8N9P0S",
+  "kind": "objective",
+  "from": "cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B",
+  "from_device": "cd_01JB7Q8R9S0T1V2W3X4Y5Z6A7C",
+  "to": "cm_01JA2B3C4D5E6F7G8H9J0K1M2N",
+  "ref": "cl_01JD5E6F7G8H9J0K1M2N3P4Q5R",
+  "sent_at": 1790000600,
+  "body": {
+    "org_name": "Acme Builders",
+    "text": "Please write a one-page checklist for securing a new office Wi-Fi network."
+  }
+}

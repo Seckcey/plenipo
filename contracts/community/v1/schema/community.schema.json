@@ -1,0 +1,1244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://account.getplenipo.com/contracts/community/v1/community.schema.json",
+  "title": "Plenipo Community, contract v1",
+  "description": "Every request and answer body of the Community contract (contracts/community/v1/README.md), one $defs entry each. Plenipo is made by 8 West Ventures, LLC.",
+  "$defs": {
+    "MemberId": { "type": "string", "pattern": "^cm_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "DeviceId": { "type": "string", "pattern": "^cd_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "ItemId": { "type": "string", "pattern": "^ci_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "LinkId": { "type": "string", "pattern": "^cl_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "CollabId": { "type": "string", "pattern": "^cc_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "ReportId": { "type": "string", "pattern": "^cr_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "OrgRef": { "type": "string", "pattern": "^co_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "Ref": {
+      "description": "A link or a collaboration, or null.",
+      "oneOf": [{ "$ref": "#/$defs/LinkId" }, { "$ref": "#/$defs/CollabId" }, { "type": "null" }]
+    },
+    "Bytes32": {
+      "description": "32 bytes, base64url with no padding (canonical).",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+    },
+    "Signature": {
+      "description": "An Ed25519 signature: 64 bytes, base64url with no padding (canonical).",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$"
+    },
+    "Base64url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+    "Time": { "type": "integer", "minimum": 0 },
+    "OneLine": {
+      "description": "Text with no control characters (so, one line).",
+      "type": "string",
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$"
+    },
+    "CommunityName": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{1,28})[a-z0-9]$"
+    },
+    "AppVersion": {
+      "type": "string",
+      "maxLength": 40,
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
+    },
+    "TermsVersion": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "Badge": {
+      "enum": ["founding_member", "helper", "connector", "good_neighbor", "trusted", "top_helper"]
+    },
+    "BusinessKind": {
+      "enum": [
+        "accounting",
+        "agriculture",
+        "automotive",
+        "construction",
+        "consulting",
+        "design",
+        "education",
+        "energy",
+        "engineering",
+        "finance",
+        "food_and_drink",
+        "government",
+        "healthcare",
+        "hospitality",
+        "insurance",
+        "it_services",
+        "legal",
+        "logistics",
+        "manufacturing",
+        "marketing",
+        "media",
+        "nonprofit",
+        "real_estate",
+        "retail",
+        "security",
+        "software",
+        "telecom",
+        "trades",
+        "travel",
+        "other"
+      ]
+    },
+    "Region": { "type": "string", "pattern": "^[A-Z]{2}(-[A-Z0-9]{1,3})?$" },
+
+    "Error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error", "message"],
+      "properties": {
+        "error": {
+          "enum": [
+            "bad_request",
+            "too_large",
+            "unauthorized",
+            "not_member",
+            "email_not_confirmed",
+            "account_limited",
+            "too_young",
+            "adults_only",
+            "needs_pro",
+            "community_paused",
+            "community_ended",
+            "terms_changed",
+            "not_found",
+            "not_delivered",
+            "waiting_for_accept",
+            "devices_changed",
+            "not_accepting_objectives",
+            "item_id_reused",
+            "already_member",
+            "name_taken",
+            "name_not_allowed",
+            "name_change_too_soon",
+            "too_many_devices",
+            "waiting",
+            "slow_down",
+            "denied",
+            "expired",
+            "proof_failed",
+            "already_thanked",
+            "too_new_to_thank",
+            "too_many",
+            "gifs_unavailable",
+            "unavailable"
+          ]
+        },
+        "message": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "item": {
+          "description": "proof_failed only: the index of the item that failed.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+
+    "SignInStart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device_name", "app_version", "signing_key", "sealing_key"],
+      "properties": {
+        "device_name": {
+          "type": "string",
+          "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "app_version": { "$ref": "#/$defs/AppVersion" },
+        "signing_key": { "$ref": "#/$defs/Bytes32" },
+        "sealing_key": { "$ref": "#/$defs/Bytes32" }
+      }
+    },
+    "SignInStarted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device_code", "user_code", "verification_uri", "expires_in", "interval"],
+      "properties": {
+        "device_code": { "$ref": "#/$defs/Bytes32" },
+        "user_code": {
+          "type": "string",
+          "pattern": "^[BCDFGHJKLMNPQRSTVWXZ2-9]{3}-[BCDFGHJKLMNPQRSTVWXZ2-9]{3}$"
+        },
+        "verification_uri": { "type": "string", "pattern": "^https://[^/]+/community/connect$" },
+        "expires_in": { "const": 600 },
+        "interval": { "const": 5 }
+      }
+    },
+    "SignInToken": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device_code", "proof"],
+      "properties": {
+        "device_code": { "$ref": "#/$defs/Bytes32" },
+        "proof": { "$ref": "#/$defs/Signature" }
+      }
+    },
+    "SignedIn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "device_id", "me"],
+      "properties": {
+        "pass": { "$ref": "#/$defs/Bytes32" },
+        "device_id": { "$ref": "#/$defs/DeviceId" },
+        "me": { "$ref": "#/$defs/Me" }
+      }
+    },
+
+    "Device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device_id", "name", "added_at", "last_seen_at"],
+      "properties": {
+        "device_id": { "$ref": "#/$defs/DeviceId" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "added_at": { "$ref": "#/$defs/Time" },
+        "last_seen_at": { "$ref": "#/$defs/Time" }
+      }
+    },
+    "Profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "display_name",
+        "status",
+        "mood",
+        "message",
+        "company",
+        "business_kinds",
+        "business_line",
+        "region"
+      ],
+      "properties": {
+        "display_name": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$",
+              "minLength": 1,
+              "maxLength": 60
+            },
+            { "type": "null" }
+          ]
+        },
+        "status": { "enum": ["available", "busy", "away", null] },
+        "mood": {
+          "enum": ["great", "good", "okay", "tired", "stressed", "focused", "celebrating", null]
+        },
+        "message": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            { "type": "null" }
+          ]
+        },
+        "company": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            { "type": "null" }
+          ]
+        },
+        "business_kinds": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/BusinessKind" }
+        },
+        "business_line": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            { "type": "null" }
+          ]
+        },
+        "region": { "oneOf": [{ "$ref": "#/$defs/Region" }, { "type": "null" }] }
+      }
+    },
+    "Member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "member_id",
+        "name",
+        "joined_at",
+        "age_group",
+        "standing",
+        "paused_until",
+        "terms_accepted",
+        "can_start",
+        "appear_offline",
+        "profile",
+        "has_picture",
+        "picture_version",
+        "name_change_at"
+      ],
+      "properties": {
+        "member_id": { "$ref": "#/$defs/MemberId" },
+        "name": { "$ref": "#/$defs/CommunityName" },
+        "joined_at": { "$ref": "#/$defs/Time" },
+        "age_group": { "enum": ["adult", "teen"] },
+        "standing": { "enum": ["ok", "paused", "ended"] },
+        "paused_until": { "oneOf": [{ "$ref": "#/$defs/Time" }, { "type": "null" }] },
+        "terms_accepted": { "$ref": "#/$defs/TermsVersion" },
+        "can_start": { "type": "boolean" },
+        "appear_offline": { "type": "boolean" },
+        "profile": { "$ref": "#/$defs/Profile" },
+        "has_picture": { "type": "boolean" },
+        "picture_version": {
+          "oneOf": [{ "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" }, { "type": "null" }]
+        },
+        "name_change_at": { "oneOf": [{ "$ref": "#/$defs/Time" }, { "type": "null" }] }
+      }
+    },
+    "Me": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["account", "device_id", "devices", "terms", "member"],
+      "properties": {
+        "account": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 120 } }
+        },
+        "device_id": { "$ref": "#/$defs/DeviceId" },
+        "devices": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/Device" }
+        },
+        "terms": { "$ref": "#/$defs/TermsVersion" },
+        "member": { "oneOf": [{ "$ref": "#/$defs/Member" }, { "type": "null" }] }
+      }
+    },
+    "Join": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "birth_month", "birth_year", "terms"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "birth_month": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "birth_year": { "type": "integer", "minimum": 1900, "maximum": 2100 },
+        "terms": { "$ref": "#/$defs/TermsVersion" }
+      }
+    },
+    "NameChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 40 } }
+    },
+    "TermsAccept": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["terms"],
+      "properties": { "terms": { "$ref": "#/$defs/TermsVersion" } }
+    },
+    "PictureUpload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["png"],
+      "properties": {
+        "png": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "minLength": 8,
+          "maxLength": 349526
+        }
+      }
+    },
+    "Presence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["appear_offline"],
+      "properties": { "appear_offline": { "type": "boolean" } }
+    },
+
+    "Card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "member_id",
+        "name",
+        "display_name",
+        "status",
+        "mood",
+        "message",
+        "company",
+        "business_kinds",
+        "business_line",
+        "region",
+        "has_picture",
+        "picture_version",
+        "badges",
+        "points",
+        "thanked_by"
+      ],
+      "properties": {
+        "member_id": { "$ref": "#/$defs/MemberId" },
+        "name": { "$ref": "#/$defs/CommunityName" },
+        "display_name": { "oneOf": [{ "type": "string", "maxLength": 60 }, { "type": "null" }] },
+        "status": { "enum": ["available", "busy", "away", "offline", null] },
+        "mood": {
+          "enum": ["great", "good", "okay", "tired", "stressed", "focused", "celebrating", null]
+        },
+        "message": { "oneOf": [{ "type": "string", "maxLength": 80 }, { "type": "null" }] },
+        "company": { "oneOf": [{ "type": "string", "maxLength": 80 }, { "type": "null" }] },
+        "business_kinds": {
+          "type": "array",
+          "maxItems": 3,
+          "items": { "$ref": "#/$defs/BusinessKind" }
+        },
+        "business_line": { "oneOf": [{ "type": "string", "maxLength": 80 }, { "type": "null" }] },
+        "region": { "oneOf": [{ "$ref": "#/$defs/Region" }, { "type": "null" }] },
+        "has_picture": { "type": "boolean" },
+        "picture_version": {
+          "oneOf": [{ "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" }, { "type": "null" }]
+        },
+        "badges": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/Badge" } },
+        "points": { "type": "integer" },
+        "thanked_by": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "CardPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cards", "next"],
+      "properties": {
+        "cards": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/Card" } },
+        "next": {
+          "oneOf": [{ "type": "string", "pattern": "^[A-Za-z0-9_-]{1,200}$" }, { "type": "null" }]
+        }
+      }
+    },
+    "RequestOnly": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["member_id", "name", "request_only"],
+      "properties": {
+        "member_id": { "$ref": "#/$defs/MemberId" },
+        "name": { "$ref": "#/$defs/CommunityName" },
+        "request_only": { "const": true }
+      }
+    },
+    "DevicePublic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device_id", "signing_key", "sealing_key"],
+      "properties": {
+        "device_id": { "$ref": "#/$defs/DeviceId" },
+        "signing_key": { "$ref": "#/$defs/Bytes32" },
+        "sealing_key": { "$ref": "#/$defs/Bytes32" }
+      }
+    },
+    "Devices": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["member_id", "devices"],
+      "properties": {
+        "member_id": { "$ref": "#/$defs/MemberId" },
+        "devices": { "type": "array", "maxItems": 5, "items": { "$ref": "#/$defs/DevicePublic" } }
+      }
+    },
+
+    "Contact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["member_id", "name", "display_name", "state", "since"],
+      "properties": {
+        "member_id": { "$ref": "#/$defs/MemberId" },
+        "name": { "$ref": "#/$defs/CommunityName" },
+        "display_name": { "oneOf": [{ "type": "string", "maxLength": 60 }, { "type": "null" }] },
+        "state": {
+          "enum": ["requested_by_me", "requested_by_them", "accepted", "left_by_me", "left_by_them"]
+        },
+        "since": { "$ref": "#/$defs/Time" }
+      }
+    },
+    "Contacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contacts"],
+      "properties": { "contacts": { "type": "array", "items": { "$ref": "#/$defs/Contact" } } }
+    },
+
+    "ItemKind": {
+      "enum": [
+        "message",
+        "reaction",
+        "link_note",
+        "objective",
+        "objective_state",
+        "answer",
+        "collab_note"
+      ]
+    },
+    "ItemCopy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device_id", "sealed"],
+      "properties": {
+        "device_id": { "$ref": "#/$defs/DeviceId" },
+        "sealed": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "minLength": 64,
+          "maxLength": 174763
+        }
+      }
+    },
+    "ItemSend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "to", "kind", "ref", "tag", "copies"],
+      "properties": {
+        "item_id": { "$ref": "#/$defs/ItemId" },
+        "to": { "$ref": "#/$defs/MemberId" },
+        "kind": { "$ref": "#/$defs/ItemKind" },
+        "ref": { "$ref": "#/$defs/Ref" },
+        "tag": { "$ref": "#/$defs/Bytes32" },
+        "copies": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 9,
+          "items": { "$ref": "#/$defs/ItemCopy" }
+        }
+      }
+    },
+    "Stamp": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,1000}\\.[A-Za-z0-9_-]{85}[AQgw]$"
+    },
+    "ItemSent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "accepted_at", "stamp", "request"],
+      "properties": {
+        "item_id": { "$ref": "#/$defs/ItemId" },
+        "accepted_at": { "$ref": "#/$defs/Time" },
+        "stamp": { "$ref": "#/$defs/Stamp" },
+        "request": { "type": "boolean" }
+      }
+    },
+    "StampPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "item_id", "from", "to", "kind", "ref", "tag", "at", "signer"],
+      "properties": {
+        "v": { "const": 1 },
+        "item_id": { "$ref": "#/$defs/ItemId" },
+        "from": { "$ref": "#/$defs/MemberId" },
+        "to": { "$ref": "#/$defs/MemberId" },
+        "kind": { "$ref": "#/$defs/ItemKind" },
+        "ref": { "$ref": "#/$defs/Ref" },
+        "tag": { "$ref": "#/$defs/Bytes32" },
+        "at": { "$ref": "#/$defs/Time" },
+        "signer": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,40}$" }
+      }
+    },
+    "Notice": {
+      "type": "object",
+      "required": ["type"],
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["type", "member_id"],
+          "properties": {
+            "type": { "const": "contact_accepted" },
+            "member_id": { "$ref": "#/$defs/MemberId" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["type", "link_id", "member_id"],
+          "properties": {
+            "type": { "const": "link_requested" },
+            "link_id": { "$ref": "#/$defs/LinkId" },
+            "member_id": { "$ref": "#/$defs/MemberId" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["type", "link_id"],
+          "properties": {
+            "type": { "enum": ["link_accepted", "link_ended"] },
+            "link_id": { "$ref": "#/$defs/LinkId" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["type", "link_id", "paused"],
+          "properties": {
+            "type": { "const": "link_paused" },
+            "link_id": { "$ref": "#/$defs/LinkId" },
+            "paused": { "type": "boolean" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["type", "collab_id", "member_id"],
+          "properties": {
+            "type": { "const": "collab_invited" },
+            "collab_id": { "$ref": "#/$defs/CollabId" },
+            "member_id": { "$ref": "#/$defs/MemberId" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["type", "collab_id"],
+          "properties": {
+            "type": { "enum": ["collab_accepted", "collab_ended"] },
+            "collab_id": { "$ref": "#/$defs/CollabId" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["type", "standing", "paused_until"],
+          "properties": {
+            "type": { "const": "standing_changed" },
+            "standing": { "enum": ["ok", "warned", "paused", "ended"] },
+            "paused_until": { "oneOf": [{ "$ref": "#/$defs/Time" }, { "type": "null" }] }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["type", "report_id", "outcome"],
+          "properties": {
+            "type": { "const": "report_closed" },
+            "report_id": { "$ref": "#/$defs/ReportId" },
+            "outcome": { "enum": ["action", "no_action"] }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "my_devices_changed" } }
+        }
+      ]
+    },
+    "InboxItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "item_id",
+        "kind",
+        "from",
+        "ref",
+        "sealed",
+        "tag",
+        "stamp",
+        "accepted_at",
+        "request",
+        "notice"
+      ],
+      "properties": {
+        "item_id": { "$ref": "#/$defs/ItemId" },
+        "kind": { "oneOf": [{ "$ref": "#/$defs/ItemKind" }, { "const": "notice" }] },
+        "from": { "oneOf": [{ "$ref": "#/$defs/MemberId" }, { "type": "null" }] },
+        "ref": { "$ref": "#/$defs/Ref" },
+        "sealed": {
+          "oneOf": [
+            { "type": "string", "pattern": "^[A-Za-z0-9_-]+$", "maxLength": 174763 },
+            { "type": "null" }
+          ]
+        },
+        "tag": { "oneOf": [{ "$ref": "#/$defs/Bytes32" }, { "type": "null" }] },
+        "stamp": { "oneOf": [{ "$ref": "#/$defs/Stamp" }, { "type": "null" }] },
+        "accepted_at": { "$ref": "#/$defs/Time" },
+        "request": { "type": "boolean" },
+        "notice": { "oneOf": [{ "$ref": "#/$defs/Notice" }, { "type": "null" }] }
+      }
+    },
+    "Inbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "more"],
+      "properties": {
+        "items": { "type": "array", "maxItems": 50, "items": { "$ref": "#/$defs/InboxItem" } },
+        "more": { "type": "boolean" }
+      }
+    },
+    "Ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_ids"],
+      "properties": {
+        "item_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/ItemId" }
+        }
+      }
+    },
+
+    "SealedContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["payload", "sig", "fk"],
+      "properties": {
+        "payload": { "$ref": "#/$defs/Base64url" },
+        "sig": { "$ref": "#/$defs/Signature" },
+        "fk": { "$ref": "#/$defs/Bytes32" }
+      }
+    },
+    "OrgName": {
+      "type": "string",
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "ItemPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "item_id", "kind", "from", "from_device", "to", "ref", "sent_at", "body"],
+      "properties": {
+        "v": { "const": 1 },
+        "item_id": { "$ref": "#/$defs/ItemId" },
+        "kind": { "$ref": "#/$defs/ItemKind" },
+        "from": { "$ref": "#/$defs/MemberId" },
+        "from_device": { "$ref": "#/$defs/DeviceId" },
+        "to": { "$ref": "#/$defs/MemberId" },
+        "ref": { "$ref": "#/$defs/Ref" },
+        "sent_at": { "$ref": "#/$defs/Time" },
+        "body": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "message" } } },
+          "then": { "properties": { "body": { "$ref": "#/$defs/MessageBody" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "reaction" } } },
+          "then": { "properties": { "body": { "$ref": "#/$defs/ReactionBody" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "link_note" } } },
+          "then": { "properties": { "body": { "$ref": "#/$defs/LinkNoteBody" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "objective" } } },
+          "then": { "properties": { "body": { "$ref": "#/$defs/ObjectiveBody" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "objective_state" } } },
+          "then": { "properties": { "body": { "$ref": "#/$defs/ObjectiveStateBody" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "answer" } } },
+          "then": { "properties": { "body": { "$ref": "#/$defs/AnswerBody" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "collab_note" } } },
+          "then": { "properties": { "body": { "$ref": "#/$defs/CollabNoteBody" } } }
+        }
+      ]
+    },
+    "MessageBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "gif", "sticker", "reply_to"],
+      "properties": {
+        "text": {
+          "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 4000 }, { "type": "null" }]
+        },
+        "gif": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["library", "id"],
+              "properties": {
+                "library": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,30}$" },
+                "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "sticker": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["set", "name"],
+              "properties": {
+                "set": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,30}$" },
+                "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,40}$" }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "reply_to": { "oneOf": [{ "$ref": "#/$defs/ItemId" }, { "type": "null" }] }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "properties": {
+              "text": { "type": "null" },
+              "gif": { "type": "null" },
+              "sticker": { "type": "null" }
+            }
+          },
+          { "properties": { "gif": { "type": "object" }, "sticker": { "type": "object" } } }
+        ]
+      }
+    },
+    "ReactionBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item", "emoji"],
+      "properties": {
+        "item": { "$ref": "#/$defs/ItemId" },
+        "emoji": {
+          "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 16 }, { "type": "null" }]
+        }
+      }
+    },
+    "LinkNoteBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["org_name", "note"],
+      "properties": {
+        "org_name": { "$ref": "#/$defs/OrgName" },
+        "note": {
+          "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 500 }, { "type": "null" }]
+        }
+      }
+    },
+    "ObjectiveBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["org_name", "text"],
+      "properties": {
+        "org_name": { "$ref": "#/$defs/OrgName" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 20000 }
+      }
+    },
+    "ObjectiveStateBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective", "state", "why"],
+      "properties": {
+        "objective": { "$ref": "#/$defs/ItemId" },
+        "state": { "enum": ["approved", "refused", "stopped", "finished"] },
+        "why": {
+          "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 200 }, { "type": "null" }]
+        }
+      }
+    },
+    "AnswerBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective", "text"],
+      "properties": {
+        "objective": { "$ref": "#/$defs/ItemId" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 20000 }
+      }
+    },
+    "CollabNoteBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["org_name", "role", "part", "owner_only"],
+      "properties": {
+        "org_name": { "$ref": "#/$defs/OrgName" },
+        "role": { "enum": ["viewer", "approver", "manager"] },
+        "part": {
+          "oneOf": [
+            { "const": "whole" },
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 50,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "name"],
+                "properties": {
+                  "kind": { "enum": ["department", "project"] },
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$",
+                    "minLength": 1,
+                    "maxLength": 80
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "owner_only": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "production_changes",
+              "dns",
+              "credentials",
+              "databases",
+              "cloud_deletions",
+              "payments",
+              "messages_and_publishing",
+              "administrator",
+              "outside_project_folder",
+              "production_server_commands",
+              "linked_objectives"
+            ]
+          }
+        }
+      }
+    },
+
+    "Block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["member_id", "name", "blocked_at"],
+      "properties": {
+        "member_id": { "$ref": "#/$defs/MemberId" },
+        "name": { "$ref": "#/$defs/CommunityName" },
+        "blocked_at": { "$ref": "#/$defs/Time" }
+      }
+    },
+    "Blocks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blocks"],
+      "properties": { "blocks": { "type": "array", "items": { "$ref": "#/$defs/Block" } } }
+    },
+
+    "LinkAsk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["to", "org_ref"],
+      "properties": {
+        "to": { "$ref": "#/$defs/MemberId" },
+        "org_ref": { "$ref": "#/$defs/OrgRef" }
+      }
+    },
+    "LinkAccept": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["org_ref"],
+      "properties": { "org_ref": { "$ref": "#/$defs/OrgRef" } }
+    },
+    "LinkPause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paused"],
+      "properties": { "paused": { "type": "boolean" } }
+    },
+    "Link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "link_id",
+        "other",
+        "asked_by",
+        "my_org_ref",
+        "their_org_ref",
+        "state",
+        "paused_by_me",
+        "paused_by_them",
+        "created_at",
+        "accepted_at",
+        "ended_at"
+      ],
+      "properties": {
+        "link_id": { "$ref": "#/$defs/LinkId" },
+        "other": { "$ref": "#/$defs/MemberId" },
+        "asked_by": { "enum": ["me", "them"] },
+        "my_org_ref": { "oneOf": [{ "$ref": "#/$defs/OrgRef" }, { "type": "null" }] },
+        "their_org_ref": { "oneOf": [{ "$ref": "#/$defs/OrgRef" }, { "type": "null" }] },
+        "state": { "enum": ["requested", "active", "ended"] },
+        "paused_by_me": { "type": "boolean" },
+        "paused_by_them": { "type": "boolean" },
+        "created_at": { "$ref": "#/$defs/Time" },
+        "accepted_at": { "oneOf": [{ "$ref": "#/$defs/Time" }, { "type": "null" }] },
+        "ended_at": { "oneOf": [{ "$ref": "#/$defs/Time" }, { "type": "null" }] }
+      }
+    },
+    "Links": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["links"],
+      "properties": { "links": { "type": "array", "items": { "$ref": "#/$defs/Link" } } }
+    },
+
+    "CollabInvite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["to", "org_ref"],
+      "properties": {
+        "to": { "$ref": "#/$defs/MemberId" },
+        "org_ref": { "$ref": "#/$defs/OrgRef" }
+      }
+    },
+    "Collaboration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "collab_id",
+        "owner",
+        "collaborator",
+        "org_ref",
+        "state",
+        "created_at",
+        "accepted_at",
+        "ended_at",
+        "expires_at"
+      ],
+      "properties": {
+        "collab_id": { "$ref": "#/$defs/CollabId" },
+        "owner": { "$ref": "#/$defs/MemberId" },
+        "collaborator": { "$ref": "#/$defs/MemberId" },
+        "org_ref": { "$ref": "#/$defs/OrgRef" },
+        "state": { "enum": ["invited", "active", "ended"] },
+        "created_at": { "$ref": "#/$defs/Time" },
+        "accepted_at": { "oneOf": [{ "$ref": "#/$defs/Time" }, { "type": "null" }] },
+        "ended_at": { "oneOf": [{ "$ref": "#/$defs/Time" }, { "type": "null" }] },
+        "expires_at": { "oneOf": [{ "$ref": "#/$defs/Time" }, { "type": "null" }] }
+      }
+    },
+    "Collaborations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["collaborations"],
+      "properties": {
+        "collaborations": { "type": "array", "items": { "$ref": "#/$defs/Collaboration" } }
+      }
+    },
+
+    "ReportItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stamp", "payload", "fk"],
+      "properties": {
+        "stamp": { "$ref": "#/$defs/Stamp" },
+        "payload": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$", "maxLength": 174763 },
+        "fk": { "$ref": "#/$defs/Bytes32" }
+      }
+    },
+    "Report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["about", "reason", "note", "what", "items"],
+      "properties": {
+        "about": { "$ref": "#/$defs/MemberId" },
+        "reason": {
+          "enum": [
+            "spam",
+            "harassment",
+            "scam",
+            "hate",
+            "sexual",
+            "under_13",
+            "young_person_risk",
+            "impersonation",
+            "cheating",
+            "other"
+          ]
+        },
+        "note": {
+          "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 1000 }, { "type": "null" }]
+        },
+        "what": { "enum": ["person", "profile", "items"] },
+        "items": { "type": "array", "maxItems": 20, "items": { "$ref": "#/$defs/ReportItem" } }
+      },
+      "if": { "properties": { "what": { "const": "items" } } },
+      "then": { "properties": { "items": { "type": "array", "minItems": 1 } } },
+      "else": { "properties": { "items": { "type": "array", "maxItems": 0 } } }
+    },
+    "ReportMade": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["report_id"],
+      "properties": { "report_id": { "$ref": "#/$defs/ReportId" } }
+    },
+
+    "Thanks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["to", "for", "ref"],
+      "properties": {
+        "to": { "$ref": "#/$defs/MemberId" },
+        "for": { "enum": ["link_answer", "collaborator"] },
+        "ref": { "oneOf": [{ "$ref": "#/$defs/LinkId" }, { "$ref": "#/$defs/CollabId" }] }
+      }
+    },
+    "PointsReason": {
+      "enum": [
+        "contact_accepted",
+        "thanks",
+        "invite_joined",
+        "link_7_days",
+        "collab_7_days",
+        "getting_started",
+        "good_month",
+        "invite_bought_pro",
+        "taken_back",
+        "removed_by_8west"
+      ]
+    },
+    "Points": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "week",
+        "week_started_at",
+        "place_week",
+        "place_all",
+        "badges",
+        "thanked_by",
+        "recent",
+        "free_months"
+      ],
+      "properties": {
+        "total": { "type": "integer" },
+        "week": { "type": "integer" },
+        "week_started_at": { "$ref": "#/$defs/Time" },
+        "place_week": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
+        "place_all": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
+        "badges": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/Badge" } },
+        "thanked_by": { "type": "integer", "minimum": 0 },
+        "recent": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["points", "reason", "at"],
+            "properties": {
+              "points": { "type": "integer" },
+              "reason": { "$ref": "#/$defs/PointsReason" },
+              "at": { "$ref": "#/$defs/Time" }
+            }
+          }
+        },
+        "free_months": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["this_year", "max"],
+              "properties": {
+                "this_year": { "type": "integer", "minimum": 0 },
+                "max": { "type": "integer", "minimum": 0 }
+              }
+            },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "Leaderboard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["period", "since", "top", "me"],
+      "properties": {
+        "period": { "enum": ["week", "all"] },
+        "since": { "oneOf": [{ "$ref": "#/$defs/Time" }, { "type": "null" }] },
+        "top": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "place",
+              "member_id",
+              "name",
+              "display_name",
+              "has_picture",
+              "picture_version",
+              "badges",
+              "points"
+            ],
+            "properties": {
+              "place": { "type": "integer", "minimum": 1 },
+              "member_id": { "$ref": "#/$defs/MemberId" },
+              "name": { "$ref": "#/$defs/CommunityName" },
+              "display_name": {
+                "oneOf": [{ "type": "string", "maxLength": 60 }, { "type": "null" }]
+              },
+              "has_picture": { "type": "boolean" },
+              "picture_version": {
+                "oneOf": [
+                  { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+                  { "type": "null" }
+                ]
+              },
+              "badges": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "$ref": "#/$defs/Badge" }
+              },
+              "points": { "type": "integer" }
+            }
+          }
+        },
+        "me": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["place", "points"],
+              "properties": {
+                "place": { "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }] },
+                "points": { "type": "integer" }
+              }
+            },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+
+    "InviteEmail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["email"],
+      "properties": { "email": { "type": "string", "minLength": 3, "maxLength": 254 } }
+    },
+    "Empty": { "type": "object", "additionalProperties": false, "properties": {} },
+    "Gifs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["library", "attribution", "results", "next_offset"],
+      "properties": {
+        "library": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,30}$" },
+        "attribution": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "results": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "width", "height", "preview"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+              "width": { "type": "integer", "minimum": 1, "maximum": 4096 },
+              "height": { "type": "integer", "minimum": 1, "maximum": 4096 },
+              "preview": { "type": "string", "pattern": "^https://[A-Za-z0-9.-]+/[^\\s]{1,500}$" }
+            }
+          }
+        },
+        "next_offset": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] }
+      }
+    }
+  }
+}

@@ -65,10 +65,11 @@ reaching into anyone else's PC, files, sign-ins, or keys."
 
 In this repository first:
 
-- [ ] `contracts/community/v1`: sign-in with a code; PC keys; Community names; profiles; the sealed
+- [x] `contracts/community/v1`: sign-in with a code; PC keys; Community names; profiles; the sealed
       mailbox (envelopes, picking up, deleting); the report stamp and proof (ADR-164 §6); blocks;
-      reports; links and invitations; limits; example requests and answers; HPKE test answers
-- [ ] What a PC sends for Community, written in `docs/editions.md` (ADR-162 §6)
+      reports; links and invitations; limits; example requests and answers; a worked item with its
+      stamp and report proof (the published HPKE test answers come with Plenipo's side, part 24C)
+- [x] What a PC sends for Community, written in `docs/editions.md` (ADR-162 §6)
 
 In `plenipo-account`, under its own rules (ADR-101, ADR-102):
 

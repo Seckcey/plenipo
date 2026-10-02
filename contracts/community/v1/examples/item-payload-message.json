@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "item_id": "ci_01JC0D1E2F3G4H5J6K7M8N9P0Q",
+  "kind": "message",
+  "from": "cm_01JA2B3C4D5E6F7G8H9J0K1M2N",
+  "from_device": "cd_01JA2B3C4D5E6F7G8H9J0K1M2P",
+  "to": "cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B",
+  "ref": null,
+  "sent_at": 1790000000,
+  "body": {
+    "text": "Hi Pat! Want to link our organizations? 👋",
+    "gif": null,
+    "sticker": null,
+    "reply_to": null
+  }
+}

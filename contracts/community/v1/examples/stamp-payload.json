@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "item_id": "ci_01JC0D1E2F3G4H5J6K7M8N9P0Q",
+  "from": "cm_01JA2B3C4D5E6F7G8H9J0K1M2N",
+  "to": "cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B",
+  "kind": "message",
+  "ref": null,
+  "tag": "SOo1KgruVUeLExPsuuanNaNSkHHMsR0cYRXue8vv7XU",
+  "at": 1790000002,
+  "signer": "test-stamp-1"
+}
