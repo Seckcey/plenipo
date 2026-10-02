@@ -336,9 +336,9 @@ jobs:
             # The certificate lasts only days; the timestamp keeps the signature valid after that.
             if (-not $s.TimeStamperCertificate) { throw "$($f.Name) has no timestamp, so its signature would stop being valid within days" }
           }
-      # Phase 14 (ADR-146): the phone's page, built from this release's own source for
-      # remote.getplenipo.com, with 8 West's relay name built in (never a stand-in). Coastline's
-      # updater serves it from the release.
+      # Phase 14 (ADR-146, ADR-148): the phone's page, built from this release's own source for
+      # remote.getplenipo.com, with 8 West's relay name built in (never a stand-in). The updater on
+      # the page's own server serves it from the release.
       - name: Build the phone's page
         shell: bash
         env:
