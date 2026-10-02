@@ -16,9 +16,11 @@
 //!   (`plenipo_guard::remote`), and the PC's own services carry it out ([`service::Host`]).
 //! - **Wrong tries** slow the PC down, then stop it for a while ([`limits`]).
 //!
-//! The relay's own messages are in [`wire`], written once in `contracts/phone-relay/v1`.
+//! The relay's own messages are in [`wire`], written once in `contracts/phone-relay/v1` and
+//! shared with Plenipo's own relay through the `plenipo-relay-contract` crate (ADR-149).
 
-pub mod b64;
+pub use plenipo_relay_contract::{b64, wire};
+
 pub mod code;
 pub mod devices;
 pub mod keys;
@@ -31,7 +33,6 @@ pub mod qr;
 pub mod service;
 pub mod webauthn;
 pub mod webpush;
-pub mod wire;
 
 #[cfg(any(test, feature = "stand-in"))]
 pub mod stand_in;
@@ -61,8 +62,8 @@ pub const CHALLENGE_LIFE_MS: u64 = 2 * 60 * 1000;
 pub const PASS_LIFE_SECS: i64 = 90 * 24 * 60 * 60;
 /// The most phones one PC keeps.
 pub const MAX_DEVICES: usize = 20;
-/// The largest sealed message (Noise's own limit).
-pub const MAX_NOISE_MESSAGE: usize = 65_535;
+/// The largest sealed message (Noise's own limit, and the largest the relay passes).
+pub const MAX_NOISE_MESSAGE: usize = wire::MAX_DATA;
 /// The largest message assembled from sealed pieces.
 pub const MAX_ASSEMBLED: usize = 4 * 1024 * 1024;
 

@@ -10,9 +10,12 @@
 
 use ed25519_dalek::{Signer as _, SigningKey};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest as _, Sha256};
 
 use crate::b64;
+
+/// A relay key's fingerprint: SHA-256 of its 32 bytes, base64url (43 characters). Shared with the
+/// relay, which knows a PC by it.
+pub use plenipo_relay_contract::fingerprint;
 
 /// The keys, as kept.
 #[derive(Clone, Serialize, Deserialize)]
@@ -153,11 +156,6 @@ impl Default for PcKeys {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// A relay key's fingerprint: SHA-256 of its 32 bytes, base64url (43 characters).
-pub fn fingerprint(relay_public: &[u8; 32]) -> String {
-    b64::encode(&Sha256::digest(relay_public))
 }
 
 /// A new P-256 private key (a random scalar below the group's order).

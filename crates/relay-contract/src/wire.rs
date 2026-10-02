@@ -1,5 +1,5 @@
-//! The relay's own messages (`contracts/phone-relay/v1`, ADR-143, the change request for the
-//! relay's repository).
+//! The relay's own messages (`contracts/phone-relay/v1`; ADR-143, the relay and the lock;
+//! ADR-149, Plenipo runs its own relay). The PC and the relay both read and write them from here.
 //!
 //! Each WebSocket text message is one JSON object with a `t` field. The PC uses
 //! `/plenipo/v1/pc`, phones use `/plenipo/v1/phone`. Sealed messages travel as `data`, in
@@ -13,8 +13,8 @@ pub use plenipo_licensing::SignedAnswer;
 pub const PC_PROOF_CONTEXT: &str = "plenipo-relay-pc.v1.";
 /// The largest relay message (a 64 KB sealed message in base64url, and its envelope).
 pub const MAX_RELAY_MESSAGE: usize = 96 * 1024;
-/// The largest sealed message the relay passes.
-pub const MAX_DATA: usize = crate::MAX_NOISE_MESSAGE;
+/// The largest sealed message the relay passes (Noise's own limit, 65,535 bytes).
+pub const MAX_DATA: usize = 65_535;
 
 /// The relay to the PC.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -8,6 +8,8 @@ members = [
     "crates/ledger",
     "crates/licensing",
     "crates/remote",
+    "crates/relay",
+    "crates/relay-contract",
     "crates/liaison",
     "crates/router",
     "crates/runtime",

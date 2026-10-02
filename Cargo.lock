@@ -4384,6 +4384,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "plenipo-relay"
+version = "1.19.2"
+dependencies = [
+ "ed25519-dalek",
+ "futures-util",
+ "getrandom 0.3.4",
+ "httparse",
+ "log",
+ "plenipo-guard",
+ "plenipo-licensing",
+ "plenipo-relay",
+ "plenipo-relay-contract",
+ "plenipo-remote",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+]
+
+[[package]]
+name = "plenipo-relay-contract"
+version = "1.19.2"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "plenipo-licensing",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+]
+
+[[package]]
 name = "plenipo-remote"
 version = "1.19.2"
 dependencies = [
@@ -4397,6 +4429,7 @@ dependencies = [
  "p256",
  "plenipo-guard",
  "plenipo-licensing",
+ "plenipo-relay-contract",
  "plenipo-remote",
  "qrcode",
  "serde",

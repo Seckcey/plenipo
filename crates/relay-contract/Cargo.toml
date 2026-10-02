@@ -1,0 +1,20 @@
+[package]
+name = "plenipo-relay-contract"
+description = "The phone relay's contract in code (contracts/phone-relay/v1): the relay's messages and codes, passes, fingerprints, and base64url. Shared by the PC (plenipo-remote) and Plenipo's own relay (plenipo-relay), so both sides speak from one definition."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# 8 West's signed weekly answer travels inside the PC's hello (ADR-143 §3).
+plenipo-licensing = { path = "../licensing" }
+base64 = "0.22"
+ed25519-dalek = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+
+[lints]
+workspace = true
