@@ -66,8 +66,9 @@ the attorney must review, and builds the part that reaches Guard last.
    messages are sealed end to end, how long anything is kept, and how reports are handled and by
    whom), as ADR-140 did for Phase 14 and ADR-150 for Phase 23. With it come the drafts for the
    attorney: the terms of service, the privacy policy's changes, the age requirement, and the
-   moderation process, beside today's `apps/website/legal/terms.md` and `privacy.md`. Coding
-   starts after the owner answers.
+   moderation process. The drafts live in `docs/legal/phase-24/` until the attorney approves
+   them; only then do they change the website's published pages (`apps/website/legal/`), which go
+   live with the next website update. Coding starts after the owner answers.
 3. **Never two builds at once on the owner's PC.** The Community session builds in the cloud
    (Claude Code on the web) or on another computer. If it must build on the owner's PC, it builds
    only while Phase 23's session is not building, in its own worktree with its own build folder
