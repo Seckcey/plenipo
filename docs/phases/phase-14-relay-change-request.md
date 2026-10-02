@@ -2,8 +2,15 @@
 
 **From:** Plenipo, Phase 14 (Plenipo on your phone), made by 8 West Ventures, LLC.
 **To:** the repository of the relay 8 West runs for Milepost.
-**Status:** Draft, 2026-10-01. **The owner approves this change in the relay's own repository.**
-Plenipo's builder does not touch that repository.
+**Status: replaced, 2026-10-02, by
+[ADR-149 (Plenipo runs its own relay, from this repository, on 8 West's server)](../adr/ADR-149-plenipo-runs-its-own-relay.md).**
+Nothing is asked of Milepost's repository. Plenipo's own relay, `crates/relay`, does everything
+below, and is tested here against Plenipo's own PC and phone; its setup is in
+[`crates/relay/deploy/README.md`](../../crates/relay/deploy/README.md). This request stays as the
+record of what was asked, and of the behaviour the relay was built to.
+
+_Was:_ Draft, 2026-10-01. The owner approves this change in the relay's own repository. Plenipo's
+builder does not touch that repository.
 **Depends on:** [ADR-143 (the relay and the lock)](../adr/ADR-143-the-relay-and-the-lock.md),
 [ADR-147 (relay passes last 90 days)](../adr/ADR-147-relay-passes-last-90-days.md),
 [ADR-146 (where the phone's page lives)](../adr/ADR-146-where-the-phone-page-lives.md), and, for

@@ -117,6 +117,26 @@ jobs:
             echo "::error::Run 'pnpm bindings' and commit packages/types/src/generated"
             exit 1
           fi
+      # Phase 14 (ADR-149, Plenipo runs its own relay): the relay builds as the static Linux program
+      # a release attaches, answers on this machine, and stops cleanly.
+      - name: Plenipo's relay builds static (musl), answers, and stops
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          cargo build --release --locked --target x86_64-unknown-linux-musl -p plenipo-relay --bin plenipo-relay
+          relay=target/x86_64-unknown-linux-musl/release/plenipo-relay
+          file "$relay" | grep -q "static" || { echo "::error::The relay is not a static program"; file "$relay"; exit 1; }
+          "$relay" --version
+          # A release build has no test hooks: the line a test copy prints is not in it.
+          if grep -q "the relay listens on" "$relay"; then
+            echo "::error::The relay was built with its test hooks"
+            exit 1
+          fi
+          PLENIPO_RELAY_OFF_FILE="$RUNNER_TEMP/plenipo-relay-off" "$relay" 18790 &
+          pid=$!
+          sleep 1
+          curl -fsS http://127.0.0.1:18790/healthz | grep -qx ok
+          kill -TERM "$pid"
+          wait "$pid"
 
   e2e:
     name: E2E (real app via tauri-driver, Linux)
@@ -170,11 +190,11 @@ jobs:
       # can turn Pro on and check the request byte for byte. Never a release.
       - name: A stand-in for 8 West's license check
         run: echo "PLENIPO_LICENSE_STAND_IN=http://127.0.0.1:8768" >> "$GITHUB_ENV"
-      # Phase 14 (ADR-143 §14, ADR-146 §5): this copy reaches a stand-in for 8 West's relay on this
-      # machine (127.0.0.1), and makes pairing links and passkeys for the phone's page served here
-      # (localhost). The page is built for the same stand-in, and a test browser plays the phone.
-      # Never a release; the real relay is never used here.
-      - name: A stand-in for 8 West's relay, and the phone's page
+      # Phase 14 (ADR-143 §14, ADR-146 §5, ADR-149): this copy reaches Plenipo's own relay running on
+      # this machine (127.0.0.1, built for the tests), and makes pairing links and passkeys for the
+      # phone's page served here (localhost). The page is built for the same address, and a test
+      # browser plays the phone. Never a release; the relay at relay.getplenipo.com is never used.
+      - name: Plenipo's relay on this machine, and the phone's page
         run: |
           echo "PLENIPO_REMOTE_STAND_IN=http://127.0.0.1:8769" >> "$GITHUB_ENV"
           echo "PLENIPO_REMOTE_PAGE=http://localhost:8771" >> "$GITHUB_ENV"
@@ -187,9 +207,13 @@ jobs:
         run: cargo build --release --locked -p plenipo-runtime --bin plenipo-fake-agent
       - name: Build the synthetic SSH server and the connections' stand-in, and the test add-on program
         run: cargo build --release --locked -p plenipo-capabilities --bin plenipo-test-sshd --bin plenipo-test-services --bin plenipo-test-addon
-      - name: Build the stand-in relay and the phone's page for Phase 14 tests
+      # The real-app tests run against Plenipo's real relay (ADR-149), built with its test hooks:
+      # that copy also trusts the contract's test key and prints what the test reads. The stand-in
+      # relay stays for the Rust tests' bad-relay modes.
+      - name: Build Plenipo's relay for the tests, and the phone's page, for Phase 14 tests
         run: |
-          cargo build --release --locked -p plenipo-remote --features stand-in --bin plenipo-test-relay
+          cargo build --release --locked -p plenipo-relay --features test-hooks --bin plenipo-relay
+          echo "PLENIPO_TEST_RELAY=$GITHUB_WORKSPACE/target/release/plenipo-relay" >> "$GITHUB_ENV"
           pnpm --filter @plenipo/remote build
           grep -q "ws://127.0.0.1:8769" apps/remote/dist/index.html
       # Phase 10 starts the runner's Google Chrome, with its sandbox on (as on Windows). Ubuntu's

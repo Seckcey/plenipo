@@ -13,8 +13,9 @@ page's checksum and that it names only 8 West's relay, switches to it, checks it
 anything is wrong. The Tunnel brings `remote.getplenipo.com` to it. Nothing else runs there, and it
 holds no secrets but the Tunnel's token.
 
-The page works for real phones only when 8 West's relay answers at `relay.getplenipo.com` too
-(see the [relay change request](../../../docs/phases/phase-14-relay-change-request.md)).
+The page works for real phones only when Plenipo's relay answers at `relay.getplenipo.com` too
+(its setup: [`crates/relay/deploy/README.md`](../../../crates/relay/deploy/README.md); ADR-149,
+Plenipo runs its own relay).
 
 Keep the server's address out of this repository (as ADR-100 does for the account service's
 server); these steps call it "the page's server".

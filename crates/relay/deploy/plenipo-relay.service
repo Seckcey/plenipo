@@ -1,0 +1,59 @@
+# Plenipo's own relay for Plenipo on your phone (Phase 14, ADR-149). Made by 8 West Ventures, LLC.
+# Installed to /etc/systemd/system/ by install-relay.sh; see crates/relay/deploy/README.md.
+#
+# It runs as its own unprivileged user, sees a read-only system, and can reach only the network.
+# It listens on this machine only (PLENIPO_RELAY_LISTEN in /etc/plenipo-relay/relay.env); the proxy
+# in front of it brings relay.getplenipo.com to it.
+[Unit]
+Description=Plenipo's relay: sealed messages between a Pro PC and its own phones
+Documentation=https://github.com/Seckcey/plenipo/tree/main/crates/relay/deploy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=plenipo-relay
+Group=plenipo-relay
+ExecStart=/opt/plenipo-relay/current/plenipo-relay
+EnvironmentFile=-/etc/plenipo-relay/relay.env
+Restart=always
+RestartSec=2
+# A clean stop: it closes every connection, then exits.
+KillSignal=SIGTERM
+TimeoutStopSec=10
+# Small on purpose: the machine is shared and short on memory.
+MemoryMax=128M
+TasksMax=64
+LimitNOFILE=8192
+Nice=5
+
+# The sandbox: no new privileges, a read-only system, no home folders, no devices, its own /tmp,
+# nothing of the kernel's, only internet sockets, and the usual service system calls.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

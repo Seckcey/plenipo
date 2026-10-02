@@ -1,30 +1,36 @@
 # The phone relay — contract v1
 
-This is the written agreement between Plenipo (the app and its phone page, this repository) and
-8 West's relay (the one Milepost uses, in its own repository). Plenipo is made by 8 West Ventures,
+This is the written agreement between the two sides of Plenipo on your phone: the PC and the
+phone's page on one side, and **Plenipo's own relay** on the other (`crates/relay`, run by 8 West at
+`relay.getplenipo.com`; ADR-149, Plenipo runs its own relay). Plenipo is made by 8 West Ventures,
 LLC.
 
-Plenipo's side is `crates/remote/src/contract.rs`, which writes the JSON files in this folder from
-the code and fails if they drift. The relay pins the contract's version it was tested with. The
-change the relay needs is described in plain words in
-[`docs/phases/phase-14-relay-change-request.md`](../../../docs/phases/phase-14-relay-change-request.md).
+Both sides speak from one piece of code, `crates/relay-contract` (the relay's messages and codes,
+passes, fingerprints, and base64url), so they cannot drift apart. The PC's side
+(`crates/remote/src/contract.rs`) writes the JSON files in this folder from the code and fails if
+they drift; the relay's tests (`crates/relay/tests/contract.rs`) read them back and check every
+example message, the example pass, and the example proof. The relay's own hardening is written up
+in `crates/relay/src/lib.rs`, and its setup in [`crates/relay/deploy/README.md`](../../../crates/relay/deploy/README.md).
 
 **In plain words:** a Pro copy of Plenipo connects out to the relay, and the owner's phones
 connect too. The relay passes **sealed** messages between a PC and its own phones, and does
 nothing else with them. It cannot read them. The PC proves who it is with its own key and shows
 8 West's signed weekly answer, so the relay knows it is Pro. A phone shows a **pass** its PC
-signed. This file never holds the relay's real address or any sign-in.
+signed. This file never holds the relay's server address or any sign-in.
 
 Decisions: ADR-143 (the relay and the lock), ADR-146 (where the phone's page lives), ADR-147
-(passes last 90 days).
+(passes last 90 days), ADR-149 (Plenipo runs its own relay; it replaces the earlier
+[change request for Milepost's relay](../../../docs/phases/phase-14-relay-change-request.md)).
 
 ## Where
 
 - PCs: `wss://relay.getplenipo.com/plenipo/v1/pc`
 - Phones: `wss://relay.getplenipo.com/plenipo/v1/phone`
 
-`relay.getplenipo.com` is Plenipo's own name for the relay (a Cloudflare record the owner points
-at it). WebSockets over HTTPS. Each message is one **text** frame holding one JSON object with a
+`relay.getplenipo.com` is Plenipo's name for its relay (a Cloudflare record the owner points at 8
+West's server; a proxy there ends TLS and hands the connection to the relay, which listens on that
+machine only). WebSockets over HTTPS. `GET /healthz` on the same name answers `ok` in plain text
+(or `off` while the relay's off switch is on); every other plain request gets `404`. Each message is one **text** frame holding one JSON object with a
 `t` field. A message is at most 96 KB; a sealed message (`data`) is at most 65,535 bytes before
 base64url.
 
@@ -106,10 +112,26 @@ renews it at every sign-in (ADR-147). A pass is at most 512 characters.
 
 ## Limits the relay keeps
 
-Connections and tries from each internet address (IPv6 counted by its /64), and per PC; messages
-and bytes per PC and per phone, per minute; a cap on Plenipo's connections and memory in all; and
-a switch that turns Plenipo's part off without touching Milepost. Logs hold counts and errors only:
-never a message, a pass, a weekly answer, a key ID, or a challenge.
+The relay's defaults (`crates/relay/src/limits.rs`; the operator may change them):
+
+| Limit                                                                    | Default                   |
+| ------------------------------------------------------------------------ | ------------------------- |
+| Open connections in all (over it, the door answers `503`)                | 512                       |
+| Open connections from one address (IPv6 by its /64; over it, `429`)      | 32                        |
+| New connections from one address in a minute                             | 120                       |
+| Refusals for one address in a minute (then `429` for the rest of it)     | 30                        |
+| Phone connections one PC may have at once (`too_many_tries` beyond)      | 40                        |
+| Messages one connection may send in a minute (`too_many_tries`, closed)  | 1,200                     |
+| Bytes one connection may send in a minute                                | 16 MB                     |
+| Time for the first message (the PC's hello, the phone's pass or mailbox) | 10 seconds                |
+| A connection quiet this long (not even a pong) is closed                 | 90 seconds (pings at 30)  |
+| A pairing mailbox stays open at most                                     | 10 minutes, 3 connections |
+| Dropped passes remembered per PC                                         | 1,000                     |
+
+An **off switch** turns the relay off without touching the machine's other services: every
+connection closes and new ones are turned away (`503`) until it is on again. Logs hold counts,
+codes, and addresses only: never a message, a pass, a weekly answer, a key ID, a mailbox name, or a
+challenge. The relay stores nothing on disk.
 
 ## Inside the sealed messages (for the phone's page, not the relay)
 

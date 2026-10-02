@@ -8,6 +8,8 @@ members = [
     "crates/ledger",
     "crates/licensing",
     "crates/remote",
+    "crates/relay",
+    "crates/relay-contract",
     "crates/liaison",
     "crates/router",
     "crates/runtime",
@@ -15,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.19.2"
+version = "1.19.3"
 edition = "2021"
 license = "Elastic-2.0"
 repository = "https://github.com/Seckcey/plenipo"

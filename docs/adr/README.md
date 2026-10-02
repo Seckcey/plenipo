@@ -125,9 +125,10 @@ architecture must be recorded here.
 | [140](ADR-140-phase-14-starts.md)                        | Phase 14 starts: numbers 140 to 149, what the check found, three parts                        | Accepted |
 | [141](ADR-141-pairing-a-phone.md)                        | Pairing a phone: a picture code or a typed code, shown on your PC                             | Accepted |
 | [142](ADR-142-the-phone-proves-it-is-you.md)             | The phone proves it is you: a passkey, checked by your PC                                     | Accepted |
-| [143](ADR-143-the-relay-and-the-lock.md)                 | The relay and the lock: sealed end to end, no copies, wrong tries (amended by 147)            | Accepted |
+| [143](ADR-143-the-relay-and-the-lock.md)                 | The relay and the lock: sealed end to end, no copies, wrong tries (amended by 147, 149)       | Accepted |
 | [144](ADR-144-notices-on-your-phone.md)                  | Notices on your phone, sealed for it, sent straight from the PC (amends 040)                  | Accepted |
 | [145](ADR-145-what-a-phone-may-ask.md)                   | The fixed list of what a phone may ask; what stays on your PC                                 | Accepted |
-| [146](ADR-146-where-the-phone-page-lives.md)             | Where the phone's page lives: its own address, never the relay (amended by 148)               | Accepted |
+| [146](ADR-146-where-the-phone-page-lives.md)             | Where the phone's page lives: its own address, never the relay (amended by 148, 149)          | Accepted |
 | [147](ADR-147-relay-passes-last-90-days.md)              | Relay passes last 90 days, renewed at every sign-in (amends 143)                              | Accepted |
 | [148](ADR-148-the-phone-page-on-its-own-server.md)       | The phone's page on its own small AWS server, not Coastline (amends 146)                      | Accepted |
+| [149](ADR-149-plenipo-runs-its-own-relay.md)             | Plenipo runs its own relay, from this repository, on 8 West's server (amends 143, 146)        | Accepted |

@@ -5,6 +5,9 @@
   **`remote.getplenipo.com`**; everything else is as recommended. **Amended by
   [ADR-148](ADR-148-the-phone-page-on-its-own-server.md)** (2026-10-02, the phone's page on its own
   server): the page is served from a small AWS server of its own, not from Coastline (§2 and §6).
+  **Amended by [ADR-149](ADR-149-plenipo-runs-its-own-relay.md)** (2026-10-02, Plenipo runs its own
+  relay): `relay.getplenipo.com` points at Plenipo's own relay on 8 West's server, not at
+  Milepost's (§4); the name, and keeping the server's address out of this repository, stand.
 - **Date:** 2026-10-01
 - **Phase:** 14
 - **Part of:** [ADR-140 (Phase 14 starts)](ADR-140-phase-14-starts.md)

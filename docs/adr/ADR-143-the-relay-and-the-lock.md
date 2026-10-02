@@ -9,9 +9,14 @@
   §5: "the phone and the PC encrypt what they say end to end, so the relay cannot read the work,
   answer an approval, or make up a request"
 - **Amended by:** [ADR-147 (relay passes last 90 days)](ADR-147-relay-passes-last-90-days.md): a
-  pass lasts 90 days, not 7 (§4).
-- **Goes with:** the change request for the relay's own repository,
-  [`docs/phases/phase-14-relay-change-request.md`](../phases/phase-14-relay-change-request.md)
+  pass lasts 90 days, not 7 (§4). [ADR-149 (Plenipo runs its own relay)](ADR-149-plenipo-runs-its-own-relay.md),
+  2026-10-02: the relay is **Plenipo's own**, built in this repository (`crates/relay`) and run by 8
+  West on its server, not Milepost's relay. Everything below about what the relay does and never
+  does stands; where this record says "8 West's relay, the one Milepost uses", read "Plenipo's own
+  relay, run by 8 West".
+- **Went with:** the change request for Milepost's relay,
+  [`docs/phases/phase-14-relay-change-request.md`](../phases/phase-14-relay-change-request.md),
+  now replaced by ADR-149.
 
 > **On screen** (ADR-010, plain words and rank names): **Your PC can't be reached. Nothing was
 > changed.**, **We don't know if your PC got this. Check again when it's back.**, **Signed in** /

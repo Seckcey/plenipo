@@ -18,6 +18,10 @@ name: Release
 # key (Environment secrets TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD), the
 # key's public half is built into Plenipo (repository variable PLENIPO_UPDATER_PUBLIC_KEY), and the
 # release carries latest.json, which installed copies read once a day.
+#
+# Plenipo on your phone (Phase 14, ADR-149): a Linux job builds Plenipo's own relay as a static
+# program (musl) with a .sha256, and the release carries it too; the relay's updater on 8 West's
+# server fetches it from the release, as the phone page's updater does for the page.
 
 on:
   push:
@@ -37,8 +41,52 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Plenipo's own relay (Phase 14, ADR-149): one static Linux program, built the same way CI checks
+  # it, named for this version, with its checksum. No secret is needed, so a dry run builds it too.
+  relay:
+    name: Build Plenipo's relay (static Linux program)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: relay-musl
+      - name: Build it static, check it, and name it for this version
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          cargo build --release --locked --target x86_64-unknown-linux-musl -p plenipo-relay --bin plenipo-relay
+          version=$(node -p "require('./package.json').version")
+          relay=target/x86_64-unknown-linux-musl/release/plenipo-relay
+          file "$relay" | grep -q "static" || { echo "::error::The relay is not a static program"; file "$relay"; exit 1; }
+          "$relay" --version | grep -qx "plenipo-relay $version" \
+            || { echo "::error::The relay says $("$relay" --version), not $version"; exit 1; }
+          # A release never carries the test hooks (they trust the contract's test key).
+          if grep -q "the relay listens on" "$relay"; then
+            echo "::error::The relay was built with its test hooks"
+            exit 1
+          fi
+          PLENIPO_RELAY_OFF_FILE="$RUNNER_TEMP/plenipo-relay-off" "$relay" 18790 &
+          pid=$!
+          sleep 1
+          curl -fsS http://127.0.0.1:18790/healthz | grep -qx ok
+          kill -TERM "$pid"
+          wait "$pid"
+          mkdir -p relay-dist
+          cp "$relay" "relay-dist/plenipo-relay-$version-linux-x86_64"
+          (cd relay-dist && sha256sum "plenipo-relay-$version-linux-x86_64" > "plenipo-relay-$version-linux-x86_64.sha256")
+          cat "relay-dist/plenipo-relay-$version-linux-x86_64.sha256"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plenipo-relay
+          path: relay-dist/
+          if-no-files-found: error
+          retention-days: 7
+
   windows:
     name: Build Windows installer and publish release
+    needs: relay
     runs-on: windows-latest
     # ADR-052: a release uses the Environment `release`, which holds the signing secrets, lets only
     # `main` and `v*` tags in, and waits for the owner's approval before the job starts. A dry run
@@ -307,6 +355,13 @@ jobs:
           page="plenipo-phone-page-$version.zip"
           (cd apps/remote/dist && 7z a -tzip "$GITHUB_WORKSPACE/$page" . > /dev/null)
           (cd "$GITHUB_WORKSPACE" && sha256sum "$page" > "$page.sha256")
+      # Plenipo's own relay (Phase 14, ADR-149), from its own job above.
+      - name: Plenipo's relay, built static on Linux
+        if: ${{ !inputs.dry_run }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: plenipo-relay
+          path: relay-dist
       - name: Publish GitHub release
         if: ${{ !inputs.dry_run }}
         shell: bash
@@ -335,6 +390,12 @@ jobs:
           version=$(node -p "require('./package.json').version")
           test -f "plenipo-phone-page-$version.zip"
           assets+=("plenipo-phone-page-$version.zip" "plenipo-phone-page-$version.zip.sha256")
+          # Plenipo's own relay (Phase 14, ADR-149), the static Linux program, and its checksum.
+          relay="relay-dist/plenipo-relay-$version-linux-x86_64"
+          test -f "$relay"
+          test -f "$relay.sha256"
+          (cd relay-dist && sha256sum -c "plenipo-relay-$version-linux-x86_64.sha256")
+          assets+=("$relay" "$relay.sha256")
           case "$RELEASE_TAG" in
             *-*) ;;
             *)

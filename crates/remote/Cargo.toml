@@ -24,6 +24,8 @@ test = false
 plenipo-guard = { path = "../guard" }
 # 8 West's signed weekly answer, which the PC shows the relay (ADR-143 §3).
 plenipo-licensing = { path = "../licensing" }
+# The relay's messages, codes, passes, and base64url, shared with Plenipo's relay (ADR-149).
+plenipo-relay-contract = { path = "../relay-contract" }
 base64 = "0.22"
 # The PC's relay key, and passkeys made with Ed25519.
 ed25519-dalek = "3"
