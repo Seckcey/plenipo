@@ -353,8 +353,8 @@ describe("Settings → Permissions", () => {
       samplePermissions({
         vault: {
           available: false,
-          label: "the Linux kernel keyring",
-          detail: "Operation not permitted",
+          label: "your computer's password store (GNOME Keyring or KWallet)",
+          detail: "Install GNOME Keyring or KWallet, then try again.",
           stored: [],
         },
         tools: { running: false, detail: "Not running" },
@@ -363,7 +363,7 @@ describe("Settings → Permissions", () => {
     );
     render(<PermissionSettings />);
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "the Linux kernel keyring is not available on this computer: Operation not permitted",
+      "your computer's password store (GNOME Keyring or KWallet) is not available on this computer: Install GNOME Keyring or KWallet, then try again.",
     );
     expect(screen.getByRole("button", { name: "Add a secret" })).toBeDisabled();
     expect(screen.getByText("Tools not running")).toBeInTheDocument();

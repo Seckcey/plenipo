@@ -7,8 +7,6 @@ fn main() {
     if let Some(code) = plenipo_runtime::keeper::maybe_run_from_args(std::env::args()) {
         std::process::exit(code);
     }
-    // The Vault first, before any other thread starts: on Linux every thread then shares it.
-    plenipo_capabilities::OsSecretStore::prepare();
     // Tool relay mode (Phase 7): an AI tool started Plenipo as its MCP server for a worker;
     // pass messages to the running Plenipo. No window, tray, or webview.
     if let Some(code) = plenipo_capabilities::relay::maybe_run_from_args(std::env::args()) {

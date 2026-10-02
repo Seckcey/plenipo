@@ -195,9 +195,12 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       way as AI tools, since a Mac app opened from the Dock gets a short list of program folders.
 - [ ] **Saved keys on Linux.** Today's kernel keyring forgets every key at each restart: server
       sign-ins, Connection sign-ins, paid AI keys, and the license key. Use the Secret Service (GNOME
-      Keyring or KWallet), which keeps them (ADR-153; `keyring`'s `linux-native-sync-persistent` feature), and
-      say plainly when a PC has none or it is locked. Add tests for the real password store on each
-      system (today only the in-memory test store is tested).
+      Keyring or KWallet), which keeps them (ADR-153), and say plainly when a PC has none or it is
+      locked. Add tests for the real password store on each system (today only the in-memory test
+      store is tested). How: `keyring`'s Secret Service store alone, in pure Rust (`zbus`, so nothing
+      to build against); the kernel keyring and its every-thread workaround go. GitHub's Linux
+      machine starts GNOME Keyring for the real-store test and the end-to-end tests; Windows and
+      the Mac test their own stores.
 - [ ] **What AI tools get to see.** The list of settings passed to a worker's program is right for
       Windows; on Mac and Linux it leaves out a few that AI tools need to sign in or open a browser
       (`XDG_*`, `DBUS_SESSION_BUS_ADDRESS`, `DISPLAY`, `WAYLAND_DISPLAY`, `SHELL`, `LOGNAME`). Add only
@@ -234,6 +237,8 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
 - [ ] **Tray:** works through AppIndicator. On Linux it is menu only (no click, no tooltip). Where a
       desktop has no tray (plain Fedora GNOME), closing the window quits, as the code already does.
 - [ ] **Start when you sign in:** already written by the autostart plugin; only the words change.
+- [ ] **The `.deb` recommends a password store** (`gnome-keyring`), since the Vault needs one
+      (ADR-153); the AppImage explains it on first use.
 - [ ] **Browser choice:** find Chrome, Chromium, Edge, or Brave on Linux, and say plainly when a
       "snap" Chromium cannot be used.
 - [ ] **Computer use:** works on X11. Under Wayland (Ubuntu's default, and the only desktop on
