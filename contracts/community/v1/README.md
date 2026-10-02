@@ -121,12 +121,12 @@ Plenipo never sees a password. It signs in the way a TV does (ADR-162 §2):
 
 1. **Start.** `POST /v1/community/sign-in/start`, no pass. Body `SignInStart`:
 
-   | Field         | What                                                                            |
-   | ------------- | ------------------------------------------------------------------------------- |
-   | `device_name` | The PC's name as the person will see it, 1–60 characters, no control characters |
-   | `app_version` | Plenipo's version, like `1.20.0`                                                |
-   | `signing_key` | This PC's new Ed25519 public key, 32 bytes, base64url                           |
-   | `sealing_key` | This PC's new X25519 public key, 32 bytes, base64url                            |
+   | Field         | What                                                                                                    |
+   | ------------- | ------------------------------------------------------------------------------------------------------- |
+   | `device_name` | The PC's name as the person will see it, 1–60 characters, no control characters or text-direction marks |
+   | `app_version` | Plenipo's version, like `1.20.0`                                                                        |
+   | `signing_key` | This PC's new Ed25519 public key, 32 bytes, base64url                                                   |
+   | `sealing_key` | This PC's new X25519 public key, 32 bytes, base64url                                                    |
 
    The PC makes both key pairs first and keeps the private halves in the Vault. Answer
    `SignInStarted`: `device_code` (secret; 43 characters), `user_code` (like `4KQ-7TD`: 6 of
@@ -136,7 +136,9 @@ Plenipo never sees a password. It signs in the way a TV does (ADR-162 §2):
 2. **The person allows it**, in their own web browser: Plenipo shows "**Enter this code: 4KQ-7TD**"
    and **Open the sign-in page**. On the account site, signed in as usual, the person types the
    code, sees "**Plenipo on FRANKIE-DESKTOP wants to use Community as you**", and presses **Allow**
-   or **Don't allow**. An account with 5 PCs already is asked to remove one first.
+   or **Don't allow**. An account with 5 PCs already is asked to remove one first. Every time a PC
+   starts using Community as an account, 8 West emails the account, so a code typed by mistake (or
+   by trickery) is noticed at once.
 3. **Finish.** Every `interval` seconds, `POST /v1/community/sign-in/token`, no pass. Body
    `SignInToken`: the `device_code`, and `proof`: this PC's Ed25519 signature, base64url, over the
    ASCII bytes of `plenipo-community-sign-in.v1.` followed by the `device_code`. Until the person
@@ -490,26 +492,28 @@ the service knows who invited a new member (for points and the free month, ADR-1
 The service enforces these; the numbers may change without a new version, and Plenipo shows the
 `message` of a `too_many` answer.
 
-| What                                  | Limit                                                                         |
-| ------------------------------------- | ----------------------------------------------------------------------------- |
-| PCs signed in, per account            | 5                                                                             |
-| Sign-in starts, per internet address  | 10 an hour                                                                    |
-| Code tries on the account site        | 10 in 15 minutes per account                                                  |
-| A message's text                      | 4,000 characters                                                              |
-| An objective's or an answer's text    | 20,000 characters                                                             |
-| One sealed copy                       | 128 KiB (before base64url)                                                    |
-| Items sent, per member                | 60 a minute                                                                   |
-| New conversations, per member         | 20 a day                                                                      |
-| Objectives on one link, each way      | 20 a day (the receiving PC also refuses past 5 waiting)                       |
-| Link requests, per member             | 20 a day                                                                      |
-| Collaboration invitations, per member | 20 a day                                                                      |
-| Cards seen (directory and look-ups)   | 200 a day per member; name look-ups 60 an hour                                |
-| Picking up                            | 1 waiting request per PC; 720 an hour                                         |
-| Reports, per member                   | 20 a day                                                                      |
-| Email invitations, per member         | 10 a day; one per address per 30 days                                         |
-| GIF searches, per member              | 60 a minute                                                                   |
-| A picture                             | 256 × 256 pixels, 256 KB                                                      |
-| A request body                        | 1.5 MiB for `items`; 400 KiB for `picture` and `reports`; 16 KiB for the rest |
+| What                                       | Limit                                                                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| PCs signed in, per account                 | 5                                                                                                                         |
+| Sign-in starts, per internet address       | 10 an hour                                                                                                                |
+| Finishing sign-in, per internet address    | 1,200 an hour                                                                                                             |
+| Code tries on the account site             | 10 in 15 minutes per account                                                                                              |
+| A message's text                           | 4,000 characters                                                                                                          |
+| An objective's or an answer's text         | 20,000 characters                                                                                                         |
+| One sealed copy (before base64url)         | 32 KiB for `message`, `reaction`, `link_note`, `objective_state`, and `collab_note`; 128 KiB for `objective` and `answer` |
+| Sealed items from one member still waiting | 64 MiB in all (then `too_many` until they are picked up)                                                                  |
+| Items sent, per member                     | 60 a minute                                                                                                               |
+| New conversations, per member              | 20 a day                                                                                                                  |
+| Objectives on one link, each way           | 20 a day (the receiving PC also refuses past 5 waiting)                                                                   |
+| Link requests, per member                  | 20 a day                                                                                                                  |
+| Collaboration invitations, per member      | 20 a day                                                                                                                  |
+| Cards seen (directory and look-ups)        | 200 a day per member, 1,000 a day per internet address; name look-ups 60 an hour                                          |
+| Picking up                                 | 1 waiting request per PC; 720 an hour                                                                                     |
+| Reports, per member                        | 20 a day                                                                                                                  |
+| Email invitations, per member              | 10 a day; one per address per 30 days                                                                                     |
+| GIF searches, per member                   | 60 a minute                                                                                                               |
+| A picture                                  | 256 × 256 pixels, 256 KB                                                                                                  |
+| A request body                             | 1.5 MiB for `items`; 400 KiB for `picture` and `reports`; 16 KiB for the rest                                             |
 
 ## 16. The files in this folder
 
