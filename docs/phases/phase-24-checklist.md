@@ -71,29 +71,36 @@ In this repository first:
       stamp and report proof (the published HPKE test answers come with Plenipo's side, part 24C)
 - [x] What a PC sends for Community, written in `docs/editions.md` (ADR-162 §6)
 
-In `plenipo-account`, under its own rules (ADR-101, ADR-102):
+In `plenipo-account`, under its own rules (ADR-101, ADR-102). Written in two pull requests,
+Seckcey/plenipo-account#20 (the base) and Seckcey/plenipo-account#21 (reports, points, and
+invitations), each read by two security reviews with every finding fixed and tested. Ticked items
+are written and tested; they reach the live service, still switched off, when the owner merges.
 
-- [ ] Sign-in with a code, **Allow** on the account site, the Community pass, and **Remove** for each
+- [x] Sign-in with a code, **Allow** on the account site, the Community pass, and **Remove** for each
       PC (ADR-162 §2)
-- [ ] The birth month and year, refused under 13 with nothing kept, and changed only by 8 West
+- [x] The birth month and year, refused under 13 with nothing kept, and changed only by 8 West
       (ADR-162 §4)
-- [ ] The protections for members 13 to 17, enforced by the service (ADR-162 §4)
-- [ ] PC keys, Community names, profiles, and the picture check (ADR-163)
-- [ ] The directory: every adult listed unless they appear offline, search, **New this week**, and
+- [x] The protections for members 13 to 17, enforced by the service (ADR-162 §4)
+- [x] PC keys, Community names, profiles, and the picture check (ADR-163)
+- [x] The directory: every adult listed unless they appear offline, search, **New this week**, and
       the limits against copying (ADR-163 §4, §5)
 - [ ] GIF search through the service, with the library's key and the ratings by age, keeping no
-      search words (ADR-164 §4)
-- [ ] Points with their limits, the leaderboard (this week and all time, adults who do not appear
+      search words (ADR-164 §4). Waits for the owner's choice of library; until then the service
+      answers `gifs_unavailable`
+- [x] Points with their limits, the leaderboard (this week and all time, adults who do not appear
       offline), and taking points away (ADR-169 §1, §2)
-- [ ] Badges worked out each day, thanks, and its limits (ADR-169 §3, §4)
+- [x] Badges worked out each day, thanks, and its limits (ADR-169 §3, §4)
 - [ ] Rewards for invitations: who invited whom, the 14-day wait, Stripe credit, 12 a year, the
-      card and email checks, taking back, and the admin switch (ADR-169 §6)
-- [ ] The sealed mailbox, the stamping key, and the limits (ADR-164 §3, §6, §8)
-- [ ] Blocks, enforced by the service (ADR-167 §4)
-- [ ] Reports, the proof check, and the **Reports** admin page with its emails (ADR-167 §5 to §11)
-- [ ] The nightly cleanup for every time in ADR-168, each with a test
-- [ ] **Delete my account** removes Community too (ADR-168 §5)
-- [ ] Switched off on the live service until 24F
+      card and email checks, taking back, and the admin switch (ADR-169 §6). Who invited whom, the
+      check that the account uses the invited address, and the 150-day limit are written; the free
+      month itself (Stripe credit) comes next
+- [x] The sealed mailbox, the stamping key, and the limits (ADR-164 §3, §6, §8)
+- [x] Blocks, enforced by the service (ADR-167 §4)
+- [x] Reports, the proof check, and the **Reports** admin page with its emails (ADR-167 §5 to §11)
+- [x] The nightly cleanup for every time in ADR-168, each with a test
+- [x] **Delete my account** removes Community too (ADR-168 §5)
+- [ ] Switched off on the live service until 24F (off by default: `COMMUNITY_ENABLED` unset; ticked
+      once the merged service is deployed and checked off)
 
 ## Part 24C — people: profile, messages, block, report, leave
 
