@@ -222,6 +222,10 @@ Also: notices go only to phones that asked, only on Pro with phone access on and
 phones** on, and only to a phone's own notice service (Guard); a gone notice address is forgotten;
 and Activity records each notice with the phone and its kind, never its words.
 
+**Also fixed in part 14C,** from part 14B's screenshots: the phone's Activity showed an event it
+had no words for by its code ("guard grant closed"). It now has plain words for what matters, and
+leaves out the rest, which stays in Activity on the PC under All events (page test `words.test.ts`).
+
 ### 3. Screenshots
 
 _Added from the pull request's test run._
