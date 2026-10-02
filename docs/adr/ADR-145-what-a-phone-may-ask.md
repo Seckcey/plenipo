@@ -138,3 +138,14 @@ by you, from Frank's phone.", and Activity says "Frank's phone asked to approve"
 push origin (from Frank's phone)". **Stop all** from a phone is the PC's own Stop all (browser,
 desktop, and server work, in every organization), and the phone's words say so. The PC already
 carries out part 14B's requests; the page offers them in 14B.
+
+## As built (v1.19.1, part 14B)
+
+The page offers the rest of the list: **Allow again** in its top bar after Stop all; **Stop the
+worker** on a working task (it asks first); **Give objective** on a worker's page, in words only,
+for a position that takes objectives (as on the PC); **Run again** and **Leave stopped** on Home;
+and **Keep** and **Discard** a lesson as written. Each organization keeps its own notice of work
+that stopped when Plenipo did, so **Leave stopped** names its organization, and reading Stop all's
+state lists each organization's notice. The page is always the newest, and a PC on v1.19.0 answers
+that read in its old shape: the page then shows no notice, so it never offers what that PC cannot
+do.

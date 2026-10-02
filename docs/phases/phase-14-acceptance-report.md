@@ -85,10 +85,43 @@ plain reasons).
 
 ### 4. Screenshots
 
-From the real-app test on GitHub's Linux machine: a copy of Plenipo built for the tests, a stand-in
-relay, and Google Chrome at a phone's size as the phone, with made-up names.
+From the real-app test on GitHub's Linux machine (`tests/e2e/specs/remote.e2e.mjs`): a copy of
+Plenipo built for the tests, a stand-in relay, and Google Chrome at a phone's size as the phone,
+with made-up names.
 
-_Added from the pull request's test run._
+- **Turning it on, on the PC:** [on Free, Devices says it is part of Pro, and the PC connects to
+  nothing](evidence/phase-14/phone-devices-free.png) · [the switch Use Plenipo from another device,
+  on](evidence/phase-14/phone-switch-on.png) · [Add a phone: a picture code and a typed code that
+  work once, for 10 minutes](evidence/phase-14/phone-devices-code.png)
+- **Pairing:** [a wrong code, refused, with nothing
+  added](evidence/phase-14/phone-pair-wrong-code.png) · [the phone's name and the typed
+  code](evidence/phase-14/phone-pair.png) · [the phone waits for your yes (its line breaks are fixed
+  in part 14B)](evidence/phase-14/phone-pair-waiting.png) · [the PC asks Is this your
+  phone?](evidence/phase-14/phone-devices-ask.png) · [the phone on the PC's list, signed
+  in](evidence/phase-14/phone-devices-listed.png)
+- **Approvals:** [a second approval waiting on the phone, and the first one answered from
+  it](evidence/phase-14/phone-approvals-answered.png) · [on the phone afterwards: nothing left
+  waiting, and both answers listed](evidence/phase-14/phone-approvals-dark.png) · [on the PC, each
+  answer says who gave it, and from which phone](evidence/phase-14/phone-pc-approvals-answered.png)
+- **Every page fits a phone's screen, in both themes:** Home
+  ([dark](evidence/phase-14/phone-home-dark.png), [light](evidence/phase-14/phone-home-light.png)) ·
+  Approvals ([dark](evidence/phase-14/phone-approvals-dark.png),
+  [light](evidence/phase-14/phone-approvals-light.png)) · Work
+  ([dark](evidence/phase-14/phone-work-dark.png), [light](evidence/phase-14/phone-work-light.png)) ·
+  Activity ([dark](evidence/phase-14/phone-activity-dark.png),
+  [light](evidence/phase-14/phone-activity-light.png)) · More
+  ([dark](evidence/phase-14/phone-more-dark.png), [light](evidence/phase-14/phone-more-light.png)).
+  More's AI tools show their codes here, and Activity the pages the phone opened; both are fixed in
+  part 14B.
+- **Stop all:** [the phone asks first](evidence/phase-14/phone-stop-all-ask.png) · [the PC stops
+  browser, desktop, and server work](evidence/phase-14/phone-pc-stopped.png)
+- **Signing in, the PC turned off, and a removed phone:** [signing in again with the phone's
+  passkey](evidence/phase-14/phone-sign-in.png) · [the PC is off: Your PC can't be reached. Nothing
+  was changed.](evidence/phase-14/phone-offline.png) · [Remove asks first, and says the phone is cut
+  off at once](evidence/phase-14/phone-devices-remove.png) · [a removed phone, refused even with a
+  copy of its keys](evidence/phase-14/phone-removed.png)
+- **Activity on the PC:** [each request, with the phone that sent
+  it](evidence/phase-14/phone-pc-activity.png)
 
 ### 5. What the owner needs to do, and the checks only the owner can do
 
@@ -112,3 +145,45 @@ with stand-ins):
 - [ ] Turn the switch off on the PC while the phone is open, and see it cut off
 - [ ] **Remove** a phone on the PC, and see it refused at once
 - [ ] Notices (part 14C): listed in its section when it is built
+
+## Part 14B — everything else that is safe from the page (v1.19.1)
+
+**In short, for the owner.** From the phone you can now also **Allow again** after Stop all,
+**Stop the worker** on a working task, give a worker an objective in words, **Run again** or
+**Leave stopped** after Plenipo closed unexpectedly, and **Keep** or **Discard** a lesson. Each goes
+through Guard and shows in Activity with your phone's name. What you need to do is still the list
+in part 14A's section 5.
+
+### 1. Deliverables → result
+
+| #   | Deliverable (checklist, part 14B)                                   | Result   | Evidence                                                                                             |
+| --- | ------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
+| 1   | **Allow again** after Stop all                                      | **Done** | The phone's top bar (`Shell.tsx`); page test; real app: Stop all, then Allow again, from the phone   |
+| 2   | **Stop** one worker's task                                          | **Done** | **Stop the worker** on Work (`Work.tsx`), asks first; page test; real app                            |
+| 3   | **Run again** and **Leave stopped** after an unexpected stop        | **Done** | Home's notice, each organization's own; page and PC tests; real app: Plenipo stopped with no warning |
+| 4   | **Keep** and **Discard** a lesson, as written                       | **Done** | More (`More.tsx`); page test; the PC refuses an unknown lesson in plain words                        |
+| 5   | **Send an objective** to a position that takes objectives, in words | **Done** | **Give objective** on a worker's page; page test; real app: the phone's objective runs on the PC     |
+| 6   | Release notes and this section                                      | **Done** | [v1.19.1](../releases/v1.19.1.md)                                                                    |
+
+### 2. Tests → evidence
+
+| Test (the plan's list)                                                                  | Evidence                                                                                                                         |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Allowing (Allow again) from the web interface, after the phone confirms it is the owner | Page test "Allow again after Stop all"; real app: the phone's **Allow again** lets the PC's work go again                        |
+| Stop a task, Allow again, Run again, and Leave stopped from another device              | Page tests; desktop `a_phone_does_the_rest_of_what_is_safe`; real app: each from the phone, with Plenipo stopped with no warning |
+| Sending an objective from another device                                                | Page test; desktop test (refusals in plain words); real app: the objective runs on the PC, and the phone follows it              |
+
+Also: every one of these is recorded with the phone that sent it (the real-app test reads them
+back from Activity), and a PC on v1.19.0 never sees a request it cannot read.
+
+**Also fixed in part 14B,** from part 14A's screenshots: More → **AI tools** named each AI tool by
+its code ("claude-code") and said **Ready** for every one. Your PC now sends each AI tool's own
+name and whether it can work now (never where it is installed), and the phone lists them in plain
+words (page test; desktop `a_phone_reads_the_same_pages`). The phone's **Activity** was mostly
+the pages it had opened ("Test phone asked to read Home"); those stay recorded in the Ledger and
+on the PC's Activity, and the phone's page now leaves them out (same desktop test). A notice that
+is one paragraph no longer puts each bold word on its own line ("Click / **Add** / on your PC.").
+
+### 3. Screenshots
+
+_Added from the pull request's test run._

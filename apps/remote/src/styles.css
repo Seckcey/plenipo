@@ -65,6 +65,11 @@ body {
   margin: 0;
 }
 
+/* A box that is one paragraph reads as one: its bold start and the words after it flow together. */
+p.notice-box {
+  display: block;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -267,4 +272,31 @@ body {
 
 .about {
   font-size: 0.85rem;
+}
+
+/* Part 14B: giving an objective, and work that stopped when Plenipo did. */
+.objective {
+  display: grid;
+  gap: var(--ui-space-2);
+}
+
+.objective label {
+  font-weight: 600;
+}
+
+.objective textarea {
+  width: 100%;
+  min-height: 6rem;
+  padding: var(--ui-space-2) var(--ui-space-3);
+  resize: vertical;
+}
+
+.objective p {
+  margin: 0;
+}
+
+.stopped__task {
+  display: grid;
+  gap: var(--ui-space-2);
+  overflow-wrap: anywhere;
 }

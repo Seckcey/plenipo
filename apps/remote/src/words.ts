@@ -1,4 +1,4 @@
-import type { LedgerEvent, TaskState } from "@plenipo/types";
+import type { AuthState, HoldFor, InstallState, LedgerEvent, TaskState } from "@plenipo/types";
 
 /** Plain words for the phone's page (docs/design/vocabulary.md). */
 
@@ -10,6 +10,17 @@ export const STATE_WORDS: Record<TaskState, string> = {
   succeeded: "Done",
   failed: "Didn't finish",
   cancelled: "Stopped",
+};
+
+/** What a task became, as Activity says it: a whole sentence for each state. */
+export const TASK_NOW: Record<TaskState, string> = {
+  queued: "A task is waiting its turn",
+  running: "A task is working",
+  blocked: "A task is stuck",
+  awaitingApproval: "A task is waiting for you",
+  succeeded: "A task is done",
+  failed: "A task didn't finish",
+  cancelled: "A task was stopped",
 };
 
 /** "just now", "5 minutes ago", "3 hours ago", or the date. */
@@ -59,8 +70,10 @@ export function describe(event: LedgerEvent): string {
       return "An approval ended with no answer";
     case "task.created":
       return `New task: ${text(p, "objective") ?? "a task"}`;
-    case "task.state_changed":
-      return `A task is now ${STATE_WORDS[(text(p, "to") ?? "running") as TaskState]?.toLowerCase() ?? text(p, "to")}`;
+    case "task.state_changed": {
+      const to = text(p, "to");
+      return (to && TASK_NOW[to as TaskState]) ?? "A task changed";
+    }
     case "control.stopped":
       return "Everything was stopped";
     case "control.allowed":
@@ -114,4 +127,25 @@ export function iPhoneOutsideHomeScreen(): boolean {
     window.matchMedia?.("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true;
   return apple && !standalone;
+}
+
+/** One AI tool as your PC sends it: its own name, and whether it can work now. */
+export interface PhoneAiTool {
+  id: string;
+  label: string;
+  ready: boolean;
+  install: InstallState;
+  auth: AuthState;
+  held: HoldFor | null;
+}
+
+/** What an AI tool on your PC can do now, in plain words. */
+export function aiToolStatus(tool: PhoneAiTool, outOfService: string | null): string {
+  if (outOfService) return outOfService;
+  if (tool.install === "checking" || tool.auth === "checking") return "Checking…";
+  if (tool.install !== "installed") return "Not working on your PC. AI tools on your PC says why.";
+  if (!tool.ready) return "Can't work yet: sign in, or add its key, in AI tools on your PC.";
+  if (tool.held === "update") return "Being updated: new work waits a moment.";
+  if (tool.held === "signIn") return "Signing in on your PC: new work waits a moment.";
+  return "Ready";
 }

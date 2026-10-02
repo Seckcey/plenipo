@@ -1,6 +1,6 @@
 # Phase 14 — Implementation Checklist
 
-**Status: part 14A built (v1.19.0); part 14B next.** The owner said Phase 22 is live on 2026-10-01, and Phase 14 started
+**Status: parts 14A (v1.19.0) and 14B (v1.19.1) built; part 14C next.** The owner said Phase 22 is live on 2026-10-01, and Phase 14 started
 on branch `claude/phase-14-phone` (ADR-132, the final push). The owner answered the questions the
 same day, and the decision records below are **Accepted**. Below, "[x]" is done. Plenipo is made by 8 West Ventures, LLC.
 
@@ -112,12 +112,12 @@ is truly needed.
 
 ### Part 14B — everything else that is safe from the page (`1.19.1`)
 
-- [ ] **Allow again** after Stop all
-- [ ] **Stop** one worker's task
-- [ ] **Run again** and **Leave stopped** after an unexpected stop
-- [ ] **Keep** and **Discard** a lesson, as written
-- [ ] **Send an objective** to a position that takes objectives, text only
-- [ ] Release notes and part 14B's section of the acceptance report
+- [x] **Allow again** after Stop all
+- [x] **Stop** one worker's task
+- [x] **Run again** and **Leave stopped** after an unexpected stop
+- [x] **Keep** and **Discard** a lesson, as written
+- [x] **Send an objective** to a position that takes objectives, text only
+- [x] Release notes and part 14B's section of the acceptance report
 
 ### Part 14C — notices when the page is closed (`1.19.2`; Phase 14 delivered)
 
@@ -156,9 +156,9 @@ authenticator), and made-up data. None uses the real relay.
 | The owner turns the switch off on the PC while a device is connected                                                                                                                                 | 14A  | [x]  |
 | The web interface cannot start an AI tool, run a program, reach a shell, the terminal, files, the screen, the browser, or secrets, or change permissions, switches, Guard's rules, or paired devices | 14A  | [x]  |
 | The web interface on a phone-sized screen, in both themes, from the keyboard, with no errors                                                                                                         | 14A  | [x]  |
-| Allowing (Allow again) from the web interface, after the phone confirms it is the owner                                                                                                              | 14B  | [ ]  |
-| Stop a task, Allow again, Run again, and Leave stopped from another device                                                                                                                           | 14B  | [ ]  |
-| Sending an objective from another device                                                                                                                                                             | 14B  | [ ]  |
+| Allowing (Allow again) from the web interface, after the phone confirms it is the owner                                                                                                              | 14B  | [x]  |
+| Stop a task, Allow again, Run again, and Leave stopped from another device                                                                                                                           | 14B  | [x]  |
+| Sending an objective from another device                                                                                                                                                             | 14B  | [x]  |
 | Approving, refusing, and allowing right from a notice (Android), and one tap to that approval (iPhone)                                                                                               | 14C  | [ ]  |
 | A notice's words can be read only on the owner's phone, and the lock-screen choice shows only "Something needs you"                                                                                  | 14C  | [ ]  |
 

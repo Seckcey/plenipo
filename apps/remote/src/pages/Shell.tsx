@@ -1,8 +1,9 @@
 import { useState } from "react";
-import type { ControlStatus } from "@plenipo/types";
+import type { ControlStatus, PhoneAsk } from "@plenipo/types";
 import { Button, Icon, type IconName } from "@plenipo/ui";
 
-import { useSession } from "../session-context";
+import type { ControlRead } from "../control";
+import { useRead, useSession } from "../session-context";
 import { ActivityPage } from "./Activity";
 import { ApprovalsPage } from "./Approvals";
 import { HomePage } from "./Home";
@@ -22,24 +23,61 @@ const TABS: { id: Tab; label: string; icon: IconName }[] = [
 
 /**
  * Stop all, the same as on your PC: browser, desktop, and server work stops, until you allow it
- * again on the PC.
+ * again. **Allow again** lets it go again, here or on your PC.
  */
-function StopAll() {
+function Control({ control, reload }: { control: ControlStatus | null; reload: () => void }) {
   const { ask } = useSession();
   const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
-  if (said) {
+  const act = (request: PhoneAsk, wanted: boolean, refused: string) => {
+    setAsking(false);
+    setBusy(true);
+    setSaid(null);
+    ask(request)
+      .then((r) => {
+        const stopped = (r.ok as ControlStatus | undefined)?.stopped;
+        if (stopped !== wanted) setSaid(r.refused?.message ?? r.failed ?? refused);
+        reload();
+      })
+      .catch(() => setSaid("We don't know if your PC got this. Check again when it's back."))
+      .finally(() => setBusy(false));
+  };
+  if (control?.stopped) {
     return (
-      <p className="stop-all__said" role="status">
-        {said}
-      </p>
+      <div className="stop-all__said" role="status">
+        <span>Browser, desktop, and server work is stopped.</span>
+        <Button
+          size="sm"
+          variant="primary"
+          icon="play"
+          disabled={busy}
+          onClick={() => act({ kind: "allowAgain" }, false, "Your PC did not allow work again.")}
+        >
+          Allow again
+        </Button>
+        {said && <span className="form-error">{said}</span>}
+      </div>
     );
   }
   if (!asking) {
     return (
-      <Button size="sm" variant="danger" icon="stop" onClick={() => setAsking(true)}>
-        Stop all
-      </Button>
+      <>
+        <Button
+          size="sm"
+          variant="danger"
+          icon="stop"
+          disabled={busy}
+          onClick={() => setAsking(true)}
+        >
+          Stop all
+        </Button>
+        {said && (
+          <p className="stop-all__said form-error" role="alert">
+            {said}
+          </p>
+        )}
+      </>
     );
   }
   return (
@@ -48,19 +86,7 @@ function StopAll() {
       <Button
         size="sm"
         variant="danger"
-        onClick={() => {
-          setAsking(false);
-          ask({ kind: "stopAll" })
-            .then((r) => {
-              const stopped = (r.ok as ControlStatus | undefined)?.stopped;
-              setSaid(
-                stopped
-                  ? "Browser, desktop, and server work is stopped. Allow it again on your PC."
-                  : (r.refused?.message ?? r.failed ?? "Your PC did not stop."),
-              );
-            })
-            .catch(() => setSaid("We don't know if your PC got this. Check again when it's back."));
-        }}
+        onClick={() => act({ kind: "stopAll" }, true, "Your PC did not stop.")}
       >
         Stop all
       </Button>
@@ -81,6 +107,7 @@ export function Shell() {
     useSession();
   const [tab, setTab] = useState<Tab>("home");
   const offline = status.kind === "offline";
+  const control = useRead<ControlRead>(offline ? null : { kind: "readControl" }, ["control"]);
   return (
     <div className="shell">
       <header className="shell__top">
@@ -100,7 +127,7 @@ export function Shell() {
             </select>
           </label>
         )}
-        {!offline && <StopAll />}
+        {!offline && <Control control={control.data?.control ?? null} reload={control.reload} />}
       </header>
       {offline && (
         <div className="banner banner--offline" role="alert">
@@ -125,7 +152,9 @@ export function Shell() {
       <main className="shell__page" aria-live="polite">
         {!offline && (
           <PageGuard key={`${tab}:${org}`}>
-            {tab === "home" && <HomePage go={setTab} />}
+            {tab === "home" && (
+              <HomePage go={setTab} control={control.data} reloadControl={control.reload} />
+            )}
             {tab === "approvals" && <ApprovalsPage />}
             {tab === "work" && <WorkPage />}
             {tab === "activity" && <ActivityPage key={org} />}

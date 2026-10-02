@@ -44,6 +44,7 @@ import {
   pidAlive,
   screenshot as save,
   waitForShell,
+  waitPidGone,
   waitUntil,
 } from "../lib/app.mjs";
 
@@ -242,6 +243,30 @@ async function page(phone, label, id) {
   const heading = await phone.$(`#${id}`);
   await heading.waitForExist({ timeout: 20_000 });
 }
+
+/** On the phone: Work → a worker's page → Give objective, in words. */
+async function giveFromPhone(phone, worker, objective) {
+  await page(phone, "Work", "work-title");
+  await tap(phone, "Their work", `//li[.//strong[normalize-space()="${worker}"]]`);
+  const box = await phone.$(
+    `//label[normalize-space()="Objective for ${worker}"]/following-sibling::textarea[1]`,
+  );
+  await box.waitForExist({ timeout: 15_000 });
+  await box.setValue(objective);
+  await tap(phone, "Give objective");
+}
+
+/** The PC's newest task with this objective, once `ok` says it is in the state wanted. */
+const taskOnPc = (browser, objective, ok, what, timeoutMs = 30_000) =>
+  waitUntil(
+    async () => {
+      const tasks = (await invoke(browser, "list_tasks")).ok ?? [];
+      const task = tasks.find((t) => t.objective.startsWith(objective));
+      return task && ok(task) ? task : null;
+    },
+    what,
+    timeoutMs,
+  );
 
 /** The phone's own storage, in the page (the phone's key cannot be read out, only copied). */
 const copyKept = (phone, from, to) =>
@@ -670,6 +695,32 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     await screenshot(browser, "phone-pc-approvals-answered");
   });
 
+  it("gives an objective from the phone, and stops the worker from the phone (14B)", async () => {
+    const { browser } = app;
+    await giveFromPhone(phone, "Website Supervisor", "Count the pages slowly [slow]");
+    // Its conversation opens on the phone, with the worker on it.
+    await phoneSays(phone, "Count the pages slowly");
+    await waitUntil(
+      () => phone.$('//button[normalize-space()="Stop the worker"]').isExisting(),
+      "the worker on it, on the phone",
+      30_000,
+    );
+    await taskOnPc(browser, "Count the pages slowly", (t) => t.state === "running", "it running");
+    await screenshot(phone, "phone-conversation-running");
+    await tap(phone, "Stop the worker");
+    await tap(phone, "Stop the worker", '//*[@role="alertdialog"]');
+    await taskOnPc(
+      browser,
+      "Count the pages slowly",
+      (t) => !["running", "queued"].includes(t.state),
+      "the task stopped on the PC",
+    );
+    await waitUntil(
+      async () => !(await phone.$('//button[normalize-space()="Stop the worker"]').isExisting()),
+      "the phone to show it stopped",
+    );
+  });
+
   it("Stop all from the phone stops the PC's browser, desktop, and server work", async () => {
     const { browser } = app;
     await page(phone, "Home", "home-title");
@@ -685,12 +736,18 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     await waitForText(browser, ".banner--control", "Browser, desktop, and server work is stopped.");
     await screenshot(browser, "phone-pc-stopped");
     assert.equal((await invoke(browser, "get_control_status")).ok.stopped, true);
-    // Allow again stays on the PC in this part (14A).
-    await clickButton(browser, "Allow again");
+    // Allow again, from the phone too (14B).
+    await screenshot(phone, "phone-stopped-allow-again");
+    await tap(phone, "Allow again", "//header");
     await waitUntil(
       async () => (await invoke(browser, "get_control_status")).ok.stopped === false,
       "work allowed again",
     );
+    await (
+      await phone.$('//header//button[normalize-space()="Stop all"]')
+    ).waitForExist({
+      timeout: 15_000,
+    });
   });
 
   it("signs out, then signs in again with the phone's passkey, checked by the PC", async () => {
@@ -771,6 +828,57 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     await (await phone.$("#home-title")).waitForExist({ timeout: 30_000 });
   });
 
+  it("after Plenipo stops unexpectedly, the phone can run its work again, or leave it stopped (14B)", async () => {
+    await giveFromPhone(phone, "Website Supervisor", "Read every page slowly [slow]");
+    await taskOnPc(
+      app.browser,
+      "Read every page slowly",
+      (t) => t.state === "running",
+      "it running",
+    );
+    // Plenipo stops with no warning at all.
+    const [pid] = appPids();
+    process.kill(pid, "SIGKILL");
+    await waitPidGone(pid);
+    await app.close();
+    app = null;
+    await phoneSays(phone, "Your PC can’t be reached. Nothing was changed.");
+    const connectedBefore = relayCount("a PC connected");
+    app = await launch(home, env);
+    await app.browser.setWindowSize(1400, 900);
+    await waitForShell(app.browser, 60_000, { edition: "pro" });
+    await relaySays("a PC connected", connectedBefore + 1, 60_000);
+    await tap(phone, "Try again");
+    await tap(phone, "Check it’s you");
+    // Home says what happened, with the task that stopped.
+    const notice = '//section[@aria-labelledby="stopped-title"]';
+    await (await phone.$(notice)).waitForExist({ timeout: 30_000 });
+    await phoneSays(phone, "Read every page slowly");
+    await screenshot(phone, "phone-stopped-unexpectedly");
+    await tap(phone, "Run again", notice);
+    await phoneSays(phone, "Started again");
+    await waitUntil(
+      async () =>
+        ((await invoke(app.browser, "list_tasks")).ok ?? []).filter((t) =>
+          t.objective.startsWith("Read every page slowly"),
+        ).length >= 2,
+      "the work started again on the PC",
+      30_000,
+    );
+    await tap(phone, "Leave stopped", notice);
+    await waitUntil(
+      async () => !(await phone.$(notice).isExisting()),
+      "the notice to be put away",
+      20_000,
+    );
+    // Put away on the PC too.
+    await waitUntil(
+      async () => !(await exists(app.browser, '[aria-label="How Plenipo last stopped"]')),
+      "the PC's notice to be put away",
+      20_000,
+    );
+  });
+
   it("a removed phone is cut off at once, and stays refused even with its keys", async () => {
     const { browser } = app;
     // Keep a copy of what the phone holds, as a stolen phone would still have it.
@@ -823,6 +931,15 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     const asked = types("remote.request").map((e) => `${e.payload.name}: ${e.payload.kind}`);
     assert.ok(asked.includes(`${PHONE_NAME}: approve`), asked.join("\n"));
     assert.ok(asked.includes(`${PHONE_NAME}: stop all`), asked.join("\n"));
+    for (const kind of [
+      "send an objective",
+      "stop a task",
+      "allow again",
+      "run a task again",
+      "leave a task stopped",
+    ]) {
+      assert.ok(asked.includes(`${PHONE_NAME}: ${kind}`), `${kind}\n${asked.join("\n")}`);
+    }
     assert.ok(types("remote.signed_in").length >= 2, "signed in twice, each recorded");
     assert.ok(types("remote.device_removed").some((e) => e.payload.by === "pc"));
     await nav(browser, "Activity");
