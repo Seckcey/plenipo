@@ -31,7 +31,9 @@ export function PhoneSwitch() {
         label="Use Plenipo from another device"
         hint={hint}
         checked={settings.remote.switchedOn}
-        disabled={pending || ((!settings.pro || settings.comingSoon) && !settings.remote.switchedOn)}
+        disabled={
+          pending || ((!settings.pro || settings.comingSoon) && !settings.remote.switchedOn)
+        }
         onChange={(on) => {
           setPending(true);
           setError(null);

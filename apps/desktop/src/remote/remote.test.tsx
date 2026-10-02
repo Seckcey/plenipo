@@ -6,7 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../api/commands";
 import { a11yProblems } from "../test/a11y";
-import { DevicesSettings, PictureCode, minutesLeft } from "./DevicesSettings";
+import { DevicesSettings, PictureCode } from "./DevicesSettings";
+import { minutesLeft } from "./words";
 import { PhoneSwitch } from "./PhoneSwitch";
 
 vi.mock("../api/commands", async (importOriginal) => {
@@ -43,7 +44,10 @@ function inPage(part: ReactNode) {
   );
 }
 
-function settings(patch: Partial<RemoteSettings> = {}, remote: Partial<RemoteSettings["remote"]> = {}): RemoteSettings {
+function settings(
+  patch: Partial<RemoteSettings> = {},
+  remote: Partial<RemoteSettings["remote"]> = {},
+): RemoteSettings {
   return {
     pro: true,
     comingSoon: false,
@@ -93,16 +97,28 @@ describe("Settings → Devices", () => {
     const { container } = inPage(<DevicesSettings go={go} />);
     await user.click(await screen.findByRole("button", { name: "Add a phone" }));
     expect(api.startPhonePairing).toHaveBeenCalledOnce();
-    expect(await screen.findByRole("img", { name: /Picture code \(QR code\)/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("img", { name: /Picture code \(QR code\)/ }),
+    ).toBeInTheDocument();
     expect(screen.getByText("7K3Q-M9TX-2HFD-R8WB")).toBeInTheDocument();
     expect(screen.getByText(/It works once, for 10 minutes more/)).toBeInTheDocument();
     expect(screen.getByText(/add the page to your Home Screen/)).toBeInTheDocument();
-    expect(await a11yProblems(container)).toEqual([]);
+    expect(a11yProblems(container)).toEqual([]);
   });
 
   it("asks Is this your phone?, and adds nothing until you say yes", async () => {
     api.getRemote.mockResolvedValue(
-      settings({}, { pairing: { step: "asking", name: "Frank's iPhone", browser: "Safari on iPhone", since: NOW } }),
+      settings(
+        {},
+        {
+          pairing: {
+            step: "asking",
+            name: "Frank's iPhone",
+            browser: "Safari on iPhone",
+            since: NOW,
+          },
+        },
+      ),
     );
     api.answerPhonePairing.mockResolvedValue(
       settings({}, { pairing: { step: "makingPasskey", name: "Frank's iPhone" } }),
@@ -145,20 +161,23 @@ describe("Settings → Devices", () => {
 
   it("says a paused phone was paused, and un-pauses it", async () => {
     api.getRemote.mockResolvedValue(
-      settings({}, {
-        devices: [
-          {
-            id: "AAAAAAAAAAAAAAAAAAAAAA",
-            name: "Phone",
-            browser: "Chrome on Android",
-            addedAt: NOW,
-            lastSeenAt: null,
-            paused: true,
-            signedIn: false,
-            notices: false,
-          },
-        ],
-      }),
+      settings(
+        {},
+        {
+          devices: [
+            {
+              id: "AAAAAAAAAAAAAAAAAAAAAA",
+              name: "Phone",
+              browser: "Chrome on Android",
+              addedAt: NOW,
+              lastSeenAt: null,
+              paused: true,
+              signedIn: false,
+              notices: false,
+            },
+          ],
+        },
+      ),
     );
     api.unpauseDevice.mockResolvedValue(settings());
     const user = userEvent.setup();
@@ -170,16 +189,20 @@ describe("Settings → Devices", () => {
 
   it("keeps the approvals you tick on this PC, none to begin with", async () => {
     api.getRemote.mockResolvedValue(settings());
-    api.setKeptOnPc.mockImplementation((kept) =>
-      Promise.resolve(settings({}, { kept })),
-    );
+    api.setKeptOnPc.mockImplementation((kept) => Promise.resolve(settings({}, { kept })));
     const user = userEvent.setup();
     inPage(<DevicesSettings go={go} />);
-    const money = await screen.findByRole("checkbox", { name: "Money: buying, payments, refunds, payouts" });
+    const money = await screen.findByRole("checkbox", {
+      name: "Money: buying, payments, refunds, payouts",
+    });
     expect(money).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Every approval" })).not.toBeChecked();
     await user.click(money);
-    expect(api.setKeptOnPc).toHaveBeenCalledWith({ every: false, productionServers: false, kinds: ["payment"] });
+    expect(api.setKeptOnPc).toHaveBeenCalledWith({
+      every: false,
+      productionServers: false,
+      kinds: ["payment"],
+    });
     await waitFor(() => expect(money).toBeChecked());
   });
 

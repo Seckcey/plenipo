@@ -23,6 +23,7 @@ import { PartOfPro } from "../license/PartOfPro";
 import type { Go } from "../components/views";
 import { when } from "../pages/words";
 import { useRemote } from "./useRemote";
+import { minutesLeft } from "./words";
 
 /** The picture code (QR code): dark squares on a light ground, with its quiet border. */
 export function PictureCode({ qr, label }: { qr: Qr; label: string }) {
@@ -49,14 +50,6 @@ export function PictureCode({ qr, label }: { qr: Qr; label: string }) {
       <path className="picture-code__squares" d={squares.join("")} />
     </svg>
   );
-}
-
-/** "9 minutes", "1 minute", "less than a minute". */
-export function minutesLeft(endsAt: number, now: number): string {
-  const ms = endsAt - now;
-  if (ms < 60_000) return "less than a minute";
-  const m = Math.floor(ms / 60_000);
-  return m === 1 ? "1 minute" : `${m} minutes`;
 }
 
 function Pairing({
@@ -117,8 +110,7 @@ function Pairing({
       <div className="pairing__words">
         <p>
           On your phone, open <strong>{page.replace(/^https?:\/\//, "")}</strong> and tap{" "}
-          <strong>Pair this phone</strong>. Then scan this picture code (QR code), or type the
-          code:
+          <strong>Pair this phone</strong>. Then scan this picture code (QR code), or type the code:
         </p>
         <p className="pairing__code ui-num" aria-label={`The code: ${pairing.code}`}>
           {pairing.code}
@@ -129,8 +121,8 @@ function Pairing({
             ` ${pairing.wrong} wrong ${pairing.wrong === 1 ? "try" : "tries"}: it stops working after 3.`}
         </p>
         <p className="muted">
-          On an iPhone, first add the page to your Home Screen (Share → Add to Home Screen), open
-          it from there, and pair from inside it.
+          On an iPhone, first add the page to your Home Screen (Share → Add to Home Screen), open it
+          from there, and pair from inside it.
         </p>
         <div className="settings-section__actions">
           <Button disabled={busy} onClick={() => run(cancelPhonePairing)}>

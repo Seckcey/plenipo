@@ -13,6 +13,8 @@ const expected = JSON.parse(read("package.json")).version;
 const found = {
   "package.json": expected,
   "apps/desktop/package.json": JSON.parse(read("apps/desktop/package.json")).version,
+  // The phone's page (Phase 14).
+  "apps/remote/package.json": JSON.parse(read("apps/remote/package.json")).version,
   "packages/types/package.json": JSON.parse(read("packages/types/package.json")).version,
   "packages/ui/package.json": JSON.parse(read("packages/ui/package.json")).version,
   "tests/e2e/package.json": JSON.parse(read("tests/e2e/package.json")).version,
