@@ -204,6 +204,10 @@ async function tap(phone, label, scope = "") {
   await button.click();
 }
 
+/** The phone page's text box with this label (the design system's field: a label, then its box). */
+const phoneField = (phone, label) =>
+  phone.$(`//label[normalize-space()="${label}"]/following-sibling::input[1]`);
+
 /** One of the pages along the bottom, once it has loaded. */
 async function page(phone, label, id) {
   await tap(phone, label, '//nav[@aria-label="Pages"]');
@@ -484,7 +488,7 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     await waitUntil(async () => !(await remoteNow(browser)).remote.pairing, "the code to go");
     for (const code of [cancelled, "0000-0000-0000-0000"]) {
       await phone.url(PAGE);
-      const box = await phone.$('//label[.//span[normalize-space()="Or type the code"]]//input');
+      const box = await phoneField(phone, "Or type the code");
       await box.waitForExist({ timeout: 15_000 });
       await box.setValue(code);
       await tap(phone, "Pair this phone");
@@ -512,14 +516,12 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     // The phone opens the link (what scanning the picture code does), as a fresh page.
     await phone.url("about:blank");
     await phone.url(pairing.link);
-    const name = await phone.$(
-      '//label[.//span[normalize-space()="What to call this phone"]]//input',
-    );
+    const name = await phoneField(phone, "What to call this phone");
     await name.waitForExist({ timeout: 15_000 });
     assert.equal(await name.getValue(), "Android phone", "the page guesses what the phone is");
     await name.clearValue();
     await name.setValue(PHONE_NAME);
-    const typed = await phone.$('//label[.//span[normalize-space()="Or type the code"]]//input');
+    const typed = await phoneField(phone, "Or type the code");
     assert.equal(await typed.getValue(), pairing.code.replaceAll("-", ""));
     await screenshot(phone, "phone-pair");
     await tap(phone, "Pair this phone");
