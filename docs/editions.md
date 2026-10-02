@@ -117,8 +117,8 @@ PC through 8 West's relay, sealed end to end: the relay passes messages along an
 change them. Your PC stays in charge. Guard decides every request, and Activity shows each one with
 the phone that sent it. The relay is Plenipo's own, run by 8 West
 ([ADR-149](adr/ADR-149-plenipo-runs-its-own-relay.md), Plenipo runs its own relay): its code is in
-this repository too, and you can read exactly what it does. It turns on in a release once the relay
-is live; until then the switch says **Coming soon**.
+this repository too, and you can read exactly what it does. It is on from v1.19.4; in v1.19.0 to
+v1.19.3 the switch said **Coming soon** while the relay was set up.
 
 Exactly what Plenipo sends to the relay, and nothing else (a test checks it):
 

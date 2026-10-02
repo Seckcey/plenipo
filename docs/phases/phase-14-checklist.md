@@ -69,19 +69,25 @@ is truly needed.
 
 - [x] ~~Approve the relay change request in Milepost's repository~~ Replaced: Plenipo runs its own
       relay (ADR-149), built in this repository and carried by release v1.19.3.
-- [ ] On 8 West's server, as root, from a copy of `crates/relay/deploy`: the installer's check
+- [x] On 8 West's server, as root, from a copy of `crates/relay/deploy`: the installer's check
       (look only), then the installer ([the steps](../../crates/relay/deploy/README.md)). It looks
-      first and keeps what it saw; it stops and changes nothing else.
-- [ ] In Nginx Proxy Manager on that server: a proxy host for `relay.getplenipo.com` to the relay's
-      address and port, WebSockets on, a certificate, Force SSL.
-- [ ] In Cloudflare: an `A` record `relay` pointing at that server (DNS only to begin with).
+      first and keeps what it saw; it stops and changes nothing else. **Done 2026-10-02:** the
+      owner ran both; the relay runs v1.19.3 on `172.17.0.1:8790` (the proxy is in a Docker
+      container on its own network, so it reaches the host there).
+- [x] In Nginx Proxy Manager on that server: a proxy host for `relay.getplenipo.com` to the relay's
+      address and port, WebSockets on, a certificate, Force SSL. **Done 2026-10-02.**
+- [x] In Cloudflare: an `A` record `relay` pointing at that server. **Done 2026-10-02**, with
+      Cloudflare's proxy on (orange cloud), so the relay reads each phone's own address from
+      Cloudflare (`PLENIPO_RELAY_CLIENT_ADDRESS=cloudflare`).
       **Done for the page:** `remote.getplenipo.com` points at the page's own Tunnel (ADR-146,
       ADR-148).
 - [x] The page's own small AWS server, and the page's home on it ([the steps](../../apps/remote/deploy/README.md)): set up 2026-10-02, serving v1.19.2 at `remote.getplenipo.com`.
-- [ ] Check the relay from outside with Plenipo's own PC code (the `probe` example in
-      `crates/relay`; the README says how): it answers `not_pro` and `mailbox_closed`.
-- [ ] Set the repository variable `PLENIPO_RELAY_LIVE` to `true`; the next release turns the switch
-      on.
+- [x] Check the relay from outside with Plenipo's own PC code (the `probe` example in
+      `crates/relay`; the README says how): it answers `not_pro` and `mailbox_closed`. **Done
+      2026-10-02** by the builder: both answers right, and `/healthz` says `ok` over a valid
+      certificate.
+- [x] Set the repository variable `PLENIPO_RELAY_LIVE` to `true`; the next release turns the switch
+      on. **Done 2026-10-02** by the owner; v1.19.4 is that release.
 
 ## Deliverables
 

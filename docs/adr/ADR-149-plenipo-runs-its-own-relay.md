@@ -4,6 +4,8 @@
   in this repository, and it is deployed over SSH to the Akamai/Linode server … Do not touch
   Milepost's repository.").
 - **Date:** 2026-10-02
+- **Live:** 2026-10-02. The relay answers at `relay.getplenipo.com` on 8 West's server, checked
+  from outside with Plenipo's own PC code; v1.19.4 turns phone access on (ADR-140 §4).
 - **Phase:** 14
 - **Part of:** [ADR-140 (Phase 14 starts)](ADR-140-phase-14-starts.md)
 - **Amends:** [ADR-143 (the relay and the lock)](ADR-143-the-relay-and-the-lock.md): "8 West's

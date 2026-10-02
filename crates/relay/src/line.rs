@@ -68,6 +68,28 @@ impl Line {
         self.read(idle, true).await
     }
 
+    /// The connection is over. The link goes, so the writer sends what is left (its close last)
+    /// and ends; meanwhile what the peer still sends is read and dropped, until its own close
+    /// comes back or `wait` passes. Then the socket closes with nothing left unread and nothing
+    /// more on the way. A socket closed while the peer is still sending is reset instead, and a
+    /// reset can wipe out the last messages (why the peer was refused, say) before the peer reads
+    /// them: Windows throws them away. RFC 6455 §7.1.1: close the connection once both sides
+    /// have sent their close.
+    pub async fn finish(self, wait: Duration) {
+        let Line {
+            mut stream, link, ..
+        } = self;
+        drop(link);
+        let _ = tokio::time::timeout(wait, async move {
+            while let Some(Ok(message)) = stream.next().await {
+                if matches!(message, Message::Close(_)) {
+                    break;
+                }
+            }
+        })
+        .await;
+    }
+
     /// Pings go out meanwhile; anything but text is passed over (and, when `restart`, keeps the
     /// connection alive).
     async fn read(&mut self, wait: Duration, restart: bool) -> Next {
