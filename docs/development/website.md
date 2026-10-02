@@ -1,5 +1,9 @@
 # Plenipo marketing website
 
+The account-link work and account-first release gate are tracked in
+[account branding and website links](../phases/account-branding-links.md). Account service
+operation remains in its private repository; this site's existing checked updater is unchanged.
+
 The public product site is built from `apps/website` for <https://getplenipo.com>.
 
 [ADR-130 (the website address move)](../adr/ADR-130-website-domain-migration.md) makes this
