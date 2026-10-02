@@ -871,6 +871,12 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
       "the notice to be put away",
       20_000,
     );
+    // Put away on the PC too.
+    await waitUntil(
+      async () => !(await exists(app.browser, '[aria-label="How Plenipo last stopped"]')),
+      "the PC's notice to be put away",
+      20_000,
+    );
   });
 
   it("a removed phone is cut off at once, and stays refused even with its keys", async () => {
