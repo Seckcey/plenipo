@@ -112,3 +112,37 @@ with stand-ins):
 - [ ] Turn the switch off on the PC while the phone is open, and see it cut off
 - [ ] **Remove** a phone on the PC, and see it refused at once
 - [ ] Notices (part 14C): listed in its section when it is built
+
+## Part 14B — everything else that is safe from the page (v1.19.1)
+
+**In short, for the owner.** From the phone you can now also **Allow again** after Stop all,
+**Stop the worker** on a working task, give a worker an objective in words, **Run again** or
+**Leave stopped** after Plenipo closed unexpectedly, and **Keep** or **Discard** a lesson. Each goes
+through Guard and shows in Activity with your phone's name. What you need to do is still the list
+in part 14A's section 5.
+
+### 1. Deliverables → result
+
+| #   | Deliverable (checklist, part 14B)                                   | Result   | Evidence                                                                                             |
+| --- | ------------------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
+| 1   | **Allow again** after Stop all                                      | **Done** | The phone's top bar (`Shell.tsx`); page test; real app: Stop all, then Allow again, from the phone   |
+| 2   | **Stop** one worker's task                                          | **Done** | **Stop the worker** on Work (`Work.tsx`), asks first; page test; real app                            |
+| 3   | **Run again** and **Leave stopped** after an unexpected stop        | **Done** | Home's notice, each organization's own; page and PC tests; real app: Plenipo stopped with no warning |
+| 4   | **Keep** and **Discard** a lesson, as written                       | **Done** | More (`More.tsx`); page test; the PC refuses an unknown lesson in plain words                        |
+| 5   | **Send an objective** to a position that takes objectives, in words | **Done** | **Give objective** on a worker's page; page test; real app: the phone's objective runs on the PC     |
+| 6   | Release notes and this section                                      | **Done** | [v1.19.1](../releases/v1.19.1.md)                                                                    |
+
+### 2. Tests → evidence
+
+| Test (the plan's list)                                                                  | Evidence                                                                                                                         |
+| --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Allowing (Allow again) from the web interface, after the phone confirms it is the owner | Page test "Allow again after Stop all"; real app: the phone's **Allow again** lets the PC's work go again                        |
+| Stop a task, Allow again, Run again, and Leave stopped from another device              | Page tests; desktop `a_phone_does_the_rest_of_what_is_safe`; real app: each from the phone, with Plenipo stopped with no warning |
+| Sending an objective from another device                                                | Page test; desktop test (refusals in plain words); real app: the objective runs on the PC, and the phone follows it              |
+
+Also: every one of these is recorded with the phone that sent it (the real-app test reads them
+back from Activity), and a PC on v1.19.0 never sees a request it cannot read.
+
+### 3. Screenshots
+
+_Added from the pull request's test run._
