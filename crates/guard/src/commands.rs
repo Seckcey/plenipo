@@ -11,14 +11,46 @@ pub struct CommandLine {
 /// File extensions Windows runs without being named.
 const RUN_EXTENSIONS: &[&str] = &[".exe", ".cmd", ".bat", ".com"];
 
-/// How a program is compared: a bare name in lower case without its Windows extension
-/// (`Cargo.EXE` → `cargo`), or a relative path inside the project written as `./path`.
+/// Whether this system's program and file names ignore upper and lower case. Windows does, and
+/// runs `cargo.exe` when told `cargo`. On a Mac or a Linux PC, `Deploy` and `deploy` can be two
+/// different files, so a rule that allows names a program exactly there (ADR-150).
+pub const NAMES_IGNORE_CASE: bool = cfg!(windows);
+
+/// How a rule is compared with a command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Compare {
+    /// As this system tells programs apart: for rules that allow, which must never cover a
+    /// program the owner did not name.
+    Exact,
+    /// Ignoring upper and lower case and Windows' run extensions on every system: for rules
+    /// that block or ask, which must catch a name however it is written.
+    Loose,
+}
+
+impl Compare {
+    fn ignores_case(self) -> bool {
+        self == Self::Loose || NAMES_IGNORE_CASE
+    }
+}
+
+/// How a program is compared: a bare name, or a relative path inside the project written as
+/// `./path`. On Windows in lower case and without its run extension (`Cargo.EXE` → `cargo`);
+/// on a Mac or a Linux PC exactly as written.
 pub fn program_key(program: &str) -> String {
-    let p = program.trim().replace('\\', "/").to_lowercase();
-    let p = RUN_EXTENSIONS
-        .iter()
-        .find_map(|ext| p.strip_suffix(ext))
-        .map_or(p.clone(), str::to_owned);
+    key(program, Compare::Exact)
+}
+
+fn key(program: &str, compare: Compare) -> String {
+    let p = program.trim().replace('\\', "/");
+    let p = if compare.ignores_case() {
+        let lower = p.to_lowercase();
+        RUN_EXTENSIONS
+            .iter()
+            .find_map(|ext| lower.strip_suffix(ext))
+            .map_or(lower.clone(), str::to_owned)
+    } else {
+        p
+    };
     let b = p.as_bytes();
     let drive = b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':';
     if p.contains('/') && !p.starts_with("./") && !p.starts_with('/') && !drive {
@@ -36,10 +68,10 @@ impl CommandLine {
         }
     }
 
-    /// The program's bare name (`cargo`), for secrets given to named programs.
+    /// The program's bare name (`cargo`), for secrets given to named programs: compared the
+    /// way this system tells programs apart (`program_key`).
     pub fn program_name(&self) -> String {
-        let key = program_key(&self.program);
-        key.rsplit('/').next().unwrap_or(&key).to_owned()
+        bare(&program_key(&self.program))
     }
 
     /// The command line as a person would type it (arguments with spaces are quoted).
@@ -57,18 +89,32 @@ impl CommandLine {
             .join(" ")
     }
 
-    /// Program and arguments in lower case, for the sensitive-action check.
+    /// Program and arguments in lower case, for the sensitive-action check, which catches a
+    /// name however it is written: the program without Windows' run extension on every system.
     pub fn words_lower(&self) -> Vec<String> {
-        std::iter::once(self.program_name())
+        std::iter::once(bare(&key(&self.program, Compare::Loose)))
             .chain(self.args.iter().map(|a| a.to_lowercase()))
             .collect()
     }
 }
 
-/// `text` matches `pattern`, where `*` is any characters and `?` one; ASCII case-insensitive.
-fn word_match(pattern: &str, text: &str) -> bool {
-    let p: Vec<char> = pattern.to_lowercase().chars().collect();
-    let t: Vec<char> = text.to_lowercase().chars().collect();
+/// The last part of a program key (`./tools/run` → `run`).
+fn bare(key: &str) -> String {
+    key.rsplit('/').next().unwrap_or(key).to_owned()
+}
+
+/// `text` matches `pattern`, where `*` is any characters and `?` one; ignoring upper and lower
+/// case when `ignore_case`.
+fn word_match(pattern: &str, text: &str, ignore_case: bool) -> bool {
+    let fold = |s: &str| {
+        if ignore_case {
+            s.to_lowercase()
+        } else {
+            s.to_owned()
+        }
+    };
+    let p: Vec<char> = fold(pattern).chars().collect();
+    let t: Vec<char> = fold(text).chars().collect();
     fn go(p: &[char], t: &[char]) -> bool {
         match p.first() {
             None => t.is_empty(),
@@ -80,13 +126,29 @@ fn word_match(pattern: &str, text: &str) -> bool {
     go(&p, &t)
 }
 
-/// `rule` (e.g. `cargo test *`) matches `cmd`.
+/// `rule` (e.g. `cargo test *`) allows `cmd`: the program and each word compared the way this
+/// system tells them apart. For approved commands, and programs given secrets (ADR-048).
 pub fn rule_matches(rule: &str, cmd: &CommandLine) -> bool {
+    matches(rule, cmd, Compare::Exact)
+}
+
+/// `rule` catches `cmd` for blocking or asking: upper and lower case and Windows' run
+/// extensions are ignored on every system, so `rm *` catches `RM` and `rm.exe` anywhere.
+pub fn rule_catches(rule: &str, cmd: &CommandLine) -> bool {
+    matches(rule, cmd, Compare::Loose)
+}
+
+fn matches(rule: &str, cmd: &CommandLine, compare: Compare) -> bool {
+    let ignore_case = compare.ignores_case();
     let mut words = rule.split_whitespace();
     let Some(program) = words.next() else {
         return false;
     };
-    if !word_match(&program_key(program), &program_key(&cmd.program)) {
+    if !word_match(
+        &key(program, compare),
+        &key(&cmd.program, compare),
+        ignore_case,
+    ) {
         return false;
     }
     let words: Vec<&str> = words.collect();
@@ -100,15 +162,24 @@ pub fn rule_matches(rule: &str, cmd: &CommandLine) -> bool {
     fixed
         .iter()
         .zip(&cmd.args)
-        .all(|(w, arg)| word_match(w, arg))
+        .all(|(w, arg)| word_match(w, arg, ignore_case))
 }
 
-/// The first rule in `rules` that matches `cmd`.
+/// The first rule in `rules` that allows `cmd` (`rule_matches`).
 pub fn first_match<'a>(rules: &'a [String], cmd: &CommandLine) -> Option<&'a str> {
     rules
         .iter()
         .map(String::as_str)
         .find(|r| rule_matches(r, cmd))
+}
+
+/// The first rule in `rules` that catches `cmd` (`rule_catches`): for the blocked and
+/// always-ask lists.
+pub fn first_catch<'a>(rules: &'a [String], cmd: &CommandLine) -> Option<&'a str> {
+    rules
+        .iter()
+        .map(String::as_str)
+        .find(|r| rule_catches(r, cmd))
 }
 
 /// A command rule as the owner writes it: a program name (or `./path` inside the project)
@@ -156,16 +227,13 @@ mod tests {
             "cargo test *",
             &cmd("cargo test --workspace --locked")
         ));
-        assert!(rule_matches("cargo test *", &cmd("Cargo.EXE test")));
         assert!(!rule_matches("cargo test *", &cmd("cargo build")));
         assert!(!rule_matches("cargo test", &cmd("cargo test --release")));
-        assert!(rule_matches("npm run *", &cmd("npm.cmd run lint")));
         assert!(rule_matches(
             "git push *",
             &cmd("git push --force origin main")
         ));
         assert!(rule_matches("rm *", &cmd("rm")));
-        assert!(rule_matches("Remove-Item *", &cmd("remove-item x")));
         assert!(rule_matches(
             "python -m pytest *",
             &cmd("python -m pytest -q")
@@ -193,11 +261,54 @@ mod tests {
         assert_eq!(first_match(&rules, &cmd("cargo run")), None);
     }
 
+    /// ADR-150: a rule that allows names a program the way this system tells programs apart;
+    /// a rule that blocks or asks catches it however it is written, on every system.
+    #[test]
+    fn allowing_is_exact_where_the_system_is_and_blocking_never_is() {
+        let windows = cfg!(windows);
+        assert_eq!(
+            rule_matches("cargo test *", &cmd("Cargo.EXE test")),
+            windows
+        );
+        assert_eq!(rule_matches("npm run *", &cmd("npm.cmd run lint")), windows);
+        assert_eq!(rule_matches("./deploy *", &cmd("./Deploy now")), windows);
+        assert_eq!(
+            rule_matches("./deploy *", &cmd("./deploy.cmd now")),
+            windows
+        );
+        assert_eq!(
+            rule_matches("git commit -m *", &cmd("git commit -M x")),
+            windows
+        );
+        assert!(rule_matches("./deploy *", &cmd("./deploy now")));
+        let remove = vec!["Remove-Item *".to_owned()];
+        assert_eq!(
+            first_match(&remove, &cmd("remove-item x")).is_some(),
+            windows
+        );
+        assert_eq!(
+            first_catch(&remove, &cmd("remove-item x")),
+            Some("Remove-Item *")
+        );
+        assert!(rule_catches("rm *", &cmd("RM -rf x")));
+        assert!(rule_catches("rm *", &cmd("rm.exe -rf x")));
+        assert!(rule_catches("./deploy *", &cmd("./Deploy now")));
+        assert!(rule_catches("cargo test *", &cmd("Cargo.EXE test")));
+        assert!(!rule_catches("rm *", &cmd("rmdir x")));
+    }
+
     #[test]
     fn programs_and_display() {
-        assert_eq!(program_key("C:/Tools/Cargo.exe"), "c:/tools/cargo");
-        assert_eq!(program_key("scripts\\build.cmd"), "./scripts/build");
-        assert_eq!(cmd("npm.cmd test").program_name(), "npm");
+        if cfg!(windows) {
+            assert_eq!(program_key("C:/Tools/Cargo.exe"), "c:/tools/cargo");
+            assert_eq!(program_key("scripts\\build.cmd"), "./scripts/build");
+            assert_eq!(cmd("npm.cmd test").program_name(), "npm");
+        } else {
+            assert_eq!(program_key("/opt/Tools/Cargo"), "/opt/Tools/Cargo");
+            assert_eq!(program_key("scripts/build.sh"), "./scripts/build.sh");
+            assert_eq!(cmd("npm.cmd test").program_name(), "npm.cmd");
+        }
+        assert_eq!(cmd("NPM.cmd test").words_lower()[0], "npm");
         let c = CommandLine::new("git", &["commit", "-m", "fix the bug"]);
         assert_eq!(c.shown(), "git commit -m \"fix the bug\"");
         assert_eq!(c.words_lower(), ["git", "commit", "-m", "fix the bug"]);

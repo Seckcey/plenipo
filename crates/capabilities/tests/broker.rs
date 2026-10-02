@@ -1707,10 +1707,10 @@ async fn a_ticket_works_only_from_the_ai_tools_own_process_tree() {
     let n = std::io::BufReader::new(&conn)
         .read_line(&mut line)
         .unwrap_or(0);
-    if cfg!(any(target_os = "linux", windows)) {
-        assert_eq!(n, 0, "no answer: {line}");
-        let refused = h.events(&task, "tool_server.ticket_refused");
-        assert_eq!(refused.len(), 1, "{refused:?}");
+    assert_eq!(n, 0, "no answer: {line}");
+    let refused = h.events(&task, "tool_server.ticket_refused");
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    if cfg!(any(target_os = "linux", target_os = "macos", windows)) {
         assert_eq!(
             refused[0]["connectingPid"].as_u64(),
             Some(u64::from(std::process::id()))
@@ -1720,9 +1720,10 @@ async fn a_ticket_works_only_from_the_ai_tools_own_process_tree() {
             "{refused:?}"
         );
     } else {
-        // No way to tell programs apart here: allowed, and said so.
-        assert!(line.contains("\"result\""), "{line}");
-        assert!(!h.events(&task, "tool_server.ticket_unchecked").is_empty());
+        // No way to tell programs apart here: refused, and said so (ADR-156). The AI tool's
+        // own relay is refused the same way, so the step cannot use its tools.
+        assert_eq!(refused[0]["checkPossible"], false, "{refused:?}");
+        return;
     }
     // The AI tool's own relay (a program it started) is served as before.
     h.finished(&task).await;

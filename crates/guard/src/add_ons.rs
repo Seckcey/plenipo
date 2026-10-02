@@ -215,8 +215,10 @@ pub struct AddOnChange {
 
 // ---- Checking what the owner types ------------------------------------------------------------
 
-/// Shells: a program that runs whatever line it is given (ADR-066 §1).
-const SHELLS: [&str; 16] = [
+/// Shells: a program that runs whatever line it is given (ADR-066 §1). `osascript` runs any
+/// AppleScript, which can drive every app on a Mac (ADR-150).
+const SHELLS: [&str; 17] = [
+    "osascript",
     "cmd",
     "command",
     "powershell",
@@ -237,9 +239,20 @@ const SHELLS: [&str; 16] = [
 /// Programs that download code each time they start (the owner's choice 12).
 const DOWNLOADERS: [&str; 6] = ["npx", "pnpx", "bunx", "uvx", "mshta", "dnx"];
 /// Programs that start another program named in their arguments, so the one that runs is not
-/// the one checked.
-const WRAPPERS: [&str; 9] = [
-    "env", "busybox", "conhost", "git-bash", "ubuntu", "start", "xargs", "nohup", "sudo",
+/// the one checked. `open`, `xdg-open`, and `launchctl` do on a Mac and Linux (ADR-150).
+const WRAPPERS: [&str; 12] = [
+    "env",
+    "busybox",
+    "conhost",
+    "git-bash",
+    "ubuntu",
+    "start",
+    "xargs",
+    "nohup",
+    "sudo",
+    "open",
+    "xdg-open",
+    "launchctl",
 ];
 /// Interpreters, and the switches that make them run code written in the arguments.
 const INLINE_CODE: [(&str, &[&str]); 6] = [
@@ -290,7 +303,13 @@ pub fn refused_program(program: &str, args: &[String]) -> Option<String> {
         ));
     }
     let lower: Vec<String> = args.iter().map(|a| a.trim().to_ascii_lowercase()).collect();
-    if let Some((_, switches)) = INLINE_CODE.iter().find(|(p, _)| *p == stem) {
+    // An interpreter named with its version, as a Mac or Linux installs them (`python3.12`,
+    // `ruby3.3`), is that interpreter.
+    let unversioned = stem.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
+    if let Some((_, switches)) = INLINE_CODE
+        .iter()
+        .find(|(p, _)| *p == stem || *p == unversioned)
+    {
         if lower.iter().any(|a| switches.contains(&a.as_str())) {
             return Some(format!(
                 "{stem} would run code written in its arguments. Add an installed tool program."
@@ -606,6 +625,14 @@ mod tests {
                 args(&["run", "example.com/srv@latest"]),
             ),
             ("C:\\dotnet\\dnx.exe", args(&["x"])),
+            // A Mac's and Linux's own ways to run any script or another program (ADR-150).
+            ("/usr/bin/osascript", args(&["server.scpt"])),
+            ("/usr/bin/open", args(&["-a", "Terminal"])),
+            ("/usr/bin/xdg-open", args(&["x.desktop"])),
+            ("/bin/launchctl", args(&["asuser", "501", "x"])),
+            ("/opt/homebrew/bin/python3.12", args(&["-c", "import x"])),
+            ("/usr/bin/ruby3.3", args(&["-e", "x"])),
+            ("/usr/local/bin/node22", args(&["--eval", "x"])),
         ] {
             assert!(refused_program(program, &a).is_some(), "{program} {a:?}");
         }

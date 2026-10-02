@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::add_ons::{AddOn, AddOnCheck, ToolMark};
-use crate::commands::{first_match, rule_matches, CommandLine};
+use crate::commands::{first_catch, first_match, rule_matches, CommandLine};
 use crate::config::GuardConfig;
 use crate::connections::{self, AccessLevel, Connection, ConnectionCheck, ConnectionVerdict};
 use crate::dto::*;
@@ -621,7 +621,8 @@ pub fn evaluate(
         }
     }
     if let Some(cmd) = request.command {
-        if let Some(rule) = first_match(&config.commands.blocked, cmd) {
+        // Blocking catches a name however it is written, on every system (ADR-150).
+        if let Some(rule) = first_catch(&config.commands.blocked, cmd) {
             return decision(
                 Verdict::Deny,
                 Layer::Rule,
@@ -751,7 +752,7 @@ pub fn evaluate(
         );
     }
     if let Some(cmd) = request.command {
-        if let Some(rule) = first_match(&config.commands.ask, cmd) {
+        if let Some(rule) = first_catch(&config.commands.ask, cmd) {
             return decision(
                 Verdict::Ask,
                 Layer::Rule,

@@ -1,6 +1,6 @@
 # Phase 23 — Implementation Checklist
 
-**Status: Wave 0 in progress** (started 2026-10-02). Builds on v1.19.3. Below, "[x]" is done.
+**Status: Wave 0 delivered (2026-10-02); Wave 1 in progress** (started 2026-10-02). Builds on v1.19.3. Below, "[x]" is done.
 Plenipo is made by 8 West Ventures, LLC.
 
 Source: `ROLLOUT_PLAN.md`, Phase 23 — Mac and Linux, and the records written for it:
@@ -139,12 +139,16 @@ more than the coding does.
 - [x] The records for the owner's answers (ADR-150 to ADR-156) and the plan's Phase 23 section
 - [x] The word table for each system in `docs/design/vocabulary.md` (ADR-155), with a note above
       "Say this, not that" for the nine Windows-only rows
-- [ ] The plan's order-of-work row and summary, and the roadmap, say Phase 23 is in progress. This
-      waits for the v1.19.4 pull request to merge, because it edits the same lines
-- [ ] A Mac job in CI that builds and runs `cargo test`, reported but not yet required, so every
-      later change shows what still fails on a Mac
-- [ ] The release workflow's dry run also builds unsigned Mac and Linux files, to see what Tauri
-      makes
+- [x] The plan's order-of-work row and summary, and the roadmap, say Phase 23 is in progress
+      (with Wave 1, after the v1.19.4 pull request, which edited the same lines)
+- [x] A Mac job in CI that runs clippy and `cargo test`, reported but not yet required, so every
+      later change shows what still fails on a Mac. Every test group runs, and the summary lists
+      each failing test. Its first run: everything compiled on a Mac except the desktop app's
+      tests, which built the app's settings twice (fixed in Wave 1)
+- [x] The release workflow's dry run also builds unsigned Mac and Linux files. The first ones:
+      `Plenipo_1.19.3_universal.dmg` (40 MB, Apple's chips and Intel, macOS 13 or newer), and
+      `Plenipo_1.19.3_amd64.deb` (23 MB; needs only the tray, web view, and window libraries)
+      and `Plenipo_1.19.3_amd64.AppImage` (100 MB), built on Ubuntu 22.04
 
 ### Wave 1 — The shared base Mac and Linux both need
 
@@ -158,22 +162,34 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       them when Plenipo ends (`PR_SET_PDEATHSIG` or a subreaper). Mac has no such switch, so a small
       watcher does it. Stop gently first, then for certain. The test that only runs on Windows today
       (`children_do_not_outlive_a_crashed_owner`) runs on all three.
-- [ ] **Tool tickets on the Mac (ADR-034, approved programs run as the owner).** Plenipo checks that a
+- [x] **Tool tickets on the Mac (ADR-034, approved programs run as the owner).** Plenipo checks that a
       tool call comes from the AI tool's own program tree. On Linux this works. On the Mac the check
       cannot tell today (`crates/capabilities/src/process.rs`), and when it cannot tell, the rule is
       "allow, and say so" (`Admission::Unchecked`). On a Mac that would be every call. Build the Mac
-      lookup, and until it works, **refuse** on a Mac instead of allowing (ADR-156).
+      lookup, and until it works, **refuse** on a Mac instead of allowing (ADR-156). Done: a call
+      the check cannot run on is refused everywhere; the Mac asks its own `/usr/sbin/lsof` (full
+      path, 5-second limit; any failure refuses) and follows parents with `sysinfo`; its tests
+      pass on GitHub's Mac
 - [ ] **The terminal's programs end with it.** Closing a terminal on Mac and Linux only signals the
       shell, so programs started in it can keep running. End its whole group, as Windows does.
-- [ ] **Never as root.** On Windows, Plenipo refuses to open a terminal while it runs as
+- [x] **Never as root.** On Windows, Plenipo refuses to open a terminal while it runs as
       administrator. On Mac and Linux it never checks for root; add that check, for the terminal and
       for the browser (which runs without its sandbox as root on Linux).
-- [ ] **Program names keep their case on Linux.** Guard treats `./Deploy` and `./deploy` as one
-      program because Windows does. On Linux they are two files, so one approval must not cover both.
-      Mac and Windows keep ignoring case. The same goes for folder checks that lower-case paths
-      (`sensitive.rs`), and project paths are compared only after links are resolved.
-- [ ] **Risky-program lists for the Mac:** `osascript`, `security`, `launchctl`, `defaults`,
-      `diskutil`, and `open` are added to Guard's lists, so a worker asks before using them.
+- [x] **Program names keep their case on a Mac and Linux.** Guard treated `./Deploy` and
+      `./deploy` as one program because Windows does. On Linux they are two files, and a Mac disk
+      can be set up the same way, so a rule that allows (and a secret's program) names a program
+      exactly there; it costs at most one more question. Rules that block or always ask still
+      catch any spelling and Windows' run extensions on every system. The folder check no longer
+      lower-cases paths off Windows (`sensitive.rs`), and a program found through PATH counts as
+      the project's own file when its real path, after links, is inside the project.
+- [x] **Risky-program lists for the Mac and Linux:** new installs block `osascript`,
+      `security`, `launchctl`, `defaults`, `diskutil`, `csrutil`, `tccutil`, `spctl`,
+      `systemsetup`, `systemctl`, `pkexec`, and `fish`; `open` and `xdg-open` always ask.
+      Add-ons refuse `osascript`, `open`, `xdg-open`, `launchctl`, and interpreters named with a
+      version (`python3.12 -c`).
+- [x] **Found by the first Mac and Linux runs:** the desktop app built its settings twice, which a
+      Mac does not allow; and a run whose output closed slowly waited twice on a finished output
+      reader, which tokio does not allow (possible on any system; a test repeats it).
 - [ ] **Programs Plenipo uses itself** (git, cargo, PowerShell, the browser) are found the same careful
       way as AI tools, since a Mac app opened from the Dock gets a short list of program folders.
 - [ ] **Saved keys on Linux.** Today's kernel keyring forgets every key at each restart: server
