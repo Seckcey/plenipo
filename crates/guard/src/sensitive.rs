@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use crate::commands::CommandLine;
+use crate::commands::{CommandLine, NAMES_IGNORE_CASE};
 use crate::dto::SensitiveKind;
 
 /// The words of a command line or script, in lower case.
@@ -309,9 +309,18 @@ fn escapes(arg: &str, root: &Path) -> bool {
         || arg.starts_with('~')
         || (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':');
     if absolute {
-        let lower = arg.replace('\\', "/").to_lowercase();
-        let root = root.display().to_string().replace('\\', "/").to_lowercase();
-        return !(lower == root || lower.starts_with(&format!("{root}/")));
+        // Upper and lower case count only where this system's names ignore them (Windows): on
+        // a Mac or a Linux PC, `/Home/proj` is not inside `/home/proj` (ADR-150).
+        let fold = |s: String| {
+            if NAMES_IGNORE_CASE {
+                s.to_lowercase()
+            } else {
+                s
+            }
+        };
+        let arg = fold(arg.replace('\\', "/"));
+        let root = fold(root.display().to_string().replace('\\', "/"));
+        return !(arg == root || arg.starts_with(&format!("{root}/")));
     }
     if !arg.contains("..") {
         return false;
@@ -442,5 +451,13 @@ mod tests {
             Some(Outbound)
         );
         assert_eq!(script("Get-ChildItem | Measure-Object").map(|k| k.0), None);
+    }
+
+    /// ADR-150: on a Mac or a Linux PC a folder in other letters is another folder.
+    #[test]
+    fn a_path_in_other_letters_is_outside_unless_the_system_ignores_case() {
+        let outside = kind("rm -rf /Home/me/proj/x") == Some(OutsideWorkspace);
+        assert_eq!(outside, !NAMES_IGNORE_CASE);
+        assert_eq!(kind("rm -rf /home/me/proj/x"), None);
     }
 }

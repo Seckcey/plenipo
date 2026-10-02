@@ -240,6 +240,13 @@ describe("describeEvent (Phase 7 permissions)", () => {
     expect(describeEvent(event("tool_server.ticket_refused", { worker: "Reviewer" }))).toBe(
       "Blocked: a program outside Reviewer's AI tool tried to use Reviewer's tools (program unknown; the AI tool is program unknown)",
     );
+    expect(
+      describeEvent(
+        event("tool_server.ticket_refused", { worker: "Reviewer", checkPossible: false }),
+      ),
+    ).toBe(
+      "Blocked: Plenipo can't check which program is asking for Reviewer's tools on this computer, so it said no",
+    );
     expect(describeEvent(event("tool_server.ticket_unchecked", { worker: "Reviewer" }))).toBe(
       "Plenipo could not check which program connected to Reviewer's tools on this computer, so it let it through",
     );

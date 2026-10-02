@@ -558,7 +558,12 @@ async fn a_terminal_on_this_pc_never_runs_as_administrator() {
         .await;
     if plenipo_capabilities::terminal::runs_as_administrator() {
         let err = here.unwrap_err().to_string();
-        assert!(err.contains("running as administrator"), "{err}");
+        let said = if cfg!(windows) {
+            "running as administrator"
+        } else {
+            "running as root"
+        };
+        assert!(err.contains(said), "{err}");
         assert!(h.broker.open_terminals().is_empty());
         assert!(h.events("terminal.opened").is_empty());
     } else {
@@ -567,6 +572,18 @@ async fn a_terminal_on_this_pc_never_runs_as_administrator() {
     let server = Shared::default();
     let shop = h.open(&h.shop(), &server).await;
     h.closed(&shop, &server).await;
+}
+
+/// ADR-150: on a Mac or a Linux PC, Plenipo knows whether it runs as root, as `id -u` says.
+#[cfg(unix)]
+#[test]
+fn plenipo_knows_whether_it_runs_as_root() {
+    let out = std::process::Command::new("id").arg("-u").output().unwrap();
+    let root = String::from_utf8_lossy(&out.stdout).trim() == "0";
+    assert_eq!(
+        plenipo_capabilities::terminal::runs_as_administrator(),
+        root
+    );
 }
 
 /// As it starts, Windows' pseudo console asks the screen where the cursor is and waits for the

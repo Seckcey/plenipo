@@ -2,9 +2,10 @@
 //! (ADR-034, approved programs run as the owner). The tool server honors a grant's ticket only
 //! from the AI tool Plenipo started for that grant's step, or from a program that AI tool
 //! started; a ticket copied by any other program is refused. Linux reads `/proc`; Windows asks
-//! the TCP table and the process snapshot; elsewhere the lookup is unavailable and the caller
-//! says so. A lookup that exists but fails names no holder, so the caller refuses: only an
-//! operating system with no lookup at all is ever reported as unavailable.
+//! the TCP table and the process snapshot; a Mac asks its own `lsof` and the process table
+//! (ADR-156); elsewhere the lookup is unavailable, and the caller refuses and says so. A lookup
+//! that exists but fails names no holder, so the caller refuses too: only an operating system
+//! with no lookup at all is ever reported as unavailable.
 
 use std::net::SocketAddr;
 
@@ -21,10 +22,14 @@ pub enum Holders {
     /// user, or the lookup itself failed (the connection table could not be read). The caller
     /// refuses the connection.
     Unknown,
-    /// This operating system offers no way to look it up at all (macOS today). Only the module
-    /// for such systems returns this; a lookup that exists and fails is `Unknown`, so on Linux
-    /// and Windows nothing ever builds this answer (hence the allowance below).
-    #[cfg_attr(any(target_os = "linux", windows), allow(dead_code))]
+    /// This operating system offers no way to look it up at all; the caller refuses
+    /// (ADR-156). Only the module for such systems returns this; a lookup that exists and fails
+    /// is `Unknown`, so on Linux, Windows, and the Mac nothing ever builds this answer (hence
+    /// the allowance below).
+    #[cfg_attr(
+        any(target_os = "linux", target_os = "macos", windows),
+        allow(dead_code)
+    )]
     Unavailable,
 }
 
@@ -314,7 +319,119 @@ mod os {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+mod os {
+    use std::io::Read as _;
+    use std::net::{IpAddr, SocketAddr};
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+
+    use super::Holders;
+
+    /// The Mac's own list-of-open-files program, by its full path on the system's sealed,
+    /// read-only volume: never looked up through PATH.
+    const LSOF: &str = "/usr/sbin/lsof";
+    /// The longest a lookup may take. One that takes longer has failed, and the caller refuses.
+    const LOOKUP_LIMIT: Duration = Duration::from_secs(5);
+
+    pub fn holders_of(peer: SocketAddr, local: SocketAddr) -> Holders {
+        // Every TCP connection with the peer's port at either end, as `p<pid>` lines each
+        // followed by its `n<own>-><far>` lines, with numbers only (no names to look up).
+        let selection = format!("-iTCP:{}", peer.port());
+        let Some(listing) = run_lsof(&["-n", "-P", "-w", "-F", "pn", &selection]) else {
+            return Holders::Unknown;
+        };
+        let pids = holders_in(&listing, peer, local);
+        if pids.is_empty() {
+            Holders::Unknown
+        } else {
+            Holders::Pids(pids)
+        }
+    }
+
+    /// The programs in `lsof -F pn` output holding a socket whose own end is `peer` and whose
+    /// far end is `local`. Plenipo's own end of the same connection is the other way round, so
+    /// it is never named.
+    pub(super) fn holders_in(listing: &str, peer: SocketAddr, local: SocketAddr) -> Vec<u32> {
+        let mut pids = Vec::new();
+        let mut current = None;
+        for line in listing.lines() {
+            if let Some(pid) = line.strip_prefix('p') {
+                current = pid.parse::<u32>().ok();
+            } else if let Some(name) = line.strip_prefix('n') {
+                let Some((own, far)) = name.split_once("->") else {
+                    continue;
+                };
+                let (Ok(own), Ok(far)) = (own.parse::<SocketAddr>(), far.parse::<SocketAddr>())
+                else {
+                    continue;
+                };
+                if same(own, peer) && same(far, local) {
+                    if let Some(pid) = current.filter(|p| !pids.contains(p)) {
+                        pids.push(pid);
+                    }
+                }
+            }
+        }
+        pids
+    }
+
+    fn same(a: SocketAddr, b: SocketAddr) -> bool {
+        let plain = |ip: IpAddr| match ip {
+            IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+            v4 => v4,
+        };
+        a.port() == b.port() && plain(a.ip()) == plain(b.ip())
+    }
+
+    /// `lsof`'s output, or `None` when it could not run or took too long. It is read on its own
+    /// thread, so a full pipe never holds `lsof` up while this one waits.
+    fn run_lsof(args: &[&str]) -> Option<String> {
+        let mut child = Command::new(LSOF)
+            .args(args)
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        let mut out = child.stdout.take()?;
+        let reader = std::thread::spawn(move || {
+            let mut text = String::new();
+            out.read_to_string(&mut text).map(|_| text)
+        });
+        let deadline = Instant::now() + LOOKUP_LIMIT;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+            }
+        }
+        reader.join().ok()?.ok()
+    }
+
+    pub fn parent_of(pid: u32) -> Option<u32> {
+        let pid = Pid::from_u32(pid);
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[pid]),
+            true,
+            ProcessRefreshKind::nothing(),
+        );
+        system.process(pid)?.parent().map(Pid::as_u32)
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod os {
     use std::net::SocketAddr;
 
@@ -388,7 +505,33 @@ mod tests {
         assert_eq!(os::parent_in_status("Name:\tx\n"), None);
     }
 
-    #[cfg(target_os = "linux")]
+    /// ADR-156: the Mac's lookup reads `lsof -F pn`, and names only the program holding the
+    /// peer's end, never Plenipo's own end of the same connection.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mac_lsof_listings_are_read() {
+        use std::net::{Ipv4Addr, SocketAddr};
+
+        let peer = SocketAddr::from((Ipv4Addr::LOCALHOST, 52345));
+        let local = SocketAddr::from((Ipv4Addr::LOCALHOST, 8080));
+        let listing = "p100\nf3\nn127.0.0.1:8080->127.0.0.1:52345\n\
+                       p200\nf7\nn127.0.0.1:52345->127.0.0.1:8080\nf8\nn*:9000\n\
+                       p300\nf4\nn[::1]:52345->[::1]:8080\n\
+                       p400\nf5\nn127.0.0.1:52345->127.0.0.1:8080\n\
+                       p200\nf9\nn127.0.0.1:52345->127.0.0.1:8080\n";
+        assert_eq!(os::holders_in(listing, peer, local), vec![200, 400]);
+        let mapped: SocketAddr = "[::ffff:127.0.0.1]:52345".parse().unwrap();
+        assert_eq!(os::holders_in(listing, mapped, local), vec![200, 400]);
+        assert!(os::holders_in("", peer, local).is_empty());
+        assert!(os::holders_in(
+            "pnot-a-pid\nn127.0.0.1:52345->127.0.0.1:8080\n",
+            peer,
+            local
+        )
+        .is_empty());
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn this_process_is_found_holding_its_own_connection() {
         use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};

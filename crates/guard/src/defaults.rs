@@ -284,7 +284,9 @@ pub fn default_commands() -> CommandRules {
             "make lint *",
             "make check *",
         ]),
-        ask: Vec::new(),
+        // Programs that open a file, a web page, or another app the way the owner's desktop
+        // would (Phase 23, ADR-150): a worker asks first.
+        ask: list(&["open *", "xdg-open *"]),
         blocked: list(&[
             "rm *",
             "rmdir *",
@@ -334,7 +336,22 @@ pub fn default_commands() -> CommandRules {
             "bash *",
             "sh *",
             "zsh *",
+            "fish *",
             "wsl *",
+            // A Mac's and Linux's own system tools (Phase 23, ADR-150): AppleScript, which can
+            // drive any app; the Keychain; background services and settings; disks; and the
+            // Mac's privacy permissions and app checks.
+            "osascript *",
+            "security *",
+            "launchctl *",
+            "defaults *",
+            "diskutil *",
+            "csrutil *",
+            "tccutil *",
+            "spctl *",
+            "systemsetup *",
+            "systemctl *",
+            "pkexec *",
         ]),
         // No program is given a stored secret without asking until the owner says so
         // (ADR-048).

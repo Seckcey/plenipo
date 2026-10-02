@@ -218,29 +218,50 @@ pub fn home_folder() -> Option<PathBuf> {
         .filter(|p| p.is_absolute() && p.is_dir())
 }
 
-/// Whether Plenipo itself runs as administrator on Windows (an elevated token). Never true
-/// elsewhere.
+/// Whether Plenipo itself runs as administrator: on Windows with an elevated token, and on a
+/// Mac or a Linux PC as root (ADR-150). If a Mac or Linux PC cannot say who Plenipo runs as,
+/// the answer is yes, so nothing starts that might be root.
 pub fn runs_as_administrator() -> bool {
     #[cfg(windows)]
     {
         job::is_elevated()
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
-        false
+        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+        let Ok(me) = sysinfo::get_current_pid() else {
+            return true;
+        };
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[me]),
+            true,
+            ProcessRefreshKind::nothing().with_user(UpdateKind::Always),
+        );
+        system
+            .process(me)
+            .and_then(|p| p.effective_user_id())
+            .is_none_or(|uid| **uid == 0)
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        true
     }
 }
 
-/// Why a terminal on this PC must not start: Plenipo itself runs as administrator, so the shell
-/// would too (ADR-031: never as administrator).
+/// Why a terminal on this PC must not start: Plenipo itself runs as administrator (or root), so
+/// the shell would too (ADR-031: never as administrator; ADR-150: never as root).
 pub fn refuse_elevated() -> Result<(), String> {
     if runs_as_administrator() {
-        return Err(
-            "Plenipo is running as administrator, so a terminal would be too. Close \
-                    Plenipo and start it normally (not \"Run as administrator\") to use the \
-                    terminal."
-                .into(),
-        );
+        return Err(if cfg!(windows) {
+            "Plenipo is running as administrator, so a terminal would be too. Close Plenipo and \
+             start it normally (not \"Run as administrator\") to use the terminal."
+                .into()
+        } else {
+            "Plenipo is running as root, so a terminal would be too. Close Plenipo and start it \
+             as yourself (not with sudo) to use the terminal."
+                .into()
+        });
     }
     Ok(())
 }

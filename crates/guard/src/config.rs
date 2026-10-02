@@ -118,9 +118,15 @@ fn env_name(name: &str) -> Result<String> {
     Ok(n.to_owned())
 }
 
-/// A program name a secret may be given to (`gh`, `npm`); no paths.
+/// A program name a secret may be given to (`gh`, `npm`); no paths. Kept as written on a Mac or
+/// a Linux PC, where names keep their case, so it matches only the program named (ADR-150).
 fn program_name(name: &str) -> Result<String> {
-    let n = name.trim().to_lowercase();
+    let n = name.trim();
+    let n = if crate::commands::NAMES_IGNORE_CASE {
+        n.to_lowercase()
+    } else {
+        n.to_owned()
+    };
     let ok = (1..=64).contains(&n.len())
         && n.chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
