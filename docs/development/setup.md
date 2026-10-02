@@ -488,9 +488,8 @@ The Phase 11 test starts a synthetic SSH server on `127.0.0.1` (`plenipo-test-ss
 internet) and an `ssh-agent` holding a new key (the OpenSSH client tools must be installed). It
 adds the server in Settings → Servers as production, pins its server ID, and approves an
 Operations Engineer's commands there. Then it disconnects the worker, and restarts the server
-with another server ID, which is blocked. (On Linux, the kernel keyring that stands in for
-Windows Credential Manager belongs to each thread, which containers do not always give; so this
-test signs in with the agent.)
+with another server ID, which is blocked. (On Linux, the Vault is the desktop's password store
+(ADR-153), which a container does not always have; so this test signs in with the agent.)
 
 ## 9. Linux (development / CI only)
 

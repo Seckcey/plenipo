@@ -614,7 +614,8 @@ Decision record: [ADR-013 (how Plenipo lets workers use your computer safely)](.
   The worker still reads the page's address with its `?` part (the browser leaves a loaded
   page's `#` part out), and the AI tool's own activity (`agent.*`) keeps what the tool said,
   with secrets hidden.
-- **Vault.** Secret values live in Windows Credential Manager (macOS Keychain, Linux keyring);
+- **Vault.** Secret values live in Windows Credential Manager (the Mac's Keychain; on Linux the
+  desktop's password store, the Secret Service, ADR-153);
   Plenipo stores only references and injects a value as an environment variable into the
   programs the owner named. A secret goes only to the installed program of that name, found on
   PATH — never to a file inside the project folder named like it — and a run that would be given

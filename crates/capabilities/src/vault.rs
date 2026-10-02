@@ -1,5 +1,6 @@
 //! Plenipo Vault: secret values live in the operating system's protected storage (Windows
-//! Credential Manager, the macOS Keychain, the Linux kernel keyring); Plenipo keeps only a
+//! Credential Manager, the Mac's Keychain, and on Linux the desktop's password store, the Secret
+//! Service: GNOME Keyring or KWallet, ADR-153); Plenipo keeps only a
 //! reference — the secret's name, and which programs get it as which environment variable
 //! (the secret-reference model, in Guard's settings). A value is written once, read only to
 //! give it to an allowed program or to hide it in text, and never shown or recorded.
@@ -36,17 +37,14 @@ pub struct OsSecretStore {
     service: String,
 }
 
-impl OsSecretStore {
-    /// Get the store ready for every thread. Call once, first thing on the main thread, before
-    /// any other thread starts. On Linux the kernel keyring is reached through each thread's own
-    /// session keyring: a thread started before the process first used it cannot use it at all
-    /// (a value saved on one thread was then missing on another). Threads started after this
-    /// share the main thread's. Nothing to do on Windows or macOS.
-    pub fn prepare() {
-        #[cfg(target_os = "linux")]
-        let _ = keyring::Entry::new("plenipo", "plenipo-vault");
-    }
+/// Why the Vault cannot be used on a Linux PC with no password store (ADR-153).
+pub const NO_PASSWORD_STORE: &str = "This computer has no password store, so Plenipo can't save \
+                                     keys here. Install GNOME Keyring or KWallet, then try again.";
+/// Why the Vault cannot be used while a Linux PC's password store is locked or said no.
+pub const PASSWORD_STORE_LOCKED: &str = "Your computer's password store is locked, or it said \
+                                         no. Unlock it (GNOME Keyring or KWallet), then try again.";
 
+impl OsSecretStore {
     pub fn new(service: impl Into<String>) -> Self {
         Self {
             service: service.into(),
@@ -54,8 +52,20 @@ impl OsSecretStore {
     }
 
     fn entry(&self, id: &str) -> std::result::Result<keyring::Entry, String> {
-        keyring::Entry::new(&self.service, id).map_err(|e| e.to_string())
+        keyring::Entry::new(&self.service, id).map_err(plain)
     }
+}
+
+/// What the store's error means, in plain words where the owner can act on it. On Linux, a PC
+/// with no password store, or one that is locked, says so; elsewhere the system's own words.
+fn plain(error: keyring::Error) -> String {
+    #[cfg(target_os = "linux")]
+    match error {
+        keyring::Error::PlatformFailure(_) => return NO_PASSWORD_STORE.into(),
+        keyring::Error::NoStorageAccess(_) => return PASSWORD_STORE_LOCKED.into(),
+        _ => {}
+    }
+    error.to_string()
 }
 
 impl SecretStore for OsSecretStore {
@@ -63,37 +73,35 @@ impl SecretStore for OsSecretStore {
         if cfg!(windows) {
             "Windows Credential Manager"
         } else if cfg!(target_os = "macos") {
-            "the macOS Keychain"
+            "your Mac's Keychain"
         } else {
-            "the Linux kernel keyring"
+            "your computer's password store (GNOME Keyring or KWallet)"
         }
     }
 
     fn check(&self) -> std::result::Result<(), String> {
         match self.entry("plenipo-availability-check")?.get_password() {
             Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(plain(e)),
         }
     }
 
     fn set(&self, id: &str, value: &str) -> std::result::Result<(), String> {
-        self.entry(id)?
-            .set_password(value)
-            .map_err(|e| e.to_string())
+        self.entry(id)?.set_password(value).map_err(plain)
     }
 
     fn get(&self, id: &str) -> std::result::Result<Option<String>, String> {
         match self.entry(id)?.get_password() {
             Ok(v) => Ok(Some(v)),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(plain(e)),
         }
     }
 
     fn delete(&self, id: &str) -> std::result::Result<(), String> {
         match self.entry(id)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(plain(e)),
         }
     }
 }
@@ -396,6 +404,35 @@ mod tests {
 
     fn guard() -> Guard {
         Guard::new(Arc::new(plenipo_ledger::Ledger::open_in_memory().unwrap()))
+    }
+
+    /// ADR-153: the system's own store keeps a value, gives it back (a long one in pieces too),
+    /// and forgets it when told. Only where the machine asks for it (`PLENIPO_TEST_REAL_VAULT`,
+    /// set on GitHub's Windows, Mac, and Linux machines), so a developer's own store is never
+    /// touched by a test run.
+    #[test]
+    fn the_systems_own_store_keeps_and_forgets_a_value() {
+        if std::env::var_os("PLENIPO_TEST_REAL_VAULT").is_none() {
+            return;
+        }
+        let store = OsSecretStore::new(format!("plenipo-test-{}", uuid::Uuid::new_v4()));
+        store.check().expect("the system's store can be used here");
+        let long = "k".repeat(PIECE_CHARS * 2 + 7);
+        for (id, value) in [("short", "a-test-value"), ("long", long.as_str())] {
+            put(&store, id, value).unwrap();
+            assert_eq!(read(&store, id).unwrap().as_deref(), Some(value), "{id}");
+            erase(&store, id).unwrap();
+            assert_eq!(read(&store, id).unwrap(), None, "{id}");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_linux_pc_without_a_password_store_is_told_in_plain_words() {
+        let none = keyring::Error::PlatformFailure("no secret service".into());
+        assert_eq!(plain(none), NO_PASSWORD_STORE);
+        let locked = keyring::Error::NoStorageAccess("locked".into());
+        assert_eq!(plain(locked), PASSWORD_STORE_LOCKED);
     }
 
     #[test]

@@ -1,6 +1,9 @@
 # ADR-013: Plenipo Guard, the capability broker, and human approval
 
 - **Status:** Accepted (by the owner, 2026-09-26)
+- **Amended by:** [ADR-153 (saved keys on Linux)](ADR-153-saved-keys-on-linux.md): on Linux the
+  Vault is the desktop's password store (the Secret Service), which keeps keys after a restart;
+  the kernel keyring did not
 - **Amended by:** [ADR-048 (secrets reach only the programs they are
   for)](ADR-048-secrets-only-to-their-programs.md): a stored secret goes only to the installed
   program of that name, found on PATH; a run that would be given one asks first, even when its
