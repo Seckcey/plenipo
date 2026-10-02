@@ -855,6 +855,8 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     await page(phone, "More", "more-title");
     const toggle = await phone.$('button[role="switch"][aria-label="Notices on this phone"]');
     await toggle.waitForClickable({ timeout: 15_000 });
+    // In the middle of the screen, clear of the page's bar along the bottom.
+    await phone.execute((el) => el.scrollIntoView({ block: "center" }), toggle);
     await screenshot(phone, "phone-notices-off");
     await toggle.click();
     await waitUntil(async () => (await toggle.getAttribute("aria-checked")) === "true", "on");
@@ -873,6 +875,7 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     const away = await browser.$(
       'button[role="switch"][aria-label="Only while Plenipo\'s window is not in front"]',
     );
+    await browser.execute((el) => el.scrollIntoView({ block: "center" }), away);
     if ((await away.getAttribute("aria-checked")) === "true") await away.click();
     await screenshot(browser, "phone-pc-notifications");
 
