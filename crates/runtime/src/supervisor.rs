@@ -740,7 +740,6 @@ async fn supervise(
         ),
         Outcome::Cancelled(reason) => {
             kill_tree(child.as_mut(), config.kill_grace).await;
-            end_leavers(mark.as_deref()).await;
             (
                 ExecutionState::Cancelled,
                 None,
@@ -749,7 +748,6 @@ async fn supervise(
         }
         Outcome::TimedOut => {
             kill_tree(child.as_mut(), config.kill_grace).await;
-            end_leavers(mark.as_deref()).await;
             (
                 ExecutionState::TimedOut,
                 None,
@@ -769,7 +767,8 @@ async fn supervise(
         .is_ok();
     if !drained {
         kill_tree(child.as_mut(), config.kill_grace).await;
-        // A program that left the group can still hold the output open (ADR-158).
+        // A program that left the group can still hold the output open (ADR-158): end it now,
+        // so the output can close.
         end_leavers(mark.as_deref()).await;
         let drained_after_kill = tokio::time::timeout(config.kill_grace, drain(&mut readers))
             .await
@@ -788,10 +787,13 @@ async fn supervise(
     inner.finish(&id, state, exit_code, detail);
     let _ = done_tx.send(true);
     // The program's group ends as the child goes (kill on drop); what left the group ends with
-    // it too, as Windows' job object would end it (ADR-158). After the run is reported: nothing
-    // waits on this.
+    // it too, as Windows' job object would end it (ADR-158), however the run ended. After the
+    // run is reported, so Stop and the end of a run are never slowed by the search; a program
+    // that left the group is asked to stop within a moment of it.
     drop(child);
-    end_leavers(mark.as_deref()).await;
+    if drained {
+        end_leavers(mark.as_deref()).await;
+    }
 }
 
 /// End every program still carrying `mark` (a run's programs that left its group), off the

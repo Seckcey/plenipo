@@ -315,7 +315,10 @@ async fn child_environment_is_isolated() {
                 .iter()
                 .any(|b| b.eq_ignore_ascii_case(name))
             // Windows adds a few per-process variables (e.g. "=C:") to every child.
-            || (cfg!(windows) && name.starts_with('='));
+            || (cfg!(windows) && name.starts_with('='))
+            // A Mac's own system library sets this inside the child itself as it starts (the
+            // child reads the process list, ADR-158); Plenipo never passes it.
+            || (cfg!(target_os = "macos") && name == "__CF_USER_TEXT_ENCODING");
         assert!(allowed, "unexpected variable leaked to child: {name}");
     }
 }
