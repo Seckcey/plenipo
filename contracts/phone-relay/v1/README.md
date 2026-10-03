@@ -88,7 +88,8 @@ A pairing mailbox takes at most 3 phone connections in all, and only while the P
 (at most 10 minutes).
 
 Both sides bound a PC's phone connections: the relay allows 40 per PC (below), and the PC itself
-keeps at most 4 per phone and 96 in all, closing a phone's oldest when a newer one arrives.
+keeps at most 4 per phone and 96 in all, closing a phone's oldest unfinished connection first,
+then its oldest, when a newer one arrives. A meeting not finished within a minute is closed.
 
 ## The pass
 
