@@ -12,6 +12,8 @@
 - **Number:** Phase 23 uses ADR-150 to ADR-159
   ([ADR-150 (Phase 23 starts)](ADR-150-phase-23-starts.md)). So that the two sessions never pick
   the same number, **Phase 24 uses ADR-160 to ADR-169**, starting with this one.
+- **Amended by:** [ADR-171 (switching Community on part by part)](ADR-171-switching-on-part-by-part.md):
+  a security review at the highest effort before **each** part of Community is switched on (§7).
 
 > **On screen:** nothing. This record only changes when Phase 24 is built.
 
