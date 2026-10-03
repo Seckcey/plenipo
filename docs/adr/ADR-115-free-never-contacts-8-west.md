@@ -1,6 +1,9 @@
 # ADR-115: A Free copy never contacts 8 West
 
 - **Status:** Accepted (by the owner, 2026-09-30, as recommended)
+- **Amended by:** [ADR-162 (your 8 West account in Plenipo)](ADR-162-your-account-in-plenipo.md) §5
+  (2026-10-02): a Free copy also contacts 8 West, for Community only, while its owner is signed in
+  to Community on purpose. A Free copy that never signs in still never contacts 8 West.
 - **Date:** 2026-09-30
 - **Phase:** 11A
 - **Part of:** [ADR-100 (Phase 11A and 22: what the check found, and the owner's answers)](ADR-100-phase-11a-22-owners-answers.md)
