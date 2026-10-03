@@ -361,6 +361,18 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Find someone (an exact Community name)                                         | user lookup, handle search, member lookup                                                  |
 | Invite by email (8 West emails the address a link to join)                     | referral email, send invite link, email lookup                                             |
 | Share my profile (a link and a picture code that say how to find you)          | public profile link, vanity link, profile QR code                                          |
+| Messages (private messages between two people, in Community)                   | direct messages, chat room, inbox                                                          |
+| Requests (first messages from people you have not talked with)                 | message requests queue, pending contacts, friend requests                                  |
+| Accept (a message request, so you can talk)                                    | approve sender, allow contact, add contact                                                 |
+| Leave this conversation (deleted from this PC; their new messages stop)        | delete thread, archive chat, mute conversation                                             |
+| Delete for me (a message leaves this PC; other people keep their copies)       | delete for everyone, unsend message, remove message                                        |
+| Check the safety code (12 digits to compare with the person)                   | verify fingerprint, key verification, identity key                                         |
+| Sealed: only you and Pat can read this                                         | end-to-end encrypted, encrypted chat, secure channel                                       |
+| Pat's computers changed (their safety code changed)                            | new device key, safety number changed, key change alert                                    |
+| Waiting to be delivered / Delivered / Not delivered (a message you sent)       | message queued, delivery failed, delivery receipt                                          |
+| Give to a worker (a message's words go to a worker as outside words)           | forward to agent, send to bot, assign message                                              |
+| Photos can't be sent in Community                                              | attachments not supported, image upload blocked, file upload error                         |
+| Open this link in your web browser?                                            | follow this link, navigate to URL, external link warning                                   |
 
 ## Words that change with the system
 

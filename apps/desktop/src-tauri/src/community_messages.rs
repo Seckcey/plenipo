@@ -104,23 +104,32 @@ pub async fn community_conversations(
         .map_err(refused)
 }
 
-/// One conversation: up to 100 messages before `before` (Unix seconds; none: the newest).
-/// Opening it marks its messages seen.
+/// One conversation: up to 100 messages and reactions before the item `before` (none: the
+/// newest).
+/// Opening it marks its messages seen; only then are the other windows told, so a window that
+/// reads again when told never sets off another (two windows would otherwise wake each other
+/// for ever).
 #[tauri::command]
 pub async fn community_conversation<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, Arc<CommunityState>>,
     member_id: String,
-    before: Option<i64>,
+    before: Option<String>,
 ) -> Result<Option<ConversationView>, CommandError> {
     let ledger = ledger(&state)?;
-    let view = tauri::async_runtime::spawn_blocking(move || {
-        messages::conversation(&ledger, &member_id, before)
+    let (view, had_unseen) = tauri::async_runtime::spawn_blocking(move || {
+        let had_unseen = ledger
+            .community_unseen()
+            .is_ok_and(|unseen| unseen.iter().any(|(m, n)| *m == member_id && *n > 0));
+        messages::conversation(&ledger, &member_id, before.as_deref())
+            .map(|view| (view, had_unseen))
     })
     .await
     .map_err(|e| CommandError::internal(e.to_string()))?
     .map_err(refused)?;
-    messages_changed(&app);
+    if had_unseen {
+        messages_changed(&app);
+    }
     Ok(view)
 }
 

@@ -350,26 +350,28 @@ impl Ledger {
         })
     }
 
-    /// The conversation with one person: up to `limit` items (at most 200) before `before`
-    /// (Unix seconds; `None`: the newest), oldest first. They are in the order 8 West took them
-    /// (the sender's clock for one not taken yet), then the order this PC kept them.
+    /// The conversation with one person: up to `limit` items (at most 200) before the item
+    /// `before` (`None`: the newest), oldest first. They are in the order 8 West took them (the
+    /// sender's clock for one not taken yet), then the order this PC kept them; paging by an
+    /// item, not a time, never skips one that shares a second with it. An item that is no
+    /// longer here has nothing before it.
     pub fn community_items(
         &self,
         member_id: &str,
-        before: Option<i64>,
+        before: Option<&str>,
         limit: u32,
     ) -> Result<Vec<CommunityItem>> {
         let limit = limit.clamp(1, MOST_ITEMS);
         self.read(|c| {
             let mut stmt = c.prepare(&format!(
                 "SELECT {ITEM_COLUMNS} FROM community_items
-                 WHERE member_id = ?1 AND coalesce(accepted_at, sent_at) < ?2
+                 WHERE member_id = ?1
+                   AND (?2 IS NULL OR (coalesce(accepted_at, sent_at), rowid) <
+                        (SELECT coalesce(accepted_at, sent_at), rowid FROM community_items
+                         WHERE item_id = ?2 AND member_id = ?1))
                  ORDER BY coalesce(accepted_at, sent_at) DESC, rowid DESC LIMIT ?3"
             ))?;
-            let rows = stmt.query_map(
-                params![member_id, before.unwrap_or(i64::MAX), limit],
-                item_of,
-            )?;
+            let rows = stmt.query_map(params![member_id, before, limit], item_of)?;
             let mut items: Vec<CommunityItem> = rows.collect::<rusqlite::Result<_>>()?;
             items.reverse();
             Ok(items)
@@ -530,7 +532,23 @@ mod tests {
             Some("a.b")
         );
         assert_eq!(items[0].body["text"], "Hi there");
-        assert_eq!(l.community_items(PAT, Some(300), 50).unwrap().len(), 1);
+        assert_eq!(
+            l.community_items(PAT, Some(&id(2)), 50).unwrap().len(),
+            1,
+            "only what came before the second"
+        );
+        // Two in the same second: paging from the later one still finds the earlier one.
+        let mut same = item(&id(5), 300, true);
+        same.accepted_at = Some(301);
+        l.community_add_item(&same).unwrap();
+        let before: Vec<_> = l
+            .community_items(PAT, Some(&id(5)), 50)
+            .unwrap()
+            .into_iter()
+            .map(|i| i.item_id)
+            .collect();
+        assert_eq!(before, [id(1), id(2)]);
+        assert!(l.community_items(PAT, Some(&id(9)), 50).unwrap().is_empty());
         assert_eq!(l.community_person(PAT).unwrap().unwrap().updated_at, 301);
         assert_eq!(l.community_unseen().unwrap(), [(PAT.to_owned(), 1)]);
         l.community_mark_seen(PAT).unwrap();

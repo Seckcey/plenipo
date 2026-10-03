@@ -6,8 +6,11 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   CardView,
   CommunityView,
+  ConversationSummary,
+  ConversationView,
   Found,
   KeptOnPc,
+  MessageView,
   PeoplePage,
   RemoteSettings,
   LiveView,
@@ -1562,4 +1565,94 @@ export function inviteToCommunity(email: string): Promise<void> {
 /** **Share my profile**: your share link and its picture code. Nothing is sent. */
 export function shareMyCommunityProfile(): Promise<ShareProfile> {
   return call<ShareProfile>("share_my_community_profile");
+}
+
+// ---- Community → Messages: private messages, sealed (Phase 24, ADR-164, ADR-172, ADR-173) ----
+
+/** Your conversations and the requests waiting for you, the most recent first. */
+export function communityConversations(): Promise<ConversationSummary[]> {
+  return call<ConversationSummary[]>("community_conversations");
+}
+
+/**
+ * One conversation with one person: up to 100 messages and reactions (oldest first) before the
+ * message `before` (its `itemId`; `null` for the newest). Opening it marks its messages seen.
+ * `null` when this PC has no conversation with that person yet.
+ */
+export function communityConversation(
+  memberId: string,
+  before: string | null,
+): Promise<ConversationView | null> {
+  return call<ConversationView | null>("community_conversation", { memberId, before });
+}
+
+/**
+ * **Send** a message to a member (`name` is their Community name, for a first message). `text` is
+ * up to 4,000 characters; `replyTo` is the item ID of the message it answers. A first message to
+ * someone you don't talk with is part of Pro: the error says so in plain words (kind `partOfPro`).
+ */
+export function sendCommunityMessage(
+  to: string,
+  name: string,
+  text: string,
+  replyTo: string | null,
+): Promise<MessageView> {
+  return call<MessageView>("send_community_message", { to, name, text, replyTo });
+}
+
+/**
+ * React to a message with 👍 ❤️ 😂 😮 or 🙏; `null` takes your reaction back. Nothing else is
+ * accepted.
+ */
+export function reactInCommunity(itemId: string, emoji: string | null): Promise<void> {
+  return call<void>("react_in_community", { itemId, emoji });
+}
+
+/** **Accept** someone's first message (a request), so you can talk. */
+export function acceptCommunityRequest(memberId: string): Promise<void> {
+  return call<void>("accept_community_request", { memberId });
+}
+
+/**
+ * **Leave this conversation**: it is deleted from this computer, and 8 West stops delivering the
+ * other person's new messages (ADR-173). Your other computers keep their copies.
+ */
+export function leaveCommunityConversation(memberId: string): Promise<void> {
+  return call<void>("leave_community_conversation", { memberId });
+}
+
+/** **Delete for me**: the message leaves this computer only. Nothing is sent (ADR-172). */
+export function deleteCommunityMessage(itemId: string): Promise<void> {
+  return call<void>("delete_community_message", { itemId });
+}
+
+/** **It matches**: you compared the safety code, so "computers changed" goes away. */
+export function communitySafetyCodeChecked(memberId: string): Promise<void> {
+  return call<void>("community_safety_code_checked", { memberId });
+}
+
+/**
+ * Open a web address from a message in your own web browser (never Plenipo's). Call it only
+ * after the person said yes to "Open this link in your web browser?". It refuses anything but a
+ * plain `https://` or `http://` address.
+ */
+export function openCommunityLink(link: string): Promise<void> {
+  return call<void>("open_community_link", { link });
+}
+
+/**
+ * **Give to a worker**: the words of a message go to the full-time position `positionId` as an
+ * objective, marked as outside words so the worker treats them as information, never as orders.
+ * `note` is what you ask it to do with them (may be empty).
+ */
+export function giveCommunityMessageToWorker(
+  itemId: string,
+  positionId: string,
+  note: string,
+): Promise<AgentSessionDetail> {
+  return call<AgentSessionDetail>("give_community_message_to_worker", {
+    itemId,
+    positionId,
+    note,
+  });
 }

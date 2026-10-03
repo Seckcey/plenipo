@@ -5522,3 +5522,448 @@ body.popout {
   overflow-wrap: anywhere;
   user-select: all;
 }
+
+/* A card's own button (Message): below its lines, on a line of its own. */
+.people-card__actions {
+  margin-top: var(--ui-space-2);
+}
+
+/* ---- Community → Messages: private messages, sealed (Phase 24, ADR-164) --------------------- */
+
+/* The list beside the open conversation; one at a time on a narrow window. */
+.messages {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+  gap: var(--ui-space-7);
+  align-items: start;
+}
+
+.messages__side {
+  display: grid;
+  gap: var(--ui-space-6);
+  min-width: 0;
+}
+
+.messages__side p {
+  margin: 0;
+}
+
+.messages__side section {
+  display: grid;
+  gap: var(--ui-space-3);
+}
+
+.view .messages h2 {
+  margin: 0;
+  font-size: var(--ui-font-lg);
+}
+
+.messages__main {
+  min-width: 0;
+}
+
+.messages__none {
+  margin: 0;
+}
+
+.messages__group {
+  display: grid;
+  gap: var(--ui-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.messages__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-space-3);
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-raised);
+  color: var(--ui-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.messages__row:hover {
+  border-color: var(--ui-accent);
+}
+
+.messages__row[aria-current="true"] {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+/* Long names break instead of pushing the list wider than its column. */
+.messages__lines {
+  display: grid;
+  gap: var(--ui-space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.messages__name {
+  font-weight: var(--ui-weight-semibold);
+}
+
+.messages__handle,
+.messages__note {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.messages__changed {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  color: var(--ui-warn-text);
+  font-size: var(--ui-font-sm);
+}
+
+/* The way back to the list shows only when the list is hidden (narrow window). */
+.conversation__header .messages__back {
+  display: none;
+}
+
+.conversation {
+  display: grid;
+  gap: var(--ui-space-4);
+  min-width: 0;
+}
+
+.conversation > p,
+.conversation__who p,
+.conversation__safety p {
+  margin: 0;
+}
+
+.conversation__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-3) var(--ui-space-5);
+}
+
+.conversation__who {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.view .conversation__who h2 {
+  margin: 0;
+}
+
+.conversation__handle {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.conversation__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2);
+}
+
+.conversation__safety {
+  display: grid;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-4) var(--ui-space-5);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface-sunken);
+}
+
+.conversation__code {
+  color: var(--ui-text-primary);
+  font-family: var(--ui-font-mono);
+  font-size: var(--ui-font-xl);
+  letter-spacing: 0.1em;
+  user-select: all;
+}
+
+.conversation__sealed {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.conversation__messages {
+  display: grid;
+  gap: var(--ui-space-3);
+  min-width: 0;
+}
+
+.conversation__messages > p {
+  margin: 0;
+}
+
+.conversation__items {
+  display: grid;
+  gap: var(--ui-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.conversation__request {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3);
+}
+
+.conversation__state {
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-sunken);
+}
+
+/* Yours lean right, theirs left; neither is wider than a comfortable line. */
+.message {
+  display: grid;
+  gap: var(--ui-space-2);
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: min(100%, 560px);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface-raised);
+}
+
+.message--mine {
+  justify-self: end;
+  background: var(--ui-accent-soft);
+}
+
+.message--theirs {
+  justify-self: start;
+}
+
+.message p {
+  margin: 0;
+}
+
+.message__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--ui-space-4);
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.message__author {
+  color: var(--ui-text-primary);
+  font-weight: var(--ui-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.message__state--waiting {
+  color: var(--ui-warn-text);
+}
+
+.message__state--delivered {
+  color: var(--ui-ok-text);
+}
+
+.message__state--notDelivered {
+  color: var(--ui-error-text);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.message__quote {
+  padding-left: var(--ui-space-3);
+  border-left: 2px solid var(--ui-border);
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+  overflow-wrap: anywhere;
+}
+
+/* Another person's words: line breaks stay, long words break, and nothing is ever a web page. */
+.message__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.message__note {
+  color: var(--ui-text-secondary);
+  font-style: italic;
+}
+
+/* A hidden character, shown: it can never disguise words. */
+.message__mark {
+  padding: 0 var(--ui-space-2);
+  border: 1px dashed var(--ui-warn-text);
+  border-radius: var(--ui-radius-sm);
+  color: var(--ui-warn-text);
+  font-size: var(--ui-font-sm);
+  white-space: nowrap;
+}
+
+.message__address {
+  font-family: var(--ui-font-mono);
+  overflow-wrap: anywhere;
+}
+
+.message__open {
+  margin-left: var(--ui-space-2);
+  padding: 0 var(--ui-space-3);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-surface);
+  color: var(--ui-accent);
+  font: inherit;
+  font-size: var(--ui-font-sm);
+  cursor: pointer;
+}
+
+.message__reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.message__reactions li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  padding: 0 var(--ui-space-3);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-surface);
+}
+
+.message__reactions .message__reaction--mine {
+  border-color: var(--ui-accent);
+}
+
+.message__reactor {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.message__actions,
+.message__picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-1) var(--ui-space-2);
+}
+
+.message__emoji {
+  min-width: 32px;
+  height: 28px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-surface);
+  font-size: var(--ui-font-lg);
+  cursor: pointer;
+}
+
+.message__emoji[aria-pressed="true"] {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+/* The box a message is written in. */
+.composer {
+  display: grid;
+  gap: var(--ui-space-3);
+}
+
+.composer textarea {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+}
+
+.composer__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-3) var(--ui-space-5);
+}
+
+.composer__hint {
+  flex: 1 1 12rem;
+  margin: 0;
+  font-size: var(--ui-font-sm);
+}
+
+.composer__count {
+  margin: 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.composer__count--full {
+  color: var(--ui-warn-text);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.composer__reply {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-space-3);
+  padding-left: var(--ui-space-3);
+  border-left: 2px solid var(--ui-accent);
+  color: var(--ui-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.composer__reply p {
+  margin: 0;
+  min-width: 0;
+}
+
+.composer .form-error,
+.composer .notice-box {
+  margin: 0;
+}
+
+.give-to-worker {
+  display: grid;
+  gap: var(--ui-space-4);
+}
+
+.give-to-worker p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.give-to-worker textarea {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+@media (max-width: 760px) {
+  /* One at a time: the list, or the open conversation with a way back. */
+  .messages {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .messages--open .messages__side,
+  .messages:not(.messages--open) .messages__main {
+    display: none;
+  }
+
+  .messages--open .conversation__header .messages__back {
+    display: inline-flex;
+  }
+
+  .message {
+    max-width: 100%;
+  }
+}

@@ -381,3 +381,67 @@ async fn a_message_8_west_cannot_check_just_now_waits_for_the_next_pick_up() {
     assert_eq!(pick_up(&pat).await.kept, 1);
     assert_eq!(texts(&pat, &frank.member_id()), [HELLO]);
 }
+
+#[tokio::test]
+async fn an_adults_message_to_a_member_under_18_waits_in_requests_and_hides_their_status() {
+    let world = World::new();
+    let frank = world.person("Frank Gonzalez", "frank-g", 1980, true).await;
+    // Born March 2011: 15 in September 2026.
+    let robin = world.person("Robin Young", "robin-y", 2011, false).await;
+    let (f, r) = (frank.member_id(), robin.member_id());
+    frank
+        .community
+        .send_message(&frank.ledger, &r, "robin-y", "Hi Robin", None)
+        .await
+        .unwrap();
+    pick_up(&robin).await;
+    assert_eq!(state(&robin, &f), "requestedByThem");
+    assert!(robin.community.view(true).member.is_some_and(|m| !m.adult));
+    robin.community.accept(&robin.ledger, &f).await.unwrap();
+    // Even talking, Frank never sees Robin's status or mood (ADR-162 §4).
+    let card = frank
+        .community
+        .card(&r)
+        .await
+        .unwrap()
+        .expect("Robin's card");
+    assert_eq!(card.status, None);
+    assert_eq!(card.mood, None);
+}
+
+#[tokio::test]
+async fn a_message_with_a_link_makes_plenipo_fetch_nothing() {
+    let world = World::new();
+    let frank = world.person("Frank Gonzalez", "frank-g", 1980, true).await;
+    let pat = world.person("Pat Lee", "pat-lee", 1985, true).await;
+    frank
+        .community
+        .send_message(
+            &frank.ledger,
+            &pat.member_id(),
+            "pat-lee",
+            "See https://example.com/x.png and <img src=https://evil.example/t.gif>",
+            None,
+        )
+        .await
+        .unwrap();
+    let before = world.service.seen().len();
+    pick_up(&pat).await;
+    let asked: Vec<String> = world.service.seen()[before..]
+        .iter()
+        .map(|s| format!("{} {}", s.method, s.path))
+        .collect();
+    // Only 8 West's own addresses, for the pick-up and its checks: never the link.
+    for a in &asked {
+        let ok = a.starts_with("GET /v1/community/items")
+            || a.starts_with("POST /v1/community/items/ack")
+            || a.starts_with("GET /v1/community/people/")
+            || a.starts_with("GET /v1/community/contacts");
+        assert!(ok, "{a}");
+    }
+    assert_eq!(
+        texts(&pat, &frank.member_id()),
+        ["See https://example.com/x.png and <img src=https://evil.example/t.gif>"],
+        "kept as the words they are"
+    );
+}
