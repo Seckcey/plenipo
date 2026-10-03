@@ -29,6 +29,8 @@ plenipo-liaison = { path = "../../../crates/liaison" }
 plenipo-licensing = { path = "../../../crates/licensing" }
 # Plenipo on your phone (Phase 14).
 plenipo-remote = { path = "../../../crates/remote" }
+# Community (Phase 24): signing in to the 8 West account, and the contract in code.
+plenipo-community = { path = "../../../crates/community" }
 plenipo-router = { path = "../../../crates/router" }
 plenipo-runtime = { path = "../../../crates/runtime" }
 plenipo-workforce = { path = "../../../crates/workforce" }
@@ -70,3 +72,5 @@ plenipo-licensing = { path = "../../../crates/licensing", features = ["test-keys
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util"] }
 tempfile = "3"
 rusqlite = { version = "0.40", features = ["bundled"] }
+# A stand-in for 8 West's account service, for Community's tests (Phase 24).
+plenipo-community = { path = "../../../crates/community", features = ["stand-in"] }

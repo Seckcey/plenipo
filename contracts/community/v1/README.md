@@ -205,7 +205,8 @@ and `terms` (the version the person accepted on screen). Answer `Me`.
 - **The name:** 3 to 30 of `a-z`, `0-9`, and `-`, starting and ending with a letter or a number,
   unique, and not one that copies 8 West or Plenipo (`8west`, `plenipo`, `support`, `admin`, and
   the like: `name_not_allowed`). A name is held for 90 days after its member leaves.
-  `PUT /v1/community/me/name`, body `{"name": "…"}`, changes it at most once every 30 days.
+  `PUT /v1/community/me/name`, body `{"name": "…"}`, changes it at most once every 30 days;
+  answer `Me`.
 - **The terms:** when 8 West changes the Community terms, `terms` in `Me` changes and every request
   that sends or starts anything answers `terms_changed` until the member accepts the new ones:
   `PUT /v1/community/me/terms`, body `{"terms": "<version>"}`, answer `Me`.
@@ -235,9 +236,10 @@ refuses a new picture (`bad_request`) while `picture` is one of them.
 256 × 256 pixels and 256 KB, not interlaced. The service checks that it is a real PNG (the chunks,
 their checksums, and that the image data unpacks to exactly the size the header says), keeps only
 the image itself (no text or other extra chunks), and answers `Me`. `DELETE
-/v1/community/me/picture` removes it.
+/v1/community/me/picture` removes it, and answers `Me` too.
 
-**Appear offline** (ADR-163 §5): `PUT /v1/community/me/presence`, body `{"appear_offline": true}`.
+**Appear offline** (ADR-163 §5): `PUT /v1/community/me/presence`, body `{"appear_offline": true}`,
+answer `Me`.
 The member leaves the directory, **New this week**, and the leaderboard at once; people who know
 them see **Offline**; and a look-up of their name answers only `request_only` (§4). `false` lists
 them again. Messages, links, and collaborations keep working.
@@ -296,6 +298,8 @@ Two members **talk** once one has accepted the other's first message (ADR-164 §
     `not_delivered`;
   - on a conversation: the other person's next items answer `not_delivered` until this member
     writes to them again. Writing again opens only this member's own side, never the other's.
+  - when **both** have left, the conversation is over: it is deleted at once, and writing again
+    is a new request (which needs `can_start`, and waits for the other person to accept it).
 - A request nobody answers (or one declined) is deleted after 30 days (ADR-168).
 - `GET /v1/community/contacts` answers `Contacts`: each `member_id`, `name`, `display_name` (only
   while the two talk; otherwise `null`), `state` (`requested_by_me`, `requested_by_them`,

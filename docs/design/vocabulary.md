@@ -341,6 +341,56 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | On the lock screen: Show what it is / Show only “Something needs you”          | notification privacy, redacted payload                                                     |
 | Already answered                                                               | stale notification, conflict, 409                                                          |
 | Add Plenipo to your Home Screen (iPhone)                                       | install the PWA, A2HS                                                                      |
+| Community (the switch) / Turn on Community                                     | social network, community feature, opt-in                                                  |
+| Sign in to your 8 West account / Enter this code / Open the sign-in page       | device authorization grant, OAuth device flow, account linking, verification URI           |
+| Signed in as … / Sign out of your account                                      | authenticated as, session, logout                                                          |
+| Leave Community                                                                | delete account, deactivate, opt out                                                        |
+| Coming soon (Community before 8 West opens it) / Check again                   | feature flag, disabled, maintenance mode                                                   |
+| Update Plenipo to use Community                                                | minimum version, deprecated client, 426                                                    |
+| Community is closed for now                                                    | service outage, kill switch                                                                |
+| Your name in Community                                                         | handle, username                                                                           |
+| Your birth month and year / Community is for people 13 and older               | date of birth, DOB, age gate, COPPA                                                        |
+| What people see (your card, with a box for each part of it)                    | profile preview, public profile, visibility settings                                       |
+| Appear offline (you leave the directory; people you talk with see Offline)     | invisible mode, ghost mode, go dark, hide presence                                         |
+| What your business does (up to 3 kinds, and one line in your words)            | industry code, business vertical, business category, tags                                  |
+| Where (a state or a country, never a town)                                     | geolocation, location data, street address                                                 |
+| Your profile (your card in Community)                                          | account details, bio, user profile                                                         |
+| Community (the section on the strip: find people who use Plenipo)              | social network feed, community hub, people portal                                          |
+| Directory (everyone listed in Community, searched by name or business)         | member list, user index, address book                                                      |
+| New this week (people who joined in the last 7 days)                           | recent signups, newest accounts, new member feed                                           |
+| Find someone (an exact Community name)                                         | user lookup, handle search, member lookup                                                  |
+| Invite by email (8 West emails the address a link to join)                     | referral email, send invite link, email lookup                                             |
+| Share my profile (a link and a picture code that say how to find you)          | public profile link, vanity link, profile QR code                                          |
+| Messages (private messages between two people, in Community)                   | direct messages, chat room, inbox                                                          |
+| Requests (first messages from people you have not talked with)                 | message requests queue, pending contacts, friend requests                                  |
+| Accept (a message request, so you can talk)                                    | approve sender, allow contact, add contact                                                 |
+| Leave this conversation (deleted from this PC; their new messages stop)        | delete thread, archive chat, mute conversation                                             |
+| Delete for me (a message leaves this PC; other people keep their copies)       | delete for everyone, unsend message, remove message                                        |
+| Check the safety code (12 digits to compare with the person)                   | verify fingerprint, key verification, identity key                                         |
+| Sealed: only you and Pat can read this                                         | end-to-end encrypted, encrypted chat, secure channel                                       |
+| Pat's computers changed (their safety code changed)                            | new device key, safety number changed, key change alert                                    |
+| Waiting to be delivered / Delivered / Not delivered (a message you sent)       | message queued, delivery failed, delivery receipt                                          |
+| Give to a worker (a message's words go to a worker as outside words)           | forward to agent, send to bot, assign message                                              |
+| Photos can't be sent in Community                                              | attachments not supported, image upload blocked, file upload error                         |
+| Open this link in your web browser?                                            | follow this link, navigate to URL, external link warning                                   |
+| Block (they can't message you or find your card; they aren't told)             | ban user, mute user, restrict account                                                      |
+| Unblock (take a block back, in the conversation or in Settings)                | unban user, lift restriction, restore access                                               |
+| Blocked (the people you blocked, in Settings → Community)                      | block list, ban list, muted users                                                          |
+| Report (tell 8 West about a person, a profile, or messages you tick)           | flag content, file a complaint, abuse ticket                                               |
+| What is wrong? (the reason you pick for a report: Spam, A scam, Hate, …)       | violation category, abuse type, policy breach                                              |
+| Report first (offered before Leave this conversation)                          | escalate first, flag before leaving                                                        |
+| Thanks. 8 West will look at this. (after a report is sent)                     | ticket created, case opened, report submitted                                              |
+| Delete my Community data from this PC (others keep their copies)               | wipe local cache, purge local data, factory reset                                          |
+| Points (what you earn when other people agree you helped; no money value)      | reward points, karma points, reputation score                                              |
+| How to earn points (the eight ways, and what each is worth)                    | earning rules, points schedule, reward table                                               |
+| Leaderboard (the top 50 by points, and your own place)                         | high-score table, ranking table, top users list                                            |
+| This week / All time (the two lists; a week starts Monday, Pacific time)       | weekly period, lifetime total, rolling total                                               |
+| Top helper this week (the badge for the most points last week)                 | weekly winner, top contributor, leaderboard champion                                       |
+| Badges (small marks on your card; each says why you have it)                   | achievements unlocked, trophies earned, reputation tiers                                   |
+| Founding member / Helper / Connector / Good neighbor / Trusted (the badges)    | achievement names, trust levels, status ranks                                              |
+| Thanked by 12 people (different people, not presses)                           | thanks count, kudos total, upvotes received                                                |
+| Getting started (Fill in your profile, Find someone, Send a message)           | onboarding checklist, first-run wizard, setup tour                                         |
+| Only people you invite by email count (for points)                             | referral link, invite code, share-link referral                                            |
 
 ## Words that change with the system
 

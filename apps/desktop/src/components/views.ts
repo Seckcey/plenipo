@@ -8,6 +8,7 @@ export type ViewId =
   | "approvals"
   | "runtimes"
   | "activity"
+  | "community"
   | "settings"
   | "diagnostics"
   | "gallery"
@@ -82,6 +83,14 @@ export const VIEWS: {
     icon: "activity",
     tooltip: "Everything that happened, in order",
   },
+  // Shown on the strip only while Community's switch is on (see `Sidebar`): someone who never
+  // turns Community on never sees it.
+  {
+    id: "community",
+    label: "Community",
+    icon: "community",
+    tooltip: "Community: find people who use Plenipo",
+  },
   { id: "settings", label: "Settings", icon: "settings", tooltip: "Settings", bottom: true },
   {
     id: "diagnostics",
@@ -101,6 +110,7 @@ export const VIEW_TITLES: Record<ViewId, string> = {
   approvals: "Approvals",
   runtimes: "AI tools",
   activity: "Activity",
+  community: "Community",
   settings: "Settings",
   diagnostics: "Diagnostics",
   gallery: "Gallery",

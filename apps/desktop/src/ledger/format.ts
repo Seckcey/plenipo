@@ -9,6 +9,7 @@ import type {
 import { HANDOFF_OUTCOME_LABEL, OUTCOME_LABEL } from "../agents/format";
 import { capabilityLabel } from "../guard/format";
 import { describeLicenseEvent } from "../license/words";
+import { describeCommunityEvent } from "../community/words";
 import { describeRemoteEvent } from "../remote/words";
 import { sentenceStart, systemWords } from "../system/words";
 
@@ -135,6 +136,8 @@ export function describeEvent(e: LedgerEvent): string {
   if (license !== null) return license;
   const phone = describeRemoteEvent(e.eventType, p);
   if (phone !== null) return phone;
+  const community = describeCommunityEvent(e.eventType, p);
+  if (community !== null) return community;
   const aiTool = describeAiToolEvent(e.eventType, p);
   if (aiTool !== null) return aiTool;
   if (e.eventType.startsWith("org.")) {

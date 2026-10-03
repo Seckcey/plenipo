@@ -349,7 +349,7 @@ pub struct SignInStart {
 }
 
 /// The code the person types on the account site (`SignInStarted`, contract §2).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignInStarted {
     /// Secret. Stays on this PC.
     pub device_code: String,
@@ -372,7 +372,7 @@ pub struct SignInToken {
 }
 
 /// The end of a sign-in (`SignedIn`, contract §2). `pass` is a secret: never log it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedIn {
     pub pass: String,
     pub device_id: String,
@@ -1146,4 +1146,26 @@ pub struct Gifs {
     pub attribution: String,
     pub results: Vec<GifResult>,
     pub next_offset: Option<u32>,
+}
+
+// The sign-in's secrets are never shown: not the device code, and never the pass.
+
+impl std::fmt::Debug for SignInStarted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignInStarted")
+            .field("user_code", &self.user_code)
+            .field("verification_uri", &self.verification_uri)
+            .field("expires_in", &self.expires_in)
+            .field("interval", &self.interval)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for SignedIn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignedIn")
+            .field("device_id", &self.device_id)
+            .field("me", &self.me)
+            .finish_non_exhaustive()
+    }
 }

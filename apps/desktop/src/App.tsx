@@ -23,6 +23,8 @@ import { subscribeDrops } from "./api/events";
 import { isRunning } from "./agents/store";
 import { useAgents } from "./agents/useAgents";
 import { ControlBanner } from "./components/ControlBanner";
+import { PeoplePage } from "./community/PeoplePage";
+import { useCommunity } from "./community/useCommunity";
 import { ALL_SCOPE, type ScopeId } from "./components/scope";
 import { ScopePicker } from "./components/ScopePicker";
 import { Sidebar } from "./components/Sidebar";
@@ -228,6 +230,8 @@ function Shell({ core }: { core: CoreState }) {
   }, []);
   const approvals = useApprovals();
   const learning = useLearning();
+  // The Community section is on the strip only while Community's switch is on (Phase 24).
+  const community = useCommunity();
   const control = useControl();
   const waiting = approvals.queue?.pending ?? [];
   const controlling = (control.status?.sessions ?? []).filter((s) => s.state === "active");
@@ -314,6 +318,7 @@ function Shell({ core }: { core: CoreState }) {
           activeCount={activeCount}
           workingCount={workingCount}
           approvalCount={approvalCount}
+          communityOn={community.view?.switchedOn === true}
         />
       }
       topBar={
@@ -481,6 +486,7 @@ function Shell({ core }: { core: CoreState }) {
           {view === "activity" && (
             <ActivityView selectedTaskId={selectedTask} onSelectTask={selectTask} onOpenPage={go} />
           )}
+          {view === "community" && <PeoplePage go={go} />}
           {view === "settings" && (
             <SettingsView
               go={go}

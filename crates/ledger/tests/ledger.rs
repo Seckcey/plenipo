@@ -74,7 +74,7 @@ fn migrations_apply_roll_back_and_reapply_cleanly() {
 
 /// A synthetic migration one past the newest real one (simulates a future Plenipo).
 const NEXT: Migration = Migration {
-    version: 13,
+    version: 14,
     name: "test_add_column",
     up: "ALTER TABLE tasks ADD COLUMN estimate_minutes INTEGER;",
     down: "ALTER TABLE tasks DROP COLUMN estimate_minutes;",

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-block-in-community"
+description = "Enables the block_in_community command without any pre-configured scope."
+commands.allow = ["block_in_community"]
+
+[[permission]]
+identifier = "deny-block-in-community"
+description = "Denies the block_in_community command without any pre-configured scope."
+commands.deny = ["block_in_community"]

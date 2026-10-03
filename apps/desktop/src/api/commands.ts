@@ -5,8 +5,20 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   Safety,
+  BlockedPerson,
+  CardView,
+  CommunityView,
+  ConversationSummary,
+  ConversationView,
+  Found,
+  GettingStarted,
   KeptOnPc,
+  LeaderboardView,
+  MessageView,
+  PeoplePage,
+  PointsView,
   RemoteSettings,
+  ReportOf,
   LiveView,
   LoanUntil,
   OwnerProfile,
@@ -71,6 +83,8 @@ import type {
   PermissionSetInput,
   PermissionsSnapshot,
   PositionPatchInput,
+  ProfileDraft,
+  ShareProfile,
   ProjectInput,
   ProjectWork,
   RoleInput,
@@ -1458,4 +1472,297 @@ export function setKeptOnPc(kept: KeptOnPc): Promise<RemoteSettings> {
 /** Settings → Notifications → **Notices on my phones** (Phase 14 part 14C). */
 export function setPhoneNotices(on: boolean): Promise<RemoteSettings> {
   return call<RemoteSettings>("set_phone_notices", { on });
+}
+
+// ---- Settings → Community: your 8 West account in Plenipo (Phase 24, ADR-162, ADR-170) ------
+
+/** Community as it is: the switch, where signing in stands, and who you are in it. */
+export function getCommunity(): Promise<CommunityView> {
+  return call<CommunityView>("get_community");
+}
+
+/**
+ * Settings → Switches → Community. On asks 8 West whether Community is open and, if it is, shows
+ * a code to sign in with. Off is Leave Community.
+ */
+export function setCommunitySwitch(on: boolean): Promise<CommunityView> {
+  return call<CommunityView>("set_community_switch", { on });
+}
+
+/** Check again (after Coming soon) and Sign in (after signing out): the same as turning it on. */
+export function checkCommunityAgain(): Promise<CommunityView> {
+  return call<CommunityView>("check_community_again");
+}
+
+/** Stop signing in: nothing was kept. */
+export function cancelCommunitySignIn(): Promise<CommunityView> {
+  return call<CommunityView>("cancel_community_sign_in");
+}
+
+/**
+ * Join Community: your Community name, your birth month and year (asked once, never the day), the
+ * terms version you agreed to on screen, and your profile with its boxes (**What people see**,
+ * ADR-163). Plenipo adds your tile's picture, status, mood, and message itself.
+ */
+export function joinCommunity(
+  name: string,
+  birthMonth: number,
+  birthYear: number,
+  terms: string,
+  profile: ProfileDraft,
+): Promise<CommunityView> {
+  return call<CommunityView>("join_community", { name, birthMonth, birthYear, terms, profile });
+}
+
+/** Save your profile and its boxes (**Your profile**). An unticked part is hidden at once. */
+export function saveCommunityProfile(profile: ProfileDraft): Promise<CommunityView> {
+  return call<CommunityView>("save_community_profile", { profile });
+}
+
+/**
+ * **Appear offline**, or not: you leave the directory, New this week, and the leaderboard, and
+ * people you talk with see you as Offline.
+ */
+export function setCommunityAppearOffline(offline: boolean): Promise<CommunityView> {
+  return call<CommunityView>("set_community_appear_offline", { offline });
+}
+
+/** Sign out of your 8 West account on this computer. You stay a member. */
+export function signOutOfCommunity(): Promise<CommunityView> {
+  return call<CommunityView>("sign_out_of_community");
+}
+
+/** Open the sign-in page, or the Community terms, in your own web browser. */
+export function openCommunityPage(page: "signIn" | "terms"): Promise<void> {
+  return call<void>("open_community_page", { page });
+}
+
+// ---- Community → People: finding people (Phase 24, ADR-163 §4, §6) ---------------------------
+
+/**
+ * **Directory**: 20 cards at a time. `q` is up to 60 characters (a name, a company, or what a
+ * business does), `kind` one business kind (`""` for any), `region` a country (`US`) or a state
+ * (`US-CA`), or `""` for anywhere. `cursor` is the `next` of the page before, or `""` for the first.
+ */
+export function communityDirectory(
+  q: string,
+  kind: string,
+  region: string,
+  cursor: string,
+): Promise<PeoplePage> {
+  return call<PeoplePage>("community_directory", { q, kind, region, cursor });
+}
+
+/** **New this week**: people who joined in the last 7 days, 20 at a time. */
+export function communityNewThisWeek(cursor: string): Promise<PeoplePage> {
+  return call<PeoplePage>("community_new_this_week", { cursor });
+}
+
+/**
+ * **Find someone** by their exact Community name (an "@" before it is fine; Plenipo makes the
+ * letters small). It answers a card, "request only", or no one, and nothing more.
+ */
+export function findInCommunity(name: string): Promise<Found> {
+  return call<Found>("find_in_community", { name });
+}
+
+/** One member's card, or `null` when you may not see it. */
+export function communityCard(memberId: string): Promise<CardView | null> {
+  return call<CardView | null>("community_card", { memberId });
+}
+
+/**
+ * One member's picture as standard base64 (a real PNG, at most 256 × 256, checked by Plenipo), or
+ * `null` when there is none. Show it only as `data:image/png;base64,…`.
+ */
+export function communityPicture(memberId: string): Promise<string | null> {
+  return call<string | null>("community_picture", { memberId });
+}
+
+/**
+ * **Invite by email**: 8 West emails the address a link to join. The answer is the same whether or
+ * not the address has an account. It needs Pro; if not, the error says so in plain words.
+ */
+export function inviteToCommunity(email: string): Promise<void> {
+  return call<void>("invite_to_community", { email });
+}
+
+/** **Share my profile**: your share link and its picture code. Nothing is sent. */
+export function shareMyCommunityProfile(): Promise<ShareProfile> {
+  return call<ShareProfile>("share_my_community_profile");
+}
+
+// ---- Community → Messages: private messages, sealed (Phase 24, ADR-164, ADR-172, ADR-173) ----
+
+/** Your conversations and the requests waiting for you, the most recent first. */
+export function communityConversations(): Promise<ConversationSummary[]> {
+  return call<ConversationSummary[]>("community_conversations");
+}
+
+/**
+ * One conversation with one person: up to 100 messages and reactions (oldest first) before the
+ * message `before` (its `itemId`; `null` for the newest). Opening it marks its messages seen.
+ * `null` when this PC has no conversation with that person yet.
+ */
+export function communityConversation(
+  memberId: string,
+  before: string | null,
+): Promise<ConversationView | null> {
+  return call<ConversationView | null>("community_conversation", { memberId, before });
+}
+
+/**
+ * **Send** a message to a member (`name` is their Community name, for a first message). `text` is
+ * up to 4,000 characters; `replyTo` is the item ID of the message it answers. A first message to
+ * someone you don't talk with is part of Pro: the error says so in plain words (kind `partOfPro`).
+ */
+export function sendCommunityMessage(
+  to: string,
+  name: string,
+  text: string,
+  replyTo: string | null,
+): Promise<MessageView> {
+  return call<MessageView>("send_community_message", { to, name, text, replyTo });
+}
+
+/**
+ * React to a message with 👍 ❤️ 😂 😮 or 🙏; `null` takes your reaction back. Nothing else is
+ * accepted.
+ */
+export function reactInCommunity(itemId: string, emoji: string | null): Promise<void> {
+  return call<void>("react_in_community", { itemId, emoji });
+}
+
+/** **Accept** someone's first message (a request), so you can talk. */
+export function acceptCommunityRequest(memberId: string): Promise<void> {
+  return call<void>("accept_community_request", { memberId });
+}
+
+/**
+ * **Leave this conversation**: it is deleted from this computer, and 8 West stops delivering the
+ * other person's new messages (ADR-173). Your other computers keep their copies.
+ */
+export function leaveCommunityConversation(memberId: string): Promise<void> {
+  return call<void>("leave_community_conversation", { memberId });
+}
+
+/** **Delete for me**: the message leaves this computer only. Nothing is sent (ADR-172). */
+export function deleteCommunityMessage(itemId: string): Promise<void> {
+  return call<void>("delete_community_message", { itemId });
+}
+
+/** **It matches**: you compared the safety code, so "computers changed" goes away. */
+export function communitySafetyCodeChecked(memberId: string): Promise<void> {
+  return call<void>("community_safety_code_checked", { memberId });
+}
+
+/**
+ * Open a web address from a message in your own web browser (never Plenipo's). Call it only
+ * after the person said yes to "Open this link in your web browser?". It refuses anything but a
+ * plain `https://` or `http://` address.
+ */
+export function openCommunityLink(link: string): Promise<void> {
+  return call<void>("open_community_link", { link });
+}
+
+/**
+ * **Give to a worker**: the words of a message go to the full-time position `positionId` as an
+ * objective, marked as outside words so the worker treats them as information, never as orders.
+ * `note` is what you ask it to do with them (may be empty).
+ */
+export function giveCommunityMessageToWorker(
+  itemId: string,
+  positionId: string,
+  note: string,
+): Promise<AgentSessionDetail> {
+  return call<AgentSessionDetail>("give_community_message_to_worker", {
+    itemId,
+    positionId,
+    note,
+  });
+}
+
+// ---- Community → Block, Report, and Delete my Community data (Phase 24, ADR-167, ADR-168) ----
+
+/**
+ * **Block** someone, by their ID and Community name. They can't message you, find your card, or
+ * link with you, and they are not told. What is on this computer stays.
+ */
+export function blockInCommunity(memberId: string, name: string): Promise<void> {
+  return call<void>("block_in_community", { memberId, name });
+}
+
+/** **Unblock** someone. Links that the block ended do not come back by themselves. */
+export function unblockInCommunity(memberId: string): Promise<void> {
+  return call<void>("unblock_in_community", { memberId });
+}
+
+/** The people you blocked, for Settings → Community → **Blocked**. */
+export function communityBlocked(): Promise<BlockedPerson[]> {
+  return call<BlockedPerson[]>("community_blocked");
+}
+
+/** **What is wrong?**, as a report sends it (the app's names; the screen has plain words). */
+export type ReportReason =
+  | "spam"
+  | "harassment"
+  | "scam"
+  | "hate"
+  | "sexual"
+  | "under13"
+  | "youngPersonRisk"
+  | "impersonation"
+  | "cheating"
+  | "other";
+
+/**
+ * **Report** a person, their profile, or messages they sent you (1 to 20, each with its proof) to
+ * 8 West. A report carries only what `of` names, the reason, and `note` (up to 1,000 characters).
+ * `block` also blocks the person once the report is made.
+ */
+export function reportInCommunity(
+  memberId: string,
+  name: string,
+  of: ReportOf,
+  reason: ReportReason,
+  note: string,
+  block: boolean,
+): Promise<void> {
+  return call<void>("report_in_community", { memberId, name, of, reason, note, block });
+}
+
+/**
+ * **Delete my Community data from this PC**: every Community conversation and message on this
+ * computer. Nothing is sent; 8 West and the other people keep theirs. Ask first.
+ */
+export function deleteMyCommunityData(): Promise<void> {
+  return call<void>("delete_my_community_data");
+}
+
+/**
+ * **Your points**: the total, this week, your places, your badges, "Thanked by 12 people", and the
+ * last 20 changes. It asks 8 West, which lets this and the leaderboard be asked 120 times an hour
+ * together: ask once each time the page shows, never on a timer.
+ */
+export function communityPoints(): Promise<PointsView> {
+  return call<PointsView>("community_points");
+}
+
+/**
+ * **Leaderboard**: the top 50 of **This week** (`allTime` false) or **All time**, and your own
+ * place. Members under 18 are not on it: do not ask for them. It asks 8 West: ask once each time
+ * the page shows and when the person picks the other list, never on a timer.
+ */
+export function communityLeaderboard(allTime: boolean): Promise<LeaderboardView> {
+  return call<LeaderboardView>("community_leaderboard", { allTime });
+}
+
+/** **Getting started**: which of its steps are done, and whether it was closed. Nothing is sent. */
+export function communityGettingStarted(): Promise<GettingStarted> {
+  return call<GettingStarted>("community_getting_started");
+}
+
+/** Close **Getting started** for good. It answers how things stand now. Nothing is sent. */
+export function closeCommunityGettingStarted(): Promise<GettingStarted> {
+  return call<GettingStarted>("close_community_getting_started");
 }

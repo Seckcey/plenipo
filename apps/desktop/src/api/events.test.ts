@@ -16,7 +16,13 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
 }));
 const listen = fake.listen;
 
-import { LEDGER_EVENT, subscribeLedgerEvents, subscribeOrganizations } from "./events";
+import {
+  COMMUNITY_MESSAGES_EVENT,
+  LEDGER_EVENT,
+  subscribeCommunityMessages,
+  subscribeLedgerEvents,
+  subscribeOrganizations,
+} from "./events";
 
 beforeEach(() => {
   listen.mockClear();
@@ -38,5 +44,20 @@ describe("a window hears its own organization's updates only (Phase 21, ADR-094 
     fake.labels.length = 0;
     await subscribeLedgerEvents(() => undefined);
     expect(listen).toHaveBeenCalledWith(LEDGER_EVENT, expect.any(Function));
+  });
+});
+
+describe("Community messages (Phase 24)", () => {
+  it("listens for plenipo://community-messages, for this window, and calls the handler", async () => {
+    fake.labels.push("org-0123456789abcdef0123456789abcdef");
+    const handler = vi.fn();
+    await subscribeCommunityMessages(handler);
+    expect(COMMUNITY_MESSAGES_EVENT).toBe("plenipo://community-messages");
+    expect(listen).toHaveBeenCalledWith("plenipo://community-messages", expect.any(Function), {
+      target: { kind: "WebviewWindow", label: "org-0123456789abcdef0123456789abcdef" },
+    });
+    const call = listen.mock.calls[0] as unknown as [string, (event: { payload: string }) => void];
+    call[1]({ payload: "changed" });
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 });

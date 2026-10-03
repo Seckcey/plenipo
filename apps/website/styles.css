@@ -1508,3 +1508,23 @@ figcaption {
     animation: none !important;
   }
 }
+
+/* Share my profile (getplenipo.com/c/…): one plain page for every name. */
+.share-page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 76px 16px 48px;
+}
+.share-page h1 {
+  font-size: clamp(34px, 4vw, 52px);
+  letter-spacing: -1.5px;
+  overflow-wrap: anywhere;
+}
+.share-page ol {
+  margin: 24px 0;
+  padding-left: 1.4em;
+  line-height: 1.6;
+}
+.share-page li + li {
+  margin-top: 8px;
+}

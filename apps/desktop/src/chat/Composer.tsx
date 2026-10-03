@@ -54,18 +54,18 @@ export function Composer({
     }
   };
   return (
-    <form className="composer" aria-label={`Message ${title}`} onSubmit={send}>
+    <form className="chat-composer" aria-label={`Message ${title}`} onSubmit={send}>
       {queued.length > 0 && (
-        <ol className="composer__queue" aria-label="Waiting to send">
+        <ol className="chat-composer__queue" aria-label="Waiting to send">
           {queued.map((message, i) => (
             <li key={`${i}:${message.slice(0, 20)}`}>
               <Icon name="clock" size={13} />
-              <span className="composer__queued">{message}</span>
+              <span className="chat-composer__queued">{message}</span>
               <span className="muted">goes when {title} finishes</span>
               <IconButton
                 icon="close"
                 label="Do not send this"
-                className="composer__unqueue"
+                className="chat-composer__unqueue"
                 onClick={() => onUnqueue(i)}
               />
             </li>
@@ -82,10 +82,10 @@ export function Composer({
           {problem}
         </Banner>
       )}
-      {disabledReason && <p className="composer__blocked">{disabledReason}</p>}
-      <div className={cx("composer__box", blocked && "is-blocked")}>
+      {disabledReason && <p className="chat-composer__blocked">{disabledReason}</p>}
+      <div className={cx("chat-composer__box", blocked && "is-blocked")}>
         <textarea
-          className="composer__input"
+          className="chat-composer__input"
           value={text}
           rows={2}
           maxLength={MAX_MESSAGE}
@@ -102,10 +102,10 @@ export function Composer({
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKey}
         />
-        <div className="composer__foot">
-          <span id={hint} className="composer__facts">
+        <div className="chat-composer__foot">
+          <span id={hint} className="chat-composer__facts">
             {facts.map((f) => (
-              <span key={f} className="composer__fact">
+              <span key={f} className="chat-composer__fact">
                 {f}
               </span>
             ))}
@@ -115,7 +115,7 @@ export function Composer({
             <IconButton
               icon="stop"
               label={`Stop ${title}`}
-              className="composer__stop"
+              className="chat-composer__stop"
               onClick={onStop}
             />
           )}
@@ -123,7 +123,7 @@ export function Composer({
             icon="arrowUp"
             type="submit"
             label={busy ? "Send when it finishes" : "Send"}
-            className="composer__send"
+            className="chat-composer__send"
             disabled={blocked || sending || text.trim() === ""}
           />
         </div>

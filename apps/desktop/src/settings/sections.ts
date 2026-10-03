@@ -14,6 +14,7 @@ export type SettingsSection =
   | "connections"
   | "switches"
   | "devices"
+  | "community"
   | "notifications"
   | "terminal"
   | "startAndClose"
@@ -93,6 +94,12 @@ export const SETTINGS_SECTIONS: readonly {
     get lead() {
       return `Use Plenipo from your phone: add a phone, see your phones, and choose which approvals stay on ${systemWords().thisComputer}.`;
     },
+  },
+  {
+    id: "community",
+    label: "Community",
+    icon: "workers",
+    lead: "Your 8 West account in Plenipo: sign in, your Community name, and leaving. Nothing is sent until you turn Community on.",
   },
   {
     id: "notifications",

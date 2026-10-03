@@ -175,3 +175,62 @@ test("a container build fills the page with the version it is given", async () =
     await rm(output, { recursive: true, force: true });
   }
 });
+
+test("Share my profile is one plain page for every name, never in a search engine", async () => {
+  const output = await mkdtemp(join(tmpdir(), "plenipo-website-"));
+  try {
+    await buildWebsite(output, { env: {} });
+    const page = await readFile(join(output, "c", "index.html"), "utf8");
+    assert.match(page, /<meta name="robots" content="noindex, nofollow" \/>/);
+    assert.match(page, /8 West Ventures, LLC/);
+    // No script in the page itself, and nothing fetched: only the page's own small script.
+    assert.ok(!/<script(?![^>]*src="\/c\/share\.js")/.test(page), "only share.js runs");
+    assert.ok(!/fetch|XMLHttpRequest|https?:\/\//.test(page.replace(/<a href="\/[^"]*"/g, "")));
+    const script = await readFile(join(output, "c", "share.js"), "utf8");
+    assert.ok(
+      !/innerHTML|outerHTML|insertAdjacentHTML|document\.write|fetch|XMLHttpRequest|eval/.test(
+        script,
+      ),
+    );
+    assert.match(script, /textContent/);
+    const sitemap = await readFile(join(output, "sitemap.xml"), "utf8");
+    assert.ok(!sitemap.includes("/c/"), "never in the sitemap");
+    const robots = await readFile(join(output, "robots.txt"), "utf8");
+    assert.match(robots, /^Disallow: \/c\/$/m);
+  } finally {
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
+test("the web server gives every name the same share page, marked never to be indexed", async () => {
+  const conf = await readFile(join(websiteRoot, "nginx.conf"), "utf8");
+  assert.match(conf, /location \^~ \/c\/ \{ try_files \$uri \/c\/index\.html; \}/);
+  assert.match(conf, /~\^\/c\/ "noindex, nofollow";/);
+  // At the server's level, so every other security header still applies under /c/.
+  assert.match(conf, /add_header X-Robots-Tag \$robots_tag always;/);
+  assert.ok(!/location \^~ \/c\/ \{[^}]*add_header/.test(conf));
+});
+
+test("the share page's script shows only a Community name, as text", async () => {
+  const script = await readFile(join(websiteRoot, "public", "c", "share.js"), "utf8");
+  const run = (pathname) => {
+    const places = [{ textContent: "someone" }, { textContent: "their Community name" }];
+    const window = { location: { pathname } };
+    const document = { querySelectorAll: () => places };
+    new Function("window", "document", script)(window, document);
+    return places.map((p) => p.textContent);
+  };
+  assert.deepEqual(run("/c/frank-g"), ["@frank-g", "@frank-g"]);
+  for (const pathname of [
+    "/c/",
+    "/c/Frank",
+    "/c/<img src=x onerror=alert(1)>",
+    "/c/%3Cb%3E",
+    "/c/ab",
+    "/c/-frank",
+    "/c/frank-g/more",
+    `/c/${"a".repeat(31)}`,
+  ]) {
+    assert.deepEqual(run(pathname), ["someone", "their Community name"], pathname);
+  }
+});

@@ -13,17 +13,31 @@
 //!   contract lists, in its order. Other people's words never reach anything else unchecked.
 //! - [`stamp`]: 8 West's stamp on each item, which makes a report provable (ADR-164 §6).
 //! - [`safety`]: the 12-digit safety code two people can compare (ADR-164 §2).
+//! - `stand_in` (tests only, behind the `stand-in` feature): 8 West's account service as the
+//!   contract describes it, in memory, so Plenipo's own tests have a service to talk to.
 //!
 //! Plenipo is made by 8 West Ventures, LLC.
 
 pub mod b64;
+pub mod block_report;
+pub mod client;
 pub mod ids;
 pub mod item;
 pub mod keys;
+pub mod messages;
+pub mod people;
+pub mod profile;
+pub mod rewards;
 pub mod safety;
 pub mod seal;
+pub mod service;
+pub mod session;
 pub mod stamp;
 pub mod wire;
+
+/// 8 West's account service as the contract describes it, in memory, for the tests only.
+#[cfg(any(test, feature = "stand-in"))]
+pub mod stand_in;
 
 #[cfg(test)]
 mod vectors;
