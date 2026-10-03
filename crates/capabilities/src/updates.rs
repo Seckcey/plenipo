@@ -21,8 +21,25 @@ pub const RELEASES_ENDPOINT: &str =
     "https://github.com/Seckcey/plenipo/releases/latest/download/latest.json";
 /// Where the owner downloads versions by hand.
 pub const RELEASES_PAGE: &str = "https://github.com/Seckcey/plenipo/releases";
-/// The platform this copy installs for, as `latest.json` names it.
-pub const PLATFORM: &str = "windows-x86_64";
+/// The system this copy installs for, as `latest.json` names it (Tauri's names): Windows, a Mac
+/// with Apple's chips or Intel, or Linux (Phase 23, ADR-152).
+pub const PLATFORM: &str = if cfg!(windows) {
+    if cfg!(target_arch = "aarch64") {
+        "windows-aarch64"
+    } else {
+        "windows-x86_64"
+    }
+} else if cfg!(target_os = "macos") {
+    if cfg!(target_arch = "aarch64") {
+        "darwin-aarch64"
+    } else {
+        "darwin-x86_64"
+    }
+} else if cfg!(target_arch = "aarch64") {
+    "linux-aarch64"
+} else {
+    "linux-x86_64"
+};
 /// The most a release description may hold.
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 /// The most an installer may be.
@@ -91,25 +108,26 @@ struct Platform {
     url: String,
 }
 
-/// Read a `latest.json` for this platform.
-pub fn parse_manifest(bytes: &[u8]) -> Result<Release, UpdateError> {
+/// Read a `latest.json` for this system. `None`: the release has no download for this system
+/// (Mac and Linux downloads come in Phase 23's Waves 2 and 3), so it is not offered, as if there
+/// were no new version.
+pub fn parse_manifest(bytes: &[u8]) -> Result<Option<Release>, UpdateError> {
     let m: Manifest =
         serde_json::from_slice(bytes).map_err(|e| UpdateError::Manifest(e.to_string()))?;
     let version = m.version.trim().trim_start_matches('v').to_owned();
     semver::Version::parse(&version).map_err(|e| {
         UpdateError::Manifest(format!("its version {version:?} is not valid ({e})"))
     })?;
-    let p = m
-        .platforms
-        .get(PLATFORM)
-        .ok_or_else(|| UpdateError::Manifest(format!("it has no installer for {PLATFORM}")))?;
-    Ok(Release {
+    let Some(p) = m.platforms.get(PLATFORM) else {
+        return Ok(None);
+    };
+    Ok(Some(Release {
         version,
         notes: m.notes.unwrap_or_default(),
         pub_date: m.pub_date,
         url: p.url.clone(),
         signature: p.signature.clone(),
-    })
+    }))
 }
 
 /// `candidate` is newer than `current` (both SemVer). Pre-releases are never offered.
@@ -285,8 +303,7 @@ pub async fn check(
         MAX_MANIFEST_BYTES,
     )
     .await?;
-    let release = parse_manifest(&bytes)?;
-    Ok(is_newer(current, &release.version).then_some(release))
+    Ok(parse_manifest(&bytes)?.filter(|release| is_newer(current, &release.version)))
 }
 
 /// Download `release`'s installer and check it (both conditions above). Nothing is kept when

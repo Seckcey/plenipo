@@ -237,10 +237,12 @@ describe("Phase 13 keeping Plenipo dependable (real app)", () => {
       notes: `Plenipo ${next}: a test update.\n\n- One fix.`,
       pub_date: new Date().toISOString(),
       platforms: {
-        "windows-x86_64": {
-          signature: readFileSync(join(dir, `${installer}.sig`), "utf8").trim(),
-          url: `http://127.0.0.1:${UPDATE_PORT}/${installer}`,
-        },
+        // The system this test runs on, as Plenipo names it (Phase 23).
+        [`${{ win32: "windows", darwin: "darwin", linux: "linux" }[process.platform]}-${process.arch === "arm64" ? "aarch64" : "x86_64"}`]:
+          {
+            signature: readFileSync(join(dir, `${installer}.sig`), "utf8").trim(),
+            url: `http://127.0.0.1:${UPDATE_PORT}/${installer}`,
+          },
       },
     };
     writeFileSync(join(dir, "latest.json"), JSON.stringify(manifest));
