@@ -142,7 +142,7 @@ export function WorkspaceProvider({
   const hosts = useMemo(() => {
     const shownIn = (panel: L.PanelId): Window =>
       (layout.panels[panel].popped && popUps.find((u) => u.panel === panel)?.win) || window;
-    return { terminal: shownIn("terminal"), files: shownIn("files") };
+    return { terminal: shownIn("terminal"), files: shownIn("files"), chat: shownIn("chat") };
   }, [layout, popUps]);
 
   // Put each panel's element where the layout says: its pop-out, its dock (shown and showing

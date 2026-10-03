@@ -232,5 +232,7 @@ export function describeActivity(e: AgentEvent): {
       return { label: "Usage", text: describeUsage(e.usage) };
     case "memoryShortened":
       return { label: "Memory", text: e.detail };
+    case "status":
+      return { label: e.phase === "thinking" ? "Thinking" : "Waiting", text: e.text };
   }
 }

@@ -246,18 +246,57 @@ impl Guard {
                     .map(|(_, set)| (r.id.clone(), (*set).to_owned()))
             })
             .collect();
+        if !wanted.is_empty() {
+            self.update("guard.roles_seeded", PLENIPO, |c| {
+                let mut added = serde_json::Map::new();
+                for (role, set) in &wanted {
+                    if !c.roles.contains_key(role) {
+                        c.roles.insert(role.clone(), Some(set.clone()));
+                        added.insert(role.clone(), json!(set));
+                    }
+                }
+                Ok((!added.is_empty()).then(|| (json!({ "roles": added }), ())))
+            })?;
+        }
+        self.lighten_supervisors()
+    }
+
+    /// The starting permissions, version 2 (ADR-201, "light by default"): a Supervisor still on
+    /// the "Read only" set it started with, whose set the owner never chose, moves to "Everyday
+    /// work", so it can save files and run programs like the leaders above it. A role the owner
+    /// decided about (a `guard.role_assigned` event) is left alone, and so is a Supervisor that
+    /// has moved off "Read only" already.
+    fn lighten_supervisors(&self) -> Result<()> {
+        let config = self.config()?;
+        if config.set("everyday").is_none() {
+            return Ok(());
+        }
+        let chosen: std::collections::HashSet<String> = self
+            .ledger()
+            .events_of_types(&["guard.role_assigned"], 1000)?
+            .into_iter()
+            .filter_map(|e| e.payload["roleId"].as_str().map(str::to_owned))
+            .collect();
+        let wanted: Vec<(String, String)> = self
+            .ledger()
+            .list_roles()?
+            .into_iter()
+            .filter(|r| r.metadata["template"] == true && r.name == "Supervisor")
+            .filter(|r| config.role_set(&r.id) == Some("read-only") && !chosen.contains(&r.id))
+            .map(|r| (r.id, r.name))
+            .collect();
         if wanted.is_empty() {
             return Ok(());
         }
-        self.update("guard.roles_seeded", PLENIPO, |c| {
-            let mut added = serde_json::Map::new();
-            for (role, set) in &wanted {
-                if !c.roles.contains_key(role) {
-                    c.roles.insert(role.clone(), Some(set.clone()));
-                    added.insert(role.clone(), json!(set));
+        self.update("guard.leaders_lightened", PLENIPO, |c| {
+            let mut moved = Vec::new();
+            for (id, name) in &wanted {
+                if c.role_set(id) == Some("read-only") {
+                    c.roles.insert(id.clone(), Some("everyday".into()));
+                    moved.push(json!({ "roleId": id, "role": name, "setId": "everyday" }));
                 }
             }
-            Ok((!added.is_empty()).then(|| (json!({ "roles": added }), ())))
+            Ok((!moved.is_empty()).then(|| (json!({ "roles": moved, "from": "read-only" }), ())))
         })?;
         Ok(())
     }
@@ -380,6 +419,23 @@ impl Guard {
             }
             c.set_switches(switches);
             Ok(Some((json!({ "switches": c.switches }), ())))
+        })?;
+        Ok(())
+    }
+
+    /// How much Plenipo asks before an agent saves files or runs programs (ADR-201). It counts
+    /// from the agents' next action: a running agent's next call is judged by the new setting.
+    pub fn set_safety(&self, safety: Safety) -> Result<()> {
+        self.update("guard.safety_changed", OWNER, |c| {
+            if c.safety == safety {
+                return Ok(None);
+            }
+            let was = c.safety;
+            c.safety = safety;
+            Ok(Some((
+                json!({ "safety": safety, "was": was, "words": safety.words() }),
+                (),
+            )))
         })?;
         Ok(())
     }
@@ -646,6 +702,7 @@ impl Guard {
             secrets: config.secrets.clone(),
             websites: config.websites.clone(),
             switches: config.switches.clone(),
+            safety: config.safety,
             sets: config.sets,
         })
     }
@@ -662,9 +719,11 @@ fn project_problem(config: &GuardConfig, p: &plenipo_ledger::Project) -> Option<
         }
     }
     match &p.local_path {
+        // Its workers save their files in a folder of Plenipo's own (ADR-201), so this is a
+        // note, not a stop: a folder of its own is still better, so the owner can find the work.
         None => Some(
-            "It has no folder, so its workers cannot use files, programs, or git. Edit the \
-             project to add one."
+            "It has no folder, so its workers save their files in Plenipo's own folder inside \
+             Documents. Edit the project to choose a folder instead."
                 .into(),
         ),
         Some(path) if !std::path::Path::new(path).is_dir() => Some(format!(
@@ -770,6 +829,152 @@ mod tests {
         assert!(types.contains(&"guard.defaults_added".to_owned()));
         assert!(types.contains(&"guard.roles_seeded".to_owned()));
         assert!(types.contains(&"guard.role_assigned".to_owned()));
+    }
+
+    /// A ledger with the three leader templates, as Plenipo seeds them.
+    fn leaders_ledger() -> Arc<Ledger> {
+        let l = Arc::new(Ledger::open_in_memory().unwrap());
+        let leader = |name: &'static str, role_type| RoleTemplate {
+            name,
+            description: "",
+            role_type,
+            persistent: true,
+            metadata: json!({ "template": true }),
+            formerly: &[],
+        };
+        l.ensure_roles(
+            &[
+                leader("VP", RoleType::Superintendent),
+                leader("Manager", RoleType::DepartmentManager),
+                leader("Supervisor", RoleType::ProjectCoordinator),
+            ],
+            "test",
+        )
+        .unwrap();
+        l
+    }
+
+    fn role_id(l: &Ledger, name: &str) -> String {
+        l.list_roles()
+            .unwrap()
+            .into_iter()
+            .find(|r| r.name == name)
+            .unwrap()
+            .id
+    }
+
+    #[test]
+    fn leaders_start_with_everyday_work() {
+        // ADR-201: before, the VP and Manager had no permission set and the Supervisor could
+        // only read, so an objective given to them got an answer with no tools.
+        let l = leaders_ledger();
+        let g = Guard::new(l.clone());
+        g.seed_template_roles().unwrap();
+        let c = g.config().unwrap();
+        for name in ["VP", "Manager", "Supervisor"] {
+            assert_eq!(c.role_set(&role_id(&l, name)), Some("everyday"), "{name}");
+        }
+        let everyday = c.set("everyday").unwrap();
+        assert_eq!(everyday.level(Capability::FilesystemWrite), Level::Allowed);
+        assert_eq!(everyday.level(Capability::ShellExec), Level::Allowed);
+        assert_eq!(everyday.level(Capability::PowershellExec), Level::Allowed);
+        // Pushing, pull requests, and the websites and the screen are not part of it.
+        assert_eq!(everyday.level(Capability::GithubWrite), Level::Blocked);
+        assert_eq!(everyday.level(Capability::ComputerControl), Level::Blocked);
+        assert_eq!(c.safety, Safety::Light);
+    }
+
+    #[test]
+    fn a_supervisor_on_the_old_default_moves_up_once_and_a_choice_by_the_owner_stays() {
+        // An install from before ADR-201: the Supervisor was seeded with "Read only", the VP and
+        // Manager have no entry.
+        let l = leaders_ledger();
+        let g = Guard::new(l.clone());
+        let supervisor = role_id(&l, "Supervisor");
+        g.update("guard.roles_seeded", PLENIPO, |c| {
+            c.roles.insert(supervisor.clone(), Some("read-only".into()));
+            Ok(Some((json!({}), ())))
+        })
+        .unwrap();
+        g.seed_template_roles().unwrap();
+        assert_eq!(
+            g.config().unwrap().role_set(&supervisor),
+            Some("everyday"),
+            "the old starting default moves up"
+        );
+        assert!(l
+            .events_of_types(&["guard.leaders_lightened"], 10)
+            .unwrap()
+            .iter()
+            .any(|e| e.payload["roles"][0]["role"] == "Supervisor"));
+        // It happens once: the owner can put "Read only" back, and it stays.
+        g.assign_role(&supervisor, Some("read-only")).unwrap();
+        g.seed_template_roles().unwrap();
+        assert_eq!(g.config().unwrap().role_set(&supervisor), Some("read-only"));
+
+        // A Supervisor the owner chose "Read only" for before is left alone.
+        let l = leaders_ledger();
+        let g = Guard::new(l.clone());
+        let supervisor = role_id(&l, "Supervisor");
+        g.assign_role(&supervisor, Some("read-only")).unwrap();
+        g.seed_template_roles().unwrap();
+        assert_eq!(g.config().unwrap().role_set(&supervisor), Some("read-only"));
+    }
+
+    #[test]
+    fn an_unchanged_developer_set_becomes_light_and_a_changed_one_stays() {
+        let l = ledger();
+        let g = Guard::new(l.clone());
+        // The Developer set as v1.21 made it, never changed by the owner.
+        g.update("guard.sets_updated", PLENIPO, |c| {
+            let earlier = crate::defaults::earlier_sets();
+            let v121 = earlier
+                .iter()
+                .filter(|s| s.id == "developer")
+                .find(|s| s.levels.get(&Capability::GithubWrite) == Some(&Level::Allowed))
+                .unwrap()
+                .clone();
+            let now = c.sets.iter_mut().find(|s| s.id == "developer").unwrap();
+            now.levels = v121.levels;
+            now.description = v121.description;
+            Ok(Some((json!({}), ())))
+        })
+        .unwrap();
+        assert_eq!(
+            g.config()
+                .unwrap()
+                .set("developer")
+                .unwrap()
+                .level(Capability::PowershellExec),
+            Level::Ask
+        );
+        let g = Guard::new(l.clone());
+        assert_eq!(
+            g.config()
+                .unwrap()
+                .set("developer")
+                .unwrap()
+                .level(Capability::PowershellExec),
+            Level::Allowed,
+            "a Developer set the owner never changed is brought up to date"
+        );
+        // One the owner changed is not touched.
+        g.update("guard.set_changed", OWNER, |c| {
+            let now = c.sets.iter_mut().find(|s| s.id == "developer").unwrap();
+            now.levels
+                .insert(Capability::PowershellExec, Level::Blocked);
+            Ok(Some((json!({}), ())))
+        })
+        .unwrap();
+        let g = Guard::new(l);
+        assert_eq!(
+            g.config()
+                .unwrap()
+                .set("developer")
+                .unwrap()
+                .level(Capability::PowershellExec),
+            Level::Blocked
+        );
     }
 
     #[test]

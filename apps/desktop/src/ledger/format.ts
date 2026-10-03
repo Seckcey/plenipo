@@ -140,6 +140,8 @@ export function describeEvent(e: LedgerEvent): string {
   if (community !== null) return community;
   const aiTool = describeAiToolEvent(e.eventType, p);
   if (aiTool !== null) return aiTool;
+  const chain = describeChainEvent(e.eventType, p);
+  if (chain !== null) return chain;
   if (e.eventType.startsWith("org.")) {
     return `Organization: ${e.eventType.slice(4).replace(/_/g, " ")} ${str(p.name) ?? ""}`.trim();
   }
@@ -360,6 +362,32 @@ function describeRouterEvent(type: string, p: Record<string, unknown>): string |
 function names(list: unknown, lead: string): string {
   const all = Array.isArray(list) ? list.map(String).filter((x) => x !== "") : [];
   return all.length > 0 ? `${lead}${all.join(", ")}` : "";
+}
+
+/**
+ * The chain of command (ADR-202): your order and the leads it went past, and each result Plenipo
+ * passed up one level.
+ */
+function describeChainEvent(type: string, p: Record<string, unknown>): string | null {
+  const titleOf = (v: unknown) =>
+    typeof v === "object" && v !== null ? str((v as Record<string, unknown>).title) : null;
+  switch (type) {
+    case "chain.order": {
+      const leads = Array.isArray(p.leads) ? p.leads.map(titleOf).filter((t) => t !== null) : [];
+      const via = titleOf(p.via);
+      return `You asked ${str(p.position) ?? "an agent"} ${via ? `through ${via}` : "directly"}: “${brief(
+        p.words,
+        120,
+      )}”${leads.length > 0 ? `. Plenipo told ${leads.join(", ")}` : ""}`;
+    }
+    case "chain.report":
+      return `Plenipo passed ${str(p.from) ?? "the"}'s report up to ${str(p.to) ?? "its lead"}: ${
+        brief(p.result, 160) || "no answer"
+      }`;
+    case "chain.told":
+      return "A lead's agent heard the news from its team";
+  }
+  return null;
 }
 
 /** Phase 7: permissions given, used, blocked, and revoked, and the owner's settings. */

@@ -816,6 +816,7 @@ mod tests {
             account: Default::default(),
             reported_models: None,
             held: None,
+            uses_tools: true,
         }
     }
 

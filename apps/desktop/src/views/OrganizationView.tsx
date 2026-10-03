@@ -124,6 +124,7 @@ import { useOrganization } from "../org/useOrganization";
 import { usePlaces } from "../org/usePlaces";
 import { useOwnerProfile } from "../owner/context";
 import { useOpenWatch } from "../terminal/useTerminal";
+import { useChatIfAny } from "../chat/context";
 
 const SELECTED_KEY = "plenipo.orgSelected";
 const MODE_KEY = "plenipo.orgMode";
@@ -276,6 +277,7 @@ export function OrganizationView({
   const [preview, setPreview] = useState<TilePlace[] | null>(null);
   const { profile: owner } = useOwnerProfile();
   const openWatch = useOpenWatch();
+  const chat = useChatIfAny();
   const reducedMotion = useReducedMotion();
 
   const setMode = (next: Mode) => {
@@ -1152,6 +1154,24 @@ export function OrganizationView({
             onLent={lentMenu}
             onWatch={
               openWatch ? (id: string) => openWatch(id, byId.get(id)?.title ?? "Agent") : null
+            }
+            onChat={
+              chat
+                ? (n) => {
+                    if (n.kind === "position") {
+                      chat.open({
+                        positionId: n.position.id,
+                        sessionId: n.position.agent?.sessionId ?? null,
+                        title: n.position.title,
+                      });
+                    } else if (n.kind === "worker" && n.worker.sessionId) {
+                      chat.open({
+                        sessionId: n.worker.sessionId,
+                        title: `${byId.get(n.positionId)?.title ?? "Worker"} (on call)`,
+                      });
+                    }
+                  }
+                : null
             }
             live={canvasLive}
             onSelect={setSelected}

@@ -34,16 +34,32 @@ pub fn builtin_sets() -> Vec<PermissionSet> {
             ],
         ),
         set(
-            "developer",
-            "Developer",
-            "Reads and changes files, runs approved development commands, commits, and reads \
-             GitHub. Other programs, PowerShell scripts, pushing, and opening pull requests ask \
-             you first.",
+            "everyday",
+            "Everyday work",
+            "Reads and saves files, runs programs and PowerShell scripts, commits, and reads \
+             GitHub, all in the agent's own folder. Pushing, opening pull requests, deleting \
+             outside the folder, and running as administrator still ask you first.",
             &[
                 (FilesystemRead, Allowed),
                 (FilesystemWrite, Allowed),
                 (ShellExec, Allowed),
-                (PowershellExec, Ask),
+                (PowershellExec, Allowed),
+                (GitRead, Allowed),
+                (GitWrite, Allowed),
+                (GithubRead, Allowed),
+            ],
+        ),
+        set(
+            "developer",
+            "Developer",
+            "Reads and changes files, runs programs and PowerShell scripts, commits, and reads \
+             GitHub. Pushing, opening pull requests, deleting outside the folder, and running \
+             as administrator ask you first.",
+            &[
+                (FilesystemRead, Allowed),
+                (FilesystemWrite, Allowed),
+                (ShellExec, Allowed),
+                (PowershellExec, Allowed),
                 (GitRead, Allowed),
                 (GitWrite, Allowed),
                 (GithubRead, Allowed),
@@ -155,6 +171,23 @@ pub fn earlier_sets() -> Vec<PermissionSet> {
         set(
             "developer",
             "Developer",
+            "Reads and changes files, runs approved development commands, commits, and reads \
+             GitHub. Other programs, PowerShell scripts, pushing, and opening pull requests ask \
+             you first.",
+            &[
+                (FilesystemRead, Allowed),
+                (FilesystemWrite, Allowed),
+                (ShellExec, Allowed),
+                (PowershellExec, Ask),
+                (GitRead, Allowed),
+                (GitWrite, Allowed),
+                (GithubRead, Allowed),
+                (GithubWrite, Allowed),
+            ],
+        ),
+        set(
+            "developer",
+            "Developer",
             "Reads and changes files, runs approved development commands, and commits. \
              Other programs, PowerShell scripts, and pushing ask you first.",
             &[
@@ -192,7 +225,11 @@ pub fn earlier_sets() -> Vec<PermissionSet> {
 /// The permission set each built-in role template starts with (by template name).
 pub fn template_sets() -> &'static [(&'static str, &'static str)] {
     &[
-        ("Supervisor", "read-only"),
+        // The leaders can do small jobs themselves (ADR-201); before that the VP and Manager
+        // had no set at all, and the Supervisor could only read.
+        ("VP", "everyday"),
+        ("Manager", "everyday"),
+        ("Supervisor", "everyday"),
         ("Senior Developer", "developer"),
         ("Code Reviewer", "reviewer"),
         ("Security Auditor", "reviewer"),

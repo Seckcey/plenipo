@@ -692,6 +692,60 @@ pub struct RoleUpdate {
     pub job: RoleJob,
 }
 
+/// One of the owner's orders in a position's chain of command (ADR-202), as its chat's Tasks list
+/// shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ChainOrder {
+    /// The task it started: the turn of the conversation that took it.
+    pub task_id: String,
+    /// When the owner gave it.
+    #[ts(type = "number")]
+    pub at: u64,
+    /// Who it is for.
+    pub position_id: String,
+    pub position: String,
+    /// The lead whose conversation took it, for an on-call position's order.
+    pub via: Option<String>,
+    /// The owner's words.
+    pub words: String,
+    /// The leads it went past, nearest first: each was told.
+    pub leads: Vec<String>,
+    /// This position's part in it.
+    pub part: ChainPart,
+    pub standing: ChainStanding,
+    /// What came back up to this position, once the work ended.
+    pub result: Option<String>,
+    #[ts(type = "number | null")]
+    pub reported_at: Option<u64>,
+}
+
+/// A position's part in one of the owner's orders (ADR-202).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ChainPart {
+    /// It was given the order.
+    Doer,
+    /// Its conversation took the order for an on-call position on its team.
+    Via,
+    /// The order went past it, and it was told.
+    Told,
+}
+
+/// Where the work of one of the owner's orders stands (ADR-202).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ChainStanding {
+    Waiting,
+    Working,
+    Done,
+    Failed,
+    Stopped,
+}
+
 /// One of a project's objectives, in brief (Phase 8: the Projects page).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

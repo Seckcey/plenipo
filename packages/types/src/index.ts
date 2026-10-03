@@ -48,6 +48,7 @@ export type { AuthStatus } from "./generated/AuthStatus";
 export type { InstallState } from "./generated/InstallState";
 export type { Installation } from "./generated/Installation";
 export type { NoticeLevel } from "./generated/NoticeLevel";
+export type { StatusPhase } from "./generated/StatusPhase";
 export type { RuntimeCapabilities } from "./generated/RuntimeCapabilities";
 export type { RuntimesUpdate } from "./generated/RuntimesUpdate";
 // The AI tools page (Phase 19, ADR-058 to ADR-060).
@@ -231,6 +232,7 @@ export type { OtherSites } from "./generated/OtherSites";
 export type { Screenshot } from "./generated/Screenshot";
 export type { WebsiteRules } from "./generated/WebsiteRules";
 export type { Switches } from "./generated/Switches";
+export type { Safety } from "./generated/Safety";
 // Learning (ADR-024)
 export type { Lesson } from "./generated/Lesson";
 export type { LessonState } from "./generated/LessonState";
@@ -352,6 +354,10 @@ export type { FileContent } from "./generated/FileContent";
 export type { FileRoot } from "./generated/FileRoot";
 export type { FileRootKind } from "./generated/FileRootKind";
 export type { FileRoots } from "./generated/FileRoots";
+export type { WorkFolder } from "./generated/WorkFolder";
+export type { ChainOrder } from "./generated/ChainOrder";
+export type { ChainPart } from "./generated/ChainPart";
+export type { ChainStanding } from "./generated/ChainStanding";
 export type { FileView } from "./generated/FileView";
 export type { FolderEntry } from "./generated/FolderEntry";
 export type { FolderListing } from "./generated/FolderListing";

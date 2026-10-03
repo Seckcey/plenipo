@@ -20,11 +20,11 @@ import {
 } from "./layout";
 
 describe("the window's layout (Phase 21, ADR-092)", () => {
-  it("starts with the terminal at the bottom and Files on the left, both hidden", () => {
+  it("starts with the terminal at the bottom, Files on the left, and Chat on the right, all hidden", () => {
     const l = defaultLayout();
     expect(panelsIn(l, "bottom")).toEqual(["terminal"]);
     expect(panelsIn(l, "left")).toEqual(["files"]);
-    expect(panelsIn(l, "right")).toEqual([]);
+    expect(panelsIn(l, "right")).toEqual(["chat"]);
     expect(panelShown(l, "terminal")).toBe(false);
     expect(panelShown(l, "files")).toBe(false);
     expect(isLayout(l)).toBe(true);
@@ -91,6 +91,37 @@ describe("the window's layout (Phase 21, ADR-092)", () => {
     expect(resize(l, "left", 9000, 500).docks.left.size).toBe(500);
     // Before the work area is measured, there is no limit yet.
     expect(dockMax(l, "left", { width: 0, height: 0 })).toBe(4000);
+  });
+
+  it("starts Chat in the right dock, hidden (ADR-200)", () => {
+    const l = defaultLayout();
+    expect(panelsIn(l, "right")).toEqual(["chat"]);
+    expect(panelShown(l, "chat")).toBe(false);
+    expect(panelShown(show(l, "chat"), "chat")).toBe(true);
+  });
+
+  it("adds Chat to a layout kept before it existed, keeping the rest where it was", () => {
+    const before = {
+      version: 1,
+      panels: {
+        terminal: { dock: "left", popped: false },
+        files: { dock: "bottom", popped: true },
+      },
+      order: ["files", "terminal"],
+      docks: {
+        left: { open: true, size: 333, active: "terminal" },
+        right: { open: false, size: 420, active: null },
+        bottom: { open: false, size: 260, active: "files" },
+      },
+    };
+    const l = startingLayout(before, null);
+    expect(l.panels.terminal).toEqual({ dock: "left", popped: false });
+    expect(l.panels.files).toEqual({ dock: "bottom", popped: true });
+    expect(l.panels.chat).toEqual({ dock: "right", popped: false });
+    expect(l.order).toEqual(["files", "terminal", "chat"]);
+    expect(l.docks.left).toEqual({ open: true, size: 333, active: "terminal" });
+    expect(activeIn(l, "right")).toBe("chat");
+    expect(isLayout(l)).toBe(true);
   });
 
   it("refuses a kept layout that is not whole", () => {

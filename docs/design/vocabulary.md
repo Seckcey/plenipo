@@ -391,6 +391,20 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Thanked by 12 people (different people, not presses)                           | thanks count, kudos total, upvotes received                                                |
 | Getting started (Fill in your profile, Find someone, Send a message)           | onboarding checklist, first-run wizard, setup tour                                         |
 | Only people you invite by email count (for points)                             | referral link, invite code, share-link referral                                            |
+| Chat (a live conversation with an agent, ADR-200)                              | session view, transcript pane, agent console                                               |
+| Side by side (up to four chats at once)                                        | split view, multi-pane, tiling                                                             |
+| What it is doing now, with a timer ("Saving a file · 12 s")                    | thinking…, loading, spinner text, status: busy                                             |
+| Thought for 6 s (Claude's thinking, one line you can open)                     | reasoning tokens, chain of thought, extended thinking                                      |
+| Claude's servers are busy. Trying again in 4 s (try 2 of 10).                  | API retry, 529 overloaded, exponential backoff                                             |
+| Waits its turn / goes when it finishes (a message sent while it works)         | queued message, message queue, pending send                                                |
+| Files saved / Open folder (under an answer)                                    | artifacts, output directory, workspace path                                                |
+| Plenipo's folder (Documents → Plenipo → your organization → the agent)         | files_dir, default working directory, sandbox folder                                       |
+| Safety: Light / Careful / Strict (Settings → Safety, ADR-201)                  | permission mode, sandbox level, bypass permissions, YOLO mode                              |
+| Everyday work (the leads' starting permission set)                             | default capability profile, standard grant                                                 |
+| writes answers only (an AI tool that cannot save files or run programs)        | text-only model, no tool use, no function calling                                          |
+| Chain of command / You asked … directly / Plenipo told … (ADR-202)             | escalation path, skip-level order, notify upstream, chain.order                            |
+| Reported: … (a result passed up one level)                                     | upward report, roll-up, status propagation, chain.report                                   |
+| through its lead (an on-call worker's order)                                   | routed via coordinator, delegated proxy, forwarded handoff                                 |
 
 ## Words that change with the system
 

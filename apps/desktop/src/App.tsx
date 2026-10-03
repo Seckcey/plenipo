@@ -55,6 +55,9 @@ import { ProjectPage } from "./pages/ProjectPage";
 import { TaskPage } from "./pages/TaskPage";
 import { WorkerPage } from "./pages/WorkerPage";
 import { EditorPage } from "./files/EditorPage";
+import { ChatButton } from "./chat/ChatButton";
+import { ChatPanel } from "./chat/ChatPanel";
+import { ChatProvider } from "./chat/ChatProvider";
 import { FilesButton } from "./files/FilesButton";
 import { useFileExplorerDrops } from "./files/useObjectiveFiles";
 import { nameOf, parseFileKey } from "./files/refs";
@@ -174,11 +177,13 @@ export function App() {
     <RuntimeProvider>
       <AgentsProvider>
         <WorkspaceProvider>
-          <TerminalProvider>
-            <OwnerProvider>
-              <Shell core={core} />
-            </OwnerProvider>
-          </TerminalProvider>
+          <ChatProvider>
+            <TerminalProvider>
+              <OwnerProvider>
+                <Shell core={core} />
+              </OwnerProvider>
+            </TerminalProvider>
+          </ChatProvider>
         </WorkspaceProvider>
       </AgentsProvider>
     </RuntimeProvider>
@@ -334,6 +339,7 @@ function Shell({ core }: { core: CoreState }) {
                 </span>
               )}
               <OwnerButton />
+              <ChatButton />
               <FilesButton />
               <TerminalButton />
               <ThemeToggle theme={theme} onChange={setTheme} />
@@ -509,7 +515,13 @@ function Shell({ core }: { core: CoreState }) {
         )}
         <PanelPortals
           render={(panel) =>
-            panel === "terminal" ? <TerminalPanel theme={theme} /> : <FilesPanel go={go} />
+            panel === "terminal" ? (
+              <TerminalPanel theme={theme} />
+            ) : panel === "files" ? (
+              <FilesPanel go={go} />
+            ) : (
+              <ChatPanel go={go} />
+            )
           }
         />
       </div>

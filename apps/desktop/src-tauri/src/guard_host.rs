@@ -16,7 +16,7 @@ use plenipo_ledger::Ledger;
 use plenipo_runtime::agent::AgentRuntime;
 use plenipo_runtime::Supervisor;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Emitter as _, Runtime};
+use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
 
 use crate::runtime_host::Persistence;
 
@@ -98,17 +98,24 @@ pub fn create<R: Runtime>(
     control: ControlCenter,
 ) -> (Guard, Broker, WatchSubscribers) {
     let guard = Guard::new(ledger);
-    let (store, tickets, data): (Arc<dyn SecretStore>, _, _) = match persistence {
+    let (store, tickets, data, files): (Arc<dyn SecretStore>, _, _, _) = match persistence {
         Persistence::AppData => {
             let data = org
                 .folder
                 .clone()
                 .unwrap_or_else(|| std::env::temp_dir().join("plenipo"));
+            // Plenipo's own folder in Documents, where the owner looks for files (ADR-201).
+            let files = app
+                .path()
+                .document_dir()
+                .map(|documents| documents.join("Plenipo"))
+                .unwrap_or_else(|_| data.join("files"));
             (
                 // The organization's secrets under its own name (ADR-094 §9).
                 Arc::new(OsSecretStore::new(org.vault.clone())),
                 data.join("runtime").join("tool-tickets"),
                 data,
+                files,
             )
         }
         Persistence::InMemory => {
@@ -125,7 +132,8 @@ pub fn create<R: Runtime>(
             (
                 Arc::new(MemorySecretStore::default()),
                 temp.join("tool-tickets"),
-                temp,
+                temp.clone(),
+                temp.join("files"),
             )
         }
     };
@@ -139,6 +147,9 @@ pub fn create<R: Runtime>(
     // Plenipo's browser's own profile, and the screenshots kept as evidence (Phase 10).
     config.browser = BrowserConfig::new(data.join("browser-profile"));
     config.screenshots_dir = data.join("screenshots");
+    // Work that belongs to no project folder: `<Documents>/Plenipo/<organization>/<position>`
+    // (ADR-201), so a worker can always save its files and the owner can find them.
+    config.files_dir = Some(files);
     // Connections (Phase 20): the app ID this copy signs in to Microsoft 365 with, and the
     // stand-in for the services in copies built for the end-to-end tests.
     config.connections = connections_config();

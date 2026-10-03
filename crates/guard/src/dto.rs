@@ -276,6 +276,39 @@ impl Switches {
     }
 }
 
+/// How much Plenipo asks before an agent saves files or runs programs (ADR-201, the owner's
+/// order of 2026-10-03: "be light on restrictive permissions and let the user turn it up").
+/// One setting for the whole organization, in Settings → Safety. It never gives an agent more
+/// than its role's permission set; it only decides how much of that goes ahead without asking.
+/// The rules that keep the owner in charge have no setting: secrets and blocked files, the
+/// never-run list, deleting or overwriting outside the folder, running as administrator,
+/// sending or publishing, and money.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum Safety {
+    /// The starting choice. Agents save files and run programs and scripts in their folder
+    /// without asking, whether or not the program is on the approved list.
+    #[default]
+    Light,
+    /// How earlier versions of Plenipo started: a program that is not on the approved list,
+    /// and every PowerShell script, asks first.
+    Careful,
+    /// Agents only read. Nothing is saved, run, committed, or sent to GitHub.
+    Strict,
+}
+
+impl Safety {
+    /// The words for the audit trail and the Activity trail.
+    pub fn words(self) -> &'static str {
+        match self {
+            Self::Light => "Light",
+            Self::Careful => "Careful",
+            Self::Strict => "Strict",
+        }
+    }
+}
+
 /// Which browser is Plenipo's browser (ADR-028). The owner chooses it in Settings → Permissions
 /// → Websites; each browser keeps its own profile folder, so its sign-ins stay its own.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
@@ -491,6 +524,8 @@ pub struct GuardSettings {
     pub websites: crate::websites::WebsiteRules,
     /// The owner's on/off switches (ADR-023).
     pub switches: Switches,
+    /// How much Plenipo asks before an agent saves files or runs programs (ADR-201).
+    pub safety: Safety,
 }
 
 #[cfg(test)]

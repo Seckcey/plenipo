@@ -65,7 +65,8 @@ export function samplePermissions(patch: Partial<PermissionsSnapshot> = {}): Per
         {
           id: "proj-2",
           name: "Mobile",
-          problem: "It has no folder, so its workers cannot use files, programs, or git.",
+          problem:
+            "It has no folder, so its workers save their files in Plenipo's own folder inside Documents.",
         },
       ],
       commands: {
@@ -97,6 +98,7 @@ export function samplePermissions(patch: Partial<PermissionsSnapshot> = {}): Per
         servers: false,
         paidAiKeys: false,
       },
+      safety: "light",
       secrets: [
         {
           id: "secret-1",

@@ -5,6 +5,7 @@ import { Icon, Tabs, useStoredState } from "@plenipo/ui";
 import { ModelSettings } from "../components/models/ModelSettings";
 import { PermissionSettings } from "../components/permissions/PermissionSettings";
 import { ServerSettings } from "../components/servers/ServerSettings";
+import { SafetySettings } from "../components/SafetySettings";
 import { SwitchSettings } from "../components/SwitchSettings";
 import { TitlesSetting } from "../components/TitlesSetting";
 import type { Go } from "../components/views";
@@ -112,6 +113,7 @@ export function SettingsView({
           {current === "aiModels" && <ModelSettings go={go} />}
           {current === "spending" && <SpendingSettings go={go} />}
           {current === "permissions" && <PermissionSettings />}
+          {current === "safety" && <SafetySettings />}
           {current === "organization" && <OrganizationSettings go={go} />}
           {current === "servers" && <ServerSettings />}
           {current === "connections" && <ConnectionsSettings go={go} />}
