@@ -4,6 +4,7 @@
 
 mod support;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use plenipo_licensing::SubscriptionState;
@@ -440,6 +441,35 @@ async fn the_door_keeps_the_limits_per_address_and_in_all() {
         door_status(&open(&relay.phone_address()).await.unwrap_err()),
         Some(429)
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn idle_addresses_are_forgotten_on_the_timer() {
+    use std::sync::atomic::{AtomicI64, Ordering};
+    let time = Arc::new(AtomicI64::new(now_secs()));
+    let clock: plenipo_relay::Clock = {
+        let time = time.clone();
+        Arc::new(move || time.load(Ordering::SeqCst))
+    };
+    let relay = start_relay_with_clock(
+        Limits {
+            address_sweep: Duration::from_millis(200),
+            ..quick_limits()
+        },
+        clock,
+    )
+    .await;
+    // One connection, opened and closed within the minute: its address stays counted...
+    drop(open(&relay.phone_address()).await.unwrap());
+    wait_for(|| relay.stats().connections == 0, "the connection to go").await;
+    assert_eq!(relay.stats().addresses, 1);
+    // ...until the minute is over, when the timer forgets it.
+    time.fetch_add(61, Ordering::SeqCst);
+    wait_for(
+        || relay.stats().addresses == 0,
+        "the timer to forget the address",
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

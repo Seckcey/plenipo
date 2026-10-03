@@ -153,6 +153,7 @@ impl Hub {
             connections: st.connections,
             pcs: st.pcs.len(),
             phones: st.phones.len(),
+            addresses: st.addresses.len(),
             refused: st.refused.clone(),
             turned_away: st.turned_away,
             off: st.off,
@@ -195,7 +196,9 @@ impl Hub {
         let mut st = lock(&self.state);
         let turned = if st.off {
             Some(Turned::Off)
-        } else if st.connections >= limits.connections {
+        } else if st.connections >= limits.connections
+            || Self::no_room_for(&mut st, address, limits.addresses_remembered, now)
+        {
             Some(Turned::Full)
         } else {
             let use_ = st.addresses.entry(address).or_default();
@@ -229,13 +232,41 @@ impl Hub {
         Self::forget_idle_address(&mut st, address, now);
     }
 
-    /// An address with nothing open and nothing counted this minute takes no memory.
+    /// Forget every idle address. The relay's timer calls this ([`crate::Relay::start`]), so an
+    /// address that came once and never again takes no memory past its minute; the door calls
+    /// it too when the table is full.
+    pub fn sweep_addresses(&self) {
+        let now = self.now();
+        let mut st = lock(&self.state);
+        Self::sweep(&mut st, now);
+    }
+
+    fn sweep(st: &mut State, now: i64) {
+        st.addresses.retain(|_, u| !Self::idle(u, now));
+    }
+
+    /// Nothing open, no PC, and nothing counted this minute.
+    fn idle(u: &AddressUse, now: i64) -> bool {
+        u.open == 0 && u.pcs == 0 && u.new.count(now) == 0 && u.tries.count(now) == 0
+    }
+
+    /// Is there no room in the table for a new address? At the cap, the idle ones are forgotten
+    /// at once; only a table full of addresses with something open or counted turns one away.
+    fn no_room_for(st: &mut State, address: AddressKey, most: usize, now: i64) -> bool {
+        if st.addresses.contains_key(&address) || st.addresses.len() < most {
+            return false;
+        }
+        Self::sweep(st, now);
+        st.addresses.len() >= most
+    }
+
+    /// An idle address takes no memory once its connection or refusal is done with.
     fn forget_idle_address(st: &mut State, address: AddressKey, now: i64) {
-        let idle = st
+        if st
             .addresses
             .get(&address)
-            .is_some_and(|u| u.open == 0 && u.new.count(now) == 0 && u.tries.count(now) == 0);
-        if idle {
+            .is_some_and(|u| Self::idle(u, now))
+        {
             st.addresses.remove(&address);
         }
     }
@@ -594,5 +625,90 @@ impl Hub {
     #[cfg(feature = "test-hooks")]
     pub fn seen(&self) -> Vec<Vec<u8>> {
         lock(&self.state).seen.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    use super::*;
+    use crate::Limits;
+
+    /// A hub with a clock the test moves (Unix seconds).
+    fn hub_with_clock(limits: Limits) -> (Hub, Arc<AtomicI64>) {
+        let time = Arc::new(AtomicI64::new(1_791_000_000));
+        let clock: crate::Clock = {
+            let time = time.clone();
+            Arc::new(move || time.load(Ordering::SeqCst))
+        };
+        let hub = Hub::new(Config {
+            limits,
+            clock,
+            ..Config::default()
+        });
+        (hub, time)
+    }
+
+    /// A distinct IPv4 address for each `n`.
+    fn address(n: u32) -> AddressKey {
+        AddressKey::V4(Ipv4Addr::from(0x0A00_0000 + n))
+    }
+
+    #[test]
+    fn idle_addresses_are_forgotten_by_the_sweep() {
+        let (hub, time) = hub_with_clock(Limits::default());
+        for n in 0..10_000 {
+            hub.enter(address(n)).unwrap();
+            hub.leave(address(n));
+        }
+        // Each came this minute: still counted, so still remembered.
+        assert_eq!(hub.stats().addresses, 10_000);
+        hub.sweep_addresses();
+        assert_eq!(hub.stats().addresses, 10_000);
+        // A minute on, nothing counts for any of them.
+        time.fetch_add(61, Ordering::SeqCst);
+        hub.sweep_addresses();
+        assert_eq!(hub.stats().addresses, 0);
+    }
+
+    #[test]
+    fn the_sweep_keeps_an_address_with_something_open_or_counted() {
+        let (hub, time) = hub_with_clock(Limits::default());
+        hub.enter(address(1)).unwrap();
+        hub.enter(address(2)).unwrap();
+        hub.leave(address(2));
+        hub.refused("bad_pass", address(2));
+        time.fetch_add(61, Ordering::SeqCst);
+        hub.refused("bad_pass", address(3));
+        hub.sweep_addresses();
+        // 1 is open; 2's refusal was last minute; 3's is this minute.
+        assert_eq!(hub.stats().addresses, 2);
+        hub.leave(address(1));
+        time.fetch_add(61, Ordering::SeqCst);
+        hub.sweep_addresses();
+        assert_eq!(hub.stats().addresses, 0);
+    }
+
+    #[test]
+    fn a_full_table_is_swept_at_once_and_then_says_full() {
+        let (hub, time) = hub_with_clock(Limits {
+            addresses_remembered: 100,
+            ..Limits::default()
+        });
+        for n in 0..100 {
+            hub.enter(address(n)).unwrap();
+            hub.leave(address(n));
+        }
+        // Full, and nothing idle to forget yet: a new address is turned away...
+        assert_eq!(hub.enter(address(100)), Err(Turned::Full));
+        // ...while one already remembered still comes in.
+        hub.enter(address(5)).unwrap();
+        hub.leave(address(5));
+        // A minute on, the table is swept on the spot and the new address fits.
+        time.fetch_add(61, Ordering::SeqCst);
+        hub.enter(address(100)).unwrap();
+        assert_eq!(hub.stats().addresses, 1);
     }
 }

@@ -121,6 +121,8 @@ pub struct Stats {
     pub connections: usize,
     pub pcs: usize,
     pub phones: usize,
+    /// Addresses remembered (with open connections, or counts for this minute).
+    pub addresses: usize,
     /// Refusals so far, by code.
     pub refused: BTreeMap<String, u64>,
     /// Connections turned away at the door (over a limit, or while off).
@@ -137,6 +139,8 @@ pub struct Handle {
     address: SocketAddr,
     hub: Arc<hub::Hub>,
     stop: Arc<Notify>,
+    /// The timer that forgets idle addresses; stopped with the relay.
+    sweeper: Arc<tokio::task::JoinHandle<()>>,
 }
 
 impl Relay {
@@ -160,10 +164,26 @@ impl Relay {
         let address = listener.local_addr()?;
         let hub = Arc::new(hub::Hub::new(config));
         let stop = Arc::new(Notify::new());
+        // Addresses that came and went are forgotten on a timer, so a flood of one-time
+        // addresses cannot fill the memory (the door forgets them at once when its table is
+        // full, too).
+        let sweeper = {
+            let hub = hub.clone();
+            let every = hub.config.limits.address_sweep;
+            tokio::spawn(async move {
+                let mut tick = tokio::time::interval(every);
+                tick.tick().await;
+                loop {
+                    tick.tick().await;
+                    hub.sweep_addresses();
+                }
+            })
+        };
         let handle = Handle {
             address,
             hub: hub.clone(),
             stop: stop.clone(),
+            sweeper: Arc::new(sweeper),
         };
         tokio::spawn(async move {
             loop {
@@ -217,6 +237,7 @@ impl Handle {
     /// go.
     pub async fn shutdown(&self, grace: Duration) {
         self.stop.notify_one();
+        self.sweeper.abort();
         self.hub.close_all();
         let until = tokio::time::Instant::now() + grace;
         while self.hub.stats().connections > 0 && tokio::time::Instant::now() < until {

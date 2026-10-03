@@ -17,6 +17,12 @@ pub struct Limits {
     /// Refusals (a bad pass, a bad hello, a closed mailbox…) for one address in a minute. Over
     /// it, the door answers `429` for the rest of the minute.
     pub tries_per_address_per_minute: u32,
+    /// Addresses the relay remembers at once (each with its open connections and this minute's
+    /// counts). Idle ones are forgotten on the timer; at the cap, they are forgotten at once, and
+    /// if the table is still full, the door answers `503`.
+    pub addresses_remembered: usize,
+    /// How often idle addresses are forgotten.
+    pub address_sweep: Duration,
     /// Phone connections one PC may have at once (`too_many_tries` beyond it).
     pub phones_per_pc: usize,
     /// PCs one license (one weekly answer's key ID) may have connected at once
@@ -56,6 +62,8 @@ impl Default for Limits {
             connections_per_address: 32,
             new_per_address_per_minute: 120,
             tries_per_address_per_minute: 30,
+            addresses_remembered: 100_000,
+            address_sweep: Duration::from_secs(60),
             phones_per_pc: 40,
             pcs_per_license: 10,
             pcs_per_address: 8,
