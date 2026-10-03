@@ -329,29 +329,36 @@ pub fn check(answer: &str, facts: &Facts, wants_verdict: bool) -> Vec<String> {
     out
 }
 
-/// Finds out whether a link named in an answer exists (Phase 25, item 4.8), installed by the
-/// app: through Guard, only where the answer can be trusted.
+/// Finds out whether the links named in an answer exist (Phase 25, item 4.8), installed by the
+/// app: through Guard, only where the answer can be trusted, and only where the worker that wrote
+/// the answer could have looked itself (the security review of #156).
 pub trait LinkChecker: Send + Sync + 'static {
-    /// `Some(true)`: it exists. `Some(false)`: it doesn't. `None`: not checked.
-    fn exists(&self, url: &str) -> Option<bool>;
+    /// For each of `links`, named in the answer of the task `task_id`: `Some(true)`: it exists.
+    /// `Some(false)`: it doesn't. `None`: not checked. It answers within a few seconds, however
+    /// many links there are: a link it couldn't finish looking at is not checked.
+    fn check(&self, task_id: &str, links: &[String]) -> Vec<Option<bool>>;
 }
 
 /// Most links one answer has checked.
 const MAX_LINKS: usize = 3;
 
 /// The links an answer names that Plenipo's record doesn't already show, at most [`MAX_LINKS`]
-/// (Phase 25, item 4.8).
+/// (Phase 25, item 4.8). Only https links with no query (the part after "?") are looked at: the
+/// worker wrote them, and a query could carry what it read.
 pub fn links_to_check(answer: &str, facts: &Facts) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for word in answer.split(|c: char| {
         c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']' | '`')
     }) {
-        if !(word.starts_with("https://") || word.starts_with("http://")) {
+        if !word.starts_with("https://") {
             continue;
         }
         let link = word
             .trim_end_matches(['.', ',', ';', ':', '!', '?'])
             .to_owned();
+        if link.contains('?') {
+            continue;
+        }
         let lower = link.to_lowercase();
         let recorded = facts
             .pull_requests
@@ -368,13 +375,24 @@ pub fn links_to_check(answer: &str, facts: &Facts) -> Vec<String> {
     out
 }
 
-/// The links an answer names that don't exist, as mismatches ("names a pull request that
-/// doesn't exist: …").
-pub fn check_links(answer: &str, facts: &Facts, checker: &dyn LinkChecker) -> Vec<String> {
-    links_to_check(answer, facts)
+/// The links an answer of the task `task_id` names that don't exist, as mismatches ("names a
+/// pull request that doesn't exist: …").
+pub fn check_links(
+    answer: &str,
+    facts: &Facts,
+    checker: &dyn LinkChecker,
+    task_id: &str,
+) -> Vec<String> {
+    let links = links_to_check(answer, facts);
+    if links.is_empty() {
+        return Vec::new();
+    }
+    let found = checker.check(task_id, &links);
+    links
         .into_iter()
-        .filter(|link| checker.exists(link) == Some(false))
-        .map(|link| {
+        .zip(found)
+        .filter(|(_, found)| *found == Some(false))
+        .map(|(link, _)| {
             if link.contains("/pull/") || link.contains("/merge_requests/") {
                 format!("names a pull request that doesn't exist: {link}")
             } else {
@@ -933,14 +951,20 @@ mod tests {
     fn a_link_that_doesnt_exist_is_caught() {
         struct Stub;
         impl LinkChecker for Stub {
-            fn exists(&self, url: &str) -> Option<bool> {
-                if url.contains("missing") {
-                    Some(false)
-                } else if url.contains("private") {
-                    None
-                } else {
-                    Some(true)
-                }
+            fn check(&self, task_id: &str, links: &[String]) -> Vec<Option<bool>> {
+                assert_eq!(task_id, "t1", "asked for the task that answered");
+                links
+                    .iter()
+                    .map(|url| {
+                        if url.contains("missing") {
+                            Some(false)
+                        } else if url.contains("private") {
+                            None
+                        } else {
+                            Some(true)
+                        }
+                    })
+                    .collect()
             }
         }
         let f = facts(&[event(
@@ -961,16 +985,31 @@ mod tests {
             "at most three, and never one on the record"
         );
         assert_eq!(
-            check_links(answer, &f, &Stub),
+            check_links(answer, &f, &Stub, "t1"),
             ["names a link that doesn't exist: https://example.com/docs/missing"]
         );
         assert_eq!(
             check_links(
                 "Opened https://github.com/o/r/pull/77-missing",
                 &Facts::default(),
-                &Stub
+                &Stub,
+                "t1"
             ),
             ["names a pull request that doesn't exist: https://github.com/o/r/pull/77-missing"]
+        );
+    }
+
+    /// After the security review of #156: a link the worker wrote with a query (which could
+    /// carry what it read), or over plain http, is never looked at.
+    #[test]
+    fn links_with_a_query_or_over_plain_http_are_never_looked_at() {
+        let answer = "Docs: https://example.com/a?token=abc123 and http://intranet.local/c, \
+                      https://example.com/d#part and https://example.com/e?x#y. Seen \
+                      https://example.com/b?";
+        // A "?" that ends the sentence is punctuation, not a query.
+        assert_eq!(
+            links_to_check(answer, &Facts::default()),
+            ["https://example.com/d#part", "https://example.com/b"]
         );
     }
 

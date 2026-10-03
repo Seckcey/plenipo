@@ -1,26 +1,36 @@
-//! Whether a link named in a worker's answer exists (Phase 25, item 4.8; ADR-257, catch made-up
+//! Whether the links named in a worker's answer exist (Phase 25, item 4.8; ADR-257, catch made-up
 //! answers, step 2). Liaison asks while it checks an answer; the capability broker looks, through
-//! Guard (only the owner's allowed websites, and GitHub's own `gh` for a pull request).
+//! Guard (only the owner's allowed websites, and GitHub's own `gh` for a pull request), and only
+//! where the worker that wrote the answer could have looked itself.
 //!
-//! Liaison checks answers on threads that must not wait on async work themselves, so each look
-//! runs on a thread of its own. A link looked at in the last ten minutes is not looked at again.
+//! Liaison checks answers on threads that must not wait on async work themselves, and one of
+//! them ends the worker's turn, so an answer's looks run at once, each on a thread of its own,
+//! and Liaison waits for them [`LOOK_LIMIT`] at most (the security review of #156): a look not
+//! finished by then is "not checked". A link looked at for the same task in the last ten minutes
+//! is not looked at again.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
 
 use plenipo_capabilities::broker::links::LinkVerdict;
 use plenipo_capabilities::Broker;
 use plenipo_liaison::LinkChecker;
 
+/// The longest an answer's check waits for its links, all of them together.
+const LOOK_LIMIT: Duration = Duration::from_secs(6);
 /// How long a look at a link is remembered.
 const REMEMBER: Duration = Duration::from_secs(10 * 60);
 /// Most links remembered.
 const MAX_REMEMBERED: usize = 512;
 
+/// (task, link) → what was found, and when: a look depends on what the task's worker could reach,
+/// so it is remembered for that task only.
+type Seen = HashMap<(String, String), (Option<bool>, Instant)>;
+
 pub struct Links {
     broker: Broker,
-    seen: Mutex<HashMap<String, (Option<bool>, Instant)>>,
+    seen: Mutex<Seen>,
 }
 
 impl Links {
@@ -30,32 +40,15 @@ impl Links {
             seen: Mutex::new(HashMap::new()),
         }
     }
-}
 
-impl LinkChecker for Links {
-    fn exists(&self, url: &str) -> Option<bool> {
-        if let Some((found, at)) = self
-            .seen
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get(url)
-            .copied()
-        {
-            if at.elapsed() < REMEMBER {
-                return found;
-            }
-        }
-        let (broker, link) = (self.broker.clone(), url.to_owned());
-        let verdict = std::thread::spawn(move || {
-            tauri::async_runtime::block_on(async move { broker.check_link(&link).await })
-        })
-        .join()
-        .unwrap_or_else(|_| LinkVerdict::NotChecked("the look stopped unexpectedly".into()));
-        let found = match verdict {
-            LinkVerdict::Exists => Some(true),
-            LinkVerdict::Missing => Some(false),
-            LinkVerdict::NotChecked(_) => None,
-        };
+    fn remembered(&self, task_id: &str, url: &str) -> Option<Option<bool>> {
+        let seen = self.seen.lock().unwrap_or_else(|p| p.into_inner());
+        seen.get(&(task_id.to_owned(), url.to_owned()))
+            .filter(|(_, at)| at.elapsed() < REMEMBER)
+            .map(|(found, _)| *found)
+    }
+
+    fn remember(&self, task_id: &str, url: &str, found: Option<bool>) {
         let mut seen = self.seen.lock().unwrap_or_else(|p| p.into_inner());
         if seen.len() >= MAX_REMEMBERED {
             seen.retain(|_, (_, at)| at.elapsed() < REMEMBER);
@@ -63,7 +56,53 @@ impl LinkChecker for Links {
                 seen.clear();
             }
         }
-        seen.insert(url.to_owned(), (found, Instant::now()));
-        found
+        seen.insert(
+            (task_id.to_owned(), url.to_owned()),
+            (found, Instant::now()),
+        );
+    }
+}
+
+impl LinkChecker for Links {
+    fn check(&self, task_id: &str, links: &[String]) -> Vec<Option<bool>> {
+        let mut found: Vec<Option<Option<bool>>> = links
+            .iter()
+            .map(|url| self.remembered(task_id, url))
+            .collect();
+        let (sent, looked) = mpsc::channel();
+        for (i, url) in links
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| found[*i].is_none())
+        {
+            let (broker, task, link, sent) = (
+                self.broker.clone(),
+                task_id.to_owned(),
+                url.clone(),
+                sent.clone(),
+            );
+            std::thread::spawn(move || {
+                let verdict =
+                    tauri::async_runtime::block_on(
+                        async move { broker.check_link(&task, &link).await },
+                    );
+                // Nobody listens once the answer's check stopped waiting.
+                let _ = sent.send((i, verdict));
+            });
+        }
+        drop(sent);
+        let deadline = Instant::now() + LOOK_LIMIT;
+        while let Ok((i, verdict)) =
+            looked.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        {
+            let result = match verdict {
+                LinkVerdict::Exists => Some(true),
+                LinkVerdict::Missing => Some(false),
+                LinkVerdict::NotChecked(_) => None,
+            };
+            self.remember(task_id, &links[i], result);
+            found[i] = Some(result);
+        }
+        found.into_iter().map(Option::flatten).collect()
     }
 }

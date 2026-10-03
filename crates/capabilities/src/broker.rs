@@ -1257,6 +1257,12 @@ impl Broker {
             .map(|(c, l)| (c.id().to_owned(), *l))
             .collect();
         let folder = workspace.as_ref().map(|w| w.root().display().to_string());
+        let github = scope
+            .project
+            .as_ref()
+            .and_then(|p| self.ledger().project(&p.id).ok().flatten())
+            .and_then(|p| p.repository_url)
+            .and_then(|url| crate::github::repo_of(&url));
         self.ledger().append_event(NewEvent {
             task_id: Some(step.task_id.into()),
             source: GUARD.into(),
@@ -1269,6 +1275,8 @@ impl Broker {
                 "worker": worker,
                 "role": scope.role_name,
                 "project": scope.project.as_ref().map(|p| &p.name),
+                // The one repository its GitHub tools act on (what a link check may look at).
+                "github": github,
                 "folder": folder,
                 "workspace": place.as_ref().map(|p| json!({
                     "id": p.workspace_id,
@@ -1303,12 +1311,6 @@ impl Broker {
         if !add_ons.note.is_empty() {
             note = format!("{note}\n{}", add_ons.note);
         }
-        let github = scope
-            .project
-            .as_ref()
-            .and_then(|p| self.ledger().project(&p.id).ok().flatten())
-            .and_then(|p| p.repository_url)
-            .and_then(|url| crate::github::repo_of(&url));
         let tool_names = offered
             .iter()
             .map(|t| (*t).to_owned())

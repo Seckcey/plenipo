@@ -861,7 +861,12 @@ impl Liaison {
             let record = facts::gather(l, &task, correlation.as_deref())?;
             let mut mismatches = facts::check(answer, &record, wants_verdict(&task));
             if let Some(links) = self.link_checker() {
-                mismatches.extend(facts::check_links(answer, &record, links.as_ref()));
+                mismatches.extend(facts::check_links(
+                    answer,
+                    &record,
+                    links.as_ref(),
+                    &task.id,
+                ));
             }
             if mismatches.is_empty() {
                 return Ok(None);
@@ -2507,7 +2512,7 @@ fn build_reply(
         (HandoffOutcome::Completed, Some(t)) => {
             let mut found = facts::check(t, &record, wants_verdict(child));
             if let Some(links) = links {
-                found.extend(facts::check_links(t, &record, links));
+                found.extend(facts::check_links(t, &record, links, &child.id));
             }
             found
         }

@@ -2920,45 +2920,27 @@ async fn without_a_files_folder_work_with_no_project_has_no_file_tools() {
     );
 }
 
-/// Phase 25, item 4.8: a link named in an answer is visited only when its website is on the
-/// owner's allowed list, with one request and no redirect followed; GitHub's pages never this way
-/// (they answer "not found" for a private page).
+/// Phase 25, item 4.8: a link named in an answer is looked at only when its website is on the
+/// owner's allowed list, over https; GitHub's pages never this way (they answer "not found" for a
+/// private page). After the security review of #156, only where the worker that wrote the answer
+/// could have looked itself, without asking: a website only when its permissions let it open
+/// websites, and a pull request only in the repository its GitHub tools act on.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn links_in_answers_are_checked_only_on_allowed_websites() {
+async fn links_in_answers_are_looked_at_only_where_their_worker_could_look() {
     use plenipo_capabilities::broker::links::LinkVerdict;
-    use std::io::{Read as _, Write as _};
+    use plenipo_runtime::agent::ToolProvider;
+    let not_checked = |verdict: LinkVerdict, because: &str| match verdict {
+        LinkVerdict::NotChecked(why) => assert!(why.contains(because), "{why}"),
+        other => panic!("looked at: {other:?}"),
+    };
     let h = harness().await;
-    // A small website on this computer: /here exists; anything else is not found.
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    std::thread::spawn(move || {
-        for mut stream in listener.incoming().flatten() {
-            let mut request = Vec::new();
-            let mut buf = [0u8; 1024];
-            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
-                match stream.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => request.extend_from_slice(&buf[..n]),
-                }
-            }
-            let line = String::from_utf8_lossy(&request);
-            let status = if line.starts_with("HEAD /here ") {
-                "200 OK"
-            } else {
-                "404 Not Found"
-            };
-            let _ = write!(
-                stream,
-                "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-            );
-        }
-    });
-    let here = format!("http://127.0.0.1:{port}/here");
-    let gone = format!("http://127.0.0.1:{port}/gone");
-    // Not on the allowed list: not visited.
-    assert!(
-        matches!(h.broker.check_link(&here).await, LinkVerdict::NotChecked(why) if why.contains("not on your allowed websites"))
-    );
+    // A port nothing listens on: a look that gets as far as the website finds no answer there.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let page = format!("https://127.0.0.1:{port}/guide");
     h.guard
         .set_websites(&WebsiteRules {
             allowed: vec![format!("127.0.0.1:{port}"), "github.com".into()],
@@ -2966,14 +2948,75 @@ async fn links_in_answers_are_checked_only_on_allowed_websites() {
             others: OtherSites::Ask,
         })
         .unwrap();
-    assert_eq!(h.broker.check_link(&here).await, LinkVerdict::Exists);
-    assert_eq!(h.broker.check_link(&gone).await, LinkVerdict::Missing);
-    assert!(matches!(
-        h.broker.check_link("https://github.com/o/r/issues/1").await,
-        LinkVerdict::NotChecked(why) if why.contains("hides private pages")
-    ));
-    assert!(matches!(
-        h.broker.check_link("https://user:pw@127.0.0.1/here").await,
-        LinkVerdict::NotChecked(_)
-    ));
+    // No step on record: nowhere.
+    not_checked(
+        h.broker.check_link("no-such-task", &page).await,
+        "can't open websites",
+    );
+
+    // The developer works once. Its permissions (Developer) reach files, git, and GitHub, but
+    // no website.
+    let task = h
+        .objective(&handoff("Backend Developer", "Say hello."))
+        .await;
+    let child = h.child(&task).await;
+    h.finished(&child.id).await;
+    let (task, grant) = h.direct_grant(&h.developer).await;
+    not_checked(
+        h.broker.check_link(&task, &page).await,
+        "can't open websites",
+    );
+    // Its project names no GitHub repository, so no pull request is looked at.
+    not_checked(
+        h.broker
+            .check_link(&task, "https://github.com/acme/website/pull/7")
+            .await,
+        "don't reach that repository",
+    );
+    ToolProvider::close(&h.broker, &grant);
+
+    // Now its role may open websites without asking (Researcher): the look goes ahead.
+    let role = h.ledger.position(&h.developer).unwrap().unwrap().role_id;
+    h.guard.assign_role(&role, Some("researcher")).unwrap();
+    let (task, grant) = h.direct_grant(&h.developer).await;
+    not_checked(h.broker.check_link(&task, &page).await, "did not answer");
+    // Still only through Guard: https, no query, on the allowed list, and never GitHub's pages.
+    not_checked(
+        h.broker
+            .check_link(&task, &format!("http://127.0.0.1:{port}/guide"))
+            .await,
+        "only https",
+    );
+    not_checked(
+        h.broker
+            .check_link(&task, &format!("https://127.0.0.1:{port}/guide?key=abc"))
+            .await,
+        "\"?\"",
+    );
+    not_checked(
+        h.broker
+            .check_link(&task, "https://example.org/guide")
+            .await,
+        "not on your allowed websites",
+    );
+    not_checked(
+        h.broker
+            .check_link(&task, "https://github.com/o/r/issues/1")
+            .await,
+        "hides private pages",
+    );
+    not_checked(
+        h.broker
+            .check_link(&task, "https://user:pw@127.0.0.1/here")
+            .await,
+        "user name or password",
+    );
+    // It has no GitHub permission now.
+    not_checked(
+        h.broker
+            .check_link(&task, "https://github.com/acme/website/pull/7")
+            .await,
+        "don't reach that repository",
+    );
+    ToolProvider::close(&h.broker, &grant);
 }

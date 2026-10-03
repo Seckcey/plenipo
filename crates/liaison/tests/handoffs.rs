@@ -1258,8 +1258,11 @@ async fn an_answer_that_doesnt_match_the_record_is_sent_back_once() {
 async fn a_fake_link_in_an_answer_is_caught() {
     struct Links;
     impl plenipo_liaison::LinkChecker for Links {
-        fn exists(&self, url: &str) -> Option<bool> {
-            Some(!url.contains("missing"))
+        fn check(&self, _task_id: &str, links: &[String]) -> Vec<Option<bool>> {
+            links
+                .iter()
+                .map(|url| Some(!url.contains("missing")))
+                .collect()
         }
     }
     let h = harness().await;
