@@ -488,8 +488,8 @@ simpler screens.
         parked.
 - **Tests:** [x] each template applies cleanly, and on Free the Pro templates are locked
   (`templates_add_departments_with_their_teams_and_free_keeps_one`, the app's organization test,
-  `templates.test.tsx`). The three template commands are the main window's alone (IPC
-  `template_commands_are_the_main_windows_alone`, added after the review of #156).
+  `templates.test.tsx`). The three template commands are for Plenipo's own windows only (IPC
+  `template_commands_are_for_plenipos_own_windows_only`, added after the review of #156).
 
 ### 2.9 A real setup tour, with Driver.js — M–L
 
@@ -637,7 +637,8 @@ About 5 to 7 build sessions.
         work"). [ADR-199 (Stop all work)](../adr/ADR-199-stop-all-work.md).
   - [x] After the security review of #156: **Stop all lasts across a restart** until Allow
         again. The first organization's record turns it back on as Plenipo starts, before
-        anything can start a turn; every other organization follows it.
+        anything can start a turn; every other organization follows it. A record that can't be read
+        counts as Stop all (it fails closed).
 - **Tests:**
   - [x] after Stop all, nothing runs and nothing new starts (runtime
         `stop_all_work_stops_what_runs_and_holds_new_work_until_allowed_again`; IPC
@@ -646,7 +647,8 @@ About 5 to 7 build sessions.
         …")
   - [x] across a restart: ledger `stop_all_work_is_on_until_allowed_again_by_the_record`, desktop
         `stop_all_work_lasts_across_a_restart_until_allow_again` (and another organization's older
-        record doesn't hold it), Liaison `after_a_restart_stop_all_work_still_holds_what_starts`
+        record doesn't hold it; an unreadable record holds it), Liaison
+        `after_a_restart_stop_all_work_still_holds_what_starts`
 
 ### 3.5 Side chats with any manager or supervisor — M–L
 

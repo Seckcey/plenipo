@@ -2270,13 +2270,15 @@ mod ipc_boundary_tests {
         }
     }
 
-    /// The templates' commands (Phase 25, item 2.8) are the main window's alone: another window,
-    /// the sign, and a web page are refused by the permissions themselves, with arguments the
-    /// command would take; the main window reaches each one.
+    /// The templates' commands (Phase 25, item 2.8) are for Plenipo's own windows only (the main
+    /// window and each organization's window): another window, the sign, and a web page are
+    /// refused by the permissions themselves, with arguments the command would take; Plenipo's
+    /// own windows reach each one.
     #[test]
-    fn template_commands_are_the_main_windows_alone() {
+    fn template_commands_are_for_plenipos_own_windows_only() {
         let app = app();
         let main = window(&app, "main");
+        let org = window(&app, "org-client");
         let other = window(&app, "untrusted");
         let sign = window(&app, crate::indicator::LABEL);
         for (cmd, args) in [
@@ -2307,9 +2309,17 @@ mod ipc_boundary_tests {
                 invoke_with(&main, cmd, args.clone(), "https://example.com"),
                 "a web page",
             );
-            // The main window reaches it: any answer is the command's own.
-            if let Err(err) = invoke_json(&main, cmd, args) {
-                assert!(!err.to_string().contains("not allowed"), "{cmd}: {err}");
+            // Plenipo's own windows reach it: any answer is the command's own.
+            for (window, from) in [
+                (&main, "the main window"),
+                (&org, "an organization's window"),
+            ] {
+                if let Err(err) = invoke_json(window, cmd, args.clone()) {
+                    assert!(
+                        !err.to_string().contains("not allowed"),
+                        "{cmd} from {from}: {err}"
+                    );
+                }
             }
         }
     }
@@ -3240,6 +3250,21 @@ mod ipc_boundary_tests {
             .unwrap();
         let other = open("client", client, &control, Some(&first));
         assert!(!other.agents.work_held());
+
+        // A record that can't be read counts as Stop all (it fails closed): work waits until the
+        // owner presses Allow again.
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("ledger.db");
+        let unreadable = Arc::new(plenipo_ledger::Ledger::open(&file).unwrap());
+        rusqlite::Connection::open(&file)
+            .unwrap()
+            .execute_batch("ALTER TABLE events RENAME TO events_gone")
+            .unwrap();
+        assert!(unreadable.work_stopped_on_record().is_err());
+        let control = ControlCenter::default();
+        let first = open(orgs::FIRST, unreadable, &control, None);
+        assert!(control.status().stopped, "the PC's stop is on");
+        assert!(first.agents.work_held());
     }
 
     #[test]

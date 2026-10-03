@@ -56,5 +56,6 @@ checklist).
 
 - **Stop all lasts across a restart.** Before, its hold on the AI work was kept only in memory, so
   work could start again after Plenipo restarted. Now the first organization's record turns the
-  stop back on as Plenipo starts, until you press **Allow again**
+  stop back on as Plenipo starts, until you press **Allow again**. If that record can't be read,
+  the work waits too
   ([ADR-199 (Stop all work)](../adr/ADR-199-stop-all-work.md)).

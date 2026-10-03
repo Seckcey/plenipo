@@ -128,7 +128,9 @@ pub fn build<R: Runtime>(
     // opened meanwhile is held too. It lasts across a restart (the security review of #156): the
     // first organization, open whenever Plenipo runs, records every Stop all and Allow again, so
     // when it opens, its record turns the PC's stop back on before anything can start a turn.
-    // Every other organization follows the PC's stop, never an older record of its own.
+    // Every other organization follows the PC's stop, never an older record of its own. A record
+    // that can't be read counts as Stop all (it fails closed): the owner can press Allow again,
+    // but work started against their last press can't be taken back.
     if how.first.is_none() && !how.control.status().stopped {
         match ledger.work_stopped_on_record() {
             Ok(true) => {
@@ -138,7 +140,13 @@ pub fn build<R: Runtime>(
                 );
             }
             Ok(false) => {}
-            Err(e) => log::warn!("could not read whether Stop all work is on: {e}"),
+            Err(e) => {
+                how.control.stop_all();
+                log::warn!(
+                    "Plenipo couldn't read whether Stop all work is on ({e}), so all work waits \
+                     until you press Allow again"
+                );
+            }
         }
     }
     if how.control.status().stopped {

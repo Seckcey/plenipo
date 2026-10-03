@@ -55,7 +55,9 @@ servers, but the AI work went on, and new work kept being handed out.
   Ledger, and the first organization is open whenever Plenipo runs. So when Plenipo starts, the
   first organization's record decides: if your last press was Stop all, the stop (browser,
   screen, servers, and every AI tool's hold) is back on before anything can start a turn. Every
-  other organization follows it as it opens, never an older record of its own.
+  other organization follows it as it opens, never an older record of its own. A record that
+  can't be read counts as Stop all: you can press Allow again, but work started against your
+  last press could not be taken back.
 
 ## Consequences
 
