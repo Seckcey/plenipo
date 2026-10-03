@@ -109,3 +109,47 @@ async fn getting_started_ticks_its_three_steps_on_this_pc() {
     assert!(frank.community.getting_started().closed);
     assert_eq!(world.service.seen().len(), before, "nothing was sent");
 }
+
+#[tokio::test]
+async fn messages_earn_no_points_and_appearing_offline_leaves_the_leaderboard() {
+    let world = World::new();
+    let frank = world.person("Frank Gonzalez", "frank-g", 1980, true).await;
+    let pat = world.person("Pat Lee", "pat-lee", 1985, true).await;
+    let (f, p) = (frank.member_id(), pat.member_id());
+    frank
+        .community
+        .send_message(&frank.ledger, &p, "pat-lee", "Hi Pat", None)
+        .await
+        .unwrap();
+    pat.community.pick_up(&pat.ledger, 0).await.unwrap();
+    pat.community.accept(&pat.ledger, &f).await.unwrap();
+    frank.community.pick_up(&frank.ledger, 0).await.unwrap();
+    let after_accept = frank.community.points().await.unwrap().total;
+    for n in 0..5 {
+        world.later(5);
+        frank
+            .community
+            .send_message(&frank.ledger, &p, "pat-lee", &format!("Message {n}"), None)
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        frank.community.points().await.unwrap().total,
+        after_accept,
+        "sending messages earns nothing (ADR-169 §1)"
+    );
+
+    world
+        .service
+        .give_points(&f, 10, PointsReason::GettingStarted);
+    let on_board = |board: &plenipo_community::rewards::LeaderboardView| {
+        board.top.iter().any(|row| row.name == "frank-g")
+    };
+    assert!(on_board(&pat.community.leaderboard(false).await.unwrap()));
+    frank.community.set_appear_offline(true).await.unwrap();
+    assert!(!on_board(&pat.community.leaderboard(false).await.unwrap()));
+    assert_eq!(
+        frank.community.leaderboard(false).await.unwrap().my_place,
+        None
+    );
+}
