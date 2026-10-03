@@ -19,6 +19,7 @@ import {
 import { useChange, type Apply } from "../../routing/useChange";
 import { PILL_TONE } from "../tones";
 import { PolicyEditor } from "./RoleChoices";
+import { neverUsed } from "./neverUsed";
 import { RuleEditor } from "./RuleEditor";
 import { Refusal } from "./shared";
 
@@ -146,6 +147,7 @@ export function WhoUsesWhat({ snapshot, onApply }: { snapshot: RoutingSnapshot; 
                           empty="None listed here: a closer list, or your whole list, decides."
                           pending={pending}
                           neverHere={row.kind === "organization"}
+                          neverFrom={row.kind === "organization" ? [] : neverUsed(snapshot, {})}
                           onSave={(rule) =>
                             void saveRule(
                               row.kind === "organization"

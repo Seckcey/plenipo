@@ -242,8 +242,10 @@ Ships first, in small releases. About 2 to 3 build sessions.
   - [x] The warning names the companies and who sets the list: "Plenipo can't tell who made GitHub
         Copilot (default model), so it can't rule out DeepSeek and xAI, which Senior Developer
         never uses. It keeps your choice."
-  - [ ] Next to every AI tool picker, show the combined "never use" list and where each entry came
-        from. **Part of 2.6.**
+  - [x] Next to every AI tool picker, show the combined "never use" list and where each entry came
+        from. **Part of 2.6:** the organization's list is set in Who uses what; every other model
+        editor (an agent's own rule, a department's) says "Never used here: DeepSeek (the whole
+        organization), xAI (the Development department)." (`models/neverUsed.test.ts`)
 - **Tests:** [x] a pinned model whose maker is unknown is kept with the warning; a known maker on
   the list is still refused; automatic choices are unchanged
   (`a_fixed_model_is_refused_by_who_made_it`).
@@ -286,8 +288,8 @@ Ships first, in small releases. About 2 to 3 build sessions.
         shows files written with Plenipo's file tools, not changes made by commands (3.2).
   - [x] The Watch button on every active tile on the canvas (quieter when idle) and on the Worker
         page.
-  - [ ] Watch on the Task page, Home's "Who's working" rows, List mode, and the worker popup.
-        **Moved to 3.1**, with the live conversation that goes in the same places.
+  - [x] Watch on the Task page, Home's "Who's working" rows, List mode, and the worker popup.
+        **Moved to 3.1**, with the live conversation that goes in the same places; done there.
 - **Tests:**
   - [x] Watch on a supervisor shows its worker's changes, in memory and after a restart
         (`watch_shows_every_file_change_as_it_lands_with_its_lines`)

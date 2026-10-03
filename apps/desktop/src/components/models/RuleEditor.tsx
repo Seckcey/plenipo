@@ -20,6 +20,7 @@ import {
   readAddValue,
 } from "../../routing/format";
 import type { Apply } from "../../routing/useChange";
+import { neverUsedWords, type NeverUsed } from "./neverUsed";
 
 /** A model's effort in a list: the model's own setting, or a level its AI tool accepts. */
 export function EffortPicker({
@@ -378,6 +379,7 @@ export function RuleEditor({
   onCancel,
   onApply,
   neverHere = false,
+  neverFrom = [],
 }: {
   snapshot: RoutingSnapshot;
   rule: ModelRule;
@@ -393,6 +395,9 @@ export function RuleEditor({
   onApply?: Apply | undefined;
   /** The whole organization's rule: AI companies never to use are set here (Phase 25, 2.6). */
   neverHere?: boolean;
+  /** The AI companies never used for this work from other rules, with where each comes from
+   * (Phase 25, item 1.6). */
+  neverFrom?: readonly NeverUsed[];
 }) {
   const [models, setModels] = useState(rule.models);
   const [efforts, setEfforts] = useState<Partial<Record<string, Effort>>>(rule.efforts);
@@ -421,6 +426,7 @@ export function RuleEditor({
       ) : (
         <NeverFromBefore snapshot={snapshot} value={never} onChange={setNever} />
       )}
+      {neverUsedWords(neverFrom) && <p className="muted">{neverUsedWords(neverFrom)}</p>}
       <div className="actions">
         <Button
           type="submit"

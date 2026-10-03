@@ -29,6 +29,7 @@ import {
 } from "../../../routing/format";
 import { useRouting } from "../../../routing/useRouting";
 import { ModelPicker } from "../../models/ModelPicker";
+import { neverUsed } from "../../models/neverUsed";
 import { RuleEditor } from "../../models/RuleEditor";
 import { Field, Option, Options, Refusal, Section } from "./parts";
 import { useRun, type Run } from "./useRun";
@@ -328,6 +329,7 @@ function OwnRule({
           rule={rule}
           label={`Rule for ${p.title}`}
           empty="None listed: its role's, department's, or organization's list decides."
+          neverFrom={neverUsed(routing, { departmentId: p.departmentId, roleId: p.roleId })}
           pending={run.pending}
           onSave={(next) => void save(next)}
           onRemove={() => void save(emptyRule())}
