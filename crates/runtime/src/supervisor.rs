@@ -255,6 +255,12 @@ impl Supervisor {
     pub async fn launch(&self, spec: LaunchSpec) -> Result<ExecutionRecord, RuntimeError> {
         let inner = &self.inner;
         validate_spec(&spec)?;
+        // On a Mac and Linux, nothing a worker starts runs as root (ADR-150, the Phase 23 Guard
+        // review): it would have the whole computer. The terminal and the browser refuse too.
+        #[cfg(unix)]
+        if running_as_root() {
+            return Err(RuntimeError::NotReady(AS_ROOT.to_owned()));
+        }
         if inner.lock().shutting_down {
             return Err(RuntimeError::ShuttingDown);
         }
@@ -293,6 +299,16 @@ impl Supervisor {
         }
         inner.emit_lifecycle(record);
 
+        // On a Mac and Linux, the run's mark, which every program it starts inherits: what
+        // left the program's group is still found and ended with the run (ADR-158).
+        #[cfg(unix)]
+        let spec = {
+            let mut spec = spec;
+            spec.env
+                .push((crate::marks::MARK.to_owned(), crate::marks::for_run(&id)));
+            spec
+        };
+        let mark = cfg!(unix).then(|| crate::marks::for_run(&id));
         let pipes = spec.extra_pipes.as_ref().and_then(ExtraPipes::take);
         let Spawned {
             mut child,
@@ -362,6 +378,7 @@ impl Supervisor {
             read_limit: spec.max_line_bytes.unwrap_or(inner.config.max_line_bytes),
             observer: spec.observer,
             kept,
+            mark,
         };
         tokio::spawn(supervise(
             Arc::clone(inner),
@@ -475,6 +492,34 @@ impl Supervisor {
         let _ = tokio::time::timeout(grace, all).await;
         count
     }
+}
+
+/// Why nothing a worker starts runs while Plenipo itself runs as root (a Mac and Linux).
+pub const AS_ROOT: &str = "Plenipo is running as root, so everything a worker starts would run as                            root too. Close Plenipo and start it as yourself.";
+
+/// Whether Plenipo runs as root (its effective user), asked once; when the system cannot say,
+/// it counts as root, so nothing starts.
+#[cfg(unix)]
+pub fn running_as_root() -> bool {
+    use std::sync::OnceLock;
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+    static ROOT: OnceLock<bool> = OnceLock::new();
+    *ROOT.get_or_init(|| {
+        let Ok(me) = sysinfo::get_current_pid() else {
+            return true;
+        };
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[me]),
+            true,
+            ProcessRefreshKind::nothing().with_user(UpdateKind::Always),
+        );
+        system
+            .process(me)
+            .and_then(sysinfo::Process::effective_user_id)
+            .is_none_or(|uid| **uid == 0)
+    })
 }
 
 fn validate_spec(spec: &LaunchSpec) -> Result<(), RuntimeError> {
@@ -623,6 +668,8 @@ struct Run {
     observer: Option<mpsc::UnboundedSender<OutputLine>>,
     /// The program's group on the keeper's list (a Mac and Linux), until this run is over.
     kept: Option<crate::keeper::Kept>,
+    /// The run's mark (a Mac and Linux): what is left of its programs ends with it (ADR-158).
+    mark: Option<String>,
 }
 
 enum Outcome {
@@ -648,6 +695,7 @@ async fn supervise(
         read_limit,
         observer,
         kept: _kept,
+        mark,
     } = run;
     let (tx, rx) = mpsc::channel::<RawLine>(1024);
     let mut readers: Vec<JoinHandle<()>> = Vec::new();
@@ -719,6 +767,9 @@ async fn supervise(
         .is_ok();
     if !drained {
         kill_tree(child.as_mut(), config.kill_grace).await;
+        // A program that left the group can still hold the output open (ADR-158): end it now,
+        // so the output can close.
+        end_leavers(mark.as_deref()).await;
         let drained_after_kill = tokio::time::timeout(config.kill_grace, drain(&mut readers))
             .await
             .is_ok();
@@ -735,6 +786,26 @@ async fn supervise(
 
     inner.finish(&id, state, exit_code, detail);
     let _ = done_tx.send(true);
+    // The program's group ends as the child goes (kill on drop); what left the group ends with
+    // it too, as Windows' job object would end it (ADR-158), however the run ended. After the
+    // run is reported, so Stop and the end of a run are never slowed by the search; a program
+    // that left the group is asked to stop within a moment of it.
+    drop(child);
+    if drained {
+        end_leavers(mark.as_deref()).await;
+    }
+}
+
+/// End every program still carrying `mark` (a run's programs that left its group), off the
+/// async threads: it reads the process table and waits a moment between asking and ending.
+async fn end_leavers(mark: Option<&str>) {
+    let Some(mark) = mark.map(str::to_owned) else {
+        return;
+    };
+    let _ = tokio::task::spawn_blocking(move || {
+        crate::marks::end_marked(|m| m == mark, crate::marks::GRACE)
+    })
+    .await;
 }
 
 /// Wait for each output reader to finish, taking each off `readers` as it does: a reader that
