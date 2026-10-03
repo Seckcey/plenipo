@@ -182,7 +182,10 @@ choose **Install now**.
 **No internet is fine.** Pro keeps working for **30 days** between successful checks, so a flight,
 a dead router, or an 8 West outage never locks you out. If the check fails for any reason, Pro
 stays on and tries again later. The 30 days count from 8 West's own signed time, so changing the
-PC's clock does not change them ([ADR-116](adr/ADR-116-the-weekly-answer-is-signed.md)).
+PC's clock does not change them ([ADR-116](adr/ADR-116-the-weekly-answer-is-signed.md)). Without
+any check that went through, Pro never runs more than 30 days past the paid-through date: the one
+on your key, or a later one from 8 West's last answer when you renewed
+([ADR-211](adr/ADR-211-pro-ends-a-set-time-after-the-paid-period.md)).
 
 ## What happens if you stop paying
 
