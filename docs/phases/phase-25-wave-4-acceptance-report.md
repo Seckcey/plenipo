@@ -6,7 +6,7 @@
 | **Branch**   | `claude/relaxed-mccarthy-uxyguw` ([PR #156](https://github.com/Seckcey/plenipo/pull/156)), commits `2ec1aad` to `402d10a`                                                                             |
 | **Verified** | `pnpm check`, `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`, `pnpm bindings` (no diff), and `pnpm docs:check`, here. GitHub CI on the pull request, Windows and the E2E included. |
 | **Date**     | 2026-10-03 (Pacific time)                                                                                                                                                                             |
-| **Result**   | All eight items built. One part of 4.8, leads stopping a worker, is built differently and is for the owner to accept (section 4). Plenipo is made by 8 West Ventures, LLC.                            |
+| **Result**   | All eight items built. One part of 4.8, leads stopping their team mid-task, is moved to its own pull request (section 4). Plenipo is made by 8 West Ventures, LLC.                                    |
 
 ## In short
 
@@ -14,7 +14,8 @@ Wave 4 makes your AI plans last and catches made-up answers. Plenipo caches what
 Anthropic models, tells you when a plan runs out and picks the work back up, shows plan numbers in
 plain words, moves to your key only when you allow it, steps down to a smaller effort or model
 instead of stopping, spreads use across the week, and checks every answer against what really
-happened. **What you need to do:** run a real week (section 3), and decide on "stop" (section 4).
+happened. **What you need to do:** run a real week (section 3). You already decided on "stop":
+leads will stop their team mid-task, in its own pull request next (section 4).
 
 ## 1. Items → result
 
@@ -28,6 +29,7 @@ happened. **What you need to do:** run a real week (section 3), and decide on "s
 | 4.6 | Spread use across the week and the month                   | **Done** | `402d10a`: a fair pace per window, **Your plans**, estimated budgets; ADR-258.                   |
 | 4.7 | Catch made-up answers, step 1                              | **Done** | `f0059f2`: Plenipo's record under every answer, four plain checks, sent back once; ADR-256.      |
 | 4.8 | Catch made-up answers, step 2                              | **Done** | `2205c21`: links checked, leads send work back, a notice on repeat failures; ADR-257.            |
+|     | ↳ leads stop their team mid-task (the owner, 2026-10-03)   | **Next** | Moved to its own pull request after this one: ADR-259 (section 4).                               |
 
 The tests for each item are named in the [checklist](phase-25-checklist.md). Two worth naming:
 the router's `a_simulated_week_keeps_the_pace_and_lasts_to_the_reset` (paced, the week ends at
@@ -53,12 +55,14 @@ the router's `a_simulated_week_keeps_the_pace_and_lasts_to_the_reset` (paced, th
 - The Usage tab shows what caching saved.
 - The cost math for caching matches Anthropic's prices on your PC (ADR-081 §8).
 
-## 4. For the owner to decide
+## 4. Decided by the owner, built next
 
-- **Leads stopping a worker (4.8).** A lead waits while its team works, so it never sees a worker
-  still working, and there is nothing for it to stop. Leads can send work back instead; stopping a
-  worker at once stays yours (Stop and Stop all). Accept this, or ask for leads to stop their team
-  mid-work, which changes how leads wait (ADR-008) and is its own decision. ADR-257 explains it.
+- **Leads stop their team mid-task (4.8).** On 2026-10-03 you decided that supervisors, managers,
+  and VPs can stop their team while it works. That replaces ADR-257's "leads send work back;
+  stopping stays yours", and it changes how leads wait (ADR-008, the Liaison). So it gets its own
+  record, ADR-259 (leads stop their team mid-task), which also adds a note to ADR-257, and its own
+  pull request after this one merges. **Not in this pull request:** here, leads can send work back,
+  and stopping a worker at once stays yours (Stop on each worker, and Stop all).
 
 ## 5. Also in this wave
 

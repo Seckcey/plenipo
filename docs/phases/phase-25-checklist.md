@@ -899,9 +899,13 @@ About 6 to 8 build sessions.
         answer; one not checked is never a mismatch.
   - [x] Supervisors can **send work back** (`"sendBack"`: a finished task they handed on, to the
         worker who did it, with what to fix), recorded on both tasks. Workers still never control
-        each other. **Stop:** a lead waits while its team works, so it never sees a worker still
-        working; stopping one at once stays the owner's (3.3, 3.4). ADR-257 says why, for the
-        owner to accept.
+        each other.
+  - [ ] **Moved to its own pull request: leads stop their team mid-task.** The owner decided on
+        2026-10-03 that supervisors, managers, and VPs can stop their team while it works. That
+        replaces ADR-257's "leads send work back; stopping stays the owner's" and changes how
+        leads wait (ADR-008, the Liaison), so it gets its own record, ADR-259 (leads stop their
+        team mid-task), and its own pull request after this one merges. Until then, stopping a
+        worker at once stays the owner's (Stop and Stop all, 3.3 and 3.4).
   - [x] A notice to you when a worker's answers keep failing the check (the third in a week, then
         the tenth). Repeat failures show on its Experience ("3 answers didn't match the record").
 - **Tests:**
