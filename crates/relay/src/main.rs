@@ -64,13 +64,31 @@ fn env(name: &str) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-fn env_number<T: std::str::FromStr>(name: &str, default: T) -> Result<T, String> {
-    match env(name) {
-        None => Ok(default),
-        Some(v) => v
-            .parse::<T>()
-            .map_err(|_| format!("{name} must be a whole number, not \"{v}\"")),
+/// A count or size from the environment: a whole number of at least 1 (every one of them is a
+/// limit or a time that 0 would turn into "nothing at all" or "everything at once"), or the
+/// default when unset.
+fn env_number<T: std::str::FromStr + PartialOrd + From<u8>>(
+    name: &str,
+    default: T,
+) -> Result<T, String> {
+    number(name, env(name), default)
+}
+
+fn number<T: std::str::FromStr + PartialOrd + From<u8>>(
+    name: &str,
+    value: Option<String>,
+    default: T,
+) -> Result<T, String> {
+    let Some(v) = value else {
+        return Ok(default);
+    };
+    let n = v
+        .parse::<T>()
+        .map_err(|_| format!("{name} must be a whole number, not \"{v}\""))?;
+    if n < T::from(1) {
+        return Err(format!("{name} must be at least 1, not \"{v}\""));
     }
+    Ok(n)
 }
 
 impl Settings {
@@ -359,5 +377,29 @@ mod test_hooks {
                 refused = codes.len();
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::number;
+
+    #[test]
+    fn a_setting_is_a_whole_number_of_at_least_one_or_the_default() {
+        assert_eq!(number("X", None, 7usize), Ok(7));
+        assert_eq!(number("X", Some("12".into()), 7usize), Ok(12));
+        assert_eq!(number("X", Some("1".into()), 7usize), Ok(1));
+        assert_eq!(
+            number("X", Some("0".into()), 7usize),
+            Err("X must be at least 1, not \"0\"".into())
+        );
+        assert_eq!(
+            number("X", Some("-3".into()), 7u64),
+            Err("X must be a whole number, not \"-3\"".into())
+        );
+        assert_eq!(
+            number("X", Some("many".into()), 7u32),
+            Err("X must be a whole number, not \"many\"".into())
+        );
     }
 }

@@ -14,7 +14,7 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::Notify;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::limits::{AddressKey, Window};
+use crate::limits::{AddressKey, Limits, Window};
 use crate::{Config, Stats};
 
 pub(crate) type ConnId = String;
@@ -199,7 +199,7 @@ impl Hub {
         let turned = if st.off {
             Some(Turned::Off)
         } else if st.connections >= limits.connections
-            || Self::no_room_for(&mut st, address, limits.addresses_remembered, now)
+            || Self::no_room_for(&mut st, address, limits, now)
         {
             Some(Turned::Full)
         } else {
@@ -254,18 +254,32 @@ impl Hub {
 
     /// Is there no room in the table for a new address? At the cap, the idle ones are forgotten
     /// at once; if it is still full, the ones that are only counted this minute go too (their
-    /// counts start over), since the table is first of all for addresses with something open.
-    /// Only a table full of those turns a new address away, and they are bounded by the
+    /// counts start over), since the table is first of all for addresses with something open:
+    /// first those under both their limits, and only if still full those over one (an address
+    /// the door is turning away keeps its brake as long as it can). Only a table full of
+    /// addresses with something open turns a new one away, and they are bounded by the
     /// connections in all.
-    fn no_room_for(st: &mut State, address: AddressKey, most: usize, now: i64) -> bool {
+    fn no_room_for(st: &mut State, address: AddressKey, limits: &Limits, now: i64) -> bool {
+        let most = limits.addresses_remembered;
         if st.addresses.contains_key(&address) || st.addresses.len() < most {
             return false;
         }
         Self::sweep(st, now);
         if st.addresses.len() >= most {
+            st.addresses
+                .retain(|_, u| u.open > 0 || u.pcs > 0 || Self::braked(u, limits, now));
+        }
+        if st.addresses.len() >= most {
             st.addresses.retain(|_, u| u.open > 0 || u.pcs > 0);
         }
         st.addresses.len() >= most
+    }
+
+    /// Is the door turning this address away this minute (over its refusals or its new
+    /// connections)?
+    fn braked(u: &AddressUse, limits: &Limits, now: i64) -> bool {
+        u.tries.count(now) >= u64::from(limits.tries_per_address_per_minute)
+            || u.new.count(now) >= u64::from(limits.new_per_address_per_minute)
     }
 
     /// An idle address takes no memory once its connection or refusal is done with.
@@ -642,7 +656,6 @@ mod tests {
     use std::sync::atomic::{AtomicI64, Ordering};
 
     use super::*;
-    use crate::Limits;
 
     /// A hub with a clock the test moves (Unix seconds).
     fn hub_with_clock(limits: Limits) -> (Hub, Arc<AtomicI64>) {
@@ -705,19 +718,39 @@ mod tests {
             addresses_remembered: 100,
             ..Limits::default()
         });
-        // One address with a connection open, and 99 that came and went this minute.
+        // One address with a connection open, one the door is turning away this minute (too
+        // many refusals), and 98 that came and went this minute.
         hub.enter(address(0)).unwrap();
-        for n in 1..100 {
+        for _ in 0..hub.config.limits.tries_per_address_per_minute {
+            hub.refused("bad_pass", address(1));
+        }
+        for n in 2..100 {
             hub.enter(address(n)).unwrap();
             hub.leave(address(n));
         }
         // Full, and nothing idle to forget yet: the ones that are only counted go, so the new
-        // address comes in; the busy one stays.
+        // address comes in; the busy one stays, and so does the one under the brake.
         hub.enter(address(100)).unwrap();
-        assert_eq!(hub.stats().addresses, 2);
+        assert_eq!(hub.stats().addresses, 3);
+        assert_eq!(hub.enter(address(1)), Err(Turned::TooMany), "still braked");
         hub.leave(address(100));
+        // Full again with nothing but braked ones left over (every counted-only address over
+        // its refusals): then those go too, last of all; the busy one still stays.
+        for _ in 0..hub.config.limits.tries_per_address_per_minute {
+            hub.refused("bad_pass", address(100));
+        }
+        for n in 2..99 {
+            hub.enter(address(n)).unwrap();
+            hub.leave(address(n));
+            for _ in 0..hub.config.limits.tries_per_address_per_minute {
+                hub.refused("bad_pass", address(n));
+            }
+        }
+        hub.enter(address(101)).unwrap();
+        assert_eq!(hub.stats().addresses, 2, "the busy one and the new one");
+        hub.leave(address(101));
         // A minute on, the sweep alone makes room: nothing busy is touched either way.
-        for n in 1..99 {
+        for n in 2..100 {
             hub.enter(address(n)).unwrap();
             hub.leave(address(n));
         }
