@@ -120,10 +120,10 @@ are written and tested; they reach the live service, still switched off, when th
 ## Part 24C — people: profile, messages, block, report, leave
 
 - [x] ADR-170 to ADR-172, and [the list of changes for the account service](phase-24-account-service-changes.md)
-- [ ] The contract's change, as its own reviewed change: **Is Community open?**, `not_open`,
+- [x] The contract's change, as its own reviewed change: **Is Community open?**, `not_open`,
       `update_needed`, closed parts, the safety code's recipe, and a worked seal (ADR-170 §7,
       ADR-172 §6)
-- [ ] `Limit::CommunityStart` in `Entitlements::check` (ADR-162 §5)
+- [x] `Limit::CommunityStart` in `Entitlements::check` (ADR-162 §5)
 - [ ] Guard's outbound purpose **Community**: only `account.getplenipo.com`, only while signed in
       (ADR-162 §7)
 - [ ] The **Community** switch, signing in with a code, the age box, signing out (ADR-162)

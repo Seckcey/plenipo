@@ -35,6 +35,10 @@ pub enum Purpose {
     /// A sealed notice to one of the owner's phones (Phase 14, ADR-144 §1): only the phones'
     /// notice services ([`NOTICE_SERVICE_HOSTS`]).
     PhoneNotices,
+    /// Plenipo's own requests to the account service for Community (Phase 24, ADR-162 §7): only
+    /// [`COMMUNITY_ADDRESS`]'s host and its `/v1/community/` paths, while Community is on. A Free
+    /// copy that never signs in never makes them.
+    Community,
 }
 
 impl Purpose {
@@ -66,6 +70,7 @@ impl Purpose {
             Self::License => "the weekly license check",
             Self::PhoneAccess => "using Plenipo from your phone",
             Self::PhoneNotices => "a notice to your phone",
+            Self::Community => "Community",
         }
     }
 }
@@ -131,6 +136,16 @@ pub const AI_TOOL_RELEASE_LISTS: [&str; 4] = [
 /// The weekly license check's address (ADR-105): built into every copy, and never changed.
 pub const LICENSE_CHECK_ADDRESS: &str = plenipo_licensing::CHECK_ADDRESS;
 
+/// Where Community's requests go (ADR-162 §7): 8 West's account service, built into every copy
+/// and never changed. A request adds one or more names after it (`/open`, `/sign-in/start`,
+/// `/directory?q=…`).
+pub const COMMUNITY_ADDRESS: &str = "https://account.getplenipo.com/v1/community";
+/// The start of every Community path, on the account service and on its stand-in in the tests.
+const COMMUNITY_PATH: &str = "/v1/community/";
+/// The only words a Community address's query may use, each once (contract §4, §6, §12, §14).
+const COMMUNITY_QUERY_WORDS: [&str; 7] =
+    ["q", "kind", "region", "cursor", "wait", "period", "offset"];
+
 /// Where a PC reaches 8 West's relay for phone access (ADR-143, ADR-146): Plenipo's own name
 /// for the relay Milepost uses. The relay's real address is never in this repository.
 pub const RELAY_ADDRESS: &str = "https://relay.getplenipo.com/plenipo/v1/pc";
@@ -156,6 +171,72 @@ pub fn notice_service(host: &str) -> bool {
             .is_some_and(|name| {
                 !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
             })
+}
+
+/// Whether `path` and `query` (as written, after the `?`) are a Community request's: a path of
+/// `/v1/community/` and then short names with a `/` between, and no query, or only
+/// `word=value` pairs with each of [`COMMUNITY_QUERY_WORDS`] at most once. The error says why, in
+/// plain words (and never repeats any of the address).
+fn community_request(path: &str, query: Option<&str>) -> Result<(), &'static str> {
+    let Some(names) = path.strip_prefix(COMMUNITY_PATH) else {
+        return Err("Community reaches only addresses that start with /v1/community/");
+    };
+    let short_name = |name: &str| {
+        (1..=64).contains(&name.len())
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    };
+    if !names.split('/').all(short_name) {
+        return Err(
+            "a Community address's path is short names (letters, numbers, - and _) with a / \
+             between them",
+        );
+    }
+    let Some(query) = query else {
+        return Ok(());
+    };
+    let mut seen = Vec::new();
+    for pair in query.split('&') {
+        let Some((word, value)) = pair.split_once('=') else {
+            return Err("a Community address's query is only word=value pairs joined by &");
+        };
+        if !COMMUNITY_QUERY_WORDS.contains(&word) {
+            return Err(
+                "a Community address's query uses only q, kind, region, cursor, wait, period, \
+                 and offset",
+            );
+        }
+        if seen.contains(&word) {
+            return Err("a Community address's query uses each word only once");
+        }
+        seen.push(word);
+        if value.len() > 200 || !percent_encoded(value) {
+            return Err(
+                "a Community address's query values are up to 200 characters and percent-encoded",
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Whether `value` is only letters, numbers, `- _ . ~ +`, and `%` with two hex digits after it.
+fn percent_encoded(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    while let Some(b) = bytes.next() {
+        match b {
+            b'%' => {
+                let hex = |b: Option<u8>| b.is_some_and(|b| b.is_ascii_hexdigit());
+                if !(hex(bytes.next()) && hex(bytes.next())) {
+                    return false;
+                }
+            }
+            b'-' | b'_' | b'.' | b'~' | b'+' => {}
+            _ if b.is_ascii_alphanumeric() => {}
+            _ => return false,
+        }
+    }
+    true
 }
 
 /// The GitHub repository whose releases Plenipo updates from.
@@ -205,6 +286,10 @@ pub struct OutboundRules {
     /// A stand-in for the phones' notice services on this computer (`127.0.0.1:<port>`), for
     /// copies of Plenipo built for the tests only.
     pub notices_test_port: Option<u16>,
+    /// A stand-in for 8 West's account service for Community on this computer
+    /// (`127.0.0.1:<port>` and the `/v1/community/` paths), for copies of Plenipo built for the
+    /// tests only (never a setting, never an environment variable).
+    pub community_test_port: Option<u16>,
 }
 
 impl OutboundRules {
@@ -224,6 +309,7 @@ impl OutboundRules {
             license_test_port: None,
             relay_test_port: None,
             notices_test_port: None,
+            community_test_port: None,
         }
     }
 
@@ -251,6 +337,13 @@ impl OutboundRules {
     /// (`http://127.0.0.1:<port>`), when this copy of Plenipo was built to use one.
     pub fn with_notices_stand_in(mut self, base: Option<&str>) -> Self {
         self.notices_test_port = local_port(base);
+        self
+    }
+
+    /// The same rules, with a stand-in for 8 West's account service for Community at `base`
+    /// (`http://127.0.0.1:<port>`), when this copy of Plenipo was built to use one.
+    pub fn with_community_stand_in(mut self, base: Option<&str>) -> Self {
+        self.community_test_port = local_port(base);
         self
     }
 
@@ -319,6 +412,9 @@ impl OutboundRules {
         if purpose == Purpose::PhoneNotices {
             return self.check_notice_service(&site, refuse);
         }
+        if purpose == Purpose::Community {
+            return self.check_community(&site, address, refuse);
+        }
         if let Some(port) = self.test_server_port {
             if site.scheme == "http" && site.host == "127.0.0.1" && site.port == Some(port) {
                 return Ok(site);
@@ -348,7 +444,8 @@ impl OutboundRules {
             | Purpose::PaidAi(_)
             | Purpose::License
             | Purpose::PhoneAccess
-            | Purpose::PhoneNotices => {
+            | Purpose::PhoneNotices
+            | Purpose::Community => {
                 unreachable!("checked above")
             }
         }
@@ -458,6 +555,55 @@ impl OutboundRules {
             Ok(site.clone())
         } else {
             refuse("a notice goes only to a phone's own notice service (Apple's, Google's, Mozilla's, or Microsoft's)")
+        }
+    }
+
+    /// Community's addresses: `https://account.getplenipo.com/v1/community/…` with a path and
+    /// query [`community_request`] allows, or its stand-in on this computer in a copy built for
+    /// the tests. `address` is as it was given, so a query that needed tidying (a raw space, a
+    /// quote mark) is refused, never quietly fixed.
+    fn check_community(
+        &self,
+        site: &Site,
+        address: &str,
+        refuse: impl Fn(&str) -> Result<Site, String>,
+    ) -> Result<Site, String> {
+        let Ok(url) = url::Url::parse(&site.url) else {
+            return refuse("that is not a web address");
+        };
+        if !url.username().is_empty() || url.password().is_some() {
+            return refuse("a user name or password in the address is never used");
+        }
+        if url.fragment().is_some() {
+            return refuse("a Community address has no part after #");
+        }
+        let request = community_request(
+            url.path(),
+            address.trim().split_once('?').map(|(_, query)| query),
+        );
+        if let Some(port) = self.community_test_port {
+            if site.scheme == "http" && site.host == "127.0.0.1" && site.port == Some(port) {
+                return match request {
+                    Ok(()) => Ok(site.clone()),
+                    Err(why) => refuse(why),
+                };
+            }
+        }
+        if site.scheme != "https" {
+            return refuse("only https is allowed");
+        }
+        if site.port.is_some() {
+            return refuse("only the usual https port is allowed");
+        }
+        let Ok(account) = url::Url::parse(COMMUNITY_ADDRESS) else {
+            return refuse("Community's address is not a web address");
+        };
+        if url.host_str() != account.host_str() {
+            return refuse("Community reaches only 8 West's account service");
+        }
+        match request {
+            Ok(()) => Ok(site.clone()),
+            Err(why) => refuse(why),
         }
     }
 
@@ -1047,6 +1193,243 @@ mod tests {
                 .license_test_port,
             None
         );
+    }
+
+    #[test]
+    fn community_reaches_only_the_account_services_community_paths() {
+        let rules = OutboundRules::default();
+        for ok in [
+            "https://account.getplenipo.com/v1/community/open",
+            "https://account.getplenipo.com/v1/community/sign-in/start",
+            "https://account.getplenipo.com/v1/community/me/profile",
+            "https://account.getplenipo.com/v1/community/people/cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B/devices",
+            "https://account.getplenipo.com/v1/community/people/by-name/pat-lee",
+            "https://account.getplenipo.com/v1/community/directory?q=pat&region=US-CA&cursor=abc",
+            "https://account.getplenipo.com/v1/community/directory?q=pat%20lee&kind=bakery",
+            "https://account.getplenipo.com/v1/community/directory?q=&kind=",
+            "https://account.getplenipo.com/v1/community/items?wait=25",
+            "https://account.getplenipo.com/v1/community/gifs?q=well+done&offset=20",
+            "https://account.getplenipo.com/v1/community/leaderboard?period=week",
+        ] {
+            assert!(rules.check(Purpose::Community, ok).is_ok(), "{ok}");
+        }
+        // The longest name and the longest value that are allowed.
+        let name = "a".repeat(64);
+        let value = "a".repeat(200);
+        for ok in [
+            format!("{COMMUNITY_ADDRESS}/{name}"),
+            format!("{COMMUNITY_ADDRESS}/{name}/{name}?q={value}"),
+        ] {
+            assert!(rules.check(Purpose::Community, &ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            // Not https, another port, a fragment.
+            "http://account.getplenipo.com/v1/community/open",
+            "https://account.getplenipo.com:8443/v1/community/open",
+            "https://account.getplenipo.com/v1/community/open#x",
+            // Not that host, or a look-alike.
+            "https://account.getplenipo.com.evil.example/v1/community/open",
+            "https://evil.getplenipo.com/v1/community/open",
+            "https://sub.account.getplenipo.com/v1/community/open",
+            "https://getplenipo.com/v1/community/open",
+            "https://relay.getplenipo.com/v1/community/open",
+            "https://evil.example/account.getplenipo.com/v1/community/open",
+            "http://127.0.0.1:8771/v1/community/open",
+            // Not under /v1/community/, and the address alone is not a request.
+            "https://account.getplenipo.com/v1/check",
+            "https://account.getplenipo.com/v1/communityx/open",
+            "https://account.getplenipo.com/v1/community/../check",
+            "https://account.getplenipo.com/v1/community/%2e%2e/check",
+            COMMUNITY_ADDRESS,
+            "https://account.getplenipo.com/v1/community/",
+            // Names that are not short, plain ones.
+            "https://account.getplenipo.com/v1/community//open",
+            "https://account.getplenipo.com/v1/community/open/",
+            "https://account.getplenipo.com/v1/community/a%2Fb",
+            "https://account.getplenipo.com/v1/community/a%20b",
+            "https://account.getplenipo.com/v1/community/a.b",
+            "https://account.getplenipo.com/v1/community/a;b",
+            // A query with a word that is not Community's, a word twice, or a pair missing a part.
+            "https://account.getplenipo.com/v1/community/open?key=x",
+            "https://account.getplenipo.com/v1/community/open?Q=a",
+            "https://account.getplenipo.com/v1/community/open?q=a&q=b",
+            "https://account.getplenipo.com/v1/community/open?q",
+            "https://account.getplenipo.com/v1/community/open?",
+            "https://account.getplenipo.com/v1/community/open?q=a&",
+            "https://account.getplenipo.com/v1/community/open?=a",
+            // A value that is not percent-encoded.
+            "https://account.getplenipo.com/v1/community/directory?q=a b",
+            "https://account.getplenipo.com/v1/community/directory?q=a\"b",
+            "https://account.getplenipo.com/v1/community/directory?q=<b>",
+            "https://account.getplenipo.com/v1/community/directory?q=a=b",
+            "https://account.getplenipo.com/v1/community/directory?q=%zz",
+            "https://account.getplenipo.com/v1/community/directory?q=%4",
+            "https://account.getplenipo.com/v1/community/directory?q=caf\u{e9}",
+        ] {
+            let err = rules.check(Purpose::Community, bad).expect_err(bad);
+            assert!(err.contains("for Community:"), "{bad}: {err}");
+        }
+        // Too long: a name over 64 characters, a value over 200.
+        for bad in [
+            format!("{COMMUNITY_ADDRESS}/{}", "a".repeat(65)),
+            format!("{COMMUNITY_ADDRESS}/open?q={}", "a".repeat(201)),
+        ] {
+            assert!(rules.check(Purpose::Community, &bad).is_err(), "{bad}");
+        }
+        // A user name or password is refused before any purpose is looked at.
+        assert!(rules
+            .check(
+                Purpose::Community,
+                "https://user:pw@account.getplenipo.com/v1/community/open"
+            )
+            .is_err());
+        assert_eq!(
+            rules
+                .check(Purpose::Community, "https://evil.example/v1/community/open")
+                .unwrap_err(),
+            "Plenipo refused to reach evil.example for Community: Community reaches only 8 \
+             West's account service."
+        );
+    }
+
+    #[test]
+    fn community_and_the_other_purposes_keep_to_their_own_addresses() {
+        let rules = OutboundRules::default();
+        // Community's address is for nothing else.
+        let community = format!("{COMMUNITY_ADDRESS}/open");
+        assert!(rules.check(Purpose::Community, &community).is_ok());
+        for other in [
+            Purpose::Updates,
+            Purpose::AiToolVersions,
+            Purpose::Connection(Service::Microsoft365),
+            Purpose::Connection(Service::Wordpress),
+            Purpose::PaidAi(PaidService::OpenRouter),
+            Purpose::License,
+            Purpose::PhoneAccess,
+            Purpose::PhoneNotices,
+        ] {
+            assert!(rules.check(other, &community).is_err(), "{other:?}");
+        }
+        // And nothing else reaches Community's addresses, not even the same host.
+        for bad in [
+            LICENSE_CHECK_ADDRESS,
+            RELAY_ADDRESS,
+            AI_TOOL_RELEASE_LISTS[0],
+            "https://github.com/Seckcey/plenipo/releases/latest/download/latest.json",
+            "https://openrouter.ai/api/v1/key",
+            "https://graph.microsoft.com/v1.0/me",
+            "https://fcm.googleapis.com/fcm/send/abc",
+        ] {
+            let err = rules.check(Purpose::Community, bad).expect_err(bad);
+            assert!(err.contains("for Community:"), "{bad}: {err}");
+        }
+        assert_eq!(Purpose::Community.label(), "Community");
+    }
+
+    #[test]
+    fn the_community_stand_in_is_only_for_copies_built_for_the_tests() {
+        let test = OutboundRules::default().with_community_stand_in(Some("http://127.0.0.1:8771"));
+        assert_eq!(test.community_test_port, Some(8771));
+        for ok in [
+            "http://127.0.0.1:8771/v1/community/open",
+            "http://127.0.0.1:8771/v1/community/sign-in/start",
+            "http://127.0.0.1:8771/v1/community/directory?q=pat&region=US-CA",
+            "http://127.0.0.1:8771/v1/community/items?wait=25",
+        ] {
+            assert!(test.check(Purpose::Community, ok).is_ok(), "{ok}");
+        }
+        // The same path and query rules apply on the stand-in.
+        for bad in [
+            "http://127.0.0.1:8771/v1/check",
+            "http://127.0.0.1:8771/v1/communityx/open",
+            "http://127.0.0.1:8771/v1/community/",
+            "http://127.0.0.1:8771/v1/community//open",
+            "http://127.0.0.1:8771/v1/community/../check",
+            "http://127.0.0.1:8771/v1/community/open?key=x",
+            "http://127.0.0.1:8771/v1/community/open?q=a&q=b",
+            "http://127.0.0.1:8771/v1/community/directory?q=a b",
+            "http://127.0.0.1:8771/v1/community/open#x",
+            // Another port, another computer, not http.
+            "http://127.0.0.1:9999/v1/community/open",
+            "http://192.168.1.5:8771/v1/community/open",
+            "https://127.0.0.1:8771/v1/community/open",
+        ] {
+            assert!(test.check(Purpose::Community, bad).is_err(), "{bad}");
+        }
+        // The real address still works, and the stand-in opens nothing for any other purpose.
+        assert!(test
+            .check(
+                Purpose::Community,
+                "https://account.getplenipo.com/v1/community/open"
+            )
+            .is_ok());
+        for other in [Purpose::License, Purpose::PhoneAccess, Purpose::Updates] {
+            assert!(
+                test.check(other, "http://127.0.0.1:8771/v1/community/open")
+                    .is_err(),
+                "{other:?}"
+            );
+        }
+        // Without the stand-in, this computer is never reached, and only this computer can be one.
+        assert!(OutboundRules::default()
+            .check(
+                Purpose::Community,
+                "http://127.0.0.1:8771/v1/community/open"
+            )
+            .is_err());
+        assert_eq!(
+            OutboundRules::default()
+                .with_community_stand_in(Some("http://evil.example:8771"))
+                .community_test_port,
+            None
+        );
+        assert_eq!(
+            OutboundRules::for_endpoint("http://127.0.0.1:8765/latest.json").community_test_port,
+            None
+        );
+    }
+
+    #[test]
+    fn a_community_refusal_is_recorded_in_the_ledger_with_the_host_only() {
+        let ledger = std::sync::Arc::new(plenipo_ledger::Ledger::open_in_memory().unwrap());
+        let guard = crate::Guard::new(ledger.clone());
+        let rules = OutboundRules::default();
+        assert!(guard
+            .check_outbound(
+                &rules,
+                Purpose::Community,
+                "https://account.getplenipo.com/v1/community/directory?q=pat&region=US-CA",
+            )
+            .is_ok());
+        assert!(ledger
+            .events_of_types(&["guard.request_refused"], 5)
+            .unwrap()
+            .is_empty());
+        // A query word that is not Community's, and a host that is not 8 West's.
+        for bad in [
+            "https://account.getplenipo.com/v1/community/directory?q=my-secret&token=abc",
+            "https://evil.example/v1/community/directory?q=my-secret",
+        ] {
+            assert!(guard
+                .check_outbound(&rules, Purpose::Community, bad)
+                .is_err());
+        }
+        let refused = ledger
+            .events_of_types(&["guard.request_refused"], 5)
+            .unwrap();
+        assert_eq!(refused.len(), 2);
+        let mut hosts: Vec<&str> = refused
+            .iter()
+            .map(|e| e.payload["host"].as_str().unwrap())
+            .collect();
+        hosts.sort_unstable();
+        assert_eq!(hosts, ["account.getplenipo.com", "evil.example"]);
+        for event in &refused {
+            assert_eq!(event.payload["purpose"], "Community");
+            let recorded = event.payload.to_string();
+            assert!(!recorded.contains("my-secret"), "{recorded}");
+            assert!(!recorded.contains("token=abc"), "{recorded}");
+        }
     }
 
     #[test]
