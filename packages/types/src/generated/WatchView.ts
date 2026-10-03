@@ -8,4 +8,14 @@ export type WatchView = { positionId: string, objectiveTaskId?: string, changes:
 /**
  * Some changes are from before Plenipo started again: their lines are not kept.
  */
-fromTheRecord: boolean, };
+fromTheRecord: boolean, 
+/**
+ * The tasks whose changes it shows: the agent's own in the objective, and those it handed
+ * on to its team (Phase 25, item 1.8). A change heard later from another of the
+ * objective's tasks may be a new hand-off: the view is read again.
+ */
+teamTaskIds: Array<string>, 
+/**
+ * Why there is nothing to show, when Plenipo knows (Phase 25, item 1.8).
+ */
+quiet?: string, };

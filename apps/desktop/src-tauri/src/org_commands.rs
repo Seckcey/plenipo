@@ -101,6 +101,11 @@ fn open<R: Runtime>(
     );
     orgs.insert(stack.clone());
     orgs::filter_logs(orgs);
+    // Its tasks ending ask for the AI tools' plan left, as every organization's do (Phase 25,
+    // item 1.2).
+    if let Some(tools) = app.try_state::<plenipo_capabilities::ai_tools::AiTools>() {
+        crate::ai_tools_host::listen(&stack.ledger, &tools);
+    }
     Ok(stack)
 }
 
@@ -141,7 +146,7 @@ pub fn listing(orgs: &Orgs, label: &str) -> OrgListing {
 
 /// Your organizations, and which one this window shows.
 #[tauri::command]
-pub fn get_organizations<R: Runtime>(
+pub async fn get_organizations<R: Runtime>(
     window: WebviewWindow<R>,
     orgs: State<'_, Arc<Orgs>>,
 ) -> Result<OrgListing, CommandError> {
@@ -245,7 +250,7 @@ pub async fn create_organization<R: Runtime>(
 /// Show organization `id` in this window: the page loads again, and this window's terminals and
 /// pop-outs close (ADR-094 §11). Brings its window to the front when another window shows it.
 #[tauri::command]
-pub fn switch_organization<R: Runtime>(
+pub async fn switch_organization<R: Runtime>(
     app: AppHandle<R>,
     window: WebviewWindow<R>,
     orgs: State<'_, Arc<Orgs>>,
@@ -281,8 +286,12 @@ pub fn switch_organization<R: Runtime>(
 }
 
 /// Open organization `id` in a window of its own (or bring its window to the front).
+///
+/// `async`, like every command here: a window built on the window's own thread locks the whole app
+/// up on Windows (WebView2), which froze Plenipo right after a new organization was made (Phase 25,
+/// item 1.1).
 #[tauri::command]
-pub fn open_organization_window<R: Runtime>(
+pub async fn open_organization_window<R: Runtime>(
     app: AppHandle<R>,
     window: WebviewWindow<R>,
     orgs: State<'_, Arc<Orgs>>,
@@ -700,4 +709,24 @@ pub fn leave<R: Runtime>(app: &AppHandle<R>, orgs: &Orgs, label: &str, why: &str
         None => {}
     }
     workspace_windows::close_popouts(app, label);
+}
+
+#[cfg(test)]
+mod tests {
+    /// Tauri runs a command that is not `async` on the window's own thread. On Windows, a window
+    /// built there locks the whole app up (WebView2), and these also read every organization's
+    /// Ledger, so none may run there (Phase 25, item 1.1).
+    #[test]
+    fn every_organization_command_runs_off_the_windows_thread() {
+        let source = include_str!("org_commands.rs");
+        let commands: Vec<&str> = source
+            .split("#[tauri::command]\n")
+            .skip(1)
+            .map(|rest| rest.lines().next().unwrap_or_default())
+            .collect();
+        assert_eq!(commands.len(), 8, "{commands:?}");
+        for line in commands {
+            assert!(line.starts_with("pub async fn "), "not async: {line}");
+        }
+    }
 }

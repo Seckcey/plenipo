@@ -63,6 +63,11 @@ export function AiToolsSettings({ go }: { go: Go }) {
   };
   const rows: RowItem[] = state.runtimes.map((r) => {
     const status = runtimeStatus(r);
+    // Installed but signed out: say plainly where to sign in (Phase 25, item 1.5).
+    const signIn =
+      r.installation.state === "installed" &&
+      r.auth.state === "signedOut" &&
+      r.account.signIn !== null;
     return {
       id: r.id,
       title: r.label,
@@ -70,9 +75,10 @@ export function AiToolsSettings({ go }: { go: Go }) {
         ? `${r.providerLabel} · ${AUTH_LABEL[r.auth.state]}`
         : (notReadyHint(r) ?? r.providerLabel),
       status: { status: TONE[status.tone], label: status.text },
-      meta: r.installation.version ?? undefined,
+      meta: signIn ? "Sign in →" : (r.installation.version ?? undefined),
       // Its card on the AI tools page: sign in, usage, and updates.
       onOpen: () => go({ view: "runtimes", id: r.id }),
+      openLabel: signIn ? `Sign in to ${r.label} on its card` : undefined,
     };
   });
   return (

@@ -2769,6 +2769,11 @@ body.popout {
   transform: translate(-100%, -50%);
 }
 
+/* Watch on a tile that isn't working: there, but quiet (Phase 25, item 1.8). */
+.topo-watch--quiet {
+  opacity: 0.55;
+}
+
 .topo-watch:hover,
 .topo-watch:focus-visible,
 .topo-lent-badge:hover,

@@ -1312,11 +1312,12 @@ const World = memo(function World({
                 {loan.goingHome ? "Going home" : `Lent → ${loan.to}`}
               </button>
             )}
-            {onWatch && working && (
+            {/* On every active tile, quieter while it isn't working (Phase 25, item 1.8). */}
+            {onWatch && p.active && (
               <button
                 type="button"
                 data-canvas-ui
-                className="topo-watch"
+                className={working ? "topo-watch" : "topo-watch topo-watch--quiet"}
                 style={{ left: n.x + n.w, top: n.y + n.h }}
                 aria-label={`Watch ${p.title} write code`}
                 title={`Watch ${p.title} write code`}

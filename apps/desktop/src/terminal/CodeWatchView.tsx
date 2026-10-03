@@ -13,6 +13,7 @@ import {
   isOpen,
   KIND_WORD,
   loadWatchView,
+  mayBeNewTeamWork,
   pinFile,
   removedWords,
   setFollowing,
@@ -64,6 +65,11 @@ export function CodeWatchView({
 }) {
   const { positionId } = tab;
   const [watch, setWatch] = useState<CodeWatch>(() => emptyCodeWatch(positionId));
+  // The list as last drawn, for the listener set up once below.
+  const latest = useRef(watch);
+  useEffect(() => {
+    latest.current = watch;
+  }, [watch]);
   const [reading, setReading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -74,8 +80,23 @@ export function CodeWatchView({
   useEffect(() => {
     let disposed = false;
     let stop: (() => void) | undefined;
+    // Work this agent may just have handed on: read what Plenipo has again, once at a time.
+    let rereading = false;
+    const reread = () => {
+      if (rereading || disposed) return;
+      rereading = true;
+      getWatch(positionId)
+        .then((view) => {
+          if (!disposed) setWatch((s) => loadWatchView(s, view));
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          rereading = false;
+        });
+    };
     subscribeWatch((update) => {
       if (disposed) return;
+      if (mayBeNewTeamWork(latest.current, update)) reread();
       setWatch((s) => applyWatchUpdate(s, update));
       // News of this agent's changes: the list is up to date again from here on.
       if (update.change.positionId === positionId) setLoadError(null);
@@ -240,7 +261,8 @@ export function CodeWatchView({
             </p>
           ) : (
             <EmptyState title="No file changes yet in this objective" icon="file" compact>
-              Changes show here as the worker makes them.
+              {watch.quiet ??
+                "Changes show here as the worker, or the team it hands work to, makes them. Watch shows the files they write with Plenipo's file tools; changes made by commands they run aren't shown yet."}
             </EmptyState>
           )}
         </div>

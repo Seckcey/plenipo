@@ -129,9 +129,15 @@ impl Broker {
     /// runs; after a restart, from the Ledger's record of each saved change (without its
     /// lines), and both when the objective began before the restart.
     pub fn watch_view(&self, position_id: &str) -> WatchView {
-        let memory = self.watch().view(position_id);
-        let record = self.watch_from_the_record(position_id);
-        match (memory, record) {
+        // Its own work and its team's (Phase 25, item 1.8): a lead's Watch shows the changes
+        // of the workers it handed the work to.
+        let team = self.watched_tasks(position_id);
+        let memory = match &team {
+            Some((objective, tasks)) => self.watch().view_of(position_id, objective, tasks),
+            None => self.watch().view(position_id),
+        };
+        let record = self.watch_from_the_record(position_id, team.as_ref());
+        let mut view = match (memory, record) {
             (Some(mut view), Some(record))
                 if view.objective_task_id == record.objective_task_id =>
             {
@@ -153,10 +159,24 @@ impl Broker {
                 position_id: position_id.to_owned(),
                 ..WatchView::default()
             },
+        };
+        if let Some((_, tasks)) = &team {
+            let mut ids: Vec<String> = tasks.iter().cloned().collect();
+            ids.sort();
+            view.team_task_ids = ids;
         }
+        if view.changes.is_empty() {
+            view.quiet = self.why_quiet(team.as_ref());
+        }
+        view
     }
 
-    fn watch_from_the_record(&self, position_id: &str) -> Option<WatchView> {
+    /// The objective `position_id` works on now, and the tasks in it whose changes its Watch
+    /// shows: its own, and every task under them (the work it handed on to its team).
+    fn watched_tasks(
+        &self,
+        position_id: &str,
+    ) -> Option<(String, std::collections::HashSet<String>)> {
         let ledger = self.ledger();
         let task = ledger
             .position_tasks(position_id, 1)
@@ -164,7 +184,63 @@ impl Broker {
             .into_iter()
             .next()?;
         let objective = ledger.objective_of(&task.id).ok()?;
-        // The objective's tasks that are this agent's own (its steps, or its workers' tasks).
+        let mut all: Vec<plenipo_ledger::Task> = Vec::new();
+        if let Ok(Some(root)) = ledger.task(&objective) {
+            all.push(root);
+        }
+        all.extend(
+            ledger
+                .descendant_tasks(&objective)
+                .ok()?
+                .into_iter()
+                .map(|(t, _)| t),
+        );
+        let mut tasks = std::collections::HashSet::new();
+        for own in all
+            .iter()
+            .filter(|t| t.metadata["workforce"]["positionId"].as_str() == Some(position_id))
+        {
+            tasks.insert(own.id.clone());
+            if let Ok(under) = ledger.descendant_tasks(&own.id) {
+                tasks.extend(under.into_iter().map(|(t, _)| t.id));
+            }
+        }
+        Some((objective, tasks))
+    }
+
+    /// Why a Watch has nothing to show, when Plenipo knows: no work yet, or a worker that got no
+    /// tools to change files with (Guard's own words, as recorded).
+    fn why_quiet(
+        &self,
+        team: Option<&(String, std::collections::HashSet<String>)>,
+    ) -> Option<String> {
+        let Some((_, tasks)) = team else {
+            return Some("It hasn't been given any work yet.".into());
+        };
+        let ledger = self.ledger();
+        tasks
+            .iter()
+            .filter_map(|id| ledger.events_for_task(id).ok())
+            .flatten()
+            .filter(|e| e.event_type == "guard.grant_skipped")
+            .max_by_key(|e| e.created_at)
+            .and_then(|e| e.payload["reason"].as_str().map(str::to_owned))
+    }
+
+    fn watch_from_the_record(
+        &self,
+        position_id: &str,
+        team: Option<&(String, std::collections::HashSet<String>)>,
+    ) -> Option<WatchView> {
+        let ledger = self.ledger();
+        let task = ledger
+            .position_tasks(position_id, 1)
+            .ok()?
+            .into_iter()
+            .next()?;
+        let objective = ledger.objective_of(&task.id).ok()?;
+        // The objective's tasks that are this agent's own (its steps, or its workers' tasks), and
+        // its team's.
         let mut tasks: Vec<plenipo_ledger::Task> = Vec::new();
         if let Ok(Some(root)) = ledger.task(&objective) {
             tasks.push(root);
@@ -176,7 +252,10 @@ impl Broker {
                 .into_iter()
                 .map(|(t, _)| t),
         );
-        tasks.retain(|t| t.metadata["workforce"]["positionId"].as_str() == Some(position_id));
+        tasks.retain(|t| {
+            t.metadata["workforce"]["positionId"].as_str() == Some(position_id)
+                || team.is_some_and(|(_, team)| team.contains(&t.id))
+        });
         let mut changes: Vec<WatchChange> = Vec::new();
         for task in tasks {
             let Ok(events) = ledger.events_for_task(&task.id) else {
@@ -203,7 +282,12 @@ impl Broker {
                     id: e.id.clone(),
                     task_id: task.id.clone(),
                     session_id: session_id.clone(),
-                    position_id: Some(position_id.to_owned()),
+                    position_id: Some(
+                        task.metadata["workforce"]["positionId"]
+                            .as_str()
+                            .unwrap_or(position_id)
+                            .to_owned(),
+                    ),
                     worker: e.payload["worker"].as_str().unwrap_or("").to_owned(),
                     objective_task_id: objective.clone(),
                     path: path.to_owned(),
@@ -237,6 +321,7 @@ impl Broker {
             objective_task_id: Some(objective),
             changes,
             from_the_record: true,
+            ..WatchView::default()
         })
     }
 

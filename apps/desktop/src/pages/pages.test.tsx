@@ -156,6 +156,38 @@ describe("Home", () => {
     expect(go).toHaveBeenLastCalledWith({ view: "worker", id: "p-design" });
   });
 
+  it("opens what the Stuck and Objectives going tiles count (Phase 25, item 1.7)", async () => {
+    render(<HomePage go={go} approvals={approvals([])} learning={learning()} />);
+    const tiles = await screen.findByLabelText("How things are");
+    const user = userEvent.setup();
+    // Two things are stuck: the tile shows the list.
+    const stuck = await within(tiles).findByRole("button", { name: /Stuck\s*2/ });
+    expect(stuck).toHaveTextContent("See What's stuck");
+    await user.click(stuck);
+    expect(screen.getByRole("heading", { name: "What's stuck" })).toHaveFocus();
+    // One objective is going: the tile opens it.
+    await user.click(within(tiles).getByRole("button", { name: /Objectives going/ }));
+    expect(go).toHaveBeenLastCalledWith({ view: "task", id: sampleHome().current[0]!.rootTaskId });
+  });
+
+  it("opens the one stuck thing straight from the tile", async () => {
+    api.getHome.mockResolvedValue(sampleHome({ current: [], going: 0 }));
+    api.getOrganization.mockResolvedValue({
+      ...sampleOrganization(),
+      positions: sampleOrganization().positions.filter((p) => p.status !== "unavailable"),
+    });
+    render(<HomePage go={go} approvals={approvals([])} learning={learning()} />);
+    const tiles = await screen.findByLabelText("How things are");
+    const stuck = await within(tiles).findByRole("button", { name: /Stuck\s*1/ });
+    expect(stuck).toHaveTextContent("Open it");
+    const user = userEvent.setup();
+    await user.click(stuck);
+    expect(go).toHaveBeenLastCalledWith({ view: "task", id: "task-fail" });
+    // Nothing going: the tile shows the empty list.
+    await user.click(within(tiles).getByRole("button", { name: /Objectives going/ }));
+    expect(screen.getByRole("heading", { name: "Current objectives" })).toHaveFocus();
+  });
+
   it("shows each department's health, who's working, the objectives going, and what finished", async () => {
     render(<HomePage go={go} approvals={approvals([])} learning={learning()} />);
     const departments = await screen.findByRole("list", { name: "Departments" });

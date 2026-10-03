@@ -984,6 +984,15 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     expect(card("Codex")).toHaveTextContent(
       "Codex hasn't reported it yet. Plenipo asks when it checks Codex.",
     );
+    // Asked now with Check plan (Phase 25, item 1.2); Claude Code tells it only during a task.
+    expect(
+      within(card("Claude Code")).queryByRole("button", { name: "Check Claude Code's plan now" }),
+    ).toBeNull();
+    api.checkAiTool.mockResolvedValue(page());
+    await userEvent
+      .setup()
+      .click(within(card("Codex")).getByRole("button", { name: "Check Codex's plan now" }));
+    expect(api.checkAiTool).toHaveBeenCalledWith("codex");
   });
 
   it("says Limit reached once for a whole report, and keeps each window's share left", async () => {
@@ -1297,7 +1306,7 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     createdAt: T0,
     updatedAt: T0,
   };
-  const noKey = "No paid key is saved for this AI tool: add one on its card (Settings → AI tools).";
+  const noKey = "No paid key is saved for this AI tool: add one on its card on the AI tools page.";
 
   /** The seven AI tools and OpenRouter, with its check and page part. */
   function withOpenRouter(info: Partial<AgentRuntimeInfo> = {}, tool: Partial<AiToolState> = {}) {
@@ -1438,6 +1447,45 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(scroll).toHaveBeenCalledTimes(1);
     // The keyboard goes there too.
     expect(heading).toHaveFocus();
+  });
+
+  it("a subscription card is green when its subscription or its key works, and says which (Phase 25, item 1.3)", async () => {
+    const keyReady = aiRuntime("anthropic-key", "1.17.0", {
+      ready: true,
+      auth: { state: "paidKey", method: "Your key", detail: null },
+    });
+    const keyTool = aiTool("anthropic-key", { paidKey: { ...SAVED, runtimeId: "anthropic-key" } });
+    // The subscription ended, the key works: still green.
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [
+        ...runtimes({
+          "claude-code": {
+            ready: false,
+            auth: { state: "signedOut", method: null, detail: null },
+          },
+        }),
+        keyReady,
+      ],
+      sessions: [],
+      notices: [],
+    });
+    api.getAiTools.mockResolvedValue(aiPage([...page().tools, keyTool]));
+    const view = await show();
+    await waitFor(() => expect(card("Claude Code")).toHaveTextContent("API key connected"));
+    view.unmount();
+    // Both work.
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [...runtimes(), keyReady],
+      sessions: [],
+      notices: [],
+    });
+    const both = await show();
+    await waitFor(() =>
+      expect(card("Claude Code")).toHaveTextContent("Subscription and API key connected"),
+    );
+    // Codex has no key here: its subscription alone.
+    expect(card("Codex")).toHaveTextContent("Subscription connected");
+    both.unmount();
   });
 
   it("a card you sign in to has a key box that saves its AI company's own key", async () => {

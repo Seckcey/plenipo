@@ -275,6 +275,64 @@ describe("Organization view", () => {
     });
   });
 
+  it("lists your subscriptions first, and paid AI tools only once their key works (Phase 25, item 1.5)", async () => {
+    const org = sampleOrganization();
+    org.runtimes = [
+      ...org.runtimes,
+      { id: "grok", label: "Grok", ready: true, company: "xAI", paid: false },
+      { id: "xai-key", label: "xAI", ready: false, company: "xAI", paid: true },
+      { id: "anthropic-key", label: "Anthropic", ready: true, company: "Anthropic", paid: true },
+    ];
+    show(org);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Website Supervisor, / }));
+    const details = screen.getByRole("complementary", { name: "Details: Website Supervisor" });
+    await user.click(within(details).getByRole("tab", { name: "Manage" }));
+    await user.click(within(details).getByRole("button", { name: "Hire into team" }));
+    const dialog = screen.getByRole("dialog", { name: "Hire" });
+    const tool = within(dialog).getByRole("combobox", { name: /AI tool/ });
+    const groups = within(tool).getAllByRole("group");
+    expect(groups.map((g) => g.getAttribute("label"))).toEqual([
+      "Your subscriptions",
+      "Paid per use with your key",
+    ]);
+    expect(
+      within(groups[0]!)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Claude Code", "Codex (not ready)", "Grok"]);
+    // xAI's key isn't saved, so only Anthropic's is offered.
+    expect(
+      within(groups[1]!)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Anthropic"]);
+  });
+
+  it("points a position fixed to a paid AI tool with no key to the same company's subscription", async () => {
+    const org = sampleOrganization();
+    org.runtimes = [
+      ...org.runtimes,
+      { id: "grok", label: "Grok", ready: true, company: "xAI", paid: false },
+      { id: "xai-key", label: "xAI", ready: false, company: "xAI", paid: true },
+    ];
+    org.positions = org.positions.map((p) =>
+      p.id === "p-dev" ? { ...p, automatic: false, runtimeId: "xai-key", model: null } : p,
+    );
+    show(org);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Senior Developer, / }));
+    const details = screen.getByRole("complementary", { name: "Details: Senior Developer" });
+    await user.click(within(details).getByRole("tab", { name: "AI model" }));
+    const form = within(details).getByRole("form", { name: "AI tool and model" });
+    const tool = within(form).getByRole("combobox", { name: "AI tool" });
+    // Still listed, as it is the saved choice.
+    expect(tool).toHaveDisplayValue("xAI (not ready)");
+    expect(tool).toHaveAccessibleDescription(
+      "xAI's key isn't set up. To use your Grok subscription, choose Grok.",
+    );
+  });
+
   it("hires a position fixed to an AI tool and model", async () => {
     const org = sampleOrganization();
     show(org);

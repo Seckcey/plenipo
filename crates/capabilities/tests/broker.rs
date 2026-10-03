@@ -2388,8 +2388,19 @@ async fn watch_shows_every_file_change_as_it_lands_with_its_lines() {
     assert_eq!(paths, vec!["big.txt", ".env", "src/app.txt", "src/new.txt"]);
     assert!(!view.from_the_record, "every file is still in memory");
 
+    // Its lead's Watch shows them too: the work it handed on (Phase 25, item 1.8).
+    let lead = h.broker.watch_view(&h.supervisor);
+    let mut lead_paths: Vec<&str> = lead.changes.iter().map(|c| c.path.as_str()).collect();
+    lead_paths.sort_unstable();
+    assert_eq!(
+        lead_paths,
+        vec![".env", "big.txt", "src/app.txt", "src/new.txt"]
+    );
+    assert!(lead.team_task_ids.contains(&child.id));
+    assert!(lead.quiet.is_none());
+
     // After a restart, the record lists the saved files again (the refused one was never
-    // saved), for this agent only: its lead's own list has none of them.
+    // saved), each under the agent that made it; its lead's list shows them as its team's.
     let restarted = Broker::new(
         h.guard.clone(),
         Supervisor::new(
@@ -2413,7 +2424,12 @@ async fn watch_shows_every_file_change_as_it_lands_with_its_lines() {
         .iter()
         .all(|c| c.state == WatchState::Saved
             && c.position_id.as_deref() == Some(h.developer.as_str())));
-    assert!(restarted.watch_view(&h.supervisor).changes.is_empty());
+    let lead = restarted.watch_view(&h.supervisor);
+    assert_eq!(lead.changes.len(), 3);
+    assert!(lead
+        .changes
+        .iter()
+        .all(|c| c.position_id.as_deref() == Some(h.developer.as_str())));
 
     // An ACP write (Kimi) shows the same way.
     h.workforce

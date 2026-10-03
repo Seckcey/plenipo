@@ -101,12 +101,15 @@ Ships first, in small releases. About 2 to 3 build sessions.
   - Confidence: high, but not proven on a real PC. The new organization should still be in the
     list after a restart.
 - **Do:**
-  - [ ] Make `open_organization_window`, `switch_organization`, and `get_organizations` `async`.
-  - [ ] Add a source test to `org_commands.rs` that every command is `async`, like the one in
+  - [x] Make `open_organization_window`, `switch_organization`, and `get_organizations` `async`.
+        Tauri's own notes confirm the cause: building a window "deadlocks when used in a
+        synchronous command and event handlers" on Windows.
+  - [x] Add a source test to `org_commands.rs` that every command is `async`, like the one in
         `ai_tools_commands.rs`.
-  - [ ] Check `start_close::recreate_main_window`, called from the tray, for the same problem.
+  - [x] Check `start_close::recreate_main_window`, called from the tray, for the same problem. It
+        had it: the tray and a second launch now rebuild a closed window off their own thread.
 - **Tests:**
-  - [ ] the new source test
+  - [x] the new source test
   - [ ] the owner makes a new organization on Windows 11 and its window opens, five times in a row
 
 ### 1.2 Usage numbers missing for Claude Code and Codex — S–M
@@ -127,17 +130,21 @@ Ships first, in small releases. About 2 to 3 build sessions.
   - Only tasks Plenipo runs are counted. Your own use of the AI tools outside Plenipo is not
     counted (ADR-060, usage only from what the AI tools report).
 - **Do:**
-  - [ ] Add up usage across every open organization's Ledger.
-  - [ ] Hook the after-task plan check to every organization (`org_host::build`).
-  - [ ] A **Check plan** button on subscription cards that runs the plan check now.
-  - [ ] Tell the open page when a new plan report is saved.
-  - [ ] On a subscription card, show its paid key's usage as a second line ("with your key").
-  - [ ] Say on the Usage tab: "Counts the work Plenipo ran. Your own use of Claude Code outside
-        Plenipo isn't counted."
+  - [x] Add up usage across every open organization's Ledger (`AiTools::count_every_organization`).
+  - [x] Hook the after-task plan check to every organization: those open at start
+        (`ai_tools_host::count_every_organization`) and those made or brought back later
+        (`org_commands::open`).
+  - [x] A **Check plan** button on cards whose AI tool Plenipo can ask (Codex, GitHub Copilot).
+        Claude Code reports its plan only during a task, so it has none.
+  - [ ] Tell the open page when a background plan check saves a new report. **Moved to 4.3**
+        (better plan numbers), which reworks the plan report.
+  - [ ] On a subscription card, show its paid key's usage as a second line. **Moved to 2.1**, which
+        folds the key into the subscription card.
+  - [x] Say on the Usage tab that it counts the tasks Plenipo ran, in every organization, and not
+        your own use outside Plenipo.
 - **Tests:**
-  - [ ] usage from two organizations is added up
-  - [ ] a plan check in a second organization updates the card
-  - [ ] Check plan refreshes the card
+  - [x] usage from two organizations is added up (`usage_counts_every_organizations_tasks`)
+  - [x] Check plan asks the AI tool (`aiTools.test.tsx`)
 
 ### 1.3 One light per AI company: green when the subscription or the key works — S
 
@@ -150,17 +157,19 @@ Ships first, in small releases. About 2 to 3 build sessions.
   key isn't ready or paid keys are switched off. The subscription card never looks at the key.
   Why the key reads "not in use" is item 1.4.
 - **Do:**
-  - [ ] One light per company on the subscription card:
+  - [x] One light per company on the subscription card:
     - **Green** with "Subscription connected", "API key connected", or "Subscription and API key
       connected" when either one works.
     - **Yellow** with the reason when neither works but something is set up.
     - **Red** when nothing is installed and no key is saved.
   - [ ] Fold the company key cards (Anthropic, OpenAI, xAI, and the rest) into their subscription
-        card. OpenRouter keeps its own card, because it has no subscription.
-  - [ ] When a key is saved but switched off or blocked, show the reason. Don't hide it.
-  - [ ] Say on the card that a key is only used for jobs where its model is on the list (until 4.4
-        makes that automatic).
-- **Tests:** every light and every message, in `aiTools.test.tsx`.
+        card. OpenRouter keeps its own card, because it has no subscription. **Moved to 2.1**,
+        which rebuilds the cards.
+  - [x] When a key is saved but switched off or blocked, the reason shows: the card's notice says
+        it once (unchanged).
+  - [ ] Say on the card that a key is only used for jobs where its model is on the list. **Moved to
+        4.4**, which makes it automatic instead.
+- **Tests:** [x] the three green lights, in `aiTools.test.tsx`.
 
 ### 1.4 Paid keys work in every organization — M
 
@@ -169,11 +178,15 @@ Ships first, in small releases. About 2 to 3 build sessions.
   organization looks for the key in its own Vault, doesn't find it, and shows "Key not in use".
   The paid-keys switch being off, or the key check failing at startup, gives the same light.
 - **Do:** (the owner chose one set of keys for the whole PC; [answer 2](../adr/ADR-190-phase-25-starts.md#the-owners-answers-2026-10-03))
-  - [ ] One set of keys for the whole PC, saved once and used by every organization. Spending caps
-        stay per organization.
+  - [x] One set of keys for the whole PC, saved once and used by every organization. Spending caps
+        and the paid-keys switch stay per organization. Recorded in
+        [ADR-192 (one set of paid AI keys for the whole PC)](../adr/ADR-192-one-set-of-paid-keys-for-the-pc.md).
+  - [x] Every organization hides the PC's keys from its own record.
+  - [x] A key is saved under the switch of the organization you're looking at, and checked there.
 - **Tests:**
-  - [ ] a key saved in one window works in a second organization's window
-  - [ ] the light turns green in both
+  - [x] a key saved once works in a second organization, never enters its Vault, and is hidden
+        from its record (`a_paid_key_saved_once_works_in_every_organization`)
+  - [ ] the light turns green in both: the owner's check on Windows 11
 
 ### 1.5 Subscriptions first in every AI tool picker — S
 
@@ -192,14 +205,16 @@ Ships first, in small releases. About 2 to 3 build sessions.
     the **AI tools page**, and only when the tool is installed (`aiTools/SignIn.tsx`). When you're
     already signed in, the button says "Reconnect", not "Sign in".
 - **Do:**
-  - [ ] Every AI tool picker shows two groups: **Your subscriptions**, then **Paid per use with
-        your key**. Paid tools show only when paid keys are switched on and a key is saved.
-  - [ ] Picking a company's paid tool with no key saved says: "xAI's key isn't set. To use your
-        Grok subscription, choose Grok."
-  - [ ] The error text points to "the AI tools page", not "Settings → AI tools".
-  - [ ] **Sign in** buttons on the Settings → AI tools rows too.
+  - [x] Every AI tool picker shows two groups: **Your subscriptions**, then **Paid per use with
+        your key**. Paid tools show only once their key works (a saved choice still shows).
+        Allowed AI tools on a project mark each paid one "paid per use".
+  - [x] A position fixed to a company's paid tool with no working key says: "xAI's key isn't set
+        up. To use your Grok subscription, choose Grok."
+  - [x] The error text points to "the AI tools page", not "Settings → AI tools".
+  - [x] Settings → AI tools: a signed-out AI tool's row says **Sign in →** and opens its card,
+        where the Sign in button is. The button itself moves to the card's header in 2.1.
   - [ ] The full fix, a subscription with its company's key as a backup, is item 4.4.
-- **Tests:** picker groups, the hint, and the sign-in buttons.
+- **Tests:** [x] picker groups, the hint, and the Sign in rows.
 
 ### 1.6 Copilot as code reviewer: "who made it is not known" — S
 
@@ -214,15 +229,18 @@ Ships first, in small releases. About 2 to 3 build sessions.
   still on its first role (Senior Developer), or you changed an existing Senior Developer that
   reviews for the team.
 - **Do:**
-  - [ ] **Change ADR-081:** a model you pick **by name** is your informed choice. Plenipo keeps it
+  - [x] **Change ADR-081:** a model you pick **by name** is your informed choice. Plenipo keeps it
         and shows a warning instead of refusing. "Play it safe" stays for automatic choices.
-  - [ ] A clearer message that names the companies and the level, with a link: "Senior Developer's
-        model choices never use DeepSeek and xAI. Copilot picks its own model, so Plenipo can't rule
-        them out. Keep it anyway?"
+        Recorded in
+        [ADR-191 (a model you pick by name is your choice)](../adr/ADR-191-a-model-you-pick-by-name-is-your-choice.md).
+  - [x] The warning names the companies and who sets the list: "Plenipo can't tell who made GitHub
+        Copilot (default model), so it can't rule out DeepSeek and xAI, which Senior Developer
+        never uses. It keeps your choice."
   - [ ] Next to every AI tool picker, show the combined "never use" list and where each entry came
-        from (see 2.6).
-- **Tests:** router tests for a pinned Copilot with a "never use" list (warns, doesn't refuse);
-  automatic choices still refuse.
+        from. **Part of 2.6.**
+- **Tests:** [x] a pinned model whose maker is unknown is kept with the warning; a known maker on
+  the list is still refused; automatic choices are unchanged
+  (`a_fixed_model_is_refused_by_who_made_it`).
 
 ### 1.7 "What's stuck" opens the stuck thing — S
 
@@ -231,11 +249,11 @@ Ships first, in small releases. About 2 to 3 build sessions.
 - **Why:** the Stuck tile has no click action (`pages/HomePage.tsx`). The rows in the "What's
   stuck" list below it already open their task or worker.
 - **Do:**
-  - [ ] One stuck item: the tile opens its task page, worker page, or Settings → Servers.
-  - [ ] More than one: the tile scrolls to the "What's stuck" list and moves the focus there.
-  - [ ] Each stuck task row gets an "Open the worker" link.
-  - [ ] Give the "Objectives going" tile a click action too.
-- **Tests:** `pages.test.tsx`, for one item and for many.
+  - [x] One stuck item: the tile opens its task page, worker page, or Settings → Servers.
+  - [x] More than one: the tile scrolls to the "What's stuck" list and moves the focus there.
+  - [x] "Open the worker": not needed. A stuck task opens its task page, which links its worker.
+  - [x] Give the "Objectives going" tile a click action too: one opens it, more show the list.
+- **Tests:** [x] `pages.test.tsx`, for one item and for many.
 
 ### 1.8 Watch on every tile, and Watch shows the team's work — S–M
 
@@ -253,16 +271,22 @@ Ships first, in small releases. About 2 to 3 build sessions.
     (`TopologyCanvas.tsx`). It's missing on idle tiles, on-call worker tiles, List mode, the
     worker popup, the Worker page, the Task page, and Home.
 - **Do:**
-  - [ ] Watch on a manager or supervisor shows **every change in its objective**, from the whole
-        team, with each change labelled by the worker who made it.
-  - [ ] When Watch is empty, say why: "Hands work to its team", "Has no permission to change
-        files", "This project has no folder", or "Its AI tool can't change files".
-  - [ ] The Watch button on every active tile (quieter when idle), every worker tile, the worker
-        popup, List mode, the Worker page, the Task page, and Home's "Who's working" rows.
+  - [x] Watch on a manager or supervisor shows its own changes and **every change made in the
+        work it handed on**, in its current objective, each labelled by the worker who made it.
+        A new hand-off is picked up live. Recorded in
+        [ADR-193 (Watch shows the team's work)](../adr/ADR-193-watch-shows-the-team.md).
+  - [x] When Watch is empty, it says why when Plenipo knows ("It hasn't been given any work yet",
+        or Guard's recorded reason a worker got no tools), and otherwise says plainly that it
+        shows files written with Plenipo's file tools, not changes made by commands (3.2).
+  - [x] The Watch button on every active tile on the canvas (quieter when idle) and on the Worker
+        page.
+  - [ ] Watch on the Task page, Home's "Who's working" rows, List mode, and the worker popup.
+        **Moved to 3.1**, with the live conversation that goes in the same places.
 - **Tests:**
-  - [ ] Watch on a supervisor shows its worker's change
-  - [ ] each empty-state reason
-  - [ ] the button is on every tile kind
+  - [x] Watch on a supervisor shows its worker's changes, in memory and after a restart
+        (`watch_shows_every_file_change_as_it_lands_with_its_lines`)
+  - [x] the team's changes are heard live, a new hand-off is read again, and the reason shows
+        (`code.test.ts`)
 
 ---
 
@@ -284,6 +308,9 @@ simpler screens.
   - [ ] A card opens by itself when it needs you, or when a link points at it. Plenipo remembers
         which cards you opened.
   - [ ] Uses the shared open/close part from 2.2.
+  - [ ] From 1.3: fold the company key cards (Anthropic, OpenAI, xAI, Moonshot, Google) into their
+        subscription card; OpenRouter and the companies with no subscription keep their own.
+  - [ ] From 1.2: the subscription card shows its key's usage as a second line ("with your key").
 - **Tests:** `aiTools.test.tsx` (tests open the card first).
 
 ### 2.2 Connections cards start closed — M
@@ -483,6 +510,8 @@ About 5 to 7 build sessions.
     - a progress line: step 3 of 7, 4 minutes, 12 steps, tokens so far
   - [ ] Put it in the Watch tab (next to the file changes), the Task page, the Worker page, the
         Inspector (last 3 lines), and a one-line "now: Running npm test" on canvas tiles.
+  - [ ] From 1.8: the Watch button on the Task page, Home's "Who's working" rows, List mode, and
+        the worker popup.
   - [ ] Read plans and progress from every AI tool that sends them: Grok and Kimi plans, Codex's
         to-do list, and Claude Code's tool calls as soon as they start.
   - [ ] Codex live text needs its other connection method (app-server). That's a stretch goal,
@@ -621,6 +650,7 @@ About 6 to 8 build sessions.
         Monday".
   - [ ] Use the reported reset time for every hold.
   - [ ] Show OpenRouter's key limit and balance.
+  - [ ] From 1.2: tell the open page when a background plan check saves a new report.
 - **Tests:** each tool's report is read correctly.
 
 ### 4.4 Your subscription first, then the same company's key — M

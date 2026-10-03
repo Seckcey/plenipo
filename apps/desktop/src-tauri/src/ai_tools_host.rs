@@ -53,6 +53,25 @@ pub fn listen(ledger: &Arc<Ledger>, tools: &AiTools) {
     }));
 }
 
+/// Usage counts every open organization's tasks, and a task ending in any organization asks
+/// for the plan left, as the first's does (Phase 25, item 1.2). The organizations open now are
+/// listened to here; one opened later, by `org_commands`.
+pub fn count_every_organization(orgs: &Arc<crate::orgs::Orgs>, tools: &AiTools) {
+    let every = Arc::clone(orgs);
+    tools.count_every_organization(Arc::new(move || {
+        every
+            .stacks()
+            .iter()
+            .map(|s| Arc::clone(&s.ledger))
+            .collect()
+    }));
+    for stack in orgs.stacks() {
+        if !stack.place.is_first() {
+            listen(&stack.ledger, tools);
+        }
+    }
+}
+
 /// The daily look for new versions, by itself.
 pub fn start_daily(tools: AiTools) {
     let _ = std::thread::Builder::new()

@@ -362,6 +362,9 @@ pub fn configure<R: Runtime>(
             // kept with the first organization (ADR-094 §4).
             let ai_tools = ai_tools_host::create(&agents, &broker);
             ai_tools_host::listen(&ledger, &ai_tools);
+            // Usage counts every organization's tasks, and each one's tasks ending asks for the
+            // plan left (Phase 25, item 1.2).
+            ai_tools_host::count_every_organization(&orgs, &ai_tools);
             if options.persistence == Persistence::AppData {
                 ai_tools_host::start_daily(ai_tools.clone());
             }

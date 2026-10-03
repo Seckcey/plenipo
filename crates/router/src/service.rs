@@ -150,6 +150,31 @@ impl Planner {
         })
     }
 
+    /// The AI companies never to use, other than `company`, by name, as a sentence's list ("DeepSeek
+    /// and xAI"): every layer's, in order, once each.
+    fn never_labels(&self, layers: &[crate::engine::Layer<'_>], company: &str) -> String {
+        let infos: Vec<AgentRuntimeInfo> = self.tools.iter().map(|t| t.info.clone()).collect();
+        let known = crate::makers::companies(&infos);
+        let mut names: Vec<String> = Vec::new();
+        for id in layers.iter().flat_map(|l| l.never.iter()) {
+            if id == company {
+                continue;
+            }
+            let name = known
+                .iter()
+                .find(|m| &m.id == id)
+                .map_or_else(|| id.clone(), |m| m.label.clone());
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        match names.as_slice() {
+            [] => String::new(),
+            [one] => one.clone(),
+            [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        }
+    }
+
     /// A decision the owner made on the position: its fixed AI tool and model. Its effort still
     /// comes from the layers (its own setting first), and a layer that never uses its AI company
     /// keeps it from starting (ADR-041 §3–§4).
@@ -202,27 +227,15 @@ impl Planner {
                         never_by(&layers, &made.id).map(|who| (who, made.label.clone()))
                     })
             });
-        // Who made it is not known: it could be a company on such a list (ADR-081 §7).
+        // Who made it is not known: it could be a company on such a list (ADR-081 §7). A model the
+        // owner chose by name is their informed choice: it is kept, with a warning that names the
+        // companies it cannot rule out (Phase 25, item 1.6). Automatic choices still play it safe.
         let unknown = if never.is_none() && made_by.is_none() {
             never_other_than(&layers, &company)
+                .map(|who| (who, self.never_labels(&layers, &company)))
         } else {
             None
         };
-        if let Some(who) = unknown {
-            return RouteDecision {
-                reason: format!(
-                    "You set {title} to always use {label}, but {who} has AI companies never to \
-                     use, and who made {label} is not known. Change one of them (Settings → AI \
-                     models)."
-                ),
-                choice: None,
-                rank: None,
-                candidates: Vec::new(),
-                fixed: true,
-                model_from: Some(fixed_by),
-                effort_from: None,
-            };
-        }
         if let Some((who, never_label)) = never {
             return RouteDecision {
                 reason: format!(
@@ -248,6 +261,12 @@ impl Planner {
             &levels,
         );
         let mut reason = format!("You set {title} to always use {label}.");
+        if let Some((who, companies)) = &unknown {
+            reason.push_str(&format!(
+                " Plenipo can't tell who made {label}, so it can't rule out {companies}, which \
+                 {who} never uses. It keeps your choice."
+            ));
+        }
         reason.push_str(&effort_words(
             effort,
             effort_from.as_ref(),
@@ -1124,7 +1143,8 @@ mod tests {
     }
 
     /// ADR-081 §5, §7: a position fixed to a model is refused when its maker is a company never
-    /// to use, or when who made it is not known and there are companies never to use.
+    /// to use. When who made it is not known and there are companies never to use, the owner's
+    /// choice by name is kept, with a warning that names them (Phase 25, item 1.6).
     #[test]
     fn a_fixed_model_is_refused_by_who_made_it() {
         use plenipo_runtime::agent::makers;
@@ -1166,12 +1186,18 @@ mod tests {
         assert!(d.choice.is_none());
         assert!(d.reason.contains("never uses DeepSeek"), "{}", d.reason);
         let d = fixed("mystery");
-        assert!(d.choice.is_none());
+        assert!(d.choice.is_some(), "{}", d.reason);
         assert!(
-            d.reason.contains("who made mystery (Hub) is not known"),
+            d.reason.contains(
+                "Plenipo can't tell who made mystery (Hub), so it can't rule out DeepSeek, which \
+                 the organization never uses. It keeps your choice."
+            ),
             "{}",
             d.reason
         );
+        // Unticking the company clears the warning.
+        never(&[]);
+        assert!(!fixed("mystery").reason.contains("can't tell who made"));
     }
 
     /// ADR-041: the organization's, a department's, and an agent's rules are saved, checked, and

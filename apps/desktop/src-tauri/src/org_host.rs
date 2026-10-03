@@ -136,6 +136,11 @@ pub fn build<R: Runtime>(
         &agents,
         how.control.clone(),
     );
+    // One set of paid AI keys for the whole PC, kept with the first organization (Phase 25, item
+    // 1.4): set before anything reads a key or hides one from the record.
+    if let Some(first) = how.first {
+        broker.keep_paid_keys_in(&first.broker);
+    }
     // Connections and add-on tools are part of Pro (ADR-068); Guard, approvals, and the Vault
     // never are.
     broker.set_entitlements(how.entitlements.clone());

@@ -345,7 +345,13 @@ struct Inner {
     live: Mutex<Live>,
     /// Held while the setting is read, changed, and written.
     keeping: Mutex<()>,
+    /// Every open organization's Ledger, for usage that counts them all (Phase 25, item 1.2).
+    /// Unset: the first organization's alone.
+    every_ledger: Mutex<Option<EveryLedger>>,
 }
+
+/// Every open organization's Ledger, the first one's among them.
+pub type EveryLedger = Arc<dyn Fn() -> Vec<Arc<plenipo_ledger::Ledger>> + Send + Sync>;
 
 /// Cheap to clone; clones share state.
 #[derive(Clone)]
@@ -410,6 +416,7 @@ impl AiTools {
                 release_base,
                 live: Mutex::new(Live::default()),
                 keeping: Mutex::new(()),
+                every_ledger: Mutex::new(None),
             }),
         }
     }
@@ -859,6 +866,26 @@ impl AiTools {
 
     // ---- Usage (ADR-060 §1) ------------------------------------------------------------------------
 
+    /// Count every open organization's tasks in usage, through `every` (the app's list of open
+    /// organizations; Phase 25, item 1.2).
+    pub fn count_every_organization(&self, every: EveryLedger) {
+        *lock(&self.inner.every_ledger) = Some(every);
+    }
+
+    /// The Ledgers usage reads: every open organization's, each once, the first one's always.
+    fn ledgers(&self) -> Vec<Arc<plenipo_ledger::Ledger>> {
+        let mut out = vec![Arc::clone(self.ledger())];
+        let every = lock(&self.inner.every_ledger).clone();
+        if let Some(every) = every {
+            for ledger in every() {
+                if !out.iter().any(|l| Arc::ptr_eq(l, &ledger)) {
+                    out.push(ledger);
+                }
+            }
+        }
+        out
+    }
+
     /// `runtime_id`'s usage for the days whose starts are `day_starts` (the last value ends the
     /// last day): tokens read, reused, and written, and tasks, by model, added up from the
     /// counts saved with each step.
@@ -881,7 +908,11 @@ impl AiTools {
             ));
         }
         let (first, last) = (day_starts[0], day_starts[day_starts.len() - 1]);
-        let steps = self.ledger().token_steps(runtime_id, first, last)?;
+        // The PC's AI tool: every organization's tasks on it count (Phase 25, item 1.2).
+        let mut steps = Vec::new();
+        for ledger in self.ledgers() {
+            steps.extend(ledger.token_steps(runtime_id, first, last)?);
+        }
         let mut days: Vec<UsageDay> = day_starts
             .windows(2)
             .map(|w| UsageDay {
@@ -970,10 +1001,33 @@ impl AiTools {
         name: &str,
         key: &str,
     ) -> Result<AiToolsPage> {
-        self.adapter(runtime_id)?;
-        crate::paid::save_key(&self.inner.broker, self.agents(), runtime_id, name, key)
+        let (broker, agents) = (self.inner.broker.clone(), self.agents().clone());
+        self.save_paid_key_for(runtime_id, name, key, &broker, &agents)
             .await
-            .map_err(BrokerError::Invalid)?;
+    }
+
+    /// Save a paid AI tool's key for the whole PC (kept with the first organization), while
+    /// paid keys are on in `allowed_by`, the organization the owner is looking at, whose
+    /// `agents` check the key (Phase 25, item 1.4).
+    pub async fn save_paid_key_for(
+        &self,
+        runtime_id: &str,
+        name: &str,
+        key: &str,
+        allowed_by: &Broker,
+        agents: &AgentRuntime,
+    ) -> Result<AiToolsPage> {
+        self.adapter(runtime_id)?;
+        crate::paid::save_key(
+            &self.inner.broker,
+            allowed_by,
+            agents,
+            runtime_id,
+            name,
+            key,
+        )
+        .await
+        .map_err(BrokerError::Invalid)?;
         Ok(self.page())
     }
 

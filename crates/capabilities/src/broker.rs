@@ -475,6 +475,9 @@ struct Inner {
     /// (ADR-068). Until the app gives the PC's, always Pro. Nothing else here depends on it:
     /// Guard, approvals, the Vault, and the record are never behind Pro.
     entitlements: RwLock<Arc<plenipo_licensing::Entitlements>>,
+    /// Where paid AI keys are kept: the first organization's broker, for every other
+    /// organization (one set of keys for the whole PC; Phase 25, item 1.4). Unset: its own.
+    paid_keys_from: std::sync::OnceLock<Broker>,
 }
 
 /// Cheap to clone; clones share state.
@@ -771,6 +774,7 @@ impl Broker {
                 connections,
                 config,
                 entitlements: RwLock::new(plenipo_licensing::Entitlements::unlocked()),
+                paid_keys_from: std::sync::OnceLock::new(),
             }),
         };
         // A connection's sign-in changed: hide the new one in text too.
@@ -894,8 +898,26 @@ impl Broker {
     }
 
     /// The paid AI keys (ADR-085), with the names they are hidden under.
+    /// Use `keeper`'s paid AI keys (the first organization's) instead of this organization's own:
+    /// one set of keys for the whole PC (Phase 25, item 1.4). Set once, before it starts.
+    pub fn keep_paid_keys_in(&self, keeper: &Broker) {
+        if !Arc::ptr_eq(&self.inner, &keeper.inner)
+            && self.inner.paid_keys_from.set(keeper.clone()).is_ok()
+        {
+            // The PC's keys are hidden from this organization's record from now on.
+            self.refresh_redactor();
+        }
+    }
+
+    /// The broker whose settings and Vault keep the paid AI keys this organization uses.
+    pub fn paid_key_keeper(&self) -> &Broker {
+        self.inner.paid_keys_from.get().unwrap_or(self)
+    }
+
     fn paid_secrets(&self) -> Vec<(String, String)> {
-        let keys = self
+        // The keys this organization's workers use, wherever they are kept, are hidden here too.
+        let keeper = self.paid_key_keeper();
+        let keys = keeper
             .inner
             .guard
             .config()
@@ -904,7 +926,7 @@ impl Broker {
         keys.iter()
             .flat_map(|k| k.vault_ids().map(move |id| (id, &k.name)))
             .filter_map(|(id, name)| {
-                vault::read(self.inner.store.as_ref(), id)
+                vault::read(keeper.inner.store.as_ref(), id)
                     .ok()
                     .flatten()
                     .map(|v| (v, format!("paid key {name}")))

@@ -51,7 +51,8 @@ export function UsageTab({
       <p className="muted">
         Tokens are pieces of words: what the AI tool read and what it wrote. Reused tokens were read
         again from earlier in the conversation, which usually costs less. Weeks run Monday to
-        Sunday.
+        Sunday. These count the tasks Plenipo ran on {label}, in every organization; your own use of{" "}
+        {label} outside Plenipo isn&apos;t counted.
       </p>
       {!counts && (
         <p role="note">{label} doesn&apos;t report token counts, so only its tasks are counted.</p>

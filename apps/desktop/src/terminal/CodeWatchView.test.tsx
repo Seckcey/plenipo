@@ -74,7 +74,14 @@ function change(over: Partial<WatchChange> = {}): WatchChange {
 }
 
 function view(changes: WatchChange[], over: Partial<WatchView> = {}): WatchView {
-  return { positionId: "p-dev", objectiveTaskId: "root", changes, fromTheRecord: false, ...over };
+  return {
+    positionId: "p-dev",
+    objectiveTaskId: "root",
+    changes,
+    fromTheRecord: false,
+    teamTaskIds: [],
+    ...over,
+  };
 }
 
 /** The file after a change: "TWO" changed, a line removed before "five", two new lines. */
@@ -159,7 +166,9 @@ describe("the Watch tab for code", () => {
     await user.click(screen.getByRole("button", { name: "Watch Senior Developer" }));
     expect(screen.getAllByRole("tab", { name: /Watch · Senior Developer/ })).toHaveLength(1);
     expect(await screen.findByText("No file changes yet in this objective")).toBeInTheDocument();
-    expect(screen.getByText("Changes show here as the worker makes them.")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Changes show here as the worker, or the team it hands work to, makes them/),
+    ).toBeInTheDocument();
     expect(
       screen.getByText("Read-only: you see only what Guard lets this worker change."),
     ).toBeInTheDocument();

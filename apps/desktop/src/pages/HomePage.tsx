@@ -67,6 +67,15 @@ function stuckRow(item: StuckItem, go: Go, now: number): RowItem {
   };
 }
 
+/** Bring a part of Home into view and move the focus to its heading. */
+function showPanel(id: string) {
+  const heading = document.getElementById(id);
+  if (!heading) return;
+  if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+  heading.scrollIntoView?.({ block: "start" });
+  heading.focus({ preventScroll: true });
+}
+
 /**
  * Home (Phase 12): Pip's greeting and how things are, then what's waiting for the owner,
  * what's stuck, each department's health, the objectives going, who's working, and what just
@@ -145,6 +154,19 @@ export function HomePage({
     })),
   ];
 
+  // One stuck thing opens it; more show the list (Phase 25, item 1.7).
+  const openStuck = () => {
+    const only = stuckRows.length === 1 ? stuckRows[0]?.onOpen : undefined;
+    if (only) only();
+    else showPanel("home-stuck");
+  };
+  const current = home.value?.current ?? [];
+  const openObjectives = () => {
+    const only = current.length === 1 ? current[0] : undefined;
+    if (only) go({ view: "task", id: only.rootTaskId });
+    else showPanel("home-objectives");
+  };
+
   const stats: StatItem[] = [
     waitingError
       ? {
@@ -161,12 +183,14 @@ export function HomePage({
           onOpen: () => go({ view: "approvals", id: null }),
         },
     home.status === "error"
-      ? { label: "Stuck", value: "—", hint: "Couldn't check" }
+      ? { label: "Stuck", value: "—", hint: "Couldn't check", onOpen: openStuck }
       : {
           label: "Stuck",
           value: mood.stuck,
           status: mood.stuck > 0 ? "error" : "ok",
-          hint: mood.stuck > 0 ? "See What's stuck" : "Nothing stuck",
+          hint:
+            mood.stuck === 1 ? "Open it" : mood.stuck > 1 ? "See What's stuck" : "Nothing stuck",
+          onOpen: openStuck,
         },
     {
       label: "Working now",
@@ -179,6 +203,7 @@ export function HomePage({
       label: "Objectives going",
       value: home.value?.going ?? "—",
       hint: "Given to your company",
+      onOpen: openObjectives,
     },
     {
       label: "Finished",

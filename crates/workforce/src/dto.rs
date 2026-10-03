@@ -458,6 +458,9 @@ pub struct RuntimeBrief {
     /// The AI company behind it ("Anthropic"), whose cloud its models run in (Phase 18: the
     /// canvas's "where" and its AI company filter; each model's own maker comes with Phase 16).
     pub company: String,
+    /// Paid per use with the owner's key (ADR-085), not a subscription: the pickers list these
+    /// after the subscriptions, and only once a key is saved (Phase 25, item 1.5).
+    pub paid: bool,
 }
 
 /// The whole organization for the canvas and directory.

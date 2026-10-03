@@ -27,6 +27,7 @@ import { STAFFING_LABEL, STATUS_LABEL, ago, positionToolLabel } from "../org/for
 import { rankName, titlesOf } from "../org/titles";
 import { useOrganization } from "../org/useOrganization";
 import { useNow } from "../runtime/useNow";
+import { useOpenWatch } from "../terminal/useTerminal";
 import { EventHistory, HISTORY_PAGE } from "./EventHistory";
 import { PageMissing } from "./parts";
 import { taskRows } from "./rows";
@@ -106,6 +107,7 @@ export function WorkerPage({
   const organization = useOrganization();
   const org = organization.snapshot;
   const p = org?.positions.find((x) => x.id === id) ?? null;
+  const openWatch = useOpenWatch();
   const work = useLive<WorkView>(p ? id : null, (k) => getWork(k), changesWork, 800);
   const permissions = useLive<PermissionsSnapshot>(
     p ? "permissions" : null,
@@ -186,6 +188,12 @@ export function WorkerPage({
             {sessionId && (
               <Button size="sm" icon="workers" onClick={() => onOpenSession(sessionId)}>
                 Open the conversation
+              </Button>
+            )}
+            {/* Watch from its own page too (Phase 25, item 1.8). */}
+            {openWatch && p.active && (p.agent || p.staffing !== "persistent") && (
+              <Button size="sm" onClick={() => openWatch(p.id, p.title)}>
+                Watch
               </Button>
             )}
             <Button

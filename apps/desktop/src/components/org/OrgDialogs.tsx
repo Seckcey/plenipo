@@ -41,15 +41,11 @@ import {
   useSubmit,
 } from "./dialogHelpers";
 import { Modal } from "./Modal";
+import { RuntimeOptions } from "./RuntimeOptions";
+import { runtimeChoiceLabel, subscriptionInstead } from "./runtimeChoices";
 
 /** Resolves with the refusal to show, or `null` once done. */
 export type Submit<T> = (input: T) => Promise<string | null>;
-
-function runtimeChoiceLabel(snapshot: OrgSnapshot, id: string): string {
-  const r = snapshot.runtimes.find((x) => x.id === id);
-  if (!r) return id;
-  return r.ready ? r.label : `${r.label} (not ready)`;
-}
 
 function projectOf(snapshot: OrgSnapshot, positionId: string | null): ProjectInfo | null {
   if (!positionId) return null;
@@ -129,11 +125,14 @@ function RuntimeField({
   project: ProjectInfo | null;
 }) {
   const refused = value !== "" && project !== null && !project.allowedRuntimes.includes(value);
+  const instead = value === "" ? null : subscriptionInstead(snapshot, value);
   return (
     <Field
       label="AI tool"
       hint={
-        refused ? (
+        instead ? (
+          <span className="field__warn">{instead}</span>
+        ) : refused ? (
           <span className="field__warn">
             {project.name} does not allow this AI tool
             {project.allowedRuntimes.length > 0
@@ -148,11 +147,7 @@ function RuntimeField({
     >
       <select value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Automatic (the role&apos;s model choices)</option>
-        {snapshot.runtimes.map((r) => (
-          <option key={r.id} value={r.id}>
-            {runtimeChoiceLabel(snapshot, r.id)}
-          </option>
-        ))}
+        <RuntimeOptions snapshot={snapshot} current={value} />
       </select>
     </Field>
   );
@@ -793,7 +788,10 @@ function ProjectSettingsFields({
               checked={value.allowedRuntimes.includes(r.id)}
               onChange={(e) => toggle(r.id, e.target.checked)}
             />
-            <span className="choice__label">{r.label}</span>
+            <span className="choice__label">
+              {r.label}
+              {r.paid ? " · paid per use" : ""}
+            </span>
             {!r.ready && <StatusPill status={PILL_TONE.warn} label="Not ready" />}
           </label>
         ))}
@@ -1084,11 +1082,7 @@ export function SetUpDevelopmentDialog({
         >
           <select value={runtimeId} onChange={(e) => setRuntimeId(e.target.value)}>
             <option value="">Automatic (the role&apos;s model choices)</option>
-            {snapshot.runtimes.map((r) => (
-              <option key={r.id} value={r.id}>
-                {runtimeChoiceLabel(snapshot, r.id)}
-              </option>
-            ))}
+            <RuntimeOptions snapshot={snapshot} current={runtimeId} />
           </select>
         </Field>
         <FormError error={error} />

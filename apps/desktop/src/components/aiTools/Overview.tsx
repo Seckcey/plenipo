@@ -176,7 +176,7 @@ export function Overview({
             )}
           </div>
         ) : (
-          <PlanLeft info={info} tool={tool} />
+          <PlanLeft info={info} tool={tool} onApply={onApply} />
         )}
       </dd>
       <dt>This week</dt>
@@ -506,18 +506,46 @@ const NO_WINDOW: PlanWindow = { minutes: null, usedPercent: null, resetsAt: null
  * reached" is said once: on the window at its limit, or above them all when the tool said only
  * that the plan is limited.
  */
-function PlanLeft({ info, tool }: { info: AgentRuntimeInfo; tool: AiToolState | undefined }) {
+function PlanLeft({
+  info,
+  tool,
+  onApply,
+}: {
+  info: AgentRuntimeInfo;
+  tool: AiToolState | undefined;
+  onApply: Apply;
+}) {
   const label = info.label;
+  const { pending, error, run } = useRun<AiToolsPage>(onApply);
   if (!tool) return <span className="muted">Loading…</span>;
   if (!tool.reportsPlanLeft) return <>{label} doesn&apos;t report how much of your plan is left.</>;
+  // Asked now, for an AI tool Plenipo can ask (Phase 25, item 1.2); Claude Code tells it only
+  // during a task.
+  const ask = PLAN_DURING_A_TASK.has(info.id) ? null : (
+    <div className="ai-tool__buttons">
+      <Button
+        size="sm"
+        variant="quiet"
+        disabled={pending || !info.ready}
+        aria-label={`Check ${label}'s plan now`}
+        onClick={() => void run(() => checkAiTool(info.id))}
+      >
+        {pending ? "Checking…" : "Check plan"}
+      </Button>
+      <Refusal error={error} />
+    </div>
+  );
   const plan = tool.plan;
   if (!plan) {
     return PLAN_DURING_A_TASK.has(info.id) ? (
       <>{label} reports this during a task; nothing reported yet.</>
     ) : (
-      <>
-        {label} hasn&apos;t reported it yet. Plenipo asks when it checks {label}.
-      </>
+      <div className="ai-tool__block">
+        <span>
+          {label} hasn&apos;t reported it yet. Plenipo asks when it checks {label}.
+        </span>
+        {ask}
+      </div>
     );
   }
   const windows = plan.windows.length > 0 ? plan.windows : [NO_WINDOW];
@@ -541,6 +569,7 @@ function PlanLeft({ info, tool }: { info: AgentRuntimeInfo; tool: AiToolState | 
         Reported by {label} at {when(plan.reportedAt)}
         {plan.plan ? ` · your plan: ${plan.plan}` : ""}
       </span>
+      {ask}
     </div>
   );
 }

@@ -61,19 +61,22 @@ pub fn not_allowed(broker: &Broker) -> Option<String> {
 
 impl PaidGate for Gate {
     fn key(&self, runtime_id: &str) -> Result<PaidKey, String> {
+        // This organization's switch and caps; the key itself is the PC's, kept with the first
+        // organization (Phase 25, item 1.4).
         if let Some(why) = not_allowed(&self.broker) {
             return Err(why);
         }
-        let config = self.broker.guard().config().map_err(|e| e.to_string())?;
+        let keeper = self.broker.paid_key_keeper();
+        let config = keeper.guard().config().map_err(|e| e.to_string())?;
         let info = config.paid_key(runtime_id).ok_or_else(|| {
-            "No paid key is saved for this AI tool: add one on its card (Settings → AI tools)."
+            "No paid key is saved for this AI tool: add one on its card on the AI tools page."
                 .to_owned()
         })?;
-        let value = vault::read(self.broker.secret_store().as_ref(), &info.id)
+        let value = vault::read(keeper.secret_store().as_ref(), &info.id)
             .map_err(|e| format!("The saved key could not be read from the Vault ({e})."))?
             .ok_or_else(|| {
-                "The saved key is missing from the Vault: add it again on its card (Settings → \
-                 AI tools)."
+                "The saved key is missing from the Vault: add it again on its card on the AI tools \
+                 page."
                     .to_owned()
             })?;
         Ok(PaidKey::new(info.id.clone(), info.name.clone(), value))
@@ -211,13 +214,16 @@ fn erase_logged(store: &dyn vault::SecretStore, id: &str) -> bool {
 }
 
 /// Save the paid key for `runtime_id` (replacing one saved before), typed only into Plenipo's
-/// own screen. Refused while paid keys are off; no spending cap is needed. The key is
+/// own screen. Refused while paid keys are off in `allowed_by` (the organization the owner is
+/// looking at; Phase 25, item 1.4), whose `agents` check it; no spending cap is needed. `broker`
+/// keeps it: the first organization's, for the whole PC. The key is
 /// put in the Vault, checked with one cheap read call, and kept only if the service accepts it;
 /// otherwise nothing changes. Never returns or records the key. A key is never left in the Vault
 /// with nothing pointing to it: the one being replaced stays listed with the new one until the
 /// new one's check passes.
 pub async fn save_key(
     broker: &Broker,
+    allowed_by: &Broker,
     agents: &AgentRuntime,
     runtime_id: &str,
     name: &str,
@@ -225,7 +231,7 @@ pub async fn save_key(
 ) -> Result<PaidKeyInfo, String> {
     let service = PaidService::from_id(runtime_id)
         .ok_or_else(|| "That AI tool takes no paid key.".to_owned())?;
-    if let Some(why) = not_allowed(broker) {
+    if let Some(why) = not_allowed(allowed_by) {
         return Err(why);
     }
     let key = clean_key(key)?;
@@ -270,6 +276,7 @@ pub async fn save_key(
     };
     // Hidden from every log and record from now on, the check's included.
     broker.refresh_redactor();
+    allowed_by.refresh_redactor();
     let checked = agents.recheck(runtime_id).await.map(|(_, info)| info);
     if checked
         .as_ref()
@@ -284,6 +291,7 @@ pub async fn save_key(
             let _ = broker.guard().confirm_paid_key(runtime_id, &id);
         }
         broker.refresh_redactor();
+        allowed_by.refresh_redactor();
         return Ok(info);
     }
     // Refused, or not checked: put everything back as it was (unless another save has since).
@@ -297,6 +305,7 @@ pub async fn save_key(
     );
     erase_logged(store.as_ref(), &id);
     broker.refresh_redactor();
+    allowed_by.refresh_redactor();
     let _ = agents.recheck(runtime_id).await;
     let Some(checked) = checked else {
         return Err(format!("Plenipo has no AI tool called {runtime_id:?}"));
@@ -351,9 +360,10 @@ pub async fn remove_key(
     Ok(info)
 }
 
-/// Whether any paid key is saved.
+/// Whether any paid key is saved (the PC's keys, wherever they are kept).
 pub fn any_key(broker: &Broker) -> bool {
     broker
+        .paid_key_keeper()
         .guard()
         .config()
         .map(|c| !c.paid_keys.is_empty())

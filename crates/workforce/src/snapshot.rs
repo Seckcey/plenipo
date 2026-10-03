@@ -626,6 +626,7 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                 label: t.info.label.clone(),
                 ready: t.info.ready,
                 company: t.info.provider_label.clone(),
+                paid: t.paid,
             })
             .collect(),
         notices: inputs.notices.clone(),

@@ -27,6 +27,10 @@ export interface CodeWatch {
   following: boolean;
   /** The pinned file's path. */
   pinned: string | null;
+  /** The tasks whose changes it shows: the agent's own and its team's (Phase 25, item 1.8). */
+  teamTasks: readonly string[];
+  /** Why there is nothing to show, when Plenipo knows. */
+  quiet: string | null;
 }
 
 export function emptyCodeWatch(positionId: string): CodeWatch {
@@ -38,6 +42,8 @@ export function emptyCodeWatch(positionId: string): CodeWatch {
     fromTheRecord: false,
     following: true,
     pinned: null,
+    teamTasks: [],
+    quiet: null,
   };
 }
 
@@ -98,10 +104,27 @@ function put(
   return { ...s, objectiveTaskId: change.objectiveTaskId, changes, writing: text };
 }
 
-/** A change as it happens: kept when it is this agent's. */
+/** Whether a change is this agent's, or its team's (Phase 25, item 1.8). */
+function ours(state: CodeWatch, change: WatchChange): boolean {
+  return change.positionId === state.positionId || state.teamTasks.includes(change.taskId);
+}
+
+/** A change as it happens: kept when it is this agent's or its team's. */
 export function applyWatchUpdate(state: CodeWatch, update: WatchUpdate): CodeWatch {
-  if (update.change.positionId !== state.positionId) return state;
+  if (!ours(state, update.change)) return state;
   return put(state, update.change, update.writing ?? null);
+}
+
+/**
+ * A change in this agent's objective from a task the tab doesn't know yet: perhaps work it just
+ * handed on, so the tab reads what Plenipo has again.
+ */
+export function mayBeNewTeamWork(state: CodeWatch, update: WatchUpdate): boolean {
+  return (
+    state.objectiveTaskId !== null &&
+    update.change.objectiveTaskId === state.objectiveTaskId &&
+    !ours(state, update.change)
+  );
 }
 
 /**
@@ -111,6 +134,16 @@ export function applyWatchUpdate(state: CodeWatch, update: WatchUpdate): CodeWat
 export function loadWatchView(state: CodeWatch, view: WatchView): CodeWatch {
   if (view.positionId !== state.positionId) return state;
   let s = state;
+  // Whose changes it shows, why it is empty, and its objective before any change (Phase 25,
+  // item 1.8); the same state when nothing about them changed.
+  const quiet = view.quiet ?? null;
+  const objective = state.objectiveTaskId ?? view.objectiveTaskId ?? null;
+  const sameTeam =
+    state.teamTasks.length === view.teamTaskIds.length &&
+    state.teamTasks.every((t, i) => t === view.teamTaskIds[i]);
+  if (!sameTeam || state.quiet !== quiet || state.objectiveTaskId !== objective) {
+    s = { ...state, teamTasks: view.teamTaskIds, quiet, objectiveTaskId: objective };
+  }
   // Oldest first, so the newest decides the objective.
   for (const change of [...view.changes].reverse()) {
     s = put(s, { ...change, positionId: change.positionId ?? view.positionId }, undefined, true);

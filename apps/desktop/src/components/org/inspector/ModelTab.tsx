@@ -16,6 +16,8 @@ import { Button } from "@plenipo/ui";
 
 import { setModelRule } from "../../../api/commands";
 import { runtimeLabel } from "../../../org/format";
+import { RuntimeOptions } from "../RuntimeOptions";
+import { subscriptionInstead } from "../runtimeChoices";
 import {
   EFFORT_LABEL,
   FEATURE_LABEL,
@@ -171,7 +173,10 @@ function FixedOrAutomatic({
       <form aria-label="AI tool and model" onSubmit={save}>
         <Field
           label="AI tool"
-          hint="Automatic: the rules pick the AI tool and model, and say why. Or fix one for this agent."
+          hint={
+            (automatic ? null : subscriptionInstead(snapshot, runtimeId)) ??
+            "Automatic: the rules pick the AI tool and model, and say why. Or fix one for this agent."
+          }
         >
           {({ id, hintId }) => (
             <select
@@ -184,12 +189,7 @@ function FixedOrAutomatic({
               }}
             >
               <option value="">Automatic (the rules pick)</option>
-              {snapshot.runtimes.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.label}
-                  {r.ready ? "" : " (not ready)"}
-                </option>
-              ))}
+              <RuntimeOptions snapshot={snapshot} current={runtimeId} />
             </select>
           )}
         </Field>

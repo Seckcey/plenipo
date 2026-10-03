@@ -32,11 +32,26 @@ const CHECK_SLACK_MS = 2000;
 /** "Checking…" gives up after this long without an answer. */
 const CHECK_GIVE_UP_MS = 120_000;
 
-/** The card's pill: checking, updating, given no tasks, or ready and why not. */
+/** Whether a subscription card's key works: saved, checked, and paid keys on (ADR-085). */
+function keyWorks(keyCard: KeyCard | undefined): boolean {
+  return (
+    keyCard !== undefined &&
+    keyCard.tool.paidKey !== null &&
+    keyCard.info.ready &&
+    keyCard.tool.paidBlocked === null
+  );
+}
+
+/**
+ * The card's pill: checking, updating, given no tasks, or ready and why not. A subscription AI
+ * tool's card is green when its subscription or its company's key works, and says which (Phase
+ * 25, item 1.3).
+ */
 function cardStatus(
   info: AgentRuntimeInfo,
   tool: AiToolState | undefined,
   checking: boolean,
+  keyCard?: KeyCard,
 ): { status: Status; label: string } {
   if (checking) return { status: "offline", label: "Checking…" };
   if (tool?.outOfService) return { status: "error", label: "No tasks for now" };
@@ -49,6 +64,14 @@ function cardStatus(
   // switched off count even before the next check says so.
   if (tool?.payment === "paidKey" && (!info.ready || tool.paidBlocked !== null)) {
     return { status: PILL_TONE.warn, label: tool.paidKey ? "Key not in use" : "No key yet" };
+  }
+  if (tool?.payment !== "paidKey") {
+    const key = keyWorks(keyCard);
+    if (info.ready && key) {
+      return { status: PILL_TONE.ok, label: "Subscription and API key connected" };
+    }
+    if (info.ready) return { status: PILL_TONE.ok, label: "Subscription connected" };
+    if (key) return { status: PILL_TONE.ok, label: "API key connected" };
   }
   const s = runtimeStatus(info);
   return { status: PILL_TONE[s.tone], label: s.text };
@@ -97,7 +120,7 @@ export function AiToolCard({
     tool?.checking === true ||
     info.auth.state === "checking" ||
     info.installation.state === "checking";
-  const status = cardStatus(info, tool, checking);
+  const status = cardStatus(info, tool, checking, keyCard);
   const prefix = `ai-tool-${info.id}`;
 
   return (

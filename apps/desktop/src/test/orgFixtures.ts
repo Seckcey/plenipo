@@ -201,8 +201,8 @@ export function emptyOrganization(): OrgSnapshot {
     oversight: [],
     stats: stats([], 0, 0),
     runtimes: [
-      { id: "claude-code", label: "Claude Code", ready: true, company: "Anthropic" },
-      { id: "codex", label: "Codex", ready: false, company: "OpenAI" },
+      { id: "claude-code", label: "Claude Code", ready: true, company: "Anthropic", paid: false },
+      { id: "codex", label: "Codex", ready: false, company: "OpenAI", paid: false },
     ],
     notices: [],
     places: [],
@@ -309,8 +309,8 @@ export function sampleOrganization(): OrgSnapshot {
     oversight,
     stats: stats(positions, 2, 2),
     runtimes: [
-      { id: "claude-code", label: "Claude Code", ready: true, company: "Anthropic" },
-      { id: "codex", label: "Codex", ready: false, company: "OpenAI" },
+      { id: "claude-code", label: "Claude Code", ready: true, company: "Anthropic", paid: false },
+      { id: "codex", label: "Codex", ready: false, company: "OpenAI", paid: false },
     ],
     notices: [],
     places: [],
