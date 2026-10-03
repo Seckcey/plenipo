@@ -176,6 +176,9 @@ pub enum PairingView {
         browser: String,
         #[ts(type = "number")]
         since: u64,
+        /// Six digits the phone shows too, from the meeting itself (ADR-212): the owner compares
+        /// them, because a name alone proves nothing.
+        check: String,
     },
     /// The owner said yes: the phone is making its passkey.
     MakingPasskey { name: String },
@@ -295,7 +298,8 @@ const OUTCOMES_KEPT: usize = 64;
 
 /// What happens after the owner says yes.
 enum Candidate {
-    AskingOwner,
+    /// "Is this your phone?", with the six digits the phone shows too (ADR-212).
+    AskingOwner { check: String },
     MakingPasskey {
         device: String,
         phone: String,
@@ -443,10 +447,11 @@ impl Remote {
                     wrong: p.wrong,
                 }
             }
-            Some((_, hello, _, Candidate::AskingOwner, since)) => PairingView::Asking {
+            Some((_, hello, _, Candidate::AskingOwner { check }, since)) => PairingView::Asking {
                 name: hello.name.clone(),
                 browser: hello.browser.clone(),
                 since: *since,
+                check: check.clone(),
             },
             Some((_, hello, _, Candidate::MakingPasskey { .. }, _)) => PairingView::MakingPasskey {
                 name: hello.name.clone(),
@@ -734,7 +739,7 @@ impl Remote {
                 "No phone is waiting to be added.".into(),
             ));
         };
-        if !matches!(step, Candidate::AskingOwner) {
+        if !matches!(step, Candidate::AskingOwner { .. }) {
             return Err(RemoteError::Invalid("That phone was already added.".into()));
         }
         let conn = conn.clone();
@@ -1242,6 +1247,9 @@ impl Remote {
         // The third message: the code was right, and it says what the phone calls itself.
         let key: Option<[u8; 32]> = hs.get_remote_static().and_then(|k| k.try_into().ok());
         let hello: Option<PairHello> = serde_json::from_slice(&payload).ok();
+        // Six digits both screens show, from this meeting's own hash (ADR-212): another phone's
+        // meeting with the same code makes different ones.
+        let check = noise::check_digits(hs.get_handshake_hash());
         let Lock::Meeting(hs) = std::mem::replace(&mut c.lock, Lock::Gone) else {
             unreachable!("matched above")
         };
@@ -1255,15 +1263,40 @@ impl Remote {
             name: clean_name(&hello.name, "Phone"),
             browser: clean_name(&hello.browser, "A web browser"),
         };
-        let taken = st.pairing.as_ref().is_none_or(|p| p.candidate.is_some());
-        if taken {
+        let Some(p) = st.pairing.as_mut() else {
+            // Add a phone was stopped on the PC while this phone was still meeting it.
             self.close(&mut st, conn);
+            return;
+        };
+        if p.candidate.is_some() {
+            // Another phone finished first with this code. This one is told why, so the owner's
+            // own phone, if it lost, says what happened and what to do (ADR-212).
+            self.send_pair(
+                &mut st,
+                conn,
+                PairStep::Refused {
+                    message: "Another phone already used this code. If that was not you, click \
+                              Cancel on your PC and start again."
+                        .into(),
+                },
+            );
+            self.close(&mut st, conn);
+            drop(st);
+            self.host.record(
+                None,
+                "remote.pairing_refused",
+                json!({ "reason": "used", "name": hello.name }),
+            );
             return;
         }
         // The code is used: nobody else may use it.
-        if let Some(p) = st.pairing.as_mut() {
-            p.candidate = Some((conn.to_owned(), hello, key, Candidate::AskingOwner, now));
-        }
+        p.candidate = Some((
+            conn.to_owned(),
+            hello,
+            key,
+            Candidate::AskingOwner { check },
+            now,
+        ));
         self.send_pair(&mut st, conn, PairStep::Waiting);
         drop(st);
         self.send(ToRelay::CloseMailbox);
@@ -1524,7 +1557,9 @@ impl Remote {
                 live.seen.remove(&old);
             }
         }
-        if signed && !from_notice {
+        // Only what the owner does keeps the phone signed in: a page the phone reads again by
+        // itself (`again`) does not move the 30-minute clock (ADR-212, P-SRV-3).
+        if signed && !from_notice && !again {
             live.last_request = now;
         }
         if let Ask::Outcome { of } = &ask {

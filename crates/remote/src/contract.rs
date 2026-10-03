@@ -63,7 +63,8 @@ fn example_keys() -> PcKeys {
     PcKeys::fixed_for_contract(PC_STATIC, PC_RELAY_SEED)
 }
 
-fn handshake_vectors() -> Value {
+/// The lock's fixed test answers (`noise-vectors.json`); the noise tests read the pairing hash.
+pub(crate) fn handshake_vectors() -> Value {
     use snow::Builder;
     let code = Code::parse(crate::code::tests::FIXED).expect("the fixed code");
     let psk = code.psk();

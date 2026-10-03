@@ -20,4 +20,9 @@ qr: Qr, endsAt: number,
 /**
  * Wrong tries so far (it dies at 3).
  */
-wrong: number, } | { "step": "asking", name: string, browser: string, since: number, } | { "step": "makingPasskey", name: string, };
+wrong: number, } | { "step": "asking", name: string, browser: string, since: number, 
+/**
+ * Six digits the phone shows too, from the meeting itself (ADR-212): the owner compares
+ * them, because a name alone proves nothing.
+ */
+check: string, } | { "step": "makingPasskey", name: string, };
