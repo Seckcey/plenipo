@@ -167,3 +167,4 @@ architecture must be recorded here.
 | [199](ADR-199-stop-all-work.md)                           | Stop on every worker, and Stop all work: every task stops and nothing starts until Allow again (amends 020, 094)       | Accepted |
 | [200](ADR-200-watch-shows-changes-made-by-commands.md)    | Watch shows changes made by commands too: files noted before and compared after (amends 055)                           | Accepted |
 | [201](ADR-201-side-chats.md)                              | Side chats with a manager or supervisor: answer only, briefed on what the agent knows                                  | Accepted |
+| [202](ADR-202-prompt-caching-for-anthropic-models.md)     | Prompt caching for Anthropic models on your key and through OpenRouter (amends 085 §3.5)                               | Accepted |

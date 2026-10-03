@@ -107,29 +107,32 @@ const TO_MAX: &[Effort] = &[
 const LOW_TO_HIGH: &[Effort] = &[Effort::Low, Effort::Medium, Effort::High];
 const LOW_HIGH_MAX: &[Effort] = &[Effort::Low, Effort::High, Effort::Max];
 
+/// Anthropic's models. Plenipo marks their requests for the prompt cache (Phase 25, item 4.1;
+/// ADR-202): input stored for reuse costs 1.25 times the input price (Anthropic's five-minute
+/// cache), and input read back from it the cached price.
 const ANTHROPIC_MODELS: &[Sold] = &[
     sold(
         "claude-sonnet-5-5",
         "Claude Sonnet 5.5",
-        m(2_000_000, 200_000, 10_000_000),
+        m(2_000_000, 200_000, 10_000_000).with_cache_write(2_500_000),
     )
     .thinks(TO_MAX),
     sold(
         "claude-opus-5-5",
         "Claude Opus 5.5",
-        m(4_000_000, 200_000, 20_000_000),
+        m(4_000_000, 200_000, 20_000_000).with_cache_write(5_000_000),
     )
     .thinks(TO_MAX),
     sold(
         "claude-fable-5-1",
         "Claude Fable 5.1",
-        m(10_000_000, 250_000, 50_000_000),
+        m(10_000_000, 250_000, 50_000_000).with_cache_write(12_500_000),
     )
     .thinks(TO_MAX),
     sold(
         "claude-haiku-4-5",
         "Claude Haiku 4.5",
-        m(1_000_000, 100_000, 5_000_000),
+        m(1_000_000, 100_000, 5_000_000).with_cache_write(1_250_000),
     ),
 ];
 
@@ -631,6 +634,34 @@ impl RuntimeAdapter for Direct {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Phase 25, item 4.1 (ADR-202): with the prompt cache, an Anthropic task's bill counts the
+    /// input stored for reuse at 1.25 times the input price and the input read back at the cached
+    /// price; the most it could cost counts all of its input as stored.
+    #[test]
+    fn anthropic_tasks_are_priced_with_the_cache() {
+        let sonnet = ANTHROPIC_MODELS
+            .iter()
+            .find(|s| s.name == "claude-sonnet-5-5")
+            .unwrap()
+            .price;
+        let usage = crate::dto::TokenUsage {
+            input_tokens: 10_000,
+            cached_input_tokens: 9_000,
+            output_tokens: 500,
+        };
+        // 1,000 stored at $2.50, 9,000 read back at $0.20, 500 written at $10 (per million).
+        assert_eq!(sonnet.bill(&usage), 2_500 + 1_800 + 5_000);
+        assert_eq!(sonnet.most(10_000, 1_000), 25_000 + 10_000);
+        for s in ANTHROPIC_MODELS {
+            assert_eq!(
+                s.price.cache_write.unwrap() * 4,
+                s.price.input * 5,
+                "{}",
+                s.name
+            );
+        }
+    }
 
     #[test]
     fn every_company_has_its_own_id_and_every_model_a_sane_price() {

@@ -674,16 +674,20 @@ About 6 to 8 build sessions.
   - That was on purpose: ADR-085 §3.5 (paid AI keys with spending caps) says Plenipo never asks a
     service to store a conversation for reuse. You've now asked for it.
 - **Do:**
-  - [ ] **Change ADR-085 §3.5:** caching is allowed for Anthropic models, on the direct key and
+  - [x] **Change ADR-085 §3.5:** caching is allowed for Anthropic models, on the direct key and
         through OpenRouter.
-  - [ ] Mark the reusable start of each request (instructions and earlier turns) for caching.
-  - [ ] Count the cost right: writing to the cache costs a little more, and reading from it costs
-        much less. The Anthropic price rows get a cache-write price, and the spending gate sets
-        aside the most a step could cost.
-  - [ ] Show "saved by caching" on the Usage tab.
+        [ADR-202 (prompt caching for Anthropic models)](../adr/ADR-202-prompt-caching-for-anthropic-models.md).
+  - [x] Mark the reusable start of each request (instructions and earlier turns) for caching.
+  - [x] Count the cost right: writing to the cache costs a little more, and reading from it costs
+        much less. The Anthropic price rows get a cache-write price (1.25 times input), and the
+        spending gate sets aside the most a step could cost.
+  - [x] Show "saved by caching" on the Usage tab.
 - **Tests:**
-  - [ ] the request carries the cache markers
-  - [ ] the cost math matches Anthropic's prices, checked on the owner's PC per ADR-081 §8
+  - [x] the request carries the cache markers (capabilities
+        `anthropic_requests_carry_the_cache_marks`, on the key and through OpenRouter; none for
+        other companies)
+  - [ ] the cost math matches Anthropic's prices, checked on the owner's PC per ADR-081 §8. Here:
+        runtime `anthropic_tasks_are_priced_with_the_cache` checks the math against the price rows.
 
 ### 4.2 When a plan runs out: say what you can do, and pick the work back up — S–M
 

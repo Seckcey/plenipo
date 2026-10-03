@@ -845,6 +845,17 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
       "This week: 3,500 read (400 reused) · 350 written · 4 tasks",
       "Last week: 5,000 read (1,000 reused) · 500 written · 3 tasks",
     ]);
+    // What caching saved (Phase 25, item 4.1).
+    const saved = within(codexCard).getByRole("list", { name: "What caching saved on Codex" });
+    expect(
+      within(saved)
+        .getAllByRole("listitem")
+        .map((i) => i.textContent),
+    ).toEqual([
+      "Today: 400 of 1,000 read came from the cache (40%)",
+      "This week: 400 of 3,500 read came from the cache (11%)",
+      "Last week: 1,000 of 5,000 read came from the cache (20%)",
+    ]);
     const byModel = within(codexCard).getByRole("table", { name: "Codex's usage by model" });
     const row = (name: string) =>
       within(byModel).getByRole("rowheader", { name }).closest("tr")!.querySelectorAll("td");

@@ -3,6 +3,7 @@ import { LoadingState } from "@plenipo/ui";
 
 import { tokens } from "../../routing/format";
 import {
+  cachingLine,
   countsNothing,
   dayName,
   DEFAULT_MODEL,
@@ -69,6 +70,25 @@ export function UsageTab({
           );
         })}
       </ul>
+      {counts && (
+        <>
+          <h3>Saved by caching</h3>
+          <p className="muted">
+            Read from the cache instead of fresh: on a paid key it costs about a tenth as much, and
+            it uses less of a plan.
+          </p>
+          <ul className="ai-tool__list" aria-label={`What caching saved on ${label}`}>
+            {periods.map(([name], i) => {
+              const total = sums[i]?.total;
+              return (
+                <li key={name}>
+                  <strong>{name}:</strong> {(total && cachingLine(total)) ?? "nothing reused"}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
       <h3>By model</h3>
       {models.length === 0 ? (
         <p className="muted">No tasks on {label} in the last two weeks.</p>

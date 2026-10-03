@@ -679,7 +679,8 @@ fn price_of(v: &Value) -> Option<Price> {
         input: v.get("input")?.as_u64()?,
         cached_input: v.get("cachedInput").and_then(Value::as_u64),
         output: v.get("output")?.as_u64()?,
-        cache_write: None,
+        // Storing input for reuse, where it costs more: Anthropic's models (Phase 25, ADR-202).
+        cache_write: v.get("cacheWrite").and_then(Value::as_u64),
     })
 }
 

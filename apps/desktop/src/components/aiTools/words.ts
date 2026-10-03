@@ -224,6 +224,16 @@ export function usageLine(sum: UsageSum, counts: boolean): string {
   return `${tokens(sum.read)} read${reused} · ${tokens(sum.written)} written · ${tasks}`;
 }
 
+/**
+ * What caching saved (Phase 25, item 4.1): "1.2M of 3M read came from the cache (40%)". `null`
+ * when nothing was reused.
+ */
+export function cachingLine(sum: UsageSum): string | null {
+  if (sum.reused <= 0 || sum.read <= 0) return null;
+  const share = Math.round((100 * sum.reused) / sum.read);
+  return `${tokens(sum.reused)} of ${tokens(sum.read)} read came from the cache (${share}%)`;
+}
+
 /** "Today", else "Wed, Sep 30". */
 export function dayName(start: number, today: number): string {
   if (start === today) return "Today";
