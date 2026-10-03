@@ -1,6 +1,6 @@
 # Phase 23 — Implementation Checklist
 
-**Status: Wave 0 delivered (2026-10-02); Wave 1 in v1.20.0 and v1.21.0, its Guard safety review done (2026-10-03)** (started 2026-10-02). Builds on v1.19.3. Below, "[x]" is done.
+**Status: Wave 0 delivered (2026-10-02); Wave 1 in v1.20.0 and v1.21.0, its Guard safety review done (2026-10-03); Wave 2, Linux first look, in v1.23.0 (2026-10-03)** (started 2026-10-02). Builds on v1.19.3. Below, "[x]" is done.
 Plenipo is made by 8 West Ventures, LLC.
 
 Source: `ROLLOUT_PLAN.md`, Phase 23 — Mac and Linux, and the records written for it:
@@ -335,7 +335,9 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       Linux PC; today's samples were recorded on Windows.
 - [ ] **The owner's check on a Linux PC:** install, sign in to Claude Code, run a Development objective
       end to end with the same approvals as Windows, restart the PC, and the Vault still has its keys.
-- [ ] **Release** as "Linux (first look)".
+- [x] **Release** as "Linux (first look)".
+      Done: v1.23.0. The owner chose (2026-10-03) to release it now as a first look, before the
+      Linux PC check; what that check finds goes into the next versions.
 
 ### Wave 3 — Mac, first look
 
