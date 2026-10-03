@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sign-out-of-community"
+description = "Enables the sign_out_of_community command without any pre-configured scope."
+commands.allow = ["sign_out_of_community"]
+
+[[permission]]
+identifier = "deny-sign-out-of-community"
+description = "Denies the sign_out_of_community command without any pre-configured scope."
+commands.deny = ["sign_out_of_community"]

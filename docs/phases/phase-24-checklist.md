@@ -124,10 +124,10 @@ are written and tested; they reach the live service, still switched off, when th
       `update_needed`, closed parts, the safety code's recipe, and a worked seal (ADR-170 §7,
       ADR-172 §6)
 - [x] `Limit::CommunityStart` in `Entitlements::check` (ADR-162 §5)
-- [ ] Guard's outbound purpose **Community**: only `account.getplenipo.com`, only while signed in
+- [x] Guard's outbound purpose **Community**: only `account.getplenipo.com`, only while signed in
       (ADR-162 §7)
-- [ ] The **Community** switch, signing in with a code, the age box, signing out (ADR-162)
-- [ ] Each PC's Community key in the Vault (ADR-162 §3)
+- [x] The **Community** switch, signing in with a code, the age box, signing out (ADR-162)
+- [x] Each PC's Community key in the Vault (ADR-162 §3)
 - [ ] Your profile: hidden to begin with, each part's box, **What people see** (ADR-163)
 - [ ] Turning Community on says "**You'll be listed in the Community directory**", and **Appear
       offline** sits beside your status (ADR-163 §1, §5)
@@ -148,7 +148,7 @@ are written and tested; they reach the live service, still switched off, when th
 - [ ] **Delete my Community data from this PC** (ADR-168 §3)
 - [ ] Ledger events `community.*`, never a message's words
 - [ ] New desktop commands, main window only, with IPC tests
-- [ ] **Coming soon** while the account service says Community is not open, **Check again**,
+- [x] **Coming soon** while the account service says Community is not open, **Check again**,
       **Update Plenipo to use Community**, and **Community is closed for now** (ADR-170)
 - [ ] Words added to `docs/design/vocabulary.md`
 
@@ -199,8 +199,8 @@ are written and tested; they reach the live service, still switched off, when th
 - [ ] A made-up report (words nobody sent) is refused (ADR-164 §6)
 - [ ] An approval only the owner can answer refuses a collaborator's answer (ADR-166 §3)
 - [ ] Each time in ADR-168 is enforced by the cleanup
-- [ ] A Free copy that never signs in to Community still never contacts 8 West (ADR-162 §5)
-- [ ] Under 13 cannot join, and nothing of the answer is kept (ADR-162 §4)
+- [x] A Free copy that never signs in to Community still never contacts 8 West (ADR-162 §5)
+- [x] Under 13 cannot join, and nothing of the answer is kept (ADR-162 §4)
 - [ ] A member under 18 is never in the directory, an adult never sees their status or mood, and an
       adult's message to them lands in **Requests** (ADR-162 §4)
 - [ ] The directory cannot be copied whole, and **Appear offline** removes you from it and the

@@ -25,6 +25,7 @@ pub mod item;
 pub mod keys;
 pub mod safety;
 pub mod seal;
+pub mod service;
 pub mod session;
 pub mod stamp;
 pub mod wire;

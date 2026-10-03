@@ -10,6 +10,8 @@ pub mod ai_tools_host;
 pub mod backup_host;
 pub mod canvas_commands;
 pub mod commands;
+pub mod community_commands;
+pub mod community_host;
 pub mod connections_commands;
 pub mod diagnostics;
 pub mod files_commands;
@@ -316,6 +318,28 @@ pub fn configure<R: Runtime>(
             };
             let first = org_host::build(app.handle(), place(orgs::FIRST), ledger.clone(), &opening);
             orgs.insert(first.clone());
+            // Community (Phase 24): this PC's sign-in in the first organization's Vault, like the
+            // license key; the switch in `community.json`. It asks 8 West nothing until the owner
+            // turns Community on (ADR-115, ADR-170 §2).
+            let community = community_host::create(
+                app.handle(),
+                license.clone(),
+                Arc::new(plenipo_capabilities::connections::SystemOpener::new(
+                    first.supervisor.clone(),
+                )),
+                match options.persistence {
+                    Persistence::AppData => Arc::new(plenipo_capabilities::OsSecretStore::new(
+                        orgs::vault_name(&identifier, orgs::FIRST),
+                    )),
+                    Persistence::InMemory => {
+                        Arc::new(plenipo_capabilities::MemorySecretStore::default())
+                    }
+                },
+                data.clone(),
+                &version,
+                community_host::built(),
+            );
+            app.manage(community.clone());
             orgs.set_name(orgs::FIRST, &orgs::name_in(&first.ledger));
             for entry in orgs.entries() {
                 if entry.id == orgs::FIRST || entry.archived_at.is_some() {
@@ -395,6 +419,8 @@ pub fn configure<R: Runtime>(
                 license_host::start(app.handle(), license);
                 // Phone access: the relay link runs while it is on, Pro, and live (ADR-140 §4).
                 remote_host::start(app.handle(), remote);
+                // Community: a PC signed in asks who it is; one that isn't asks nothing.
+                community_host::start(app.handle(), community);
             }
             if options.window_watch {
                 window_watch::start(
@@ -720,6 +746,13 @@ pub fn configure<R: Runtime>(
             remote_commands::unpause_device,
             remote_commands::set_kept_on_pc,
             remote_commands::set_phone_notices,
+            community_commands::get_community,
+            community_commands::set_community_switch,
+            community_commands::check_community_again,
+            community_commands::cancel_community_sign_in,
+            community_commands::join_community,
+            community_commands::sign_out_of_community,
+            community_commands::open_community_page,
         ])
 }
 
@@ -1032,6 +1065,17 @@ mod ipc_boundary_tests {
                 None,
                 true,
             ),
+        ));
+        // Community, kept in memory, its account service a closed port on this computer: the
+        // tests never reach 8 West, and no browser opens.
+        app.manage(community_host::create(
+            app.handle(),
+            license.clone(),
+            Arc::new(NoBrowser),
+            Arc::new(plenipo_capabilities::MemorySecretStore::default()),
+            None,
+            "1.9.0",
+            community_host::built_for(Some("http://127.0.0.1:9"), true),
         ));
         let first = org_host::build(
             app.handle(),
@@ -3788,6 +3832,78 @@ mod ipc_boundary_tests {
                 assert!(err["kind"].is_string(), "{cmd} from the main window: {err}");
             }
         }
+    }
+
+    /// Settings → Community: turning it on and signing in reach 8 West for the owner, so they are
+    /// the main window's alone (ADR-162 §8).
+    const COMMUNITY: [&str; 7] = [
+        "get_community",
+        "set_community_switch",
+        "check_community_again",
+        "cancel_community_sign_in",
+        "join_community",
+        "sign_out_of_community",
+        "open_community_page",
+    ];
+
+    #[test]
+    fn community_settings_are_the_main_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        let args = serde_json::json!({
+            "on": false, "name": "pat-lee", "birthMonth": 3, "birthYear": 1980,
+            "terms": "2026-10-01", "page": "terms",
+        });
+        for cmd in COMMUNITY {
+            let refused = |answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
+                           from: &str| {
+                let err = answer.expect_err(from);
+                assert!(
+                    err.to_string().contains("not allowed"),
+                    "{cmd} from {from}: {err}"
+                );
+            };
+            refused(invoke_json(&other, cmd, args.clone()), "another window");
+            refused(invoke_json(&sign, cmd, args.clone()), "the sign");
+            refused(
+                invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                "a web page",
+            );
+            if let Err(err) = invoke_json(&main, cmd, args.clone()) {
+                assert!(err["kind"].is_string(), "{cmd} from the main window: {err}");
+            }
+        }
+    }
+
+    #[test]
+    fn community_never_says_coming_soon_when_8_west_cannot_be_reached() {
+        let app = app();
+        let main = window(&app, "main");
+        let view: plenipo_community::service::CommunityView = body(invoke(&main, "get_community"));
+        assert_eq!(view.stage, plenipo_community::service::Stage::Off);
+        assert!(!view.switched_on);
+        // The account service here is a closed port: no answer is not Coming soon.
+        let view: plenipo_community::service::CommunityView = body(invoke_json(
+            &main,
+            "set_community_switch",
+            serde_json::json!({ "on": true }),
+        ));
+        assert_eq!(view.stage, plenipo_community::service::Stage::Unreachable);
+        assert!(!view.coming_soon && !view.switched_on);
+        assert_eq!(
+            view.problem.as_deref(),
+            Some("Community can't be reached right now. Nothing was changed.")
+        );
+        // Joining before signing in is refused in plain words.
+        let err = invoke_json(
+            &main,
+            "join_community",
+            serde_json::json!({ "name": "pat-lee", "birthMonth": 3, "birthYear": 1980, "terms": "2026-10-01" }),
+        )
+        .unwrap_err();
+        assert_eq!(err["kind"], "invalidInput");
     }
 
     #[test]

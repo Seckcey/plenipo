@@ -4427,6 +4427,7 @@ dependencies = [
  "getrandom 0.3.4",
  "hmac 0.13.0",
  "hpke",
+ "log",
  "plenipo-community",
  "rand_core 0.10.1",
  "serde",
@@ -4434,6 +4435,7 @@ dependencies = [
  "sha2 0.11.0",
  "thiserror 2.0.21",
  "tokio",
+ "ts-rs",
 ]
 
 [[package]]
@@ -4453,6 +4455,7 @@ dependencies = [
  "chrono",
  "log",
  "plenipo-capabilities",
+ "plenipo-community",
  "plenipo-core",
  "plenipo-guard",
  "plenipo-ledger",

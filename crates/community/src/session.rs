@@ -99,8 +99,9 @@ impl SignedInPc {
 
     /// Read back from the Vault.
     pub fn read(text: &str) -> Result<Self> {
-        let unreadable =
-            || CommunityError::Invalid("This PC's Community sign-in can't be read.".into());
+        let unreadable = || {
+            CommunityError::Invalid("Community's sign-in on this computer can't be read.".into())
+        };
         let kept: Kept = serde_json::from_str(text).map_err(|_| unreadable())?;
         if kept.v != 1 || !is_pass(&kept.pass) || !ids::is_id(IdKind::Device, &kept.device_id) {
             return Err(unreadable());
@@ -142,7 +143,7 @@ fn is_user_code(code: &str) -> bool {
 }
 
 /// The PC's name as the person will see it on the account site: one line, no characters that
-/// could disguise it, 1 to 60 characters, or "This PC".
+/// could disguise it, 1 to 60 characters, or "This computer".
 pub fn device_name(name: &str) -> String {
     let clean: String = name
         .chars()
@@ -151,7 +152,7 @@ pub fn device_name(name: &str) -> String {
         .collect();
     let clean = clean.trim();
     if clean.is_empty() {
-        "This PC".into()
+        "This computer".into()
     } else {
         clean.into()
     }
@@ -415,7 +416,7 @@ mod tests {
         assert_eq!(device_name("FRANKIE-DESKTOP"), "FRANKIE-DESKTOP");
         assert_eq!(device_name("evil\u{202E}txt.exe"), "eviltxt.exe");
         assert_eq!(device_name("two\nlines"), "twolines");
-        assert_eq!(device_name("  "), "This PC");
+        assert_eq!(device_name("  "), "This computer");
         assert_eq!(device_name(&"a".repeat(80)).chars().count(), 60);
     }
 

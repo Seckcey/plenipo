@@ -220,6 +220,14 @@ const COMMANDS: &[&str] = &[
     "unpause_device",
     "set_kept_on_pc",
     "set_phone_notices",
+    // Phase 24: Community (Settings → Community, and the switch).
+    "get_community",
+    "set_community_switch",
+    "check_community_again",
+    "cancel_community_sign_in",
+    "join_community",
+    "sign_out_of_community",
+    "open_community_page",
 ];
 
 fn main() {
@@ -236,6 +244,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=PLENIPO_CONNECTIONS_STAND_IN");
     // The stand-in for 8 West's license check in copies built for the tests (Phase 11A).
     println!("cargo:rerun-if-env-changed=PLENIPO_LICENSE_STAND_IN");
+    println!("cargo:rerun-if-env-changed=PLENIPO_COMMUNITY_STAND_IN");
     let windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
 

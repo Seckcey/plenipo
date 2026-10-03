@@ -45,6 +45,8 @@ export const SHARED_EVENT = "plenipo://shared";
 export const LICENSE_EVENT = "plenipo://license";
 /** Phone access changed (Phase 14): a phone added, signed in, or removed; the switch; pairing. */
 export const REMOTE_EVENT = "plenipo://remote";
+/** Community changed (Phase 24): the switch, signing in, joining, signing out, or leaving. */
+export const COMMUNITY_EVENT = "plenipo://community";
 
 /** Subscribe to runtime events. Resolves with an unsubscribe function. */
 export async function subscribeRuntimeEvents(
@@ -131,4 +133,9 @@ export async function subscribeLicense(handler: () => void): Promise<() => void>
 /** Phone access changed (Settings → Devices reads it again). */
 export async function subscribeRemote(handler: () => void): Promise<() => void> {
   return listenHere<string>(REMOTE_EVENT, () => handler());
+}
+
+/** Community changed (Settings → Community and the switch read it again). */
+export async function subscribeCommunity(handler: () => void): Promise<() => void> {
+  return listenHere<string>(COMMUNITY_EVENT, () => handler());
 }

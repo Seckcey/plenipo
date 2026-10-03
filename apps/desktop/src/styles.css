@@ -5139,3 +5139,68 @@ body.popout {
   font-weight: 600;
   margin-bottom: var(--ui-space-2);
 }
+
+/* ---- Settings → Community: your 8 West account in Plenipo (Phase 24) ----------------------- */
+
+.community {
+  display: grid;
+  gap: var(--ui-space-4);
+}
+
+.community p {
+  margin: 0;
+}
+
+/* The sign-in code: large, with its letters spaced, so it is easy to read and to type. */
+.community-code {
+  display: inline-block;
+  padding: var(--ui-space-2) var(--ui-space-4);
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  background: var(--ui-surface-sunken);
+  color: var(--ui-text-primary);
+  font-family: var(--ui-font-mono);
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: 0.25em;
+  user-select: all;
+}
+
+.community-join {
+  display: grid;
+  gap: var(--ui-space-4);
+  max-width: 480px;
+}
+
+/* The "@" sits before the name, inside the same box. */
+.community-join__name {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+}
+
+.community-join__name input {
+  flex: 1;
+  min-width: 0;
+}
+
+.community-join__birth {
+  display: grid;
+  gap: var(--ui-space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.community-join__birth legend {
+  padding: 0;
+  margin-bottom: var(--ui-space-2);
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.community-join__pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3);
+}
