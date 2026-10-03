@@ -52,7 +52,12 @@ impl Recorder for Events {
 
 impl Events {
     fn names(&self) -> Vec<String> {
-        self.0.lock().unwrap().iter().map(|(e, _)| e.clone()).collect()
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(e, _)| e.clone())
+            .collect()
     }
     fn all_text(&self) -> String {
         self.0
@@ -140,7 +145,10 @@ async fn a_copy_whose_owner_never_turns_community_on_sends_nothing() {
     assert_eq!(community.poll().await, None);
     assert!(community.leave().await.is_ok());
     let _ = community.view(true);
-    assert!(world.service.seen().is_empty(), "nothing at all reached 8 West");
+    assert!(
+        world.service.seen().is_empty(),
+        "nothing at all reached 8 West"
+    );
 }
 
 #[tokio::test]
@@ -156,7 +164,10 @@ async fn coming_soon_until_8_west_opens_it_and_then_the_same_copy_works() {
     // Only "is it open?" was asked: no pass, no body, nothing about the PC.
     let seen = world.service.seen();
     assert_eq!(seen.len(), 1);
-    assert_eq!((seen[0].method.as_str(), seen[0].path.as_str()), ("GET", "/v1/community/open"));
+    assert_eq!(
+        (seen[0].method.as_str(), seen[0].path.as_str()),
+        ("GET", "/v1/community/open")
+    );
     assert!(seen[0].body.is_empty());
     assert!(seen[0].header("authorization").is_none());
 
@@ -219,7 +230,10 @@ async fn signing_in_shows_a_code_waits_for_allow_and_then_asks_for_the_age_name_
     assert_eq!(view.account_name.as_deref(), Some("Frank Gonzalez"));
     assert!(view.code.is_none());
     assert!(!view.switched_on, "on only once this PC has joined");
-    assert!(world.store.read_pc().unwrap().is_some(), "the sign-in is in the Vault");
+    assert!(
+        world.store.read_pc().unwrap().is_some(),
+        "the sign-in is in the Vault"
+    );
     assert_eq!(world.events.names(), ["community.signed_in"]);
 
     world.join(&community, "frank-g").await;
@@ -229,7 +243,10 @@ async fn signing_in_shows_a_code_waits_for_allow_and_then_asks_for_the_age_name_
     let member = view.member.unwrap();
     assert_eq!(member.name, "frank-g");
     assert!(member.adult && member.can_start);
-    assert_eq!(world.events.names(), ["community.signed_in", "community.joined"]);
+    assert_eq!(
+        world.events.names(),
+        ["community.signed_in", "community.joined"]
+    );
 
     // Plenipo starts again: signed in, and it asks only who it is.
     let again = world.community();
@@ -251,27 +268,47 @@ async fn under_13_sends_nothing_keeps_nothing_and_signs_this_pc_out() {
     let before = world.service.seen();
 
     // Born in March 2015: 11 in September 2026.
-    let refused = community.join("young-one", 3, 2015, &terms).await.unwrap_err();
+    let refused = community
+        .join("young-one", 3, 2015, &terms)
+        .await
+        .unwrap_err();
     assert_eq!(refused.0, "Community is for people 13 and older.");
     let view = community.view(true);
     assert_eq!(view.stage, Stage::Off);
-    assert_eq!(view.problem.as_deref(), Some("Community is for people 13 and older."));
-    assert!(world.store.read_pc().unwrap().is_none(), "the sign-in is forgotten");
+    assert_eq!(
+        view.problem.as_deref(),
+        Some("Community is for people 13 and older.")
+    );
+    assert!(
+        world.store.read_pc().unwrap().is_none(),
+        "the sign-in is forgotten"
+    );
 
     // The only request after it is signing this PC out: nothing of the answer was sent.
-    let after: Vec<_> = world.service.seen().into_iter().skip(before.len()).collect();
+    let after: Vec<_> = world
+        .service
+        .seen()
+        .into_iter()
+        .skip(before.len())
+        .collect();
     assert_eq!(after.len(), 1);
     assert_eq!(after[0].path, "/v1/community/sign-out");
     for seen in world.service.seen() {
         assert!(!String::from_utf8_lossy(&seen.body).contains("2015"));
     }
-    assert!(!world.events.all_text().contains("2015"), "the Ledger keeps no age");
+    assert!(
+        !world.events.all_text().contains("2015"),
+        "the Ledger keeps no age"
+    );
 
     // A month and year that cannot be a birth is asked again, and nothing is sent.
     world.sign_in(&community).await;
     let terms = community.view(true).terms.unwrap();
     let count = world.service.seen().len();
-    let refused = community.join("frank-g", 13, 1980, &terms).await.unwrap_err();
+    let refused = community
+        .join("frank-g", 13, 1980, &terms)
+        .await
+        .unwrap_err();
     assert_eq!(refused.0, "Choose your birth month and year.");
     assert_eq!(world.service.seen().len(), count);
     assert_eq!(community.view(true).stage, Stage::Joining);
@@ -283,7 +320,10 @@ async fn a_name_the_service_refuses_is_said_in_its_words_and_can_be_changed() {
     let community = world.community();
     world.sign_in(&community).await;
     let terms = community.view(true).terms.unwrap();
-    let refused = community.join("plenipo-help", 3, 1980, &terms).await.unwrap_err();
+    let refused = community
+        .join("plenipo-help", 3, 1980, &terms)
+        .await
+        .unwrap_err();
     assert!(!refused.0.is_empty());
     assert_eq!(community.view(true).stage, Stage::Joining);
     community.join("frank-g", 3, 1980, &terms).await.unwrap();
@@ -332,7 +372,10 @@ async fn signing_out_keeps_the_switch_on_and_signing_in_again_works() {
     assert!(view.switched_on);
     assert!(view.member.is_none());
     assert!(world.store.read_pc().unwrap().is_none());
-    assert!(world.events.names().contains(&"community.signed_out".to_owned()));
+    assert!(world
+        .events
+        .names()
+        .contains(&"community.signed_out".to_owned()));
 
     // Sign in again: a member already, so straight back in.
     world.sign_in(&community).await;
@@ -368,7 +411,10 @@ async fn closed_again_after_signing_in_keeps_everything_and_carries_on_when_open
     let view = community.view(true);
     assert_eq!(view.stage, Stage::Closed);
     assert!(view.switched_on);
-    assert!(world.store.read_pc().unwrap().is_some(), "nothing is forgotten");
+    assert!(
+        world.store.read_pc().unwrap().is_some(),
+        "nothing is forgotten"
+    );
     world.service.set_open(Openness::Open {
         links: false,
         collaborators: false,
@@ -390,7 +436,10 @@ async fn leaving_community_turns_the_switch_off_and_ends_it_at_8_west() {
     assert!(world.store.read_pc().unwrap().is_none());
     assert_eq!(world.events.names().last().unwrap(), "community.left");
     let last = world.service.seen().pop().unwrap();
-    assert_eq!((last.method.as_str(), last.path.as_str()), ("DELETE", "/v1/community/me"));
+    assert_eq!(
+        (last.method.as_str(), last.path.as_str()),
+        ("DELETE", "/v1/community/me")
+    );
 }
 
 #[tokio::test]
@@ -409,7 +458,8 @@ async fn what_plenipo_sends_is_exactly_what_the_contract_names() {
         let value: serde_json::Value = serde_json::from_slice(body).unwrap();
         value.as_object().unwrap().keys().cloned().collect()
     };
-    let set = |names: &[&str]| -> BTreeSet<String> { names.iter().map(|n| n.to_string()).collect() };
+    let set =
+        |names: &[&str]| -> BTreeSet<String> { names.iter().map(|n| n.to_string()).collect() };
     for seen in world.service.seen() {
         let expected = match (seen.method.as_str(), seen.path.as_str()) {
             ("GET", "/v1/community/open") => set(&[]),
@@ -425,7 +475,12 @@ async fn what_plenipo_sends_is_exactly_what_the_contract_names() {
         // Only the contract's headers.
         let mut names: Vec<&str> = seen.headers.iter().map(|(n, _)| n.as_str()).collect();
         names.sort();
-        names.retain(|n| !matches!(*n, "accept" | "user-agent" | "content-type" | "authorization"));
+        names.retain(|n| {
+            !matches!(
+                *n,
+                "accept" | "user-agent" | "content-type" | "authorization"
+            )
+        });
         assert!(names.is_empty(), "{names:?}");
         let body = String::from_utf8_lossy(&seen.body);
         assert!(body.contains(PC_NAME) == seen.path.ends_with("/sign-in/start"));
@@ -442,7 +497,10 @@ async fn what_plenipo_sends_is_exactly_what_the_contract_names() {
         if seen.path.ends_with("/sign-in/start") {
             let start: serde_json::Value = serde_json::from_slice(&seen.body).unwrap();
             for key in ["signing_key", "sealing_key"] {
-                assert!(!events.contains(start[key].as_str().unwrap()), "never a key");
+                assert!(
+                    !events.contains(start[key].as_str().unwrap()),
+                    "never a key"
+                );
             }
         }
     }

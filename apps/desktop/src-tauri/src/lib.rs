@@ -3885,8 +3885,11 @@ mod ipc_boundary_tests {
         assert_eq!(view.stage, plenipo_community::service::Stage::Off);
         assert!(!view.switched_on);
         // The account service here is a closed port: no answer is not Coming soon.
-        let view: plenipo_community::service::CommunityView =
-            body(invoke_json(&main, "set_community_switch", serde_json::json!({ "on": true })));
+        let view: plenipo_community::service::CommunityView = body(invoke_json(
+            &main,
+            "set_community_switch",
+            serde_json::json!({ "on": true }),
+        ));
         assert_eq!(view.stage, plenipo_community::service::Stage::Unreachable);
         assert!(!view.coming_soon && !view.switched_on);
         assert_eq!(

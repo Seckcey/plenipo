@@ -93,8 +93,13 @@ pub async fn join_community<R: Runtime>(
             "Choose a Community name of 3 to 30 letters, numbers, or dashes.",
         ));
     }
-    if terms.is_empty() || terms.chars().count() > MOST_TERMS_CHARS || terms.chars().any(char::is_control) {
-        return Err(CommandError::invalid_input("Read and accept the Community terms."));
+    if terms.is_empty()
+        || terms.chars().count() > MOST_TERMS_CHARS
+        || terms.chars().any(char::is_control)
+    {
+        return Err(CommandError::invalid_input(
+            "Read and accept the Community terms.",
+        ));
     }
     let state = state.inner().clone();
     let result = state
@@ -138,9 +143,7 @@ pub async fn open_community_page(
         CommunityPage::SignIn => state.sign_in_page(),
         CommunityPage::Terms => TERMS_PAGE.to_owned(),
     };
-    state
-        .opener
-        .open(address)
-        .await
-        .map_err(|why| CommandError::invalid_input(format!("Plenipo couldn't open your web browser: {why}")))
+    state.opener.open(address).await.map_err(|why| {
+        CommandError::invalid_input(format!("Plenipo couldn't open your web browser: {why}"))
+    })
 }

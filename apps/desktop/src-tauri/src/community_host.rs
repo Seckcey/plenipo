@@ -20,7 +20,9 @@ use plenipo_capabilities::connections::Opener;
 use plenipo_capabilities::vault::{self, SecretStore};
 use plenipo_community::client::{Answer, Request, Transport};
 use plenipo_community::keys::KEYS_ID;
-use plenipo_community::service::{Clock, Community, CommunityView, Recorder, Settings, Stage, Store};
+use plenipo_community::service::{
+    Clock, Community, CommunityView, Recorder, Settings, Stage, Store,
+};
 use plenipo_guard::{OutboundRules, OWNER, PLENIPO};
 use plenipo_ledger::NewEvent;
 use plenipo_licensing::Limit;
@@ -78,12 +80,32 @@ pub fn built_for(stand_in: Option<&str>, for_tests: bool) -> Built {
     }
 }
 
-/// The first organization: its Guard and Ledger are Community's (the PC's shared record).
-type FirstOrg = Arc<dyn Fn() -> Option<Arc<OrgStack>> + Send + Sync>;
+/// Where Community's Guard and Ledger come from: the first organization's (the PC's shared
+/// record), found when first needed.
+#[derive(Clone)]
+pub(crate) struct Sources {
+    pub guard: Arc<dyn Fn() -> Option<plenipo_guard::Guard> + Send + Sync>,
+    pub ledger: Arc<dyn Fn() -> Option<Arc<plenipo_ledger::Ledger>> + Send + Sync>,
+}
+
+impl Sources {
+    /// The first organization's, from the app.
+    fn first<R: Runtime>(app: &AppHandle<R>) -> Self {
+        fn first<R: Runtime>(app: &AppHandle<R>) -> Option<Arc<OrgStack>> {
+            app.try_state::<Arc<Orgs>>()
+                .and_then(|orgs| orgs.inner().first())
+        }
+        let (a, b) = (app.clone(), app.clone());
+        Self {
+            guard: Arc::new(move || first(&a).map(|f| f.guard.clone())),
+            ledger: Arc::new(move || first(&b).map(|f| f.ledger.clone())),
+        }
+    }
+}
 
 /// Guard's check, then HTTPS, with the first organization's Guard (made when it first opens).
 pub struct HostTransport {
-    first: FirstOrg,
+    sources: Sources,
     built: Built,
     http: OnceLock<CommunityHttp>,
 }
@@ -93,8 +115,8 @@ impl HostTransport {
         if let Some(http) = self.http.get() {
             return Ok(http);
         }
-        let first = (self.first)().ok_or("Plenipo is still starting.")?;
-        let http = CommunityHttp::new(first.guard.clone(), self.built.rules.clone(), &self.built.origin)?;
+        let guard = (self.sources.guard)().ok_or("Plenipo is still starting.")?;
+        let http = CommunityHttp::new(guard, self.built.rules.clone(), &self.built.origin)?;
         Ok(self.http.get_or_init(|| http))
     }
 }
@@ -129,7 +151,9 @@ impl Store for HostStore {
     fn read_settings(&self) -> Result<Option<Settings>, String> {
         match &self.file {
             Some(f) => match std::fs::read_to_string(f) {
-                Ok(text) => serde_json::from_str(&text).map(Some).map_err(|e| e.to_string()),
+                Ok(text) => serde_json::from_str(&text)
+                    .map(Some)
+                    .map_err(|e| e.to_string()),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
                 Err(e) => Err(e.to_string()),
             },
@@ -156,12 +180,12 @@ impl Store for HostStore {
 
 /// The Ledger's shared record: the first organization's.
 struct HostRecorder {
-    first: FirstOrg,
+    sources: Sources,
 }
 
 impl Recorder for HostRecorder {
     fn record(&self, event: &str, payload: Value) {
-        let Some(first) = (self.first)() else {
+        let Some(ledger) = (self.sources.ledger)() else {
             return;
         };
         // What the owner did is the owner's; a sign-in ended by 8 West is Plenipo's to tell.
@@ -170,7 +194,7 @@ impl Recorder for HostRecorder {
         } else {
             OWNER
         };
-        if let Err(e) = first.ledger.append_event(NewEvent {
+        if let Err(e) = ledger.append_event(NewEvent {
             task_id: None,
             execution_id: None,
             source: source.into(),
@@ -238,15 +262,30 @@ pub fn create<R: Runtime>(
     version: &str,
     built: Built,
 ) -> Arc<CommunityState> {
-    let handle = app.clone();
-    let first: FirstOrg = Arc::new(move || {
-        handle
-            .try_state::<Arc<Orgs>>()
-            .and_then(|orgs| orgs.inner().first())
-    });
+    create_with(
+        Sources::first(app),
+        license,
+        opener,
+        vault,
+        data,
+        version,
+        built,
+    )
+}
+
+/// [`create`], with where Guard and the Ledger come from given (the tests').
+pub(crate) fn create_with(
+    sources: Sources,
+    license: Arc<LicenseHost>,
+    opener: Arc<dyn Opener>,
+    vault: Arc<dyn SecretStore>,
+    data: Option<PathBuf>,
+    version: &str,
+    built: Built,
+) -> Arc<CommunityState> {
     let community = Community::load(
         HostTransport {
-            first: first.clone(),
+            sources: sources.clone(),
             built: built.clone(),
             http: OnceLock::new(),
         },
@@ -255,7 +294,7 @@ pub fn create<R: Runtime>(
             file: data.as_ref().map(|d| d.join(CONFIG_FILE)),
             memory: Mutex::new(None),
         }),
-        Arc::new(HostRecorder { first }),
+        Arc::new(HostRecorder { sources }),
         Arc::new(SystemClock),
         version,
         &crate::remote_host::pc_name(),
@@ -330,7 +369,10 @@ mod tests {
     struct Kept(Mutex<Vec<String>>);
 
     impl Opener for Kept {
-        fn open(&self, address: String) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> {
+        fn open(
+            &self,
+            address: String,
+        ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> {
             lock(&self.0).push(address);
             Box::pin(async { Ok(()) })
         }
@@ -352,8 +394,13 @@ mod tests {
         let origin = service.serve().await;
         let app = tauri::test::mock_app();
         let opener = Arc::new(Kept::default());
-        let state = create(
-            app.handle(),
+        let ledger = Arc::new(plenipo_ledger::Ledger::open_in_memory().unwrap());
+        let guard = plenipo_guard::Guard::new(ledger.clone());
+        let state = create_with(
+            Sources {
+                guard: Arc::new(move || Some(guard.clone())),
+                ledger: Arc::new(move || Some(ledger.clone())),
+            },
             license(),
             opener.clone(),
             Arc::new(MemorySecretStore::default()),
@@ -383,18 +430,33 @@ mod tests {
         assert_eq!(state.view().stage, Stage::SigningIn);
         assert!(state.view().code.is_some());
         state.opener.open(state.sign_in_page()).await.unwrap();
-        assert_eq!(lock(&opener.0).as_slice(), [format!("{origin}/community/connect")]);
+        assert_eq!(
+            lock(&opener.0).as_slice(),
+            [format!("{origin}/community/connect")]
+        );
     }
 
     #[test]
     fn a_stand_in_is_only_for_copies_built_for_the_tests_and_only_on_this_computer() {
         assert_eq!(built_for(None, true).origin, ACCOUNT_ORIGIN);
-        assert_eq!(built_for(Some("http://127.0.0.1:8790"), false).origin, ACCOUNT_ORIGIN);
-        assert_eq!(built_for(Some("https://evil.example"), true).origin, ACCOUNT_ORIGIN);
+        assert_eq!(
+            built_for(Some("http://127.0.0.1:8790"), false).origin,
+            ACCOUNT_ORIGIN
+        );
+        assert_eq!(
+            built_for(Some("https://evil.example"), true).origin,
+            ACCOUNT_ORIGIN
+        );
         let stand_in = built_for(Some("http://127.0.0.1:8790"), true);
         assert_eq!(stand_in.origin, "http://127.0.0.1:8790");
         assert_eq!(stand_in.rules.community_test_port, Some(8790));
         // A release is built without one.
-        assert_eq!(built(), built_for(option_env!("PLENIPO_COMMUNITY_STAND_IN"), plenipo_licensing::trust::built_for_tests()));
+        assert_eq!(
+            built(),
+            built_for(
+                option_env!("PLENIPO_COMMUNITY_STAND_IN"),
+                plenipo_licensing::trust::built_for_tests()
+            )
+        );
     }
 }

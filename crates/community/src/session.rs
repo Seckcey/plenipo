@@ -99,8 +99,9 @@ impl SignedInPc {
 
     /// Read back from the Vault.
     pub fn read(text: &str) -> Result<Self> {
-        let unreadable =
-            || CommunityError::Invalid("Community's sign-in on this computer can't be read.".into());
+        let unreadable = || {
+            CommunityError::Invalid("Community's sign-in on this computer can't be read.".into())
+        };
         let kept: Kept = serde_json::from_str(text).map_err(|_| unreadable())?;
         if kept.v != 1 || !is_pass(&kept.pass) || !ids::is_id(IdKind::Device, &kept.device_id) {
             return Err(unreadable());

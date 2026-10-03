@@ -213,19 +213,22 @@ impl<T: Transport> Community<T> {
     /// Settings → Community, as the screen shows it. `pro`: this PC is on Pro.
     pub fn view(&self, pro: bool) -> CommunityView {
         let s = lock(&self.state);
-        let member = s.me.as_ref().and_then(|me| me.member.as_ref()).map(|m| MemberView {
-            name: m.name.clone(),
-            adult: m.age_group == wire::AgeGroup::Adult,
-            can_start: m.can_start,
-            standing: match m.standing {
-                wire::Standing::Ok => "ok",
-                wire::Standing::Paused => "paused",
-                wire::Standing::Ended => "ended",
-            }
-            .into(),
-            paused_until: m.paused_until,
-            appear_offline: m.appear_offline,
-        });
+        let member =
+            s.me.as_ref()
+                .and_then(|me| me.member.as_ref())
+                .map(|m| MemberView {
+                    name: m.name.clone(),
+                    adult: m.age_group == wire::AgeGroup::Adult,
+                    can_start: m.can_start,
+                    standing: match m.standing {
+                        wire::Standing::Ok => "ok",
+                        wire::Standing::Paused => "paused",
+                        wire::Standing::Ended => "ended",
+                    }
+                    .into(),
+                    paused_until: m.paused_until,
+                    appear_offline: m.appear_offline,
+                });
         CommunityView {
             stage: s.stage,
             switched_on: s.settings.switched_on,
@@ -353,7 +356,11 @@ impl<T: Transport> Community<T> {
             }
             let signing_in = s.signing_in.take()?;
             if self.clock.now() >= signing_in.expires_at {
-                s.stage = if s.settings.switched_on { Stage::SignedOut } else { Stage::Off };
+                s.stage = if s.settings.switched_on {
+                    Stage::SignedOut
+                } else {
+                    Stage::Off
+                };
                 s.problem = Some("The code ran out. Press Community to try again.".into());
                 return None;
             }
@@ -368,7 +375,11 @@ impl<T: Transport> Community<T> {
             return None;
         }
         let back = |s: &mut State, problem: &str| {
-            s.stage = if s.settings.switched_on { Stage::SignedOut } else { Stage::Off };
+            s.stage = if s.settings.switched_on {
+                Stage::SignedOut
+            } else {
+                Stage::Off
+            };
             s.problem = Some(problem.into());
         };
         match result {
@@ -394,7 +405,10 @@ impl<T: Transport> Community<T> {
             Ok((Finish::SignedIn(pc, me), _)) => {
                 if let Err(why) = self.store.write_pc(&pc.write()) {
                     log::warn!("Community's sign-in could not be kept in the Vault: {why}");
-                    back(&mut s, "Plenipo couldn't keep the sign-in in the Vault. Try again.");
+                    back(
+                        &mut s,
+                        "Plenipo couldn't keep the sign-in in the Vault. Try again.",
+                    );
                     return None;
                 }
                 self.recorder.record(
@@ -404,7 +418,11 @@ impl<T: Transport> Community<T> {
                 let joined = me.member.is_some();
                 s.pc = Some(Arc::new(*pc));
                 s.me = Some(*me);
-                s.stage = if joined { Stage::SignedIn } else { Stage::Joining };
+                s.stage = if joined {
+                    Stage::SignedIn
+                } else {
+                    Stage::Joining
+                };
                 if joined {
                     s.settings.switched_on = true;
                     self.save_settings(&mut s);
@@ -434,7 +452,11 @@ impl<T: Transport> Community<T> {
         let mut s = lock(&self.state);
         if s.stage == Stage::SigningIn {
             s.signing_in = None;
-            s.stage = if s.settings.switched_on { Stage::SignedOut } else { Stage::Off };
+            s.stage = if s.settings.switched_on {
+                Stage::SignedOut
+            } else {
+                Stage::Off
+            };
         }
     }
 
@@ -477,8 +499,13 @@ impl<T: Transport> Community<T> {
         self.end();
         match result {
             Ok(me) => {
-                let name = me.member.as_ref().map(|m| m.name.clone()).unwrap_or_default();
-                self.recorder.record("community.joined", json!({ "name": name }));
+                let name = me
+                    .member
+                    .as_ref()
+                    .map(|m| m.name.clone())
+                    .unwrap_or_default();
+                self.recorder
+                    .record("community.joined", json!({ "name": name }));
                 let mut s = lock(&self.state);
                 s.me = Some(me);
                 s.stage = Stage::SignedIn;
@@ -510,7 +537,11 @@ impl<T: Transport> Community<T> {
                 }
                 let joined = me.member.is_some();
                 s.me = Some(me);
-                s.stage = if joined { Stage::SignedIn } else { Stage::Joining };
+                s.stage = if joined {
+                    Stage::SignedIn
+                } else {
+                    Stage::Joining
+                };
             }
             Err(failure) => match failure.code() {
                 Some(ErrorCode::Unauthorized) => {
@@ -607,11 +638,16 @@ impl<T: Transport> Community<T> {
         s.signing_in = None;
         let keep_switch = why == "you" || why == "removed";
         s.settings.switched_on = keep_switch && s.settings.switched_on;
-        s.stage = if s.settings.switched_on { Stage::SignedOut } else { Stage::Off };
+        s.stage = if s.settings.switched_on {
+            Stage::SignedOut
+        } else {
+            Stage::Off
+        };
         self.save_settings(&mut s);
         drop(s);
         if was_signed_in && why != "left" {
-            self.recorder.record("community.signed_out", json!({ "why": why }));
+            self.recorder
+                .record("community.signed_out", json!({ "why": why }));
         }
     }
 }

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-check-community-again"
+description = "Enables the check_community_again command without any pre-configured scope."
+commands.allow = ["check_community_again"]
+
+[[permission]]
+identifier = "deny-check-community-again"
+description = "Denies the check_community_again command without any pre-configured scope."
+commands.deny = ["check_community_again"]
