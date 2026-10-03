@@ -286,6 +286,7 @@ pub(super) fn apply(prepared: &mut Prepared, found: Found, root: &Path) -> Resul
                 abs: root.join(&rel),
                 rel,
                 exists: true,
+                root: root.to_owned(),
             }));
         }
         Found::Showing(from_top) => {

@@ -24,6 +24,8 @@ pub struct Resolved {
     /// Relative to the workspace, with `/` separators; empty for the folder itself.
     pub rel: String,
     pub exists: bool,
+    /// The project folder it was resolved in (canonical), to check it again right before use.
+    pub root: PathBuf,
 }
 
 impl Resolved {
@@ -39,6 +41,30 @@ impl Resolved {
     /// Inside a `.git` folder (git's own files, changed only through the git tools).
     pub fn in_git_dir(&self) -> bool {
         self.rel.split('/').any(|c| c.eq_ignore_ascii_case(".git"))
+    }
+
+    /// Whether the path still leads inside its project folder now, right before Plenipo reads or
+    /// changes it: a folder on the way may have become a link since the path was checked (on a
+    /// Mac and Linux any program can make one; P-GUARD-3, the Phase 23 Guard review). The part
+    /// that exists is followed through links, as when it was first checked.
+    pub fn still_inside(&self) -> Result<(), String> {
+        let away = || {
+            format!(
+                "{} now leads outside the project folder (a folder on the way became a link), so \
+                 nothing was read or changed",
+                self.shown()
+            )
+        };
+        let mut existing = self.abs.clone();
+        while std::fs::symlink_metadata(&existing).is_err() {
+            if !existing.pop() {
+                return Err(away());
+            }
+        }
+        match canonical(&existing) {
+            Ok(real) if real.starts_with(&self.root) => Ok(()),
+            _ => Err(away()),
+        }
     }
 }
 
@@ -250,7 +276,12 @@ impl Workspace {
             })
             .collect::<Vec<_>>()
             .join("/");
-        Ok(Resolved { abs, rel, exists })
+        Ok(Resolved {
+            abs,
+            rel,
+            exists,
+            root: self.root.clone(),
+        })
     }
 }
 
@@ -435,6 +466,32 @@ mod tests {
         assert_eq!(w.resolve("inner/main.rs").unwrap().rel, "src/main.rs");
         std::os::unix::fs::symlink(w.root().join("nowhere"), w.root().join("dangling")).unwrap();
         assert!(w.resolve("dangling").is_err());
+    }
+
+    /// P-GUARD-3: a path checked before a folder on the way became a link is refused when it is
+    /// used, and one still inside is not.
+    #[cfg(unix)]
+    #[test]
+    fn a_path_is_checked_again_when_it_is_used() {
+        let (dir, w) = ws();
+        std::fs::create_dir_all(w.root().join("docs")).unwrap();
+        let file = w.resolve("docs/new.txt").unwrap();
+        assert!(file.still_inside().is_ok());
+        let main = w.resolve("src/main.rs").unwrap();
+        assert!(main.still_inside().is_ok());
+        assert!(w.resolve("").unwrap().still_inside().is_ok());
+        // The folder becomes a link to a place outside the project.
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::remove_dir(w.root().join("docs")).unwrap();
+        std::os::unix::fs::symlink(&outside, w.root().join("docs")).unwrap();
+        let why = file.still_inside().unwrap_err();
+        assert!(why.contains("now leads outside"), "{why}");
+        // So does the file itself.
+        std::fs::remove_file(w.root().join("src/main.rs")).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("secret.txt"), w.root().join("src/main.rs"))
+            .unwrap();
+        assert!(main.still_inside().is_err());
     }
 
     #[test]

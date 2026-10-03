@@ -255,6 +255,12 @@ impl Supervisor {
     pub async fn launch(&self, spec: LaunchSpec) -> Result<ExecutionRecord, RuntimeError> {
         let inner = &self.inner;
         validate_spec(&spec)?;
+        // On a Mac and Linux, nothing a worker starts runs as root (ADR-150, the Phase 23 Guard
+        // review): it would have the whole computer. The terminal and the browser refuse too.
+        #[cfg(unix)]
+        if running_as_root() {
+            return Err(RuntimeError::NotReady(AS_ROOT.to_owned()));
+        }
         if inner.lock().shutting_down {
             return Err(RuntimeError::ShuttingDown);
         }
@@ -486,6 +492,34 @@ impl Supervisor {
         let _ = tokio::time::timeout(grace, all).await;
         count
     }
+}
+
+/// Why nothing a worker starts runs while Plenipo itself runs as root (a Mac and Linux).
+pub const AS_ROOT: &str = "Plenipo is running as root, so everything a worker starts would run as                            root too. Close Plenipo and start it as yourself.";
+
+/// Whether Plenipo runs as root (its effective user), asked once; when the system cannot say,
+/// it counts as root, so nothing starts.
+#[cfg(unix)]
+pub fn running_as_root() -> bool {
+    use std::sync::OnceLock;
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+    static ROOT: OnceLock<bool> = OnceLock::new();
+    *ROOT.get_or_init(|| {
+        let Ok(me) = sysinfo::get_current_pid() else {
+            return true;
+        };
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[me]),
+            true,
+            ProcessRefreshKind::nothing().with_user(UpdateKind::Always),
+        );
+        system
+            .process(me)
+            .and_then(sysinfo::Process::effective_user_id)
+            .is_none_or(|uid| **uid == 0)
+    })
 }
 
 fn validate_spec(spec: &LaunchSpec) -> Result<(), RuntimeError> {

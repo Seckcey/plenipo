@@ -563,6 +563,22 @@ async fn children_do_not_outlive_a_crashed_owner() {
     wait_pid_gone(hosted).await;
 }
 
+/// ADR-150 (Phase 23 Guard review): on a Mac and Linux nothing a worker starts runs as root. Run
+/// as root, nothing starts; run as anyone else (as on GitHub's machines), a start works.
+#[cfg(unix)]
+#[tokio::test]
+async fn nothing_a_worker_starts_runs_as_root() {
+    let h = harness();
+    let started = h.sup.start("echo").await;
+    if plenipo_runtime::running_as_root() {
+        let err = started.unwrap_err();
+        assert_eq!(err.to_string(), plenipo_runtime::AS_ROOT);
+    } else {
+        let rec = started.unwrap();
+        wait_terminal(&h.sup, &rec.id).await;
+    }
+}
+
 /// The process ID a `detached` copy wrote in `dir` once it had left its group.
 #[cfg(unix)]
 async fn detached_pid(dir: &Path) -> u32 {

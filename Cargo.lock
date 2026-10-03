@@ -4365,6 +4365,7 @@ dependencies = [
  "futures-util",
  "is_elevated",
  "keyring",
+ "libc",
  "log",
  "minisign",
  "minisign-verify",
