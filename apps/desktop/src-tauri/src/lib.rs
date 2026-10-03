@@ -3116,6 +3116,85 @@ mod ipc_boundary_tests {
         }
     }
 
+    /// Stop all work lasts across a restart until Allow again (Phase 25, item 3.4; the security
+    /// review of #156): the first organization opens again on the same Ledger with the PC's record
+    /// of control new, as after a restart, and its work is held before anything can start a turn.
+    /// Another organization opened then follows the PC, never an older stop of its own.
+    #[test]
+    fn stop_all_work_lasts_across_a_restart_until_allow_again() {
+        use plenipo_capabilities::control::{ControlCenter, ControlStatus};
+        use plenipo_runtime::agent::HoldFor;
+        let app = app();
+        let main = window(&app, "main");
+        let license = app
+            .state::<Arc<license_host::LicenseHost>>()
+            .inner()
+            .clone();
+        let place = |id: &str| orgs::OrgPlace {
+            id: id.into(),
+            folder: None,
+            data: None,
+            vault: orgs::vault_name("test", id),
+        };
+        let open = |id: &str,
+                    ledger: Arc<plenipo_ledger::Ledger>,
+                    control: &ControlCenter,
+                    first: Option<&orgs::OrgStack>| {
+            org_host::build(
+                app.handle(),
+                place(id),
+                ledger,
+                &org_host::Opening {
+                    persistence: Persistence::InMemory,
+                    notices: notices::Output::Kept,
+                    gather: Duration::from_millis(100),
+                    version: "1.9.0",
+                    previous: &recovery::PreviousEnd::Clean,
+                    run: false,
+                    control: control.clone(),
+                    first,
+                    entitlements: license.entitlements(),
+                },
+            )
+        };
+        let ledger = app.state::<Arc<plenipo_ledger::Ledger>>().inner().clone();
+        let status: ControlStatus = body(invoke(&main, "stop_all_control"));
+        assert!(status.stopped);
+
+        // Plenipo restarts: the stop is back on, and every AI tool waits.
+        let control = ControlCenter::default();
+        let first = open(orgs::FIRST, ledger.clone(), &control, None);
+        assert!(control.status().stopped, "the PC's stop is on again");
+        assert!(first.agents.work_held());
+        assert!(first
+            .agents
+            .runtimes()
+            .iter()
+            .all(|r| r.held == Some(HoldFor::StopAll)));
+        crate::commands::refuse_while_stopped(&first.agents).unwrap_err();
+
+        // Allow again (recorded): the next start is not held.
+        crate::commands::allow_work_again(&first.agents, &first.ledger);
+        assert!(!first.agents.work_held());
+        let control = ControlCenter::default();
+        let first = open(orgs::FIRST, ledger, &control, None);
+        assert!(!control.status().stopped && !first.agents.work_held());
+
+        // An organization whose own record ends on an older Stop all (it was closed when the
+        // owner pressed Allow again) follows the PC: not held.
+        let client = ledger_host::open(app.handle(), &place("client"), Persistence::InMemory);
+        client
+            .append_event(plenipo_ledger::NewEvent {
+                source: "owner".into(),
+                event_type: "work.stopped_all".into(),
+                payload: serde_json::json!({ "stopped": 0 }),
+                ..plenipo_ledger::NewEvent::default()
+            })
+            .unwrap();
+        let other = open("client", client, &control, Some(&first));
+        assert!(!other.agents.work_held());
+    }
+
     #[test]
     fn control_and_websites_through_ipc() {
         use plenipo_capabilities::control::ControlStatus;

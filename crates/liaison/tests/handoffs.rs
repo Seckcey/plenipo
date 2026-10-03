@@ -1475,6 +1475,80 @@ async fn a_restart_interrupts_workflows_in_flight_and_resumes_nothing() {
     drop(rt);
 }
 
+/// Stop all work lasts across a restart (Phase 25, item 3.4; the security review of #156): the
+/// Ledger's record turns the hold back on as Plenipo starts (the app does it for the first
+/// organization, before Liaison runs), so work started after the restart waits and no AI tool
+/// runs, until Allow again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn after_a_restart_stop_all_work_still_holds_what_starts() {
+    let h = harness().await;
+    // The owner pressed Stop all, recorded as the app records it.
+    h.rt.hold_all_work();
+    h.ledger
+        .append_event(plenipo_ledger::NewEvent {
+            source: "owner".into(),
+            event_type: "work.stopped_all".into(),
+            payload: json!({ "stopped": 0 }),
+            ..plenipo_ledger::NewEvent::default()
+        })
+        .unwrap();
+
+    // "Restart": Liaison stops, and a new runtime opens the same Ledger.
+    h.liaison.shutdown();
+    h.run.abort();
+    let ledger = Arc::new(Ledger::open(&h.dir.path().join("ledger").join(DB_FILE_NAME)).unwrap());
+    let (rt, sup) = runtime(h.dir.path(), &ledger, 4);
+    rt.refresh().await;
+    assert!(ledger.work_stopped_on_record().unwrap());
+    rt.hold_all_work();
+    let liaison = Liaison::new(
+        Arc::clone(&ledger),
+        rt.clone(),
+        LiaisonConfig {
+            tick: Duration::from_millis(200),
+            ..LiaisonConfig::default()
+        },
+    );
+    let run = tokio::spawn(liaison.clone().run());
+
+    // Work started now waits, and no AI tool runs.
+    let starting = {
+        let liaison = liaison.clone();
+        tokio::spawn(async move {
+            liaison
+                .start_session("codex", "Say hello", None, true)
+                .await
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(!starting.is_finished(), "it waits for Allow again");
+    assert_eq!(
+        sup.active_count(),
+        0,
+        "no AI tool runs while Stop all holds"
+    );
+
+    // Allow again: it runs and finishes.
+    rt.allow_work();
+    let started = tokio::time::timeout(WAIT, starting)
+        .await
+        .expect("it starts once allowed")
+        .unwrap()
+        .unwrap();
+    let task = started.turns[0].task_id.clone();
+    let deadline = Instant::now() + WAIT;
+    while !ledger.task(&task).unwrap().unwrap().state.is_terminal() {
+        assert!(Instant::now() < deadline, "the task never finished");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(
+        ledger.task(&task).unwrap().unwrap().state,
+        TaskState::Succeeded
+    );
+    liaison.shutdown();
+    run.abort();
+}
+
 // ---- Members of an organization (Phase 5, ADR-009) ------------------------------------------
 
 use plenipo_ledger::{NewPosition, NewWorker, Position, RoleTemplate, RoleType};

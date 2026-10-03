@@ -125,7 +125,22 @@ pub fn build<R: Runtime>(
         agents.share_plans(first.agents.plans());
     }
     // Stop all work holds every organization's work until Allow again (Phase 25, item 3.4): one
-    // opened meanwhile is held too.
+    // opened meanwhile is held too. It lasts across a restart (the security review of #156): the
+    // first organization, open whenever Plenipo runs, records every Stop all and Allow again, so
+    // when it opens, its record turns the PC's stop back on before anything can start a turn.
+    // Every other organization follows the PC's stop, never an older record of its own.
+    if how.first.is_none() && !how.control.status().stopped {
+        match ledger.work_stopped_on_record() {
+            Ok(true) => {
+                how.control.stop_all();
+                log::info!(
+                    "Stop all work is still on from the last run: work waits for Allow again"
+                );
+            }
+            Ok(false) => {}
+            Err(e) => log::warn!("could not read whether Stop all work is on: {e}"),
+        }
+    }
     if how.control.status().stopped {
         agents.hold_all_work();
     }
