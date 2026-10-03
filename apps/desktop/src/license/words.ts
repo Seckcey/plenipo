@@ -57,6 +57,12 @@ export function organizationsLine(
 /** Where to buy or renew Pro. */
 export const WHERE_TO_BUY = "getplenipo.com";
 
+/**
+ * Where the weekly check goes (ADR-105: `CHECK_ADDRESS` in crates/licensing), so a work network's
+ * firewall can allow it (P-DESK-1).
+ */
+export const CHECK_HOST = "account.getplenipo.com";
+
 /** Why the edition is what it is, in a sentence or two. */
 export function reasonWords(view: LicenseView, now: number = Date.now()): string {
   switch (view.reason) {
@@ -81,7 +87,7 @@ export function reasonWords(view: LicenseView, now: number = Date.now()): string
         view.endsAt ? ` on ${day(view.endsAt)}` : ""
       }, so Plenipo is on Free. Everything you made is still here. Enter the newest key 8 West emailed you, or buy again at ${WHERE_TO_BUY}.`;
     case "noCheck":
-      return "Plenipo is on Free for now: it hasn't reached 8 West for 30 days. It keeps trying, and Pro comes back by itself when a check goes through. Everything you made is still here.";
+      return "Plenipo is on Free for now: it hasn't been able to confirm your subscription with 8 West in time. Connect to the internet, then choose Check now. Plenipo keeps trying too, and Pro comes back by itself when a check goes through. Everything you made is still here.";
   }
 }
 
@@ -99,7 +105,7 @@ const REASON_WORDS: Record<string, string> = {
   active: "paid",
   cancelling: "cancelled, until the paid period ends",
   ended: "the subscription ended",
-  noCheck: "no check with 8 West for 30 days",
+  noCheck: "no recent check with 8 West",
 };
 
 const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);

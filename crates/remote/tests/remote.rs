@@ -454,6 +454,54 @@ async fn nothing_is_added_until_the_owner_says_yes() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn two_phones_with_one_code_show_the_owner_which_one_got_in() {
+    let w = World::new().await;
+    let code = w.new_code().await;
+    // Both phones are at the mailbox before either says who it is (someone who saw the screen
+    // scanned first); the first to finish the meeting is the one the PC asks about.
+    let mut stranger = NetPhone::new(&w.relay.phone_address());
+    let mut mine = NetPhone::new(&w.relay.phone_address());
+    stranger.begin_pairing(&code, "iPhone").await.unwrap();
+    mine.begin_pairing(&code, "iPhone").await.unwrap();
+    stranger.send_hello().await.unwrap();
+    wait_for(
+        || matches!(w.remote.view().pairing, Some(PairingView::Asking { .. })),
+        "Is this your phone?",
+    )
+    .await;
+    let Some(PairingView::Asking { name, check, .. }) = w.remote.view().pairing else {
+        panic!("not asking");
+    };
+    // Both phones call themselves "iPhone": the six digits are what tells them apart. The PC
+    // shows the digits of the meeting it is asking about, and only that phone has the same.
+    assert_eq!(name, "iPhone");
+    assert_eq!(check.len(), 6);
+    assert!(check.bytes().all(|b| b.is_ascii_digit()), "{check}");
+    assert_eq!(stranger.check.as_deref(), Some(check.as_str()));
+    // (Two meetings agree on all six digits once in a million times.)
+    assert_ne!(mine.check.as_deref(), Some(check.as_str()));
+    // The owner's own phone is told why, instead of being cut off without a word.
+    assert_eq!(
+        mine.send_hello().await.unwrap_err(),
+        PhoneError::Refused(
+            "Another phone already used this code. If that was not you, click Cancel on your PC \
+             and start again."
+                .into()
+        )
+    );
+    let refused = w.app.records("remote.pairing_refused");
+    assert_eq!(refused.last().unwrap()["reason"], "used");
+    assert_eq!(refused.last().unwrap()["name"], "iPhone");
+    // The owner compares the digits, sees they differ, and clicks Cancel: nothing is added.
+    w.remote.answer_pairing(false).unwrap();
+    assert!(matches!(
+        stranger.finish_pairing().await.unwrap(),
+        PairStep::Refused { .. }
+    ));
+    assert!(w.remote.view().devices.is_empty());
+}
+
 // ---- Meetings, sign-in, and ending them (ADR-142, ADR-143) ---------------------------------
 
 #[tokio::test(flavor = "multi_thread")]
@@ -754,6 +802,42 @@ async fn signing_out_and_lapsing_end_the_sign_in() {
         .map(|r| r["why"].clone())
         .collect();
     assert_eq!(whys, [json!("you"), json!("twelve_hours")]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_page_the_phone_reads_again_by_itself_does_not_keep_it_signed_in() {
+    // P-SRV-3 (ADR-212): the page re-reads with `again: true` whenever the PC says something
+    // changed, every few seconds while workers run. Those re-reads must not move the 30-minute
+    // clock, or a phone left unlocked on a desk stays signed in for 12 hours.
+    let w = World::new().await;
+    let mut phone = w.paired_phone("Phone").await;
+    phone.meet(false).await.unwrap();
+    w.clock.advance(29 * 60 * 1000);
+    let reply = phone
+        .ask_with(&b64::encode(&[7u8; 16]), true, Ask::ReadControl)
+        .await
+        .unwrap();
+    assert!(
+        reply.ok.is_some(),
+        "still signed in at 29 minutes: {reply:?}"
+    );
+    w.clock.advance(2 * 60 * 1000);
+    w.remote.tick();
+    assert_eq!(
+        phone.event().await.unwrap(),
+        Event::SignedOut {
+            why: SignedOutWhy::Idle
+        }
+    );
+    // A request the owner made (`again: false`) is what keeps a phone signed in.
+    phone.close().await;
+    phone.meet(false).await.unwrap();
+    phone.sign_in().await.unwrap();
+    w.clock.advance(29 * 60 * 1000);
+    phone.ask(Ask::ReadControl).await.unwrap();
+    w.clock.advance(2 * 60 * 1000);
+    w.remote.tick();
+    assert!(phone.ask(Ask::ReadControl).await.unwrap().ok.is_some());
 }
 
 #[tokio::test(flavor = "multi_thread")]

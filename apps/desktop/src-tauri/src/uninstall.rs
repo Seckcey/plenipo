@@ -99,6 +99,12 @@ pub fn forget_every_organizations_secrets(
                 Ok(false) => {}
                 Err(e) => problems.push(format!("the license key: {e}")),
             }
+            // The license record's copy, next to the key (P-DESK-1).
+            match forget_one(store.as_ref(), crate::license_host::RECORD_COPY_ID) {
+                Ok(true) => removed += 1,
+                Ok(false) => {}
+                Err(e) => problems.push(format!("the license record's copy: {e}")),
+            }
             // Community's keys for this PC (Phase 24), under the same name.
             match forget_one(store.as_ref(), plenipo_community::keys::KEYS_ID) {
                 Ok(true) => removed += 1,
@@ -323,6 +329,13 @@ mod tests {
             "plenipo1.key",
         )
         .unwrap();
+        // The license record's copy (P-DESK-1), next to the key.
+        vault::put(
+            stores[crate::orgs::FIRST].as_ref(),
+            crate::license_host::RECORD_COPY_ID,
+            "{\"keyId\":\"lk_x\"}",
+        )
+        .unwrap();
         // Community's keys for this PC (Phase 24), under the same name.
         vault::put(
             stores[crate::orgs::FIRST].as_ref(),
@@ -337,7 +350,7 @@ mod tests {
             Box::new(Shared(Arc::clone(&stores[id]))) as Box<dyn SecretStore>
         })
         .unwrap();
-        assert_eq!(removed, 4);
+        assert_eq!(removed, 5);
         assert!(stores.values().all(|s| s.stored() == 0));
         // A PC where nothing was ever saved says so.
         let empty = tempfile::tempdir().unwrap();

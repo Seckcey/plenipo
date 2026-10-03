@@ -11,7 +11,14 @@ import type {
 
 import { decode, encode, fromUtf8, newId, utf8 } from "../lock/bytes";
 import { mailboxOf, pskOf } from "../lock/code";
-import { Assembler, Handshake, everydayPrologue, type KeyPair, type Line } from "../lock/noise";
+import {
+  Assembler,
+  Handshake,
+  checkDigits,
+  everydayPrologue,
+  type KeyPair,
+  type Line,
+} from "../lock/noise";
 import { LineEnded, Relay, type SocketMaker } from "./relay";
 
 /**
@@ -74,11 +81,14 @@ export class Pairing {
   private constructor(
     private readonly relay: Relay,
     private readonly line: Line,
+    /** The six digits the PC shows beside "Is this your phone?" (ADR-212): from this meeting. */
+    readonly check: string,
   ) {}
 
   /**
    * Meet the PC waiting at the code's mailbox, and say what this phone is. Resolves when the PC
-   * is asking its owner "Is this your phone?".
+   * is asking its owner "Is this your phone?". Rejects with the PC's words when another phone
+   * already used the code (ADR-212).
    */
   static async start(opts: {
     code: string;
@@ -104,9 +114,12 @@ export class Pairing {
       relay.send(
         await hs.writeMessage(utf8(JSON.stringify({ name: opts.name, browser: opts.browser }))),
       );
-      const pairing = new Pairing(relay, await hs.open());
+      const pairing = new Pairing(relay, await hs.open(), checkDigits(hs.handshakeHash));
       pairing.pcKey = hs.rs;
       const first = await hearOne(relay, pairing.line, pairing.assembler, 30_000);
+      if (first.t === "pair" && first.pair.step === "refused") {
+        throw new Error(first.pair.message);
+      }
       if (first.t !== "pair" || first.pair.step !== "waiting") {
         throw new Error("Your PC did not answer as expected.");
       }
