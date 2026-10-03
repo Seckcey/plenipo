@@ -1,6 +1,6 @@
 # Privacy changes for Community — draft
 
-> **Draft for attorney review. Not in force.** Two documents change: the website's privacy statement
+> **Approved by 8 West's attorney as written (2026-10-03). Not in force until Community launches.** Two documents change: the website's privacy statement
 > (`apps/website/legal/privacy.md`, in this repository) and the account privacy notice
 > (`legal/privacy-notice.md`, in the private repository `plenipo-account`). The times come from
 > [ADR-168 (what Community keeps, and for how long)](../../adr/ADR-168-what-is-kept-and-for-how-long.md)
