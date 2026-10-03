@@ -252,6 +252,12 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       "Windows closed Plenipo" becomes "Your Mac closed Plenipo", and shortcut labels read ⌘S and ⌃⇧E
       on a Mac. `pnpm bindings` writes every system's words for the screens' tests, which check the Mac
       and Linux words too. Names in the code and the Ledger (`windowsRestart`) stay.
+- [ ] **Files that run when opened** (found 2026-10-02): "Open in another program" refuses a
+      program or a script by the end of its name, which is Windows' rule. On a Mac and Linux a file
+      with no ending can run if it is marked as a program, and some kinds run or open something else
+      (`.command`, `.app`, `.terminal`, `.scpt`, `.workflow`, `.fileloc`, `.webloc` on a Mac;
+      `.desktop`, `.AppImage`, `.run` on Linux). Refuse those too, before Waves 2 and 3 let the
+      button open files with Finder's `open` or `xdg-open`.
 - [ ] **Done when:** every test suite passes on Windows, Linux, and Mac in CI, and a Guard safety
       review of Wave 1 finds nothing open.
 
