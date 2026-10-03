@@ -1,9 +1,10 @@
 # Phase 24 — Implementation Checklist
 
-**Status: part 24C in progress** (started 2026-10-02), beside Phase 23. Parts 24A and 24B are done
-(24B's last items wait for the owner). The owner answered the thirteen questions and the five
-follow-up questions on 2026-10-02, and part 24C's five questions the same day (ADR-170 to ADR-172).
-Builds on v1.19.4. Below, "[x]" is done. Plenipo is made by 8 West Ventures, LLC.
+**Status: part 24C delivered in v1.22.0 (2026-10-03)**, closed until the owner opens it (ADR-171);
+started 2026-10-02, beside Phase 23. Parts 24A and 24B are done (24B's last items wait for the
+owner). The owner answered the thirteen questions and the five follow-up questions on 2026-10-02,
+and part 24C's five questions the same day (ADR-170 to ADR-172). Builds on v1.19.4. Below, "[x]"
+is done. Plenipo is made by 8 West Ventures, LLC.
 
 Source: `ROLLOUT_PLAN.md`, Phase 24 — Community, and the records written for it:
 
