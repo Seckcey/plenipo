@@ -355,6 +355,12 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | What your business does (up to 3 kinds, and one line in your words)            | industry code, business vertical, business category, tags                                  |
 | Where (a state or a country, never a town)                                     | geolocation, location data, street address                                                 |
 | Your profile (your card in Community)                                          | account details, bio, user profile                                                         |
+| Community (the section on the strip: find people who use Plenipo)              | social network feed, community hub, people portal                                          |
+| Directory (everyone listed in Community, searched by name or business)         | member list, user index, address book                                                      |
+| New this week (people who joined in the last 7 days)                           | recent signups, newest accounts, new member feed                                           |
+| Find someone (an exact Community name)                                         | user lookup, handle search, member lookup                                                  |
+| Invite by email (8 West emails the address a link to join)                     | referral email, send invite link, email lookup                                             |
+| Share my profile (a link and a picture code that say how to find you)          | public profile link, vanity link, profile QR code                                          |
 
 ## Words that change with the system
 

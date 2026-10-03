@@ -230,6 +230,13 @@ const COMMANDS: &[&str] = &[
     "open_community_page",
     "save_community_profile",
     "set_community_appear_offline",
+    "community_directory",
+    "community_new_this_week",
+    "find_in_community",
+    "community_card",
+    "community_picture",
+    "invite_to_community",
+    "share_my_community_profile",
 ];
 
 fn main() {

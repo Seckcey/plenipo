@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use plenipo_community::people::{self, CardView, Found, PeoplePage, ShareProfile};
 use plenipo_community::profile::ProfileDraft;
 use plenipo_community::service::{CommunityView, Refused, Stage};
 use plenipo_core::CommandError;
@@ -161,6 +162,104 @@ pub async fn sign_out_of_community<R: Runtime>(
     let state = state.inner().clone();
     state.community.sign_out().await.map_err(refused)?;
     Ok(after(&app, &state))
+}
+
+// ---- Finding people (ADR-163 §4, §6) -------------------------------------------------------
+
+/// The Community directory: adults listed, most points first, 20 at a time. `q` matches a name,
+/// a company, or a line about a business; `kind` is one business kind; `region` a country or a
+/// state; `cursor` where the page starts (empty: the first).
+#[tauri::command]
+pub async fn community_directory(
+    state: State<'_, Arc<CommunityState>>,
+    q: String,
+    kind: String,
+    region: String,
+    cursor: String,
+) -> Result<PeoplePage, CommandError> {
+    let state = state.inner().clone();
+    state
+        .community
+        .directory(&q, &kind, &region, &cursor)
+        .await
+        .map_err(refused)
+}
+
+/// **New this week**: people who joined in the last 7 days.
+#[tauri::command]
+pub async fn community_new_this_week(
+    state: State<'_, Arc<CommunityState>>,
+    cursor: String,
+) -> Result<PeoplePage, CommandError> {
+    let state = state.inner().clone();
+    state
+        .community
+        .new_this_week(&cursor)
+        .await
+        .map_err(refused)
+}
+
+/// **Find someone** by their exact Community name.
+#[tauri::command]
+pub async fn find_in_community(
+    state: State<'_, Arc<CommunityState>>,
+    name: String,
+) -> Result<Found, CommandError> {
+    let state = state.inner().clone();
+    state.community.find(&name).await.map_err(refused)
+}
+
+/// One member's card, when you may see it.
+#[tauri::command]
+pub async fn community_card(
+    state: State<'_, Arc<CommunityState>>,
+    member_id: String,
+) -> Result<Option<CardView>, CommandError> {
+    let state = state.inner().clone();
+    state.community.card(&member_id).await.map_err(refused)
+}
+
+/// One member's picture, checked to be a small real PNG, as base64; `null` when there is none.
+#[tauri::command]
+pub async fn community_picture(
+    state: State<'_, Arc<CommunityState>>,
+    member_id: String,
+) -> Result<Option<String>, CommandError> {
+    let state = state.inner().clone();
+    Ok(state
+        .community
+        .picture(&member_id)
+        .await
+        .map(|png| people::picture_text(&png)))
+}
+
+/// **Invite by email**: 8 West emails the address a link to join. The answer is the same whether
+/// or not the address has an account.
+#[tauri::command]
+pub async fn invite_to_community(
+    state: State<'_, Arc<CommunityState>>,
+    email: String,
+) -> Result<(), CommandError> {
+    let state = state.inner().clone();
+    state
+        .community
+        .invite_by_email(&email)
+        .await
+        .map_err(refused)
+}
+
+/// **Share my profile**: the link to the website's share page and its picture code. Nothing is
+/// sent; the page is the same for every name.
+#[tauri::command]
+pub async fn share_my_community_profile(
+    state: State<'_, Arc<CommunityState>>,
+) -> Result<ShareProfile, CommandError> {
+    let name = state
+        .view()
+        .member
+        .map(|m| m.name)
+        .ok_or_else(|| CommandError::invalid_input("Join Community first."))?;
+    ShareProfile::of(&name).ok_or_else(|| CommandError::invalid_input("Join Community first."))
 }
 
 /// Which page to open in the owner's own browser.

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-find-in-community"
+description = "Enables the find_in_community command without any pre-configured scope."
+commands.allow = ["find_in_community"]
+
+[[permission]]
+identifier = "deny-find-in-community"
+description = "Denies the find_in_community command without any pre-configured scope."
+commands.deny = ["find_in_community"]

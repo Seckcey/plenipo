@@ -1,0 +1,511 @@
+import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import type { CardView, Found, PeoplePage as Page, ShareProfile } from "@plenipo/types";
+import { Button, ErrorState, LoadingState, Select, Tabs } from "@plenipo/ui";
+
+import {
+  communityDirectory,
+  communityNewThisWeek,
+  findInCommunity,
+  inviteToCommunity,
+  shareMyCommunityProfile,
+  toCommandError,
+} from "../api/commands";
+import type { Go } from "../components/views";
+import { PictureCode } from "../remote/DevicesSettings";
+import { systemWords } from "../system/words";
+import { CommunityCard } from "./CommunityCard";
+import { BUSINESS_KINDS, regionOptions } from "./profileWords";
+import { oneLine } from "./safeText";
+import { useCommunity } from "./useCommunity";
+
+/** The longest search, as the account service counts it. */
+const MOST_SEARCH = 60;
+
+/** Said after every invitation, whether or not the address has an account (ADR-163 §6). */
+export const INVITE_SENT =
+  "If that address can join Community, 8 West will email it an invitation.";
+
+/** What is said when **Find someone** finds a member who can only be sent a request. */
+function requestOnlyWords(name: string): string {
+  return `@${oneLine(name)} can only be sent a message request.`;
+}
+
+/** Said when **Find someone** finds no one: the same words for every reason (ADR-163 §6). */
+export const NO_ONE = "No one in Community has that name.";
+
+/** A page of cards at a time: what is shown, where the next page starts, and what is going on. */
+interface Pages {
+  cards: CardView[];
+  /** Where the next page starts, or `null` when this is the last. */
+  next: string | null;
+  /** The first page has come. */
+  loaded: boolean;
+}
+
+const NO_PAGES: Pages = { cards: [], next: null, loaded: false };
+
+/**
+ * A list that comes 20 cards at a time (ADR-163 §4). `search` starts over with a way to ask for a
+ * page (kept, so "Show more" asks the same question); `more` adds the next page. An answer for a
+ * question that was since replaced is dropped, so the list is never a mix of two searches.
+ */
+function usePages() {
+  const [pages, setPages] = useState<Pages>(NO_PAGES);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const turn = useRef(0);
+  const ask = useRef<((cursor: string) => Promise<Page>) | null>(null);
+
+  const run = (adding: boolean) => {
+    const load = ask.current;
+    if (!load || (adding && pages.next === null)) return;
+    const mine = ++turn.current;
+    setBusy(true);
+    setError(null);
+    if (!adding) setPages(NO_PAGES);
+    load(adding ? (pages.next ?? "") : "")
+      .then((page) => {
+        if (mine !== turn.current) return;
+        setPages((before) => {
+          // A card that is on screen already is not added twice.
+          const fresh = adding
+            ? page.cards.filter((c) => !before.cards.some((b) => b.memberId === c.memberId))
+            : page.cards;
+          return {
+            cards: adding ? [...before.cards, ...fresh] : fresh,
+            next: page.next,
+            loaded: true,
+          };
+        });
+      })
+      .catch((reason: unknown) => {
+        if (mine === turn.current) setError(toCommandError(reason).message);
+      })
+      .finally(() => {
+        if (mine === turn.current) setBusy(false);
+      });
+  };
+  return {
+    ...pages,
+    busy,
+    error,
+    search: (load: (cursor: string) => Promise<Page>) => {
+      ask.current = load;
+      run(false);
+    },
+    more: () => run(true),
+  };
+}
+
+type PagesState = ReturnType<typeof usePages>;
+
+/** A grid of cards, with "Show more" when there are more, and plain words when there are none. */
+function PeopleList({ pages, label, empty }: { pages: PagesState; label: string; empty: string }) {
+  return (
+    <>
+      {pages.busy && pages.cards.length === 0 && (
+        <p className="muted" role="status">
+          Looking…
+        </p>
+      )}
+      {pages.loaded && pages.cards.length === 0 && (
+        <p role="status" className="people-empty">
+          {empty}
+        </p>
+      )}
+      {pages.cards.length > 0 && (
+        <ul className="people-grid" aria-label={label}>
+          {pages.cards.map((card) => (
+            <li key={card.memberId}>
+              <CommunityCard card={card} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {pages.next !== null && (
+        <div className="settings-section__actions">
+          <Button disabled={pages.busy} onClick={pages.more}>
+            Show more
+          </Button>
+        </div>
+      )}
+      {pages.error && (
+        <p className="form-error" role="alert">
+          {pages.error}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** A part of the People page, with its title. */
+function Part({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  const id = useId();
+  return (
+    <section className="people-part" aria-labelledby={id}>
+      <h2 id={id}>{title}</h2>
+      {hint && <p className="muted">{hint}</p>}
+      {children}
+    </section>
+  );
+}
+
+/**
+ * **Find someone**: an exact Community name. The answer is a card, "can only be sent a message
+ * request", or "No one…", and nothing else: it never hints at whether a person exists beyond that
+ * (ADR-163 §6). What was typed is sent as it is; Plenipo makes the letters small and drops the "@".
+ */
+function FindSomeone() {
+  const inputId = useId();
+  const [typed, setTyped] = useState("");
+  const [found, setFound] = useState<Found | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const turn = useRef(0);
+  const name = typed.trim();
+  const ready = name.replace(/^@+/, "") !== "" && !busy;
+
+  const change = (next: string) => {
+    // An answer is for the name that was typed: another name starts over.
+    turn.current += 1;
+    setTyped(next);
+    setFound(null);
+    setError(null);
+    setBusy(false);
+  };
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!ready) return;
+    const mine = ++turn.current;
+    setBusy(true);
+    setFound(null);
+    setError(null);
+    findInCommunity(name)
+      .then((answer) => {
+        if (mine === turn.current) setFound(answer);
+      })
+      .catch((reason: unknown) => {
+        if (mine === turn.current) setError(toCommandError(reason).message);
+      })
+      .finally(() => {
+        if (mine === turn.current) setBusy(false);
+      });
+  };
+  return (
+    <Part title="Find someone" hint="Type the exact name a person chose in Community.">
+      <form className="people-form" aria-label="Find someone" onSubmit={submit}>
+        <div className="ui-field">
+          <label htmlFor={inputId}>Their name in Community</label>
+          <div className="people-form__row">
+            <span className="people-form__at" aria-hidden="true">
+              @
+            </span>
+            <input
+              id={inputId}
+              value={typed}
+              maxLength={40}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(e) => change(e.target.value)}
+            />
+            <Button type="submit" variant="primary" disabled={!ready}>
+              Find
+            </Button>
+          </div>
+        </div>
+      </form>
+      {found?.kind === "card" && (
+        <ul className="people-grid people-grid--one" aria-label="Who was found">
+          <li>
+            <CommunityCard card={found.card} />
+          </li>
+        </ul>
+      )}
+      {found?.kind === "requestOnly" && <p role="status">{requestOnlyWords(found.name)}</p>}
+      {found?.kind === "noOne" && <p role="status">{NO_ONE}</p>}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+    </Part>
+  );
+}
+
+/** "Anywhere", then the states and the countries. */
+const WHERE: readonly { value: string; label: string; group?: string | undefined }[] = [
+  { value: "", label: "Anywhere" },
+  ...regionOptions("").filter((o) => o.value !== ""),
+];
+
+const KINDS: readonly { value: string; label: string }[] = [
+  { value: "", label: "Any kind of business" },
+  ...BUSINESS_KINDS,
+];
+
+/**
+ * **Directory**: search by name, company, or what a business does, by kind of business, and by
+ * where. Nothing is asked of the account service until Search is pressed: it lets one account see
+ * only so many cards a day (ADR-163 §4), so a look at this page alone uses none.
+ */
+function Directory() {
+  const searchId = useId();
+  const [q, setQ] = useState("");
+  const [kind, setKind] = useState("");
+  const [region, setRegion] = useState("");
+  const pages = usePages();
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    // What was searched is kept, so "Show more" asks the same question whatever is typed since.
+    const [words, ofKind, where] = [q.trim(), kind, region];
+    pages.search((cursor) => communityDirectory(words, ofKind, where, cursor));
+  };
+  return (
+    <Part
+      title="Directory"
+      hint="Press Search to see people. Leave the boxes empty to see everyone."
+    >
+      <form className="people-form" aria-label="Search the directory" onSubmit={submit}>
+        <div className="ui-field">
+          <label htmlFor={searchId}>Search by name, company, or what a business does</label>
+          <input
+            id={searchId}
+            type="search"
+            value={q}
+            maxLength={MOST_SEARCH}
+            autoComplete="off"
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        <div className="people-form__pickers">
+          <Select label="Kind of business" value={kind} options={KINDS} onChange={setKind} />
+          <Select label="Where" value={region} options={WHERE} onChange={setRegion} />
+        </div>
+        <div className="settings-section__actions">
+          <Button type="submit" variant="primary" icon="search" disabled={pages.busy}>
+            Search
+          </Button>
+        </div>
+      </form>
+      <PeopleList pages={pages} label="People in the directory" empty="No one matches." />
+    </Part>
+  );
+}
+
+/** **New this week**: the people who joined in the last 7 days. A list of people, not posts. */
+function NewThisWeek() {
+  const pages = usePages();
+  return (
+    <Part title="New this week" hint="People who joined Community in the last 7 days.">
+      {!pages.loaded && (
+        <div className="settings-section__actions">
+          <Button disabled={pages.busy} onClick={() => pages.search(communityNewThisWeek)}>
+            Show new people
+          </Button>
+        </div>
+      )}
+      <PeopleList pages={pages} label="New this week" empty="No one is new this week." />
+    </Part>
+  );
+}
+
+/**
+ * **Invite by email**: 8 West emails the address a link to join. Whatever the answer, the words
+ * after it are the same, so Plenipo never says whether that address has an account (ADR-163 §6).
+ */
+function InviteByEmail() {
+  const inputId = useId();
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const address = email.trim();
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (address === "" || busy) return;
+    setBusy(true);
+    setSent(false);
+    setError(null);
+    inviteToCommunity(address)
+      .then(() => {
+        setSent(true);
+        setEmail("");
+      })
+      .catch((reason: unknown) => setError(toCommandError(reason).message))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <Part title="Invite by email" hint="8 West emails the address a link to join Community.">
+      {/* The address is checked by 8 West, not by the box: the answer is the same for all. */}
+      <form className="people-form" aria-label="Invite by email" noValidate onSubmit={submit}>
+        <div className="ui-field">
+          <label htmlFor={inputId}>Their email address</label>
+          <div className="people-form__row">
+            <input
+              id={inputId}
+              type="email"
+              value={email}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setSent(false);
+                setError(null);
+              }}
+            />
+            <Button type="submit" variant="primary" disabled={address === "" || busy}>
+              Invite
+            </Button>
+          </div>
+        </div>
+      </form>
+      {sent && <p role="status">{INVITE_SENT}</p>}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+    </Part>
+  );
+}
+
+/**
+ * **Share my profile**: a link and a picture code (QR code) to put on a business card or in an
+ * email. The page it opens says how to find you in Plenipo, and nothing else about you.
+ */
+function ShareMyProfile() {
+  const [share, setShare] = useState<ShareProfile | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+  const show = () => {
+    setBusy(true);
+    setError(null);
+    setCopied(null);
+    shareMyCommunityProfile()
+      .then(setShare)
+      .catch((reason: unknown) => setError(toCommandError(reason).message))
+      .finally(() => setBusy(false));
+  };
+  // What is shown is what is copied.
+  const link = share ? oneLine(share.link) : "";
+  const copy = () => {
+    // Without a clipboard (or if it says no), the link is still there to select and copy.
+    const done = () => setCopied("Copied.");
+    const failed = () =>
+      setCopied("Plenipo couldn't copy it. Select the link and copy it yourself.");
+    try {
+      navigator.clipboard.writeText(link).then(done, failed);
+    } catch {
+      failed();
+    }
+  };
+  return (
+    <Part
+      title="Share my profile"
+      hint="Anyone can open this page. It says how to find you in Plenipo, and nothing else about you."
+    >
+      <div className="settings-section__actions">
+        <Button disabled={busy} onClick={show}>
+          Share my profile
+        </Button>
+      </div>
+      {share && (
+        <div className="people-share">
+          <div className="people-share__text">
+            <p>
+              <code className="people-share__link">{link}</code>
+            </p>
+            <div className="settings-section__actions">
+              <Button icon="link" onClick={copy}>
+                Copy link
+              </Button>
+            </div>
+            {copied && (
+              <p role="status" className="muted">
+                {copied}
+              </p>
+            )}
+          </div>
+          <PictureCode
+            qr={{ size: share.qrSize, cells: share.qrCells }}
+            label="Picture code for your profile link"
+          />
+        </div>
+      )}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+    </Part>
+  );
+}
+
+/** The parts of the Community section. Messages and Points join People later. */
+type CommunityTab = "people";
+
+/** The People tab: finding people, and being found. */
+function People() {
+  return (
+    <div className="people">
+      <FindSomeone />
+      <Directory />
+      <NewThisWeek />
+      <InviteByEmail />
+      <ShareMyProfile />
+    </div>
+  );
+}
+
+/**
+ * The Community section on the strip (Phase 24, ADR-163): find people who use Plenipo. It is
+ * there only while Community's switch is on. It works once you are signed in; before that it
+ * says so, with a way to Settings → Community.
+ */
+export function PeoplePage({ go }: { go: Go }) {
+  const { view, error, reload } = useCommunity();
+  const [tab, setTab] = useState<CommunityTab>("people");
+  return (
+    <section className="view community-view" aria-labelledby="community-title">
+      <h1 id="community-title">Community</h1>
+      <p className="view__lead">Find people who use Plenipo, and let them find you.</p>
+      {!view ? (
+        error ? (
+          <ErrorState title="Couldn't load Community" message={error} onRetry={reload} />
+        ) : (
+          <LoadingState label="Loading Community" />
+        )
+      ) : view.stage !== "signedIn" ? (
+        <div className="community-view__note">
+          <p className="notice-box" role="note">
+            You are not signed in to Community on {systemWords().thisComputer}. Open Settings →
+            Community to sign in.
+          </p>
+          <div className="settings-section__actions">
+            <Button variant="primary" onClick={() => go({ view: "settings", id: "community" })}>
+              Go to Settings → Community
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <Tabs<CommunityTab>
+            label="Community sections"
+            idPrefix="community"
+            value={tab}
+            onChange={setTab}
+            tabs={[{ value: "people", label: "People" }]}
+          />
+          <div
+            role="tabpanel"
+            id={`community-panel-${tab}`}
+            aria-labelledby={`community-tab-${tab}`}
+          >
+            {tab === "people" && <People />}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}

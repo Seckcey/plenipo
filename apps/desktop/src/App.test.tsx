@@ -258,6 +258,45 @@ describe("App shell", () => {
     await waitFor(() => expect(api.frontendReady).toHaveBeenCalledTimes(1));
   });
 
+  it("has no Community on the strip until Community's switch is on", async () => {
+    render(<App />);
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    await waitFor(() => expect(api.getCommunity).toHaveBeenCalled());
+    // Let the answer (Community is off) reach the strip before looking for what is not there.
+    await act(() => Promise.resolve());
+    expect(within(nav).queryByRole("button", { name: /Community/ })).not.toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: /Activity/ })).toBeInTheDocument();
+  });
+
+  it("puts Community on the strip while its switch is on, and opens it", async () => {
+    api.getCommunity.mockResolvedValue(
+      communityView({
+        stage: "signedIn",
+        switchedOn: true,
+        accountName: "Frank Gonzalez",
+        member: {
+          name: "pat-lee",
+          adult: true,
+          canStart: false,
+          standing: "ok",
+          pausedUntil: null,
+          appearOffline: false,
+          hiddenParts: [],
+        },
+      }),
+    );
+    render(<App />);
+    const user = userEvent.setup();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    await user.click(await within(nav).findByRole("button", { name: "Community" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Community" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Find someone" })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "Community" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
   it("shows your picture and status in the top bar (ADR-056)", async () => {
     render(<App />);
     const you = await screen.findByRole("button", {

@@ -112,6 +112,11 @@ export default tseslint.config(
     languageOptions: { globals: globals.browser },
   },
   {
+    // The website's own small scripts run in visitors' browsers (Share my profile, Phase 24).
+    files: ["apps/website/public/**/*.js"],
+    languageOptions: { globals: globals.browser },
+  },
+  {
     // E2E specs run in Node, but browser.execute() callbacks run inside the webview.
     files: ["tests/e2e/**/*.mjs"],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },

@@ -223,6 +223,13 @@
     "allow-sign-out-of-community",
     "allow-open-community-page",
     "allow-save-community-profile",
-    "allow-set-community-appear-offline"
+    "allow-set-community-appear-offline",
+    "allow-community-directory",
+    "allow-community-new-this-week",
+    "allow-find-in-community",
+    "allow-community-card",
+    "allow-community-picture",
+    "allow-invite-to-community",
+    "allow-share-my-community-profile"
   ]
 }
