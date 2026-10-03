@@ -53,10 +53,14 @@ pub enum Limit {
     Lessons,
     /// Using Plenipo from a phone or another device (Phase 14, ADR-145 §1).
     PhoneAccess,
+    /// Starting things in Community (writing first to someone who has never written to you,
+    /// inviting a helper, linking organizations) is part of Pro (Phase 24, ADR-162 §5);
+    /// answering needs only a free 8 West account.
+    CommunityStart,
 }
 
 impl Limit {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Organizations,
         Self::Departments,
         Self::Projects,
@@ -66,6 +70,7 @@ impl Limit {
         Self::AddOnTools,
         Self::Lessons,
         Self::PhoneAccess,
+        Self::CommunityStart,
     ];
 }
 
@@ -288,7 +293,8 @@ impl Entitlements {
             | Limit::Connections
             | Limit::AddOnTools
             | Limit::Lessons
-            | Limit::PhoneAccess => true,
+            | Limit::PhoneAccess
+            | Limit::CommunityStart => true,
         };
         if reached {
             Decision::Blocked(Blocked::new(limit))
@@ -520,12 +526,38 @@ pub(crate) mod tests {
             Limit::AddOnTools,
             Limit::Lessons,
             Limit::PhoneAccess,
+            Limit::CommunityStart,
         ] {
             let Decision::Blocked(b) = e.check(limit) else {
                 panic!("{limit:?}");
             };
             assert_eq!(b.message, words::message(limit));
         }
+    }
+
+    /// ADR-162 §5: starting in Community is Pro's, whatever is counted; answering is not a limit
+    /// here at all.
+    #[test]
+    fn starting_in_community_is_part_of_pro() {
+        let e = Entitlements::new(Edition::Free);
+        let Decision::Blocked(b) = e.check(Limit::CommunityStart) else {
+            panic!("allowed on Free");
+        };
+        assert_eq!(b.limit, Limit::CommunityStart);
+        assert!(
+            b.message.starts_with(
+                "Starting a conversation, a link, or an invitation in Community is part of Pro."
+            ),
+            "{b}"
+        );
+        // Pro allows it; when Pro ends, the next start is blocked and nothing else changes.
+        assert!(e.set_edition(Edition::Pro));
+        assert!(e.check(Limit::CommunityStart).is_allowed());
+        assert!(e.set_edition(Edition::Free));
+        assert_eq!(
+            blocked(e.check(Limit::CommunityStart)),
+            Limit::CommunityStart
+        );
     }
 
     #[test]
