@@ -154,6 +154,23 @@ describe("Settings → License", () => {
     expect(await screen.findByText(/You're on Free/)).toBeTruthy();
   });
 
+  it("names the address to allow when Pro is off because no check went through (P-DESK-1)", async () => {
+    api.getLicense.mockResolvedValue(
+      free({ reason: "noCheck", keyId: KEY_ID, lastTried: NOW, problem: "No internet." }),
+    );
+    const { unmount } = render(<LicenseSettings />);
+    expect((await screen.findByText(/Why: No internet\./)).textContent).toMatch(
+      /Plenipo needs to reach account\.getplenipo\.com\. On a work network, ask whoever runs it to allow that address\./,
+    );
+    unmount();
+    api.getLicense.mockResolvedValue(
+      free({ reason: "ended", keyId: KEY_ID, lastTried: NOW, problem: "No internet." }),
+    );
+    render(<LicenseSettings />);
+    expect(await screen.findByText(/Why: No internet\./)).toBeTruthy();
+    expect(screen.queryByText(/account\.getplenipo\.com/)).toBeNull();
+  });
+
   it("says when the PC's clock is ahead of 8 West's", async () => {
     api.getLicense.mockResolvedValue(
       free({ reason: "noCheck", keyId: KEY_ID, clockAheadDays: 40 }),
@@ -198,9 +215,10 @@ describe("license words", () => {
     expect(ended).toMatch(/^Partner on this key ended/);
     expect(ended).toMatch(/Everything you made is still here/);
     expect(ended).not.toMatch(/same key/);
-    expect(reasonWords(free({ reason: "noCheck", keyId: KEY_ID }), NOW)).toMatch(
-      /hasn't reached 8 West for 30 days/,
-    );
+    const noCheck = reasonWords(free({ reason: "noCheck", keyId: KEY_ID }), NOW);
+    expect(noCheck).toMatch(/hasn't been able to confirm your subscription with 8 West/);
+    expect(noCheck).toMatch(/Connect to the internet, then choose Check now/);
+    expect(noCheck).toMatch(/Everything you made is still here/);
   });
 
   it("puts the license's events on the Activity trail in plain words, never the key", () => {
@@ -228,7 +246,7 @@ describe("license words", () => {
     );
     expect(
       describeLicenseEvent("license.edition_changed", { to: "free", reason: "noCheck" }),
-    ).toMatch(/^Plenipo is on Free now \(no check with 8 West for 30 days\)/);
+    ).toMatch(/^Plenipo is on Free now \(no recent check with 8 West\)/);
     expect(
       describeEvent(
         event("liaison.waiting_for_free_slot", {

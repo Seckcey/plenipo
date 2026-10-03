@@ -5362,6 +5362,13 @@ body.popout {
   letter-spacing: 0.08em;
 }
 
+/* The six digits the phone shows too (ADR-212). */
+.pairing__check {
+  font-family: var(--ui-font-mono);
+  font-size: 1.5rem;
+  letter-spacing: 0.08em;
+}
+
 .devices__list {
   list-style: none;
   margin: 0;

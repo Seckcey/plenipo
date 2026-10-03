@@ -27,6 +27,21 @@ export const PIECE = MAX_MESSAGE - TAG - 1;
 /** The most bytes put back together from pieces. */
 export const MAX_ASSEMBLED = 4 * 1024 * 1024;
 
+/**
+ * The six digits both screens show while the PC asks "Is this your phone?" (ADR-212): the first
+ * meeting's own hash, after its third message, as a number, its last six digits. That hash covers
+ * the code and both sides' keys, so a stranger's own meeting shows other digits. The PC makes the
+ * same (`crates/remote/src/noise.rs`).
+ */
+export function checkDigits(handshakeHash: Uint8Array): string {
+  const n =
+    ((handshakeHash[0]! << 24) >>> 0) +
+    (handshakeHash[1]! << 16) +
+    (handshakeHash[2]! << 8) +
+    handshakeHash[3]!;
+  return String(n % 1_000_000).padStart(6, "0");
+}
+
 /** What both sides agree on before an everyday meeting: the PC and the phone it is for. */
 export function everydayPrologue(pc: string, phone: string): Uint8Array {
   return utf8(`plenipo-remote.v1/kk/${pc}/${phone}`);

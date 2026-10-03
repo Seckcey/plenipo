@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as commands from "../api/commands";
 import { a11yProblems } from "../test/a11y";
 import { DevicesSettings, PictureCode } from "./DevicesSettings";
-import { describeRemoteEvent, minutesLeft } from "./words";
+import { describeRemoteEvent, minutesLeft, shownDigits } from "./words";
 import { PhoneNotices } from "./PhoneNotices";
 import { PhoneSwitch } from "./PhoneSwitch";
 
@@ -119,6 +119,7 @@ describe("Settings → Devices", () => {
             name: "Frank's iPhone",
             browser: "Safari on iPhone",
             since: NOW,
+            check: "088923",
           },
         },
       ),
@@ -127,10 +128,16 @@ describe("Settings → Devices", () => {
       settings({}, { pairing: { step: "makingPasskey", name: "Frank's iPhone" } }),
     );
     const user = userEvent.setup();
-    inPage(<DevicesSettings go={go} />);
+    const { container } = inPage(<DevicesSettings go={go} />);
     const dialog = await screen.findByRole("alertdialog", { name: "Is this your phone?" });
     expect(dialog).toHaveTextContent("Frank's iPhone");
     expect(dialog).toHaveTextContent("Safari on iPhone");
+    // The six digits the phone shows too (ADR-212), as two groups of three, and what to do
+    // when they differ.
+    expect(dialog).toHaveTextContent("088 923");
+    expect(dialog).toHaveTextContent(/same six digits/);
+    expect(dialog).toHaveTextContent(/Cancel/);
+    expect(a11yProblems(container)).toEqual([]);
     await user.click(screen.getByRole("button", { name: "Add" }));
     expect(api.answerPhonePairing).toHaveBeenCalledWith(true);
     expect(await screen.findByText(/Finish on Frank's iPhone/)).toBeInTheDocument();
@@ -302,6 +309,10 @@ describe("Activity, for phones", () => {
     expect(
       describeRemoteEvent("remote.pairing_refused", { reason: "wrong_code", pairingPaused: true }),
     ).toBe("Wrong pairing codes were tried: Add a phone is paused for 15 minutes");
+    expect(describeRemoteEvent("remote.pairing_refused", { reason: "used", name: "iPhone" })).toBe(
+      "iPhone tried a pairing code another phone had already used: it was turned away",
+    );
+    expect(shownDigits("088923")).toBe("088 923");
     expect(describeRemoteEvent("remote.switched_on", {})).toBe(
       "You turned on using Plenipo from another device",
     );

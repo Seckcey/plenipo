@@ -181,12 +181,45 @@ describe("pairing this phone", () => {
     expect(keep.kept?.keys.privateKey.extractable).toBe(false);
   });
 
-  it("says plainly when a code does not work", async () => {
+  it("says plainly when a code does not work, and to look at the PC", async () => {
+    // A closed mailbox means the code was mistyped, ran out, or was used already. In the last
+    // case the PC may be asking about a stranger's phone (ADR-212), so the page says to look.
     const user = userEvent.setup();
     render(<App keep={memoryKeep()} make={pc.make} />);
     await user.type(await screen.findByLabelText("Or type the code"), "0000-0000-0000-0000");
     await user.click(screen.getByRole("button", { name: "Pair this phone" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/That code didn't work/);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/This code was already used/);
+    expect(alert).toHaveTextContent(
+      /Look at your PC: if it is asking about a phone that is not yours, click Cancel/,
+    );
+  });
+
+  it("shows the six digits your PC shows too, while your PC asks (ADR-212)", async () => {
+    pc.ownerSays = "wait";
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep()} make={pc.make} />);
+    await user.type(await screen.findByLabelText("Or type the code"), pc.code);
+    await user.click(screen.getByRole("button", { name: "Pair this phone" }));
+    const asking = (await screen.findByText(/Is this your phone/)).closest("p")!;
+    await waitFor(() => expect(pc.check).not.toBeNull());
+    // The same six digits the PC made from the same meeting, shown as two groups of three.
+    expect(asking).toHaveTextContent(`${pc.check!.slice(0, 3)} ${pc.check!.slice(3)}`);
+    expect(asking).toHaveTextContent(/same six digits/);
+    expect(asking).toHaveTextContent(/Cancel/);
+  });
+
+  it("says why when another phone used the code first", async () => {
+    pc.codeUsed = true;
+    const keep = memoryKeep();
+    const user = userEvent.setup();
+    render(<App keep={keep} make={pc.make} />);
+    await user.type(await screen.findByLabelText("Or type the code"), pc.code);
+    await user.click(screen.getByRole("button", { name: "Pair this phone" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Another phone already used this code.",
+    );
+    expect(keep.kept).toBeNull();
   });
 
   it("adds nothing when the PC's owner says no", async () => {
