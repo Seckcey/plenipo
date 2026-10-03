@@ -108,6 +108,7 @@ mod tests {
             account: AccountCommands::default(),
             reported_models: None,
             held: None,
+            uses_tools: true,
         }
     }
 

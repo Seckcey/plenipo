@@ -45,6 +45,9 @@ pub struct GuardConfig {
     pub servers: Vec<Server>,
     /// The owner's on/off switches (ADR-023). Missing in older documents: the defaults.
     pub switches: Switches,
+    /// How much Plenipo asks before an agent saves files or runs programs (ADR-201). Missing in
+    /// older documents: Light.
+    pub safety: Safety,
     /// Which browser is Plenipo's browser (ADR-028). Missing in older documents: Automatic.
     pub browser_choice: BrowserChoice,
     /// The owner's connections (Phase 20, ADR-062): never their sign-ins, which only the Vault

@@ -4307,6 +4307,29 @@ body.popout {
   margin-bottom: 18px;
 }
 
+/* Settings → Safety (ADR-201): the starting choice, its warning, and what always asks. */
+.safety section {
+  margin-bottom: 18px;
+}
+
+.safety__choices,
+.safety__list {
+  margin: 10px 0;
+  padding-left: 18px;
+}
+
+.safety__choices li {
+  margin: 4px 0;
+}
+
+.safety__choices li[aria-current="true"] strong {
+  color: var(--ui-accent);
+}
+
+.safety__now {
+  color: var(--ui-text-secondary);
+}
+
 /* Settings → Spending caps (Phase 16 Wave 3, ADR-085). */
 .spending section {
   margin-top: 18px;

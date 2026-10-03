@@ -4,6 +4,7 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  Safety,
   KeptOnPc,
   RemoteSettings,
   LiveView,
@@ -114,6 +115,7 @@ import type {
   WindowPlace,
   ChangingFile,
   FileRoots,
+  WorkFolder,
   FileView,
   FolderListing,
   LineEnding,
@@ -821,6 +823,11 @@ export function setSwitches(switches: Switches): Promise<PermissionsSnapshot> {
   return call("set_switches", { switches });
 }
 
+/** How much Plenipo asks before an agent saves files or runs programs (ADR-201). */
+export function setSafety(safety: Safety): Promise<PermissionsSnapshot> {
+  return call("set_safety", { safety });
+}
+
 export function getBrowserStatus(): Promise<BrowserStatus> {
   return call("get_browser_status");
 }
@@ -1316,6 +1323,19 @@ export function openFileOutside(root: string, path: string): Promise<void> {
 /** Show a file in File Explorer. */
 export function showInFolder(root: string, path: string): Promise<void> {
   return call<void>("show_in_folder", { root, path });
+}
+
+/**
+ * Where a task's worker kept its files (ADR-201): Plenipo's own folder in Documents, the
+ * project's folder, or a working copy. `null` when it had no folder.
+ */
+export function getWorkFolder(taskId: string): Promise<WorkFolder | null> {
+  return call<WorkFolder | null>("get_work_folder", { taskId });
+}
+
+/** Open the folder where a task's worker kept its files, in File Explorer. */
+export function openWorkFolder(taskId: string): Promise<void> {
+  return call<void>("open_work_folder", { taskId });
 }
 
 /** The files workers are changing now. */

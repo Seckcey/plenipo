@@ -38,6 +38,7 @@ export const runtime = (id: string, ready = true): AgentRuntimeInfo => ({
   },
   reportedModels: null,
   held: null,
+  usesTools: true,
 });
 
 export const session = (id: string, patch: Partial<AgentSession> = {}): AgentSession => ({

@@ -174,6 +174,7 @@ export function aiRuntime(
     account: { signIn: f.signIn, signOut: f.signOut },
     reportedModels: null,
     held: null,
+    usesTools: true,
     ...patch,
   };
 }

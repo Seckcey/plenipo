@@ -502,6 +502,7 @@ impl Parser {
                  stopped the task."
             )),
             "DONE" => Parsed::one(AgentEvent::ToolResult {
+                id: None,
                 tool: Some(name),
                 is_error: false,
                 summary: "done".into(),
@@ -524,12 +525,14 @@ impl Parser {
                     ));
                 }
                 Parsed::one(AgentEvent::ToolResult {
+                    id: None,
                     tool: Some(name),
                     is_error: true,
                     summary: first_line(message, MAX_SUMMARY),
                 })
             }
             _ => Parsed::one(AgentEvent::ToolUse {
+                id: None,
                 tool: name,
                 summary: "asked to use one of its own tools".into(),
             }),
@@ -681,6 +684,7 @@ mod tests {
             billing_confirmed: true,
             tools: None,
             working_dir: PathBuf::new(),
+            cli_version: None,
         }
     }
 

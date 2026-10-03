@@ -695,6 +695,7 @@ impl Parser {
                 let tool = tool_name(data);
                 let summary = data.get("arguments").map(tool_summary).unwrap_or_default();
                 Parsed::one(AgentEvent::ToolUse {
+                    id: None,
                     tool,
                     summary: if summary.is_empty() {
                         "asked to use one of its own tools".into()
@@ -721,6 +722,7 @@ impl Parser {
                     );
                 }
                 Parsed::one(AgentEvent::ToolResult {
+                    id: None,
                     tool: Some(tool),
                     is_error: true,
                     summary: first_line(message, MAX_SUMMARY),
@@ -875,6 +877,7 @@ mod tests {
             billing_confirmed: true,
             tools: None,
             working_dir: PathBuf::new(),
+            cli_version: None,
         }
     }
 

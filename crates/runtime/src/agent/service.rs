@@ -376,6 +376,8 @@ struct Ready {
     billing_confirmed: bool,
     /// A paid AI tool's key (ADR-085), for the helper's first line of input.
     paid_key: Option<PaidKey>,
+    /// The version the check read (ADR-200).
+    cli_version: Option<String>,
 }
 
 /// A runtime that cannot take work, with the outcome to record when a waiting turn cannot
@@ -1000,12 +1002,14 @@ impl AgentRuntime {
             info.installation.detail = Some(why.clone());
         }
         let billing_confirmed = info.auth.state == AuthState::Subscription;
+        let cli_version = info.installation.version.clone();
         let ready = info.ready.then_some(Ready {
             executable,
             args_prefix,
             env,
             billing_confirmed,
             paid_key,
+            cli_version,
         });
         (info, ready)
     }
@@ -1770,7 +1774,7 @@ impl AgentRuntime {
             .ok()
             .flatten()
             .map_or(session.turn_count, |t| t.number);
-        let request = turn_request(&session, adapter.as_ref(), ready.billing_confirmed);
+        let request = turn_request(&session, adapter.as_ref(), &ready);
         self.launch_step(
             session,
             adapter,
@@ -2105,7 +2109,7 @@ impl AgentRuntime {
         mut reservation: Reservation,
     ) -> Result<AgentSessionDetail, RuntimeError> {
         let number = session.turn_count + 1;
-        let request = turn_request(&session, adapter.as_ref(), ready.billing_confirmed);
+        let request = turn_request(&session, adapter.as_ref(), &ready);
         let (s, recorded) = (session.clone(), input.clone());
         let task_id = self
             .with_store(move |store| store.begin_turn(&s, number, &recorded))
@@ -2595,7 +2599,7 @@ impl AgentRuntime {
 fn turn_request(
     session: &AgentSession,
     adapter: &dyn RuntimeAdapter,
-    billing_confirmed: bool,
+    ready: &Ready,
 ) -> TurnRequest {
     TurnRequest {
         session: match (
@@ -2613,9 +2617,10 @@ fn turn_request(
         },
         model: session.model.clone(),
         effort: session.effort,
-        billing_confirmed,
+        billing_confirmed: ready.billing_confirmed,
         tools: None,
         working_dir: PathBuf::from(&session.working_dir),
+        cli_version: ready.cli_version.clone(),
     }
 }
 
@@ -3180,18 +3185,25 @@ fn filtered(f: &TextFilter, event: AgentEvent) -> AgentEvent {
         AgentEvent::TextDelta { text } => AgentEvent::TextDelta { text: f(&text) },
         AgentEvent::Message { text } => AgentEvent::Message { text: f(&text) },
         AgentEvent::Reasoning { text } => AgentEvent::Reasoning { text: f(&text) },
-        AgentEvent::ToolUse { tool, summary } => AgentEvent::ToolUse {
+        AgentEvent::ToolUse { tool, summary, id } => AgentEvent::ToolUse {
             tool,
             summary: f(&summary),
+            id,
         },
         AgentEvent::ToolResult {
             tool,
             is_error,
             summary,
+            id,
         } => AgentEvent::ToolResult {
             tool,
             is_error,
             summary: f(&summary),
+            id,
+        },
+        AgentEvent::Status { phase, text } => AgentEvent::Status {
+            phase,
+            text: f(&text),
         },
         AgentEvent::Notice { level, text } => AgentEvent::Notice {
             level,
@@ -3274,6 +3286,7 @@ fn checking(adapter: &dyn RuntimeAdapter) -> AgentRuntimeInfo {
         },
         reported_models: None,
         held: None,
+        uses_tools: adapter.accepts_tools(),
     }
 }
 

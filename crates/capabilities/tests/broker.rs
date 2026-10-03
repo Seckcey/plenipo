@@ -11,7 +11,9 @@ use std::time::{Duration, Instant};
 use plenipo_capabilities::{
     ApprovalStatus, Broker, BrokerConfig, MemorySecretStore, SecretStore as _,
 };
-use plenipo_guard::{Capability, Guard, GuardOptions, PermissionSetInput, SecretInput, SecretRule};
+use plenipo_guard::{
+    Capability, Guard, GuardOptions, PermissionSetInput, Safety, SecretInput, SecretRule,
+};
 use plenipo_ledger::{Ledger, Task, TaskState, DB_FILE_NAME};
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
 use plenipo_liaison::{Liaison, LiaisonConfig};
@@ -135,8 +137,22 @@ async fn harness() -> H {
     harness_on("claude-code").await
 }
 
-/// The same organization, with the project's Supervisor on `supervisor_tool`.
+/// The same organization, with the project's Supervisor on `supervisor_tool`. Its permissions
+/// are the stricter ones an owner can still choose: Safety on Careful, a Supervisor on Read only,
+/// and no permission set for the VP and the Manager. Most tests here check how Guard asks,
+/// refuses, and records, and were written for those settings (ADR-201 made Plenipo start lighter).
 async fn harness_on(supervisor_tool: &str) -> H {
+    harness_with(supervisor_tool, false).await
+}
+
+/// The same organization with the settings Plenipo starts with (ADR-201): Safety on Light, and
+/// the VP, the Manager, and the Supervisor on Everyday work. `files` is where work that belongs
+/// to no project is done.
+async fn harness_light() -> H {
+    harness_with("claude-code", true).await
+}
+
+async fn harness_with(supervisor_tool: &str, light: bool) -> H {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -213,6 +229,11 @@ async fn harness_on(supervisor_tool: &str) -> H {
     );
     // One "minute" of the approval window lasts a second here.
     broker_config.approval_minute = Duration::from_secs(1);
+    // Work that belongs to no project is done here (ADR-201). The stricter setup has no such
+    // place, so its tests keep checking what a worker with no folder gets.
+    if light {
+        broker_config.files_dir = Some(dir.path().join("files"));
+    }
     let broker = Broker::new(guard.clone(), sup.clone(), store.clone(), broker_config);
     broker.start().await.unwrap();
     rt.set_tools(Arc::new(broker.clone()));
@@ -229,6 +250,14 @@ async fn harness_on(supervisor_tool: &str) -> H {
             .unwrap()
             .id
     };
+    if !light {
+        guard.set_safety(Safety::Careful).unwrap();
+        guard
+            .assign_role(&role("Supervisor"), Some("read-only"))
+            .unwrap();
+        guard.assign_role(&role("Manager"), None).unwrap();
+        guard.assign_role(&role("VP"), None).unwrap();
+    }
     let s = workforce
         .create_department(&DepartmentInput {
             name: "Development".into(),
@@ -2561,4 +2590,257 @@ async fn guard_and_permissions_behave_the_same_on_free_and_pro() {
         seen.push((tools, denied, events));
     }
     assert_eq!(seen[0], seen[1], "Free and Pro differ");
+}
+
+// ---- Light by default (ADR-201) ---------------------------------------------------------------
+
+/// The owner's order of 2026-10-03: an agent can save a file and run a program without asking.
+/// A Supervisor with Everyday work saves a script and runs a program that is on no list; the
+/// never-run list and a file outside its folder still stop it, and nothing waited for approval.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn plenipo_starts_light_a_supervisor_saves_a_file_and_runs_a_program() {
+    let h = harness_light().await;
+    let work = [
+        tool(
+            "write_file",
+            serde_json::json!({ "path": "clear-temp.ps1", "content": "Get-ChildItem" }),
+        ),
+        tool(
+            "run_command",
+            serde_json::json!({ "program": "git", "args": ["--version"] }),
+        ),
+        tool(
+            "run_command",
+            serde_json::json!({ "program": "curl", "args": ["https://example.com"] }),
+        ),
+        tool(
+            "write_file",
+            serde_json::json!({ "path": "/tmp/plenipo-escape.txt", "content": "x" }),
+        ),
+        tool("read_file", serde_json::json!({ "path": ".env" })),
+    ]
+    .join(" ");
+    let task = h.objective(&format!("[tools-list] {work}")).await;
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    let text = h.text(&task);
+    let tools = lines_of(&text, "Tools:");
+    for offered in ["write_file", "run_command", "run_powershell", "git_commit"] {
+        assert!(tools[0].contains(offered), "{text}");
+    }
+    // Saved, and run: no program was on the approved list.
+    assert!(
+        text.contains("Tool write_file: Created clear-temp.ps1"),
+        "{text}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(h.folder.join("clear-temp.ps1")).unwrap(),
+        "Get-ChildItem"
+    );
+    assert!(
+        text.contains("Tool run_command: --- output from git ") && text.contains("    git version"),
+        "{text}"
+    );
+    // What no setting changes: the never-run list, outside the folder, and blocked files.
+    let failed = lines_of(&text, "Tool ");
+    let refusal = |needle: &str| {
+        failed
+            .iter()
+            .find(|l| l.contains(needle))
+            .unwrap_or_else(|| panic!("no refusal mentioning {needle:?} in {text}"))
+            .clone()
+    };
+    assert!(refusal("curl").contains("blocked commands list"));
+    assert!(refusal("plenipo-escape").contains("outside the project folder"));
+    assert!(refusal(".env").contains("is a blocked file"));
+    assert!(!Path::new("/tmp/plenipo-escape.txt").exists());
+    // Nothing waited for the owner.
+    assert!(h.events(&task, "approval.requested").is_empty());
+    // The worker was told it can run programs at once, and to say where it saved a file.
+    let opened = h.events(&task, "guard.grant_opened");
+    assert_eq!(opened[0]["permissions"]["shell.exec"], "allowed");
+    assert_eq!(opened[0]["permissions"]["powershell.exec"], "allowed");
+    // "Open folder" finds the project's folder: the file is there, not in Plenipo's own folder.
+    let found = h.broker.work_folder(&task).unwrap().unwrap();
+    assert!(!found.plenipo_files);
+    assert_eq!(found.project.as_deref(), Some("Website"));
+    assert!(found.exists);
+    assert!(Path::new(&found.path).join("clear-temp.ps1").is_file());
+}
+
+/// Work that belongs to no project is done in a folder of Plenipo's own (ADR-201): the Manager
+/// leads a department, not a project, so before this it got "no folder" and no file tools.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn work_that_belongs_to_no_project_is_done_in_a_folder_of_plenipos_own() {
+    let h = harness_light().await;
+    let manager = h
+        .workforce
+        .snapshot()
+        .unwrap()
+        .positions
+        .into_iter()
+        .find(|p| p.title == "Development Manager")
+        .unwrap()
+        .id;
+    let objective = format!(
+        "[tools-list] {} {}",
+        tool(
+            "write_file",
+            serde_json::json!({ "path": "notes.txt", "content": "for the owner" })
+        ),
+        tool("list_directory", serde_json::json!({})),
+    );
+    let detail = h
+        .workforce
+        .give_objective(&manager, &objective, None)
+        .await
+        .unwrap();
+    let task = detail.turns.last().unwrap().task_id.clone();
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    let text = h.text(&task);
+    assert!(
+        text.contains("Tool write_file: Created notes.txt"),
+        "{text}"
+    );
+    // `Documents\Plenipo\<organization>\<the position's name>`: the organization has no name
+    // of its own here, so its starting one.
+    let folder = h
+        .dir
+        .path()
+        .join("files")
+        .join("Organization")
+        .join("Development Manager");
+    assert_eq!(
+        std::fs::read_to_string(folder.join("notes.txt")).unwrap(),
+        "for the owner"
+    );
+    // The grant says where, so the owner can find it.
+    let opened = h.events(&task, "guard.grant_opened");
+    assert_eq!(opened.len(), 1);
+    let recorded = std::fs::canonicalize(opened[0]["folder"].as_str().unwrap()).unwrap();
+    assert_eq!(recorded, std::fs::canonicalize(&folder).unwrap());
+    assert!(opened[0]["project"].is_null());
+    assert!(opened[0]["tools"].as_array().unwrap().len() > 5);
+    // No grant was skipped for want of a folder.
+    assert!(h.events(&task, "guard.grant_skipped").is_empty());
+    // "Open folder" finds it from Plenipo's own record: the page names only the task.
+    let found = h.broker.work_folder(&task).unwrap().unwrap();
+    assert_eq!(
+        std::fs::canonicalize(&found.path).unwrap(),
+        std::fs::canonicalize(&folder).unwrap()
+    );
+    assert!(found.plenipo_files);
+    assert!(found.exists);
+    assert_eq!(found.project, None);
+    assert_eq!(found.branch, None);
+    // Work that never had a folder has none to open.
+    assert_eq!(h.broker.work_folder("no-such-task").unwrap(), None);
+}
+
+/// A project that has no folder of its own works in Plenipo's folder named for the project
+/// (ADR-201), instead of getting no tools.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_project_without_a_folder_works_in_plenipos_own_folder() {
+    let h = harness_light().await;
+    let snapshot = h.workforce.snapshot().unwrap();
+    let p = snapshot
+        .projects
+        .iter()
+        .find(|p| p.name == "Website")
+        .unwrap();
+    h.workforce
+        .update_project(
+            &p.id,
+            &ProjectInput {
+                name: p.name.clone(),
+                description: p.description.clone(),
+                repository_url: None,
+                local_path: None,
+                allowed_runtimes: p.allowed_runtimes.clone(),
+                capability_profile: None,
+                branch_per_objective: None,
+                department_id: None,
+                coordinator: None,
+            },
+        )
+        .unwrap();
+    let task = h
+        .objective(&format!(
+            "[tools-list] {}",
+            tool(
+                "write_file",
+                serde_json::json!({ "path": "plan.md", "content": "# Plan" })
+            )
+        ))
+        .await;
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    let folder = h
+        .dir
+        .path()
+        .join("files")
+        .join("Organization")
+        .join("Website");
+    assert_eq!(
+        std::fs::read_to_string(folder.join("plan.md")).unwrap(),
+        "# Plan"
+    );
+    assert!(h.events(&task, "guard.grant_skipped").is_empty());
+    let found = h.broker.work_folder(&task).unwrap().unwrap();
+    assert!(found.plenipo_files);
+    assert_eq!(found.project.as_deref(), Some("Website"));
+}
+
+/// Without a place for it (a copy with no files folder), work with no project has no folder, as
+/// before: the worker is told why, and the Activity trail says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn without_a_files_folder_work_with_no_project_has_no_file_tools() {
+    let h = harness_light().await;
+    // The same organization, but a broker with no place for such work.
+    let broker_config = BrokerConfig::new(
+        PathBuf::from(env!("CARGO_BIN_EXE_plenipo-tool-relay")),
+        h.dir.path().join("tickets-no-files"),
+    );
+    assert!(broker_config.files_dir.is_none());
+    let sup = Supervisor::new(
+        SupervisorConfig::default(),
+        ExecutablePolicy::default(),
+        ProfileRegistry::default(),
+        Arc::new(LedgerExecutionStore(Arc::clone(&h.ledger))),
+        Arc::new(NoOutput),
+        vec![],
+    );
+    let broker = Broker::new(h.guard.clone(), sup, h.store.clone(), broker_config);
+    broker.start().await.unwrap();
+    h.rt.set_tools(Arc::new(broker.clone()));
+    let manager = h
+        .workforce
+        .snapshot()
+        .unwrap()
+        .positions
+        .into_iter()
+        .find(|p| p.title == "Development Manager")
+        .unwrap()
+        .id;
+    let detail = h
+        .workforce
+        .give_objective(
+            &manager,
+            &format!(
+                "[tools-list] {}",
+                tool("list_directory", serde_json::json!({}))
+            ),
+            None,
+        )
+        .await
+        .unwrap();
+    let task = detail.turns.last().unwrap().task_id.clone();
+    h.finished(&task).await;
+    let skipped = h.events(&task, "guard.grant_skipped");
+    assert_eq!(skipped.len(), 1);
+    assert!(
+        skipped[0]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("belongs to no project, so there is no folder"),
+        "{skipped:?}"
+    );
 }

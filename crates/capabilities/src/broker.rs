@@ -16,7 +16,7 @@ use plenipo_guard::redact::Redactor;
 use plenipo_guard::websites::{safe_address, safe_addresses};
 use plenipo_guard::{
     evaluate, level_for, levels_for, Capability, CommandLine, Decision, GrantState, Guard, Layer,
-    Level, PathRefusal, Resolved, Risk, SecretInfo, SensitiveKind, ServerCheck, ServerUse,
+    Level, PathRefusal, Resolved, Risk, Safety, SecretInfo, SensitiveKind, ServerCheck, ServerUse,
     SiteCheck, Verdict, Workspace,
 };
 use plenipo_ledger::{
@@ -104,6 +104,10 @@ pub struct BrokerConfig {
     /// Where copies of the files the owner put on objectives wait for their workers (Phase 21,
     /// ADR-093 §21).
     pub attachments_dir: PathBuf,
+    /// Where work that belongs to no project is done: a folder the owner can find, such as
+    /// `Documents\Plenipo` (ADR-201). Inside it, each organization and each project or position
+    /// gets a folder of its own. `None`: such work has no folder, and so no file tools.
+    pub files_dir: Option<PathBuf>,
     /// Folders searched for programs (such as GitHub's `gh`) before Plenipo's own PATH (tests
     /// put stand-ins there).
     pub search_path: Option<std::ffi::OsString>,
@@ -135,6 +139,7 @@ impl BrokerConfig {
             relay_args: Vec::new(),
             workspaces_dir: tickets_dir.with_file_name("workspaces"),
             attachments_dir: tickets_dir.with_file_name("attachments"),
+            files_dir: None,
             browser: BrowserConfig::new(tickets_dir.with_file_name("browser-profile")),
             screenshots_dir: tickets_dir.with_file_name("screenshots"),
             search_path: None,
@@ -299,6 +304,8 @@ struct Grant {
     position_id: Option<String>,
     worker: String,
     scope: Scope,
+    /// What the worker's note says beyond its permissions (ADR-201).
+    note_extras: NoteExtras,
     workspace: Option<Workspace>,
     /// The objective's working copy the grant works in, when it has one (Phase 8).
     place: Option<Place>,
@@ -992,6 +999,34 @@ impl Broker {
             .map_err(BrokerError::PartOfPro)
     }
 
+    /// The folder for work that belongs to no project (ADR-201): `<files>/<organization>/<name>`,
+    /// where the name is the project's, or the position's when there is no project. Made here
+    /// when it is not there yet. `None` when Plenipo has no such place or cannot make it.
+    fn own_folder(&self, scope: &Scope, position_id: Option<&str>) -> Option<String> {
+        let base = self.inner.config.files_dir.as_ref()?;
+        let l = self.ledger();
+        let organization = l
+            .setting("organization")
+            .ok()
+            .flatten()
+            .and_then(|v| v["name"].as_str().map(str::to_owned))
+            .unwrap_or_default();
+        let name = match (&scope.project, position_id) {
+            (Some(p), _) => p.name.clone(),
+            (None, Some(id)) => l
+                .position(id)
+                .ok()
+                .flatten()
+                .map_or_else(|| scope.role_name.clone(), |p| p.title),
+            (None, None) => scope.role_name.clone(),
+        };
+        let path = base
+            .join(folder_name(&organization, "Organization"))
+            .join(folder_name(&name, "Agent"));
+        std::fs::create_dir_all(&path).ok()?;
+        Some(path.display().to_string())
+    }
+
     fn try_open(&self, step: &StepInfo<'_>) -> Result<Option<StepTools>> {
         let workforce = self.workforce_of(step);
         let workforce = &workforce;
@@ -1007,11 +1042,19 @@ impl Broker {
         let uses_folder = TOOLS
             .iter()
             .any(|t| t.capability.needs_folder() && permitted(t.capability));
-        let folder = scope
+        let project_folder = scope
             .project
             .as_ref()
             .and_then(|p| p.folder.as_deref())
             .filter(|_| uses_folder);
+        // Work with no project folder is done in a folder of Plenipo's own that the owner can
+        // find (ADR-201): `Documents\Plenipo\<organization>\<project or position>`.
+        let own_path = match project_folder {
+            None if uses_folder => self.own_folder(&scope, workforce["positionId"].as_str()),
+            _ => None,
+        };
+        let own = own_path.is_some();
+        let folder = project_folder.or(own_path.as_deref());
         let (workspace, problem) = match folder {
             Some(folder) => match Workspace::open(folder) {
                 Ok(w) => (Some(w), None),
@@ -1033,7 +1076,7 @@ impl Broker {
         let grant_id = uuid::Uuid::new_v4().to_string();
         let writer = permitted(Capability::FilesystemWrite) || permitted(Capability::GitWrite);
         let (workspace, place, problem) = match (workspace, &scope.project) {
-            (Some(folder), Some(project)) => {
+            (Some(folder), Some(project)) if !own => {
                 match self.place_for(step, project, &folder, writer, &grant_id) {
                     Ok(Some((w, place, note))) => (Some(w), Some(place), note),
                     Ok(None) => (Some(folder), None, problem),
@@ -1189,12 +1232,17 @@ impl Broker {
             }),
             ..NewEvent::default()
         })?;
+        let light = config.safety == Safety::Light;
         let mut note = note_for(
             &scope,
             workspace.as_ref(),
             place.as_ref(),
             &levels,
             problem.as_deref(),
+            NoteExtras {
+                own_folder: own,
+                light,
+            },
         );
         if !offers.note.is_empty() {
             note = format!("{note}\n{}", offers.note);
@@ -1224,6 +1272,10 @@ impl Broker {
             position_id,
             worker,
             scope,
+            note_extras: NoteExtras {
+                own_folder: own,
+                light,
+            },
             workspace,
             place,
             github,
@@ -1744,6 +1796,7 @@ impl Broker {
                 g.place.as_ref(),
                 &g.levels,
                 None,
+                g.note_extras,
             );
             [&g.connection_note, &g.add_on_note]
                 .into_iter()
@@ -3218,6 +3271,46 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// A name that is safe as one folder's name on every system: no slashes, colons, or other
+/// marks a file name cannot hold, no dots or spaces at the end, no Windows device name, and at
+/// most 60 characters. `fallback` when nothing is left.
+pub(crate) fn folder_name(name: &str, fallback: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+    let mut out = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    out = out.chars().take(60).collect::<String>();
+    let out = out.trim_matches(|c: char| c == '.' || c == ' ').to_owned();
+    const DEVICES: &[&str] = &[
+        "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
+        "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+    ];
+    let stem = out.split('.').next().unwrap_or("").to_ascii_lowercase();
+    if out.is_empty() {
+        fallback.to_owned()
+    } else if DEVICES.contains(&stem.as_str()) {
+        format!("_{out}")
+    } else {
+        out
+    }
+}
+
+/// What a worker's note says beyond its permissions (ADR-201).
+#[derive(Debug, Clone, Copy, Default)]
+struct NoteExtras {
+    /// Its folder is Plenipo's own, made for work that belongs to no project.
+    own_folder: bool,
+    /// Safety is Light: programs that are on no list run without asking.
+    light: bool,
+}
+
 /// What the worker is told about its tools.
 fn note_for(
     scope: &Scope,
@@ -3225,6 +3318,7 @@ fn note_for(
     place: Option<&Place>,
     levels: &BTreeMap<Capability, Level>,
     problem: Option<&str>,
+    extras: NoteExtras,
 ) -> String {
     let mut lines = Vec::new();
     let project = scope.project.as_ref().map_or_else(
@@ -3256,6 +3350,14 @@ fn note_for(
                 lines.push(problem.to_owned());
             }
         }
+        (Some(w), None) if extras.own_folder => {
+            lines.push(format!(
+                "Your folder is {}. It is Plenipo's own folder for work that belongs to no \
+                 project, and the owner can open it. Give paths relative to it; nothing outside \
+                 it can be used. Save the files you make for the owner here.",
+                w.root().display()
+            ));
+        }
         (Some(w), None) => {
             lines.push(format!(
                 "The project folder is {}. Give paths relative to it; nothing outside it can be \
@@ -3282,6 +3384,12 @@ fn note_for(
         }
         let what = doing(*c);
         allowed.push(match (c, l) {
+            (Capability::ShellExec, Level::Allowed) if extras.light => {
+                format!(
+                    "{what} (they run at once; anything risky, such as deleting outside your \
+                     folder or running as administrator, waits for the owner's approval)"
+                )
+            }
             (Capability::ShellExec, Level::Allowed) => {
                 format!(
                     "{what} (approved commands run at once; others wait for the owner's approval)"
@@ -3296,6 +3404,13 @@ fn note_for(
     }
     if !allowed.is_empty() {
         lines.push(format!("You may: {}.", allowed.join("; ")));
+    }
+    if uses_folder && workspace.is_some() && permitted(Capability::FilesystemWrite) {
+        lines.push(
+            "When you save a file, say its name and where you saved it, in plain words, so the \
+             owner can find it."
+                .into(),
+        );
     }
     let not: Vec<&str> = levels
         .iter()

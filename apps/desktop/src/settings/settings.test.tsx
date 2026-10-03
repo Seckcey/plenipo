@@ -205,6 +205,7 @@ describe("Settings in one place", () => {
       "AI models",
       "Spending caps",
       "Permissions",
+      "Safety",
       "Organization",
       "Servers",
       "Connections",

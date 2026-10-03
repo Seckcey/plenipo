@@ -4,6 +4,7 @@ import type { CommandRules } from "./CommandRules";
 import type { GuardOptions } from "./GuardOptions";
 import type { PermissionSet } from "./PermissionSet";
 import type { RolePermissions } from "./RolePermissions";
+import type { Safety } from "./Safety";
 import type { SecretInfo } from "./SecretInfo";
 import type { SensitiveInfo } from "./SensitiveInfo";
 import type { Switches } from "./Switches";
@@ -21,4 +22,8 @@ websites: WebsiteRules,
 /**
  * The owner's on/off switches (ADR-023).
  */
-switches: Switches, };
+switches: Switches, 
+/**
+ * How much Plenipo asks before an agent saves files or runs programs (ADR-201).
+ */
+safety: Safety, };

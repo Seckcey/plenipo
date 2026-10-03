@@ -34,4 +34,9 @@ reportedModels: ReportedModels | null,
 /**
  * Why new tasks on it wait for now: its sign-in tab is open, or it is being updated.
  */
-held: HoldFor | null, };
+held: HoldFor | null, 
+/**
+ * It can use Plenipo's tools, so an agent on it can save files and run programs. `false`:
+ * it only answers in words, whatever the agent's permissions (ADR-200, ADR-131).
+ */
+usesTools: boolean, };

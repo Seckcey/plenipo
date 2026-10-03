@@ -1544,6 +1544,16 @@ pub async fn set_switches(
     Ok(snapshot)
 }
 
+/// How much Plenipo asks before an agent saves files or runs programs (ADR-201): Light (the
+/// starting choice), Careful, or Strict. An unknown name is refused.
+#[tauri::command]
+pub async fn set_safety(
+    broker: Org<'_, Broker>,
+    safety: plenipo_guard::dto::Safety,
+) -> Result<PermissionsSnapshot, CommandError> {
+    with_guard(&broker, move |g| g.set_safety(safety)).await
+}
+
 /// Store a secret: its value goes to the operating system's protected storage, only its
 /// reference to Plenipo. The value is never returned.
 #[tauri::command]

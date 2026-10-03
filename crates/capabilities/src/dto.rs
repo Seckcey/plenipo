@@ -597,6 +597,26 @@ pub struct FileRoots {
     pub desktop_in_use: bool,
 }
 
+/// Where a task's worker kept its files (ADR-201), so the owner can find what it saved: Plenipo's
+/// own folder in Documents, the project's folder, or a working copy of it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct WorkFolder {
+    /// Where it is on this PC.
+    pub path: String,
+    /// Plenipo's own folder (work that belongs to no project folder).
+    pub plenipo_files: bool,
+    /// The project the work belongs to, when it does.
+    #[ts(optional)]
+    pub project: Option<String>,
+    /// The working copy's branch, when the worker had one.
+    #[ts(optional)]
+    pub branch: Option<String>,
+    /// The folder is still there.
+    pub exists: bool,
+}
+
 /// A file or a folder in a listing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
