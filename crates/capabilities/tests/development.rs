@@ -1001,7 +1001,8 @@ async fn github_tools_use_only_the_projects_repository_and_the_workers_permissio
               "tools": [
                   tool("github_pr_list", json!({ "state": "all" })),
                   tool("github_pr_create", json!({ "title": "Sneaky" })),
-              ] }
+              ],
+              "review": review("approve", json!([])) }
         ]
     }));
     let root = h.objective(&h.team.supervisor, "Check pull requests").await;
@@ -1050,7 +1051,8 @@ async fn github_tools_use_only_the_projects_repository_and_the_workers_permissio
             { "say": "Checked." }
         ],
         "Code Reviewer": [
-            { "tools": [tool("github_pr_list", json!({}))] }
+            { "tools": [tool("github_pr_list", json!({}))],
+              "review": review("approve", json!([])) }
         ]
     }));
     let root = h.objective(&h.team.supervisor, "Check again").await;
