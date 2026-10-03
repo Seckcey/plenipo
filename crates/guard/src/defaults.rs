@@ -285,8 +285,20 @@ pub fn default_commands() -> CommandRules {
             "make check *",
         ]),
         // Programs that open a file, a web page, or another app the way the owner's desktop
-        // would (Phase 23, ADR-150): a worker asks first.
-        ask: list(&["open *", "xdg-open *"]),
+        // would (Phase 23, ADR-150): a worker asks first. Linux desktops have several.
+        ask: list(&[
+            "open *",
+            "xdg-open *",
+            "gio *",
+            "gnome-open *",
+            "gvfs-open *",
+            "kde-open *",
+            "kde-open5 *",
+            "exo-open *",
+            "sensible-browser *",
+            "x-www-browser *",
+            "www-browser *",
+        ]),
         blocked: list(&[
             "rm *",
             "rmdir *",
@@ -352,6 +364,71 @@ pub fn default_commands() -> CommandRules {
             "systemsetup *",
             "systemctl *",
             "pkexec *",
+            // The Phase 23 Guard review: a Mac's and Linux's tools that would reach past Guard.
+            // Moving the mouse and typing, or seeing the screen, outside computer use (which asks
+            // every step and shows the sign, ADR-049); reading the clipboard; reading the
+            // password store, where Plenipo's own keys are kept on Linux.
+            "xdotool *",
+            "ydotool *",
+            "wtype *",
+            "xte *",
+            "cliclick *",
+            "screencapture *",
+            "scrot *",
+            "grim *",
+            "gnome-screenshot *",
+            "spectacle *",
+            "import *",
+            "xwd *",
+            "pbpaste *",
+            "xclip *",
+            "xsel *",
+            "wl-paste *",
+            "secret-tool *",
+            "kwallet-query *",
+            "kwalletcli *",
+            "keyring *",
+            "pass *",
+            // Starting programs outside Plenipo's reach, which Stop would not end (ADR-158).
+            "setsid *",
+            "systemd-run *",
+            "at *",
+            "batch *",
+            "loginctl *",
+            "daemonize *",
+            "start-stop-daemon *",
+            // The desktop's own services, which can do most of the above; a Mac's automations.
+            "dbus-send *",
+            "gdbus *",
+            "busctl *",
+            "qdbus *",
+            "shortcuts *",
+            "automator *",
+            // Settings, as `defaults` and `reg` are: the desktop's, the network's, which program
+            // opens which file.
+            "gsettings *",
+            "dconf *",
+            "kwriteconfig5 *",
+            "kwriteconfig6 *",
+            "xdg-settings *",
+            "xdg-mime *",
+            "networksetup *",
+            "scutil *",
+            "nmcli *",
+            // Turning the computer off, and ending programs by name (Plenipo's own among them).
+            "poweroff *",
+            "halt *",
+            "pkill *",
+            "killall *",
+            // A network tool, and more shells.
+            "socat *",
+            "dash *",
+            "ksh *",
+            "csh *",
+            "tcsh *",
+            "mksh *",
+            "busybox *",
+            "nu *",
         ]),
         // No program is given a stored secret without asking until the owner says so
         // (ADR-048).
@@ -410,6 +487,49 @@ mod tests {
         }
         let w = default_websites();
         assert_eq!(crate::websites::clean(&w).unwrap(), w);
+    }
+
+    /// The Phase 23 Guard review: a Mac's and Linux's tools that would reach past Guard are
+    /// blocked however they are written, and the desktop's other "open" programs ask.
+    #[test]
+    fn mac_and_linux_tools_that_reach_past_guard_are_blocked() {
+        use crate::commands::{first_catch, CommandLine};
+        let c = default_commands();
+        for line in [
+            "xdotool type hello",
+            "screencapture -x shot.png",
+            "pbpaste",
+            "secret-tool search --all service plenipo",
+            "setsid sleep 100",
+            "systemd-run --user sleep 100",
+            "busctl --user list",
+            "shortcuts run Anything",
+            "gsettings set org.gnome.system.proxy mode manual",
+            "pkill -f plenipo",
+            "KILLALL Plenipo",
+            "osascript -e beep",
+        ] {
+            let mut words = line.split_whitespace();
+            let program = words.next().unwrap();
+            let args: Vec<&str> = words.collect();
+            let cmd = CommandLine::new(program, &args);
+            assert!(first_catch(&c.blocked, &cmd).is_some(), "{line}");
+        }
+        for line in [
+            "gio open notes.pdf",
+            "kde-open notes.pdf",
+            "xdg-open notes.pdf",
+        ] {
+            let mut words = line.split_whitespace();
+            let program = words.next().unwrap();
+            let args: Vec<&str> = words.collect();
+            let cmd = CommandLine::new(program, &args);
+            assert!(first_catch(&c.ask, &cmd).is_some(), "{line}");
+            assert!(first_catch(&c.blocked, &cmd).is_none(), "{line}");
+        }
+        for r in &c.ask {
+            assert_eq!(&valid_rule(r).unwrap(), r);
+        }
     }
 
     /// Script runners run a project's own scripts with the owner's account, so they are

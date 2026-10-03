@@ -292,8 +292,9 @@ const DESTRUCTIVE: &[&str] = &[
     "out-file",
 ];
 
-/// An argument that names a place outside `root`: an absolute path elsewhere, or `..` that
-/// climbs out (relative arguments are taken from `root`).
+/// An argument that names a place outside `root`: an absolute path elsewhere, `..` that climbs
+/// out, or a path that leaves through a link already on the way (relative arguments are taken
+/// from `root`).
 fn escapes(arg: &str, root: &Path) -> bool {
     let arg = arg.trim_matches(['"', '\'']);
     let arg = arg
@@ -318,27 +319,44 @@ fn escapes(arg: &str, root: &Path) -> bool {
                 s
             }
         };
-        let arg = fold(arg.replace('\\', "/"));
-        let root = fold(root.display().to_string().replace('\\', "/"));
-        return !(arg == root || arg.starts_with(&format!("{root}/")));
+        let named = fold(arg.replace('\\', "/"));
+        let top = fold(root.display().to_string().replace('\\', "/"));
+        let inside = named == top || named.starts_with(&format!("{top}/"));
+        return !inside || leaves_through_a_link(Path::new(arg), root);
     }
-    if !arg.contains("..") {
-        return false;
-    }
-    let mut depth: i64 = 0;
-    for part in arg.split(['/', '\\']) {
-        match part {
-            "" | "." => {}
-            ".." => {
-                depth -= 1;
-                if depth < 0 {
-                    return true;
+    if arg.contains("..") {
+        let mut depth: i64 = 0;
+        for part in arg.split(['/', '\\']) {
+            match part {
+                "" | "." => {}
+                ".." => {
+                    depth -= 1;
+                    if depth < 0 {
+                        return true;
+                    }
                 }
+                _ => depth += 1,
             }
-            _ => depth += 1,
         }
     }
-    false
+    leaves_through_a_link(&root.join(arg), root)
+}
+
+/// Whether `path` leaves `root` through a link already on the disk: its deepest part that exists,
+/// followed through links, is outside (the Phase 23 Guard review: on a Mac and Linux any program
+/// can make a link). A path with nothing on the disk, or a folder that cannot be read, stays
+/// where its name says.
+fn leaves_through_a_link(path: &Path, root: &Path) -> bool {
+    let Ok(root) = dunce::canonicalize(root) else {
+        return false;
+    };
+    let mut existing = path.to_path_buf();
+    while std::fs::symlink_metadata(&existing).is_err() {
+        if !existing.pop() {
+            return false;
+        }
+    }
+    dunce::canonicalize(&existing).is_ok_and(|real| !real.starts_with(&root))
 }
 
 /// The sensitive kind of running `cmd` in `workspace`, with a short reason ("it deletes cloud
@@ -451,6 +469,38 @@ mod tests {
             Some(Outbound)
         );
         assert_eq!(script("Get-ChildItem | Measure-Object").map(|k| k.0), None);
+    }
+
+    /// The Phase 23 Guard review: a path that stays inside by its name but leaves through a link
+    /// already in the project counts as outside, written either way.
+    #[cfg(unix)]
+    #[test]
+    fn a_path_through_a_link_that_leaves_is_outside() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(dir.path()).unwrap().join("proj");
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        let elsewhere = root.parent().unwrap().join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, root.join("out")).unwrap();
+        let kind = |line: &str| {
+            let mut w = line.split_whitespace();
+            let cmd = CommandLine {
+                program: w.next().unwrap().to_owned(),
+                args: w.map(str::to_owned).collect(),
+            };
+            command(&cmd, &root).map(|(k, _)| k)
+        };
+        assert_eq!(kind("cp notes.txt out/"), Some(OutsideWorkspace));
+        assert_eq!(
+            kind("mv notes.txt out/new/deeper.txt"),
+            Some(OutsideWorkspace)
+        );
+        let through = format!("cp notes.txt {}/out/x", root.display());
+        assert_eq!(kind(&through), Some(OutsideWorkspace));
+        assert_eq!(kind("cp notes.txt docs/"), None);
+        assert_eq!(kind("cp notes.txt new-folder/x"), None);
+        let inside = format!("cp notes.txt {}/docs/x", root.display());
+        assert_eq!(kind(&inside), None);
     }
 
     /// ADR-150: on a Mac or a Linux PC a folder in other letters is another folder.
