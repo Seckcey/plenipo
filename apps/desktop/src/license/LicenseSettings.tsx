@@ -221,7 +221,8 @@ export function LicenseSettings() {
         </li>
         <li>
           No internet is fine: Pro keeps working for 30 days between checks. If a check fails, Pro
-          stays on and Plenipo tries again later.
+          stays on and Plenipo tries again later. Without a check, Pro never runs more than 30 days
+          past your paid-through date.
         </li>
         <li>
           If Pro ends, nothing you made is taken away. Every organization, department, project, and

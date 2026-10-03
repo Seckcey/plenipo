@@ -10,6 +10,13 @@
 //! and the newest signed answer's time. The 30 days end 30 days after the newest signed answer
 //! (or, before the first one, after the key was entered). So winding the clock back never
 //! extends them, and replaying an old answer never resets them.
+//!
+//! **The paid period is a ceiling** (P-DESK-1, ADR-211). With no signed answer at all, Pro also
+//! ends 30 days after the key's own paid-through date, so a record that is lost or deleted, which
+//! starts the 30 days again, never carries Pro past the paid period. A signed answer from 8 West
+//! moves it (a renewal), and an "unknown" answer lifts it, as ADR-022 §3 says. A copy of the
+//! record's entry time and newest answer is kept in the Vault next to the key ([`RecordCopy`]),
+//! so losing the record loses nothing a paying owner needs.
 
 use serde::{Deserialize, Serialize};
 
@@ -48,6 +55,22 @@ pub struct Record {
     /// How far the PC's clock was ahead of 8 West's at the last successful check, in seconds,
     /// when it was more than [`CLOCK_SLACK`] (Settings → License says so).
     pub clock_ahead: Option<i64>,
+    /// The newest "unknown" answer, as it travelled: not a success, but signed proof that 8 West
+    /// was reached and does not know the key, so the paid-period ceiling does not apply.
+    pub unknown: Option<SignedAnswer>,
+}
+
+/// What the Vault keeps next to the key (P-DESK-1, ADR-211): the two things in the record that
+/// only time or 8 West can give back — when the key was entered, and 8 West's newest signed
+/// answer. Not a secret (no key text). A record deleted or lost by itself then starts nothing
+/// again. It raises the bar for someone who deletes files; it is not a wall against the PC's
+/// owner.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RecordCopy {
+    pub key_id: Option<String>,
+    pub entered_at: Option<i64>,
+    pub answer: Option<SignedAnswer>,
 }
 
 /// Why the edition is what it is.
@@ -91,6 +114,7 @@ impl Record {
             failures: 0,
             last_problem: None,
             clock_ahead: None,
+            unknown: None,
         }
     }
 
@@ -98,6 +122,60 @@ impl Record {
     pub fn verified_answer(&self) -> Option<AnswerPayload> {
         let payload = answer::verify(self.answer.as_ref()?).ok()?;
         (Some(payload.key_id.as_str()) == self.key_id.as_deref()).then_some(payload)
+    }
+
+    /// The newest "unknown" answer, checked again.
+    fn verified_unknown(&self) -> Option<AnswerPayload> {
+        let payload = answer::verify(self.unknown.as_ref()?).ok()?;
+        (payload.state == SubscriptionState::Unknown
+            && Some(payload.key_id.as_str()) == self.key_id.as_deref())
+        .then_some(payload)
+    }
+
+    /// What the Vault keeps of this record ([`RecordCopy`]): only an answer that checks.
+    pub fn copy(&self) -> RecordCopy {
+        RecordCopy {
+            key_id: self.key_id.clone(),
+            entered_at: self.entered_at,
+            answer: self.verified_answer().and(self.answer.clone()),
+        }
+    }
+
+    /// Take back from the Vault's copy, for the key `key_id`, what this record lost or had moved:
+    /// the earlier entry time and the newer signed answer. A copy about another key changes
+    /// nothing. A record that is empty, unreadable, or about another key starts again from the
+    /// copy (and, with nothing to take, as a key entered now).
+    pub fn restore(&mut self, copy: &RecordCopy, key_id: &str, clock: i64) {
+        if copy.key_id.as_deref() != Some(key_id) {
+            return;
+        }
+        if self.key_id.as_deref() != Some(key_id) {
+            *self = Self {
+                key_id: Some(key_id.to_owned()),
+                clock_high: clock.max(self.clock_high),
+                ..Self::default()
+            };
+        }
+        // The newer signed answer about this key ("unknown" is never kept there).
+        let theirs = copy.answer.as_ref().and_then(|signed| {
+            answer::verify(signed)
+                .ok()
+                .filter(|p| p.key_id == key_id && p.state != SubscriptionState::Unknown)
+                .map(|p| (signed, p.as_of))
+        });
+        if let Some((signed, as_of)) = theirs {
+            if self.verified_answer().is_none_or(|mine| as_of > mine.as_of) {
+                self.answer = Some(signed.clone());
+            }
+        }
+        // The earlier entry time, believed only when it is not in the future: a copy changed by
+        // hand cannot move the 30 days on.
+        let now = self.now(clock);
+        if let Some(at) = copy.entered_at.filter(|&at| at <= now) {
+            self.entered_at = Some(self.entered_at.map_or(at, |mine| mine.min(at)));
+        }
+        // Nothing to take: as a key entered now.
+        self.entered_at.get_or_insert(now);
     }
 
     /// Plenipo's "now": never earlier than a time it has already seen.
@@ -116,7 +194,14 @@ impl Record {
         self.saw_clock(clock);
         self.last_attempt = Some(clock);
         if payload.state == SubscriptionState::Unknown {
-            // Not a success: the 30 days go on counting from the last real answer.
+            // Not a success: the 30 days go on counting from the last real answer. Kept, signed,
+            // as proof that 8 West was reached (the paid-period ceiling then does not apply).
+            if self
+                .verified_unknown()
+                .is_none_or(|kept| payload.as_of >= kept.as_of)
+            {
+                self.unknown = Some(signed);
+            }
             self.failed("8 West doesn't know this key yet", clock);
             return;
         }
@@ -185,7 +270,28 @@ impl Record {
             .map(|a| a.as_of)
             .or(self.entered_at)
             .unwrap_or(now);
-        let grace_ends = anchor.saturating_add(GRACE);
+        let mut grace_ends = anchor.saturating_add(GRACE);
+        // The paid period is a ceiling (P-DESK-1, ADR-211): Pro lasts at most 30 days past the
+        // newest paid-through date Plenipo can prove, the key's own or a later one in 8 West's
+        // signed answer (a renewal; an answer also proves its own time). So with any signed
+        // answer, the 30 days without a check end first, as before. With none, a record lost
+        // or deleted, which starts the 30 days again, never carries Pro past the paid period. An
+        // "unknown" answer since then lifts it: what 8 West does not know never takes Pro
+        // (ADR-022 §3).
+        let heard_unknown = self.verified_unknown().is_some_and(|u| u.as_of >= anchor);
+        if !heard_unknown {
+            let paid = [
+                Some(key.payload().paid_through),
+                answer.as_ref().map(|a| a.as_of),
+                answer.as_ref().and_then(|a| a.paid_through),
+                answer.as_ref().and_then(|a| a.ends_at),
+            ]
+            .into_iter()
+            .flatten()
+            .max()
+            .unwrap_or(key.payload().paid_through);
+            grace_ends = grace_ends.min(paid.saturating_add(GRACE));
+        }
         let mut status = Status {
             edition: Edition::Pro,
             reason: Reason::NotCheckedYet,
@@ -227,7 +333,7 @@ impl Record {
 mod tests {
     use super::*;
     use crate::answer::tests::{answer, AS_OF};
-    use crate::key::tests::valid_key;
+    use crate::key::tests::{valid_key, KEY_ID};
     use crate::key::{self};
     use crate::trust;
 
@@ -434,5 +540,232 @@ mod tests {
             serde_json::from_str::<Record>("{}").unwrap(),
             Record::default()
         );
+    }
+
+    /// A monthly key paid through `paid_through`. A renewal never mails a new key, so its own
+    /// date goes stale while 8 West's answers move on.
+    fn monthly(paid_through: i64) -> LicenseKey {
+        let mut p = key::tests::payload();
+        p.plan = key::Plan::Monthly;
+        p.issued_at = paid_through - 30 * DAY;
+        p.paid_through = paid_through;
+        key::parse(&key::mint(&p, &trust::test_signing_key())).unwrap()
+    }
+
+    /// 8 West's signed answer about the test key, as of `as_of`.
+    fn signed_answer(
+        state: SubscriptionState,
+        as_of: i64,
+        paid_through: Option<i64>,
+    ) -> (SignedAnswer, AnswerPayload) {
+        let mut p = answer(state);
+        p.as_of = as_of;
+        p.paid_through = paid_through;
+        (answer::sign(&p, &trust::test_signing_key()), p)
+    }
+
+    /// P-DESK-1: a record started again (deleted, lost, or changed) once the key's paid period
+    /// and 30 days are over is Free. 8 West's signed answer with a later paid-through date (a
+    /// renewal) is Pro.
+    #[test]
+    fn a_record_started_again_after_the_paid_period_and_30_days_is_free() {
+        let paid = AS_OF + 10 * DAY;
+        let k = monthly(paid);
+        let late = paid + GRACE + 1;
+        let mut r = Record::entered(&k, late, &Record::default());
+        let s = r.status(Some(&k), late);
+        assert_eq!(s.edition, Edition::Free);
+        assert_eq!(s.reason, Reason::NoCheck);
+        assert_eq!(s.grace_ends, Some(paid + GRACE));
+        // Renewed: 8 West's answer carries the paid-through date on.
+        let (sa, p) = signed_answer(SubscriptionState::Active, late, Some(late + 20 * DAY));
+        r.succeeded(sa, &p, late);
+        let s = r.status(Some(&k), late);
+        assert_eq!(s.edition, Edition::Pro);
+        assert_eq!(s.reason, Reason::Active);
+        assert_eq!(s.grace_ends, Some(late + GRACE));
+    }
+
+    /// The paid period never cuts a paying owner short. A key still in its paid period keeps
+    /// the full 30 days. Once 8 West has answered, only the 30 days without a check count, even
+    /// with the key's own date long past (a monthly key, renewed) or no paid-through date in the
+    /// answer.
+    #[test]
+    fn the_paid_period_never_cuts_a_paying_owner_short() {
+        // A yearly key, offline from the day it is entered: the 30 days, as before.
+        let r = entered(AS_OF);
+        assert_eq!(
+            r.status(Some(&key()), AS_OF).grace_ends,
+            Some(AS_OF + GRACE)
+        );
+        assert_eq!(
+            r.status(Some(&key()), AS_OF + GRACE - 1).edition,
+            Edition::Pro
+        );
+        // A monthly key twenty days before its month ends: still the full 30 days.
+        let k = monthly(AS_OF + 20 * DAY);
+        let r = Record::entered(&k, AS_OF, &Record::default());
+        assert_eq!(r.status(Some(&k), AS_OF).grace_ends, Some(AS_OF + GRACE));
+        assert_eq!(r.status(Some(&k), AS_OF + GRACE - 1).edition, Edition::Pro);
+        // A monthly key ten months on, renewed every month, offline after 8 West's last answer:
+        // Pro through day 29, Free on day 30, as before. With or without a paid-through date in
+        // the answer (its own time proves it was paid then).
+        let k = monthly(AS_OF - 300 * DAY);
+        for paid_through in [Some(AS_OF + 20 * DAY), None] {
+            let mut r = Record::entered(&k, AS_OF - 330 * DAY, &Record::default());
+            let (sa, p) = signed_answer(SubscriptionState::Active, AS_OF, paid_through);
+            r.succeeded(sa, &p, AS_OF);
+            let s = r.status(Some(&k), AS_OF + 29 * DAY);
+            assert_eq!(s.edition, Edition::Pro, "{paid_through:?}");
+            assert_eq!(s.grace_ends, Some(AS_OF + GRACE));
+            assert_eq!(r.status(Some(&k), AS_OF + GRACE).edition, Edition::Free);
+        }
+    }
+
+    /// ADR-022 §3 stands: an "unknown" answer keeps Pro on, even for a key past its paid period
+    /// (what 8 West does not know never takes Pro). The 30 days still count from entering it.
+    #[test]
+    fn an_unknown_answer_keeps_pro_on_past_the_paid_period() {
+        let k = monthly(AS_OF - 100 * DAY);
+        let mut r = Record::entered(&k, AS_OF, &Record::default());
+        assert_eq!(r.status(Some(&k), AS_OF).edition, Edition::Free);
+        let (sa, p) = signed_answer(SubscriptionState::Unknown, AS_OF + 60, None);
+        r.succeeded(sa, &p, AS_OF + 60);
+        let s = r.status(Some(&k), AS_OF + 60);
+        assert_eq!(s.edition, Edition::Pro);
+        assert_eq!(s.reason, Reason::NotCheckedYet);
+        assert_eq!(s.grace_ends, Some(AS_OF + GRACE));
+        assert_eq!(r.failures, 1, "still not a success");
+        assert_eq!(r.status(Some(&k), AS_OF + GRACE).edition, Edition::Free);
+        // It is kept, signed, through a restart.
+        let back: Record = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(back.status(Some(&k), AS_OF + 60).edition, Edition::Pro);
+        // An "unknown" from before the key was entered proves nothing about this record.
+        let mut again = Record::entered(&k, AS_OF + 2 * DAY, &Record::default());
+        again.unknown.clone_from(&r.unknown);
+        assert_eq!(
+            again.status(Some(&k), AS_OF + 2 * DAY).edition,
+            Edition::Free
+        );
+        // Nor does one changed by hand.
+        let mut changed = r.clone();
+        let mut later = answer(SubscriptionState::Unknown);
+        later.as_of = AS_OF + 1000 * DAY;
+        changed.unknown.as_mut().unwrap().answer =
+            crate::codec::encode(&serde_json::to_vec(&later).unwrap());
+        assert_eq!(changed.status(Some(&k), AS_OF + 60).edition, Edition::Free);
+    }
+
+    /// P-DESK-1: the Vault's copy brings back what a lost record had, the entry time and 8
+    /// West's newest answer, so nothing starts again.
+    #[test]
+    fn the_vault_copy_brings_back_what_a_lost_record_had() {
+        let k = key();
+        let r = answered(SubscriptionState::Active);
+        let copy = r.copy();
+        assert!(
+            !serde_json::to_string(&copy)
+                .unwrap()
+                .contains(crate::key::KEY_PREFIX),
+            "never the key itself"
+        );
+        let later = AS_OF + 10 * DAY;
+        // The record deleted, or unreadable: nothing known, then the copy.
+        let mut lost = Record::default();
+        lost.restore(&copy, KEY_ID, later);
+        assert_eq!(lost.entered_at, r.entered_at);
+        assert_eq!(lost.verified_answer().unwrap().as_of, AS_OF);
+        assert_eq!(lost.status(Some(&k), later).grace_ends, Some(AS_OF + GRACE));
+        assert_eq!(lost.status(Some(&k), AS_OF + GRACE).edition, Edition::Free);
+        assert_eq!(lost.next_check(), Some(i64::MIN), "it checks at once");
+        // An "ended" answer is not forgotten.
+        let mut lost = Record::default();
+        lost.restore(&answered(SubscriptionState::Ended).copy(), KEY_ID, later);
+        assert_eq!(lost.status(Some(&k), later).reason, Reason::Ended);
+        // A record started again (entered now, no answer) takes the earlier time and the answer.
+        let mut fresh = Record::entered(&k, later, &Record::default());
+        fresh.restore(&copy, KEY_ID, later);
+        assert_eq!(fresh.entered_at, Some(AS_OF - 100));
+        assert_eq!(fresh.status(Some(&k), later), r.status(Some(&k), later));
+        // A copy about another key changes nothing.
+        let mut other = Record::default();
+        other.restore(&copy, "lk_0000000000000000000000000X", later);
+        assert_eq!(other, Record::default());
+    }
+
+    /// The copy keeps only what it can prove, and only moves forward: an older answer never
+    /// replaces a newer one, and a later entry time never moves an earlier one. A copy changed
+    /// by hand (an answer whose signature fails, an entry time in the future) or holding an
+    /// "unknown" answer gives nothing.
+    #[test]
+    fn the_vault_copy_keeps_only_what_it_can_prove_and_only_moves_forward() {
+        let mut newer = answered(SubscriptionState::Active);
+        let (sa, p) = signed_answer(
+            SubscriptionState::Active,
+            AS_OF + 20 * DAY,
+            Some(1_822_000_000),
+        );
+        newer.succeeded(sa, &p, AS_OF + 20 * DAY);
+        let older = answered(SubscriptionState::Active).copy();
+        let at = AS_OF + 21 * DAY;
+        let mut r = newer.clone();
+        r.restore(&older, KEY_ID, at);
+        assert_eq!(r.verified_answer().unwrap().as_of, AS_OF + 20 * DAY);
+        let mut late = older.clone();
+        late.entered_at = Some(AS_OF + 5 * DAY);
+        r.restore(&late, KEY_ID, at);
+        assert_eq!(r.entered_at, Some(AS_OF - 100));
+        // Changed by hand.
+        let mut forged = newer.copy();
+        let mut far = answer(SubscriptionState::Active);
+        far.as_of = AS_OF + 1000 * DAY;
+        forged.answer.as_mut().unwrap().answer =
+            crate::codec::encode(&serde_json::to_vec(&far).unwrap());
+        forged.entered_at = Some(AS_OF + 1000 * DAY);
+        let mut lost = Record::default();
+        lost.restore(&forged, KEY_ID, at);
+        assert!(lost.answer.is_none());
+        assert_eq!(lost.entered_at, Some(at), "as a key entered now");
+        // An answer that does not check is never copied either.
+        let mut bad = newer.clone();
+        bad.answer.clone_from(&forged.answer);
+        assert_eq!(bad.copy().answer, None);
+        // An "unknown" answer is not one to keep.
+        let (unknown, _) = signed_answer(SubscriptionState::Unknown, at, None);
+        let copy = RecordCopy {
+            key_id: Some(KEY_ID.into()),
+            entered_at: None,
+            answer: Some(unknown),
+        };
+        let mut lost = Record::default();
+        lost.restore(&copy, KEY_ID, at);
+        assert!(lost.answer.is_none());
+    }
+
+    /// The paid period follows Plenipo's "now", as the 30 days do. A clock moved back changes
+    /// nothing for a paying owner and gains no days. A clock moved forward by mistake drops Pro
+    /// only past the paid period and 30 days, and 8 West's next answer undoes it.
+    #[test]
+    fn a_clock_moved_back_or_forward_and_the_paid_period() {
+        let paid = AS_OF + 10 * DAY;
+        let k = monthly(paid);
+        let mut r = Record::entered(&k, AS_OF, &Record::default());
+        let s = r.status(Some(&k), AS_OF - 7 * DAY);
+        assert_eq!(s.edition, Edition::Pro);
+        assert_eq!(s.grace_ends, Some(AS_OF + GRACE));
+        // Forward by mistake, past the paid period and 30 days: Free...
+        let ahead = paid + GRACE + DAY;
+        r.saw_clock(ahead);
+        assert_eq!(r.status(Some(&k), ahead).edition, Edition::Free);
+        // ...and winding it back does not bring Pro back by itself...
+        assert_eq!(r.status(Some(&k), AS_OF + DAY).edition, Edition::Free);
+        // ...but 8 West's answer, as of its own time, does.
+        let (sa, p) = signed_answer(
+            SubscriptionState::Active,
+            AS_OF + DAY,
+            Some(paid + 30 * DAY),
+        );
+        r.succeeded(sa, &p, AS_OF + DAY);
+        assert_eq!(r.status(Some(&k), AS_OF + DAY).edition, Edition::Pro);
     }
 }

@@ -11,7 +11,7 @@ use crate::entitlements::{
     Edition, FREE_DEPARTMENTS, FREE_ORGANIZATIONS, FREE_PROJECTS, FREE_WORKERS_AT_ONCE,
 };
 use crate::key::{self, KeyEdition, KeyError, LicenseKey, Plan};
-use crate::state::{Reason, Record, Status};
+use crate::state::{Reason, Record, RecordCopy, Status};
 
 /// Why the edition is what it is (Settings → License says it in words).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -167,6 +167,12 @@ impl License {
 
     pub fn record(&self) -> &Record {
         &self.record
+    }
+
+    /// Take back what the Vault's copy keeps for the key `key_id` (P-DESK-1): a key entered
+    /// again after its record was lost carries on where it was ([`Record::restore`]).
+    pub fn restore(&mut self, copy: &RecordCopy, key_id: &str, clock: i64) {
+        self.record.restore(copy, key_id, clock);
     }
 
     /// Enter a key. It is checked at once, with no network; on success it replaces any other.
@@ -456,6 +462,28 @@ mod tests {
                 Edition::Free,
                 "{entered_at:?}"
             );
+        }
+    }
+
+    /// P-DESK-1: the key removed, the record lost, and the key entered again: the Vault's copy
+    /// brings back its 30 days and an "ended" answer, so nothing starts again.
+    #[test]
+    fn entering_a_key_again_after_its_record_was_lost_takes_back_the_vault_copy() {
+        for (state, reason) in [
+            (SubscriptionState::Active, LicenseReason::NoCheck),
+            (SubscriptionState::Ended, LicenseReason::Ended),
+        ] {
+            let mut l = License::default();
+            l.enter(&valid_key(), AS_OF).unwrap();
+            l.answered(&signed(&answer(state)), AS_OF);
+            let copy = l.record().copy();
+            let later = AS_OF + 31 * DAY;
+            let mut lost = License::load(None, Record::default(), later);
+            lost.restore(&copy, KEY_ID, later);
+            lost.enter(&valid_key(), later).unwrap();
+            assert_eq!(lost.edition(later), Edition::Free, "{state:?}");
+            assert_eq!(lost.view(later).reason, reason);
+            assert_eq!(lost.status(later), l.status(later));
         }
     }
 

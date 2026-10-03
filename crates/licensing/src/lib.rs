@@ -26,7 +26,7 @@ pub use answer::{SignedAnswer, SubscriptionState};
 pub use entitlements::{Admission, Blocked, Decision, Edition, Entitlements, Limit, Usage};
 pub use key::{KeyEdition, KeyError, LicenseKey, Organizations, Plan};
 pub use license::{CheckOutcome, FreeLimits, License, LicenseReason, LicenseView};
-pub use state::Record;
+pub use state::{Record, RecordCopy};
 
 /// Where the weekly check goes (ADR-105): built into every copy, and never changed.
 pub const CHECK_ADDRESS: &str = "https://account.getplenipo.com/v1/check";

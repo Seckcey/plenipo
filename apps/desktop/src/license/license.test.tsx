@@ -198,9 +198,10 @@ describe("license words", () => {
     expect(ended).toMatch(/^Partner on this key ended/);
     expect(ended).toMatch(/Everything you made is still here/);
     expect(ended).not.toMatch(/same key/);
-    expect(reasonWords(free({ reason: "noCheck", keyId: KEY_ID }), NOW)).toMatch(
-      /hasn't reached 8 West for 30 days/,
-    );
+    const noCheck = reasonWords(free({ reason: "noCheck", keyId: KEY_ID }), NOW);
+    expect(noCheck).toMatch(/hasn't been able to confirm your subscription with 8 West/);
+    expect(noCheck).toMatch(/Connect to the internet, then choose Check now/);
+    expect(noCheck).toMatch(/Everything you made is still here/);
   });
 
   it("puts the license's events on the Activity trail in plain words, never the key", () => {
@@ -228,7 +229,7 @@ describe("license words", () => {
     );
     expect(
       describeLicenseEvent("license.edition_changed", { to: "free", reason: "noCheck" }),
-    ).toMatch(/^Plenipo is on Free now \(no check with 8 West for 30 days\)/);
+    ).toMatch(/^Plenipo is on Free now \(no recent check with 8 West\)/);
     expect(
       describeEvent(
         event("liaison.waiting_for_free_slot", {
