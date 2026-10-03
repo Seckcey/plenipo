@@ -189,6 +189,33 @@ describe("pairing this phone", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/That code didn't work/);
   });
 
+  it("shows the six digits your PC shows too, while your PC asks (ADR-212)", async () => {
+    pc.ownerSays = "wait";
+    const user = userEvent.setup();
+    render(<App keep={memoryKeep()} make={pc.make} />);
+    await user.type(await screen.findByLabelText("Or type the code"), pc.code);
+    await user.click(screen.getByRole("button", { name: "Pair this phone" }));
+    const asking = (await screen.findByText(/Is this your phone/)).closest("p")!;
+    await waitFor(() => expect(pc.check).not.toBeNull());
+    // The same six digits the PC made from the same meeting, shown as two groups of three.
+    expect(asking).toHaveTextContent(`${pc.check!.slice(0, 3)} ${pc.check!.slice(3)}`);
+    expect(asking).toHaveTextContent(/same six digits/);
+    expect(asking).toHaveTextContent(/Cancel/);
+  });
+
+  it("says why when another phone used the code first", async () => {
+    pc.codeUsed = true;
+    const keep = memoryKeep();
+    const user = userEvent.setup();
+    render(<App keep={keep} make={pc.make} />);
+    await user.type(await screen.findByLabelText("Or type the code"), pc.code);
+    await user.click(screen.getByRole("button", { name: "Pair this phone" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Another phone already used this code.",
+    );
+    expect(keep.kept).toBeNull();
+  });
+
   it("adds nothing when the PC's owner says no", async () => {
     pc.ownerSays = "no";
     const keep = memoryKeep();

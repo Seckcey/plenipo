@@ -54,6 +54,18 @@ pub fn public_of(private: &[u8; 32]) -> [u8; 32] {
     dh.pubkey().try_into().expect("32 bytes")
 }
 
+/// The six digits both screens show while the PC asks "Is this your phone?" (ADR-212): the
+/// first meeting's own hash, after its third message, as a number, its last six digits. That
+/// hash covers the code and both sides' keys, so a stranger's own meeting shows other digits.
+/// The phone's page makes the same (`apps/remote/src/lock/noise.ts`).
+pub fn check_digits(handshake_hash: &[u8]) -> String {
+    let first: [u8; 4] = handshake_hash[..4]
+        .try_into()
+        .expect("a meeting's hash is 32 bytes");
+    let n = u32::from_be_bytes(first) % 1_000_000;
+    format!("{n:06}")
+}
+
 fn params(name: &str) -> snow::params::NoiseParams {
     name.parse().expect("a pattern Plenipo names")
 }
@@ -272,6 +284,37 @@ pub(crate) mod tests {
                 assert_eq!(i.get_remote_static().unwrap(), pc.1);
             }
         }
+    }
+
+    #[test]
+    fn both_sides_of_a_first_meeting_show_the_same_six_digits() {
+        let pc = new_keypair();
+        let phone = new_keypair();
+        let psk = [1u8; 32];
+        let mut i = pairing_phone(&phone.0, &psk).unwrap();
+        let mut r = pairing_pc(&pc.0, &psk).unwrap();
+        let m1 = write(&mut i, b"").unwrap();
+        read(&mut r, &m1).unwrap();
+        let m2 = write(&mut r, b"").unwrap();
+        read(&mut i, &m2).unwrap();
+        let m3 = write(&mut i, br#"{"name":"phone"}"#).unwrap();
+        read(&mut r, &m3).unwrap();
+        let on_phone = check_digits(i.get_handshake_hash());
+        let on_pc = check_digits(r.get_handshake_hash());
+        assert_eq!(on_phone, on_pc);
+        assert_eq!(on_phone.len(), 6);
+        assert!(on_phone.bytes().all(|b| b.is_ascii_digit()), "{on_phone}");
+
+        // The written contract's first meeting, whose hash starts 2bb414f2… (the phone's page
+        // checks the same hash in `contracts/phone-relay/v1/noise-vectors.json`).
+        let mut contract = [0u8; 32];
+        contract[..4].copy_from_slice(&[0x2b, 0xb4, 0x14, 0xf2]);
+        assert_eq!(check_digits(&contract), "222130");
+        // Always six, with zeros in front when the number is small.
+        let mut small = [0u8; 32];
+        small[3] = 5;
+        assert_eq!(check_digits(&small), "000005");
+        assert_eq!(check_digits(&[0xff; 32]), "967295");
     }
 
     #[test]

@@ -5,6 +5,7 @@ import { mailboxOf, pskOf } from "../lock/code";
 import {
   Assembler,
   Handshake,
+  checkDigits,
   everydayPrologue,
   newKeyPair,
   type KeyPair,
@@ -30,11 +31,15 @@ export class FakePc {
   forgotten = new Set<string>();
   answer: (ask: PhoneAsk) => unknown = () => ({});
   asked: PhoneAsk[] = [];
-  /** The pairing's next step: what the owner says to "Is this your phone?". */
-  ownerSays: "add" | "no" = "add";
+  /** The pairing's next step: what the owner says to "Is this your phone?" (`wait`: nothing yet). */
+  ownerSays: "add" | "no" | "wait" = "add";
+  /** Another phone finished the first meeting with this code already (ADR-212). */
+  codeUsed = false;
   sockets: FakeSocket[] = [];
   /** What the phone said it is, when pairing. */
   hello: { name: string; browser: string } | null = null;
+  /** The six digits the PC shows beside "Is this your phone?", from the first meeting's hash. */
+  check: string | null = null;
   /** The PC's notice key (part 14C): 65 bytes, as a P-256 public key is sent. */
   noticeKey: string | null = encode(new Uint8Array(65).fill(4));
 
@@ -204,8 +209,21 @@ export class FakeSocket {
       this.pc.hello = JSON.parse(fromUtf8(payload)) as { name: string; browser: string };
       this.pairingKey = this.hs.rs;
       this.line = await this.hs.open();
+      if (this.pc.codeUsed) {
+        await this.sendSealed({
+          t: "pair",
+          pair: {
+            step: "refused",
+            message:
+              "Another phone already used this code. If that was not you, click Cancel on your PC and start again.",
+          },
+        });
+        this.close();
+        return;
+      }
+      this.pc.check = checkDigits(this.hs.handshakeHash);
       await this.sendSealed({ t: "pair", pair: { step: "waiting" } });
-      setTimeout(() => void this.ownerAnswers(), 10);
+      if (this.pc.ownerSays !== "wait") setTimeout(() => void this.ownerAnswers(), 10);
       return;
     }
     const { more, bytes: plain } = await this.line!.open(bytes);

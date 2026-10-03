@@ -7,6 +7,11 @@ export function minutesLeft(endsAt: number, now: number): string {
   return m === 1 ? "1 minute" : `${m} minutes`;
 }
 
+/** The six pairing digits (ADR-212), "088923" as "088 923": easier to compare with the phone. */
+export function shownDigits(check: string): string {
+  return `${check.slice(0, 3)} ${check.slice(3)}`;
+}
+
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
 /** Why Guard refused a phone's request (ADR-145), in plain words. */
@@ -46,6 +51,8 @@ function pairingRefused(p: Record<string, unknown>): string {
       return `You did not add ${str(p.name) ?? "a phone"}: you said it was not your phone`;
     case "phone_left":
       return "Adding a phone stopped: the phone left before you answered";
+    case "used":
+      return `${str(p.name) ?? "A phone"} tried a pairing code another phone had already used: it was turned away`;
     case "wrong_code":
       return p.pairingPaused === true
         ? "Wrong pairing codes were tried: Add a phone is paused for 15 minutes"
