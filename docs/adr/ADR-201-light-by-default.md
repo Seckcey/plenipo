@@ -36,8 +36,10 @@ belongs to no project had no folder, so a file had nowhere to go. Nothing told y
 This record changes the starting point:
 
 - The VP, the Manager, and the Supervisor start with a new permission set, **Everyday work**: they
-  read and save files, run programs and scripts, and commit, in their own folder. The built-in
-  Developer set stops asking before every PowerShell script.
+  read and save files, run programs and scripts, and commit, in their own folder. In their team's
+  project folder they still read, plan, and hand each change to the worker who makes it, so that
+  folder keeps one writer (ADR-016). The built-in Developer set stops asking before every
+  PowerShell script.
 - A new setting, **Settings → Safety**, has three positions. **Light** is where Plenipo starts:
   agents save files and run programs and scripts without asking you. **Careful** is how earlier
   versions behaved: a program that is on no list, and every PowerShell script, asks first.
@@ -106,7 +108,12 @@ agent with no tools ("you cannot open or change files, run programs …").
    PowerShell scripts, read and save to git, and read GitHub. Pushing, pull requests, websites, the
    screen, and servers are not in it.
 8. **The VP, the Manager, and the Supervisor start with it** (`template_sets`). Before, the first two
-   had no set and the third was Read only.
+   had no set and the third was Read only. **In their team's project folder a lead still only
+   reads** (`lead_in_team_folder` in the broker): the worker making a change is that folder's one
+   writer (ADR-016), so a lead that is only thinking never holds the folder, and the owner's own
+   saves there are never blocked by it. The lead is told so: "your team's workers change the
+   files and run the programs: … hand each change to the right worker on your team". Everyday
+   work applies to a lead's own work, in Plenipo's own folder.
 9. **The built-in Developer set no longer asks before a script.** An install whose Developer set the
    owner never changed is brought up to date by the existing upgrade (`earlier_sets`); one the owner
    changed is left alone.
@@ -183,4 +190,30 @@ agent with no tools ("you cannot open or change files, run programs …").
 
 ## As built
 
-_Filled in when it is built (see the checklist)._
+- **Guard** (`crates/guard`): `Safety` (`dto.rs`, an older settings file reads as Light),
+  `GuardConfig.safety`, `safety_cap` in `narrowed`, and the Light rule in `evaluate`
+  (`engine.rs`); the Everyday work set, the leads' starting sets, and the Developer set without
+  the script question (`defaults.rs`, the earlier Developer set kept in `earlier_sets`);
+  `lighten_supervisors` (`guard.leaders_lightened`) and `set_safety` (`guard.safety_changed`)
+  (`service.rs`). Tests for Light, Careful, Strict, an older document, and the one-time move.
+- **The broker** (`crates/capabilities/src/broker.rs`): `BrokerConfig.files_dir`, `own_folder`,
+  and `folder_name` (cleaned names, never a Windows device name, at most 60 characters); the notes
+  in "What the agent is told"; `lead_in_team_folder` (a lead reads in its team's project folder,
+  with its note). **Where did it save?** `Broker::work_folder` reads the task's
+  newest `guard.grant_opened` record (`broker/owner_files.rs`, `WorkFolder` in `dto.rs`).
+- **The desktop host:** `files_dir` is `<Documents>/Plenipo` (the data folder's `files` where
+  there is no Documents folder, and a temporary folder for the app's own tests,
+  `guard_host.rs`); the commands `set_safety` (`commands.rs`), `get_work_folder`, and
+  `open_work_folder` (`files_commands.rs`), each the main window's alone, with IPC tests in
+  `lib.rs` (`safety_starts_light_and_the_owner_can_turn_it_up`,
+  `the_work_folder_comes_from_plenipos_own_record`).
+- **Settings → Safety** (`apps/desktop/src/components/SafetySettings.tsx`, the words in
+  `components/safety.ts`), after Permissions in `settings/sections.ts`.
+- **Tests:** the broker's integration tests run a Light organization (the Manager saves a script in
+  Plenipo's own folder and runs a program on no list; the Never run list, a file outside the
+  folder, and a blocked file still stop; nothing waits for approval), a Supervisor that only reads
+  in its team's project folder, and work with no project in Plenipo's own folder, with "Open
+  folder" finding it. The Development department's tests (working copies, one writer, pull
+  requests) pass unchanged.
+  The strict setup that earlier tests expect is kept as `harness_on` (Careful, a Supervisor on
+  Read only, no files folder).

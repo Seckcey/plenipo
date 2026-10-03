@@ -155,3 +155,6 @@ architecture must be recorded here.
 | [171](ADR-171-switching-on-part-by-part.md)              | Switching Community on part by part: people, then linked organizations, then collaborators          | Accepted |
 | [172](ADR-172-what-part-24c-changes.md)                  | What part 24C changes: no stickers yet, Delete for me on this PC, email invitations (amends 169)    | Accepted |
 | [173](ADR-173-leave-deletes-from-this-pc.md)             | Leave this conversation deletes it from this PC (amends 167)                                        | Accepted |
+| [200](ADR-200-a-live-chat-with-each-agent.md)            | A live chat with each agent, as in Claude Code: streaming, what it is doing now, files saved        | Proposed |
+| [201](ADR-201-light-by-default.md)                       | Light by default: agents save files and run programs; Settings → Safety; Plenipo's own folder       | Proposed |
+| [202](ADR-202-the-chain-of-command.md)                   | The chain of command: skipped leads are told, reports come back up one level at a time              | Proposed |
