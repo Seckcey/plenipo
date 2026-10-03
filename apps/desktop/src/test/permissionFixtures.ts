@@ -96,6 +96,7 @@ export function samplePermissions(patch: Partial<PermissionsSnapshot> = {}): Per
         screenshots: true,
         servers: false,
         paidAiKeys: false,
+        hireOnItsOwn: false,
       },
       secrets: [
         {

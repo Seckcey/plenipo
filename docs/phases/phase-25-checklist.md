@@ -433,23 +433,26 @@ simpler screens.
      under another supervisor or under the manager, so the new supervisor can't reach them.
   3. A busy full-time worker is not skipped. Its task waits in line, so that part already works.
 - **Do:**
-  - [ ] **No copies at setup.** For each job the team needs, use a matching worker already in the
+  - [x] **No copies at setup.** For each job the team needs, use a matching worker already in the
         department, and hire only what's missing. The setup dialog shows "Use Alex (Senior
-        Developer, Claude Fable)" or "Hire new" for each job.
-  - [ ] **Share across the department.** A supervisor looks in its own team first, then at the
-        department's other workers. On-call workers keep the AI tool and model you chose for them.
-        A busy full-time worker's task waits in line. The work is done under the asking project's
-        folder and limits.
-  - [ ] **Bring in one only when none exists.** If the department has no one for the job, Plenipo
-        asks you first: "The Website supervisor needs a QA Engineer. Hire one?" A switch in Settings →
-        Switches lets it hire on its own ([answer 3](../adr/ADR-190-phase-25-starts.md#the-owners-answers-2026-10-03)). Free's limits still apply.
-  - [ ] The supervisor's and manager's instructions say: "Use the people you have first."
-  - [ ] **Change ADR-016 (the Development department) and ADR-054 (move or lend an agent).**
+        Developer, Claude Fable)" or "Hire new" for each job, and asks which department.
+  - [x] **Share across the department.** A supervisor looks in its own team first, then at the
+        department's other on-call workers. They keep the AI tool and model you chose for them.
+        The work is done under the asking project's folder and limits. (Full-time workers outside
+        the team are still reached by lending them.)
+  - [x] **Bring in one only when none exists.** If the department has no one for the job, Plenipo
+        asks you first on Home: "Website Supervisor needs a QA Engineer. Hire one?" A switch in
+        Settings → Switches lets it hire on its own ([answer 3](../adr/ADR-190-phase-25-starts.md#the-owners-answers-2026-10-03)). Free's limits still apply.
+  - [x] The supervisor's and manager's instructions say: "Use the people you have first."
+  - [x] **Change ADR-016 (the Development department) and ADR-054 (move or lend an agent):**
+        [ADR-196 (use the team you hired first)](../adr/ADR-196-use-the-team-you-hired-first.md).
 - **Tests:**
-  - [ ] setup with existing workers hires no copies
-  - [ ] a supervisor's hand-off reaches a department worker outside its team
-  - [ ] a missing job asks before hiring
-  - [ ] the fan-out to developer, reviewer, and QA still happens
+  - [x] setup with existing workers hires no copies
+  - [x] a supervisor's hand-off reaches a department worker outside its team
+  - [x] a missing job asks before hiring, once; with the switch on, it hires
+        (`a_new_project_uses_the_departments_workers_before_hiring`, `pages.test.tsx`,
+        `teamReuse.test.tsx`)
+  - [x] the fan-out to developer, reviewer, and QA still happens (the Phase 8 tests, unchanged)
 
 ### 2.8 Templates for organizations, projects, businesses, and enterprises — M
 

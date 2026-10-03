@@ -124,7 +124,7 @@ const DELEGATION: &str = "Hand each objective to the member of your team who lea
     back, in a few sentences. When the reply comes, report to the owner in a few short lines: \
     what was done and by whom, the files changed, the tests run and their results, the branch \
     and any pull request, review findings still open, and approvals still needed. Say plainly \
-    what is not finished.";
+    what is not finished. Use the people you have first.";
 
 /// How a project's supervisor runs a development objective with its team (Phase 8, ADR-016).
 const PLAYBOOK: &str = "How to run the objective: 1) Break it into small, bounded tasks. \
@@ -136,7 +136,9 @@ const PLAYBOOK: &str = "How to run the objective: 1) Break it into small, bounde
     documentation, have your documentation writer update it and commit it. 6) Answer with a short report: \
     what changed, tests and results, the review verdict and any open findings, the branch, \
     and approvals still needed. Open a pull request only when the objective asks for one (it \
-    waits for the owner's approval). Skip a step your team has no one for, and say so.";
+    waits for the owner's approval). Use the people you have first: your own team, then your \
+    department's other workers (listed after your team). If nobody in your department does a \
+    job, ask the owner to hire one; until then, skip that step and say so.";
 
 /// A reviewer's, QA's, or security auditor's verdict, which Plenipo reads for the objective's
 /// result (Phase 8).
@@ -560,6 +562,9 @@ mod tests {
         let sup = member_identity(&view, "Acme", view.position("sup").unwrap(), true);
         assert!(sup.contains("Your job as Supervisor:"));
         assert!(sup.contains("have your documentation writer update it and commit it"));
+        // Use the people you have first (Phase 25, item 2.7).
+        assert!(sup.contains("Use the people you have first: your own team, then your"));
+        assert!(dev_vp.contains("Use the people you have first."));
     }
 
     #[test]

@@ -14,4 +14,14 @@ project: ProjectInput,
  * The AI tool of the VP and the supervisor; absent: automatic. The team is always
  * automatic (each role's model choices pick).
  */
-runtimeId?: string, };
+runtimeId?: string, 
+/**
+ * The department the project joins (Phase 25, item 2.7); absent: the template's own,
+ * made with its VP when there is none.
+ */
+departmentId?: string, 
+/**
+ * Jobs (by title) to hire a new worker for even when the department has one for them.
+ * Every other job uses a matching worker the department already has (Phase 25, item 2.7).
+ */
+hireNew?: Array<string>, };

@@ -696,6 +696,8 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
   const name = str(p.name) ?? "";
   const why = str(p.reason) ? ` (${str(p.reason)})` : "";
   switch (type) {
+    case "org.hire_needed":
+      return `${str(p.lead) ?? "A lead"} needs a ${str(p.role) ?? "worker"}. Hire one?`;
     case "org.position_created":
       return `Position created: ${title}`;
     case "org.position_updated":

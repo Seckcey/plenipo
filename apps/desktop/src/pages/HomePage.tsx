@@ -20,7 +20,7 @@ import {
   type StatItem,
 } from "@plenipo/ui";
 
-import { getHome } from "../api/commands";
+import { getHome, hirePosition } from "../api/commands";
 import type { Go } from "../components/views";
 import type { useApprovals } from "../guard/usePermissions";
 import type { Learning } from "../learning/useLearning";
@@ -48,8 +48,33 @@ import {
 
 type Approvals = ReturnType<typeof useApprovals>;
 
+/**
+ * A lead needs a worker for a job nobody in its department does (Phase 25, item 2.7): choosing
+ * the row hires one on call for its team.
+ */
+function hireRow(item: StuckItem, now: number): RowItem {
+  const p = (item.event.payload ?? {}) as Record<string, unknown>;
+  const lead = typeof p.lead === "string" ? p.lead : "A lead";
+  const role = typeof p.role === "string" ? p.role : "worker";
+  return {
+    id: `stuck:${item.event.seq}`,
+    title: `${lead} needs a ${role}`,
+    detail: `Nobody in its department does this job. Hire one? Choose this to hire a ${role} on call for its team.`,
+    status: eventStatus(item.event),
+    meta: ago(item.event.createdAt, now),
+    onOpen: () =>
+      void hirePosition({
+        roleId: typeof p.roleId === "string" ? p.roleId : "",
+        title: role,
+        reportsTo: typeof p.leadId === "string" ? p.leadId : null,
+      }).catch(() => undefined),
+    openLabel: `Hire a ${role} for ${lead}'s team`,
+  };
+}
+
 /** A stuck item's row: its task (or the server), what went wrong, and where to fix it. */
 function stuckRow(item: StuckItem, go: Go, now: number): RowItem {
+  if (item.event.eventType === "org.hire_needed") return hireRow(item, now);
   const what = describeEvent(item.event);
   const task = item.task;
   return {

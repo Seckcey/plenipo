@@ -713,6 +713,21 @@ impl Workforce {
             .collect();
         let mut stuck = Vec::new();
         for event in l.problems(since, 30)? {
+            // A lead that needed a worker no longer does once its team or department has one
+            // for the job, or it is gone (Phase 25, item 2.7).
+            if event.event_type == "org.hire_needed" {
+                let role = event.payload["roleId"].as_str().unwrap_or_default();
+                let lead = event.payload["leadId"].as_str().unwrap_or_default();
+                let has = |members: Vec<crate::view::TeamMember<'_>>| {
+                    members.iter().any(|m| m.position.role_id == role)
+                };
+                if view.active(lead).is_none()
+                    || has(view.team(lead))
+                    || has(view.department_pool(lead))
+                {
+                    continue;
+                }
+            }
             let task = match event.task_id.as_deref() {
                 Some(id) => l.task(id)?.map(|t| snapshot::brief(&t, &titles)),
                 None => None,
@@ -1145,11 +1160,24 @@ impl Workforce {
         if t.business {
             self.allow(Limit::BusinessDepartment)?;
         }
-        let has_department = self
-            .ledger()
-            .list_departments()?
-            .iter()
-            .any(|d| d.status == "active" && d.name.eq_ignore_ascii_case(t.department));
+        // The department the owner chose (Phase 25, item 2.7), else the template's own.
+        let chosen = match input.department_id.as_deref().filter(|d| !d.is_empty()) {
+            Some(id) => Some(
+                self.ledger()
+                    .list_departments()?
+                    .into_iter()
+                    .find(|d| d.id == id && d.status == "active")
+                    .ok_or_else(|| invalid("that department is no longer active"))?
+                    .id,
+            ),
+            None => None,
+        };
+        let has_department = chosen.is_some()
+            || self
+                .ledger()
+                .list_departments()?
+                .iter()
+                .any(|d| d.status == "active" && d.name.eq_ignore_ascii_case(t.department));
         if !has_department {
             self.allow(Limit::Departments)?;
         }
@@ -1202,13 +1230,15 @@ impl Workforce {
             vacant: None,
             from_workforce: None,
         };
-        let department = match self
-            .ledger()
-            .list_departments()?
-            .into_iter()
-            .find(|d| d.status == "active" && d.name.eq_ignore_ascii_case(t.department))
-        {
-            Some(d) => d.id,
+        let department = match chosen.or_else(|| {
+            self.ledger()
+                .list_departments()
+                .ok()?
+                .into_iter()
+                .find(|d| d.status == "active" && d.name.eq_ignore_ascii_case(t.department))
+                .map(|d| d.id)
+        }) {
+            Some(d) => d,
             None => {
                 let s = self.make_department(&DepartmentInput {
                     name: t.department.into(),
@@ -1227,7 +1257,7 @@ impl Workforce {
             }
         };
         let s = self.make_project(&ProjectInput {
-            department_id: Some(department),
+            department_id: Some(department.clone()),
             coordinator: Some(lead(&supervisor_role, format!("{name} Supervisor"))),
             ..input.project.clone()
         })?;
@@ -1237,7 +1267,23 @@ impl Workforce {
             .find(|p| p.name == name)
             .and_then(|p| p.coordinator_position_id.clone())
             .ok_or_else(|| WorkforceError::Internal("the new project is missing".into()))?;
+        // No copies (Phase 25, item 2.7): each job uses a matching worker the department already
+        // has, unless the owner asked for a new one; only the rest are hired.
+        let reused = self.reusable(&department, &supervisor)?;
+        let mut taken: Vec<String> = Vec::new();
+        let hire_new = input.hire_new.clone().unwrap_or_default();
         for (title, role_id) in team {
+            let wanted_new = hire_new.iter().any(|h| h.eq_ignore_ascii_case(title));
+            if !wanted_new {
+                if let Some(id) = reused
+                    .iter()
+                    .find(|(id, role)| role == &role_id && !taken.contains(id))
+                    .map(|(id, _)| id.clone())
+                {
+                    taken.push(id);
+                    continue;
+                }
+            }
             self.hire(&HireInput {
                 role_id,
                 title: title.into(),
@@ -1249,6 +1295,30 @@ impl Workforce {
             })?;
         }
         self.snapshot()
+    }
+
+    /// The on-call workers already in `department`, outside `lead`'s new team, as (position ID,
+    /// role ID): the ones a new project's team can use instead of hiring copies (Phase 25, item
+    /// 2.7).
+    fn reusable(&self, department: &str, lead: &str) -> Result<Vec<(String, String)>> {
+        let records = self.ledger().org_records()?;
+        let view = OrgView::new(&records);
+        let mut out: Vec<(String, String)> = view
+            .tree_order()
+            .into_iter()
+            .filter(|p| {
+                p.id != lead
+                    && !view.persistent(p)
+                    && view.kind(p) == plenipo_ledger::RoleType::Worker
+                    && view.loan(&p.id).is_none()
+                    && view
+                        .department_of(&p.id)
+                        .is_some_and(|d| d.id == department)
+            })
+            .map(|p| (p.id.clone(), p.role_id.clone()))
+            .collect();
+        out.dedup();
+        Ok(out)
     }
 
     pub fn update_project(&self, id: &str, input: &ProjectInput) -> Result<OrgSnapshot> {

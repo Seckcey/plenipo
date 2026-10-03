@@ -1951,6 +1951,8 @@ async fn the_development_template_sets_up_a_department_project_and_team() {
             ..project_input(name, &["claude-code", "codex"])
         },
         runtime_id: Some("claude-code".into()),
+        department_id: None,
+        hire_new: None,
     };
     let s = h.workforce.set_up_development(&input("Website")).unwrap();
     assert_eq!(s.departments.len(), 1);
@@ -1999,6 +2001,130 @@ async fn the_development_template_sets_up_a_department_project_and_team() {
     let mut bad = input("Waypoint");
     bad.project.allowed_runtimes = vec!["codex".into()];
     assert!(refusal(h.workforce.set_up_development(&bad)).contains("allowed AI tools"));
+}
+
+/// Use the team you hired first (Phase 25, item 2.7): a second project in the department hires
+/// no copies, its supervisor's hand-off reaches the department's worker (the work stays the
+/// asking project's), a job asked for new is hired, and a job nobody in the department does says
+/// to ask the owner.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_project_uses_the_departments_workers_before_hiring() {
+    let h = harness().await;
+    let website = h
+        .workforce
+        .set_up_development(&dev_input("Website"))
+        .unwrap();
+    let developer = H::id_of(&website, "Senior Developer");
+    let count =
+        |s: &OrgSnapshot, title: &str| s.positions.iter().filter(|p| p.title == title).count();
+    // No copies: Cloudline's team is the department's.
+    let s = h
+        .workforce
+        .set_up_development(&dev_input("Cloudline"))
+        .unwrap();
+    for title in [
+        "Senior Developer",
+        "Code Reviewer",
+        "QA Engineer",
+        "Documentation Writer",
+    ] {
+        assert_eq!(count(&s, title), 1, "{title}");
+    }
+    let cloudline = s.projects.iter().find(|p| p.name == "Cloudline").unwrap();
+    let supervisor = cloudline.coordinator_position_id.clone().unwrap();
+    assert!(!s
+        .positions
+        .iter()
+        .any(|p| p.reports_to.as_deref() == Some(supervisor.as_str())));
+    // Its supervisor knows them, after its own team.
+    let (_, briefing) = h.briefing(&supervisor);
+    assert!(
+        briefing
+            .iter()
+            .any(|(address, label, _)| address == "role:Senior Developer"
+                && label.contains("from your department")),
+        "{briefing:?}"
+    );
+    // A hand-off reaches the Website's developer; the work is Cloudline's.
+    let root = h
+        .objective(
+            &supervisor,
+            "Build the login [handoff:role:Senior Developer]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.last_child(&root);
+    assert_eq!(
+        child.metadata["workforce"]["positionId"],
+        developer.as_str()
+    );
+    assert_eq!(
+        child.metadata["workforce"]["projectId"],
+        cloudline.id.as_str()
+    );
+    // A job nobody in the department does: Plenipo asks the owner, once, on Home.
+    for _ in 0..2 {
+        let root = h
+            .objective(
+                &supervisor,
+                "Check the payments [handoff:role:Security Auditor]",
+            )
+            .await;
+        assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+        let why = h.rejections(&root);
+        assert!(
+            why.iter()
+                .any(|w| w.contains("Plenipo asked the owner whether to hire one")),
+            "{why:?}"
+        );
+    }
+    let asked = h.ledger.events_of_types(&["org.hire_needed"], 10).unwrap();
+    assert_eq!(asked.len(), 1, "asked once");
+    assert_eq!(asked[0].payload["role"], "Security Auditor");
+    assert_eq!(asked[0].payload["lead"], "Cloudline Supervisor");
+    let home = h.workforce.home().unwrap();
+    assert!(home
+        .stuck
+        .iter()
+        .any(|i| i.event.event_type == "org.hire_needed"));
+    // The owner lets leads hire on their own: the next hand-off hires one onto the team.
+    let mut guard = h
+        .ledger
+        .setting("guard")
+        .unwrap()
+        .unwrap_or(serde_json::json!({}));
+    guard["switches"]["hireOnItsOwn"] = serde_json::json!(true);
+    h.ledger.put_setting("guard", &guard, "test").unwrap();
+    let root = h
+        .objective(&supervisor, "Check again [handoff:role:Security Auditor]")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.last_child(&root);
+    let auditor = h
+        .snapshot()
+        .positions
+        .into_iter()
+        .find(|p| p.title == "Security Auditor")
+        .expect("hired");
+    assert_eq!(auditor.reports_to.as_deref(), Some(supervisor.as_str()));
+    assert_eq!(
+        child.metadata["workforce"]["positionId"],
+        auditor.id.as_str()
+    );
+    // Home no longer asks.
+    assert!(!h
+        .workforce
+        .home()
+        .unwrap()
+        .stuck
+        .iter()
+        .any(|i| i.event.event_type == "org.hire_needed"));
+    // A job asked for new is hired; the rest are still shared.
+    let mut waypoint = dev_input("Waypoint");
+    waypoint.hire_new = Some(vec!["QA Engineer".into()]);
+    let s = h.workforce.set_up_development(&waypoint).unwrap();
+    assert_eq!(count(&s, "QA Engineer"), 2);
+    assert_eq!(count(&s, "Senior Developer"), 1);
 }
 
 // ---- Free and Pro (Phase 11A) -----------------------------------------------------------------
@@ -2094,6 +2220,8 @@ fn dev_input(name: &str) -> plenipo_workforce::DevelopmentInput {
             ..project_input(name, &["claude-code", "codex"])
         },
         runtime_id: Some("claude-code".into()),
+        department_id: None,
+        hire_new: None,
     }
 }
 

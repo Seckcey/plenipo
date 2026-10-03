@@ -283,6 +283,8 @@ async fn harness_with(branch_per_objective: bool) -> H {
                 coordinator: None,
             },
             runtime_id: Some("claude-code".into()),
+            department_id: None,
+            hire_new: None,
         })
         .unwrap();
     let project = org.projects[0].id.clone();

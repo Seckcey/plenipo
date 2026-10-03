@@ -160,3 +160,4 @@ architecture must be recorded here.
 | [193](ADR-193-watch-shows-the-team.md)                    | Watch shows the team's work, says why it is empty, and is on every tile (amends 055)                                   | Accepted |
 | [194](ADR-194-what-a-model-can-do-is-no-longer-asked.md)  | What a model can do, and its context size, are no longer asked; "sees images" comes from who made it (amends 011, 042) | Accepted |
 | [195](ADR-195-who-uses-what.md)                           | Who uses what: every model in one menu, one table, "never use" for the whole organization (amends 041, 081)            | Accepted |
+| [196](ADR-196-use-the-team-you-hired-first.md)            | Use the team you hired first, and ask before hiring a missing worker (amends 016, 054)                                 | Accepted |

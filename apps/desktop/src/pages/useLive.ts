@@ -103,7 +103,10 @@ export function changesWork(event: LedgerEvent): boolean {
     t.startsWith("control.") ||
     t === "capability.used" ||
     t === "agent.result" ||
-    t === "artifact.recorded"
+    t === "artifact.recorded" ||
+    // A lead needs a worker, and a hire answers it (Phase 25, item 2.7).
+    t === "org.hire_needed" ||
+    t === "org.position_created"
   );
 }
 

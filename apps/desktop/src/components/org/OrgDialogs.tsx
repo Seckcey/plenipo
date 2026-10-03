@@ -42,6 +42,7 @@ import {
 } from "./dialogHelpers";
 import { Modal } from "./Modal";
 import { RuntimeOptions } from "./RuntimeOptions";
+import { reusableWorkers } from "./teamReuse";
 import { runtimeChoiceLabel, subscriptionInstead } from "./runtimeChoices";
 
 /** Resolves with the refusal to show, or `null` once done. */
@@ -1044,14 +1045,26 @@ export function SetUpDevelopmentDialog({
   const [runtimeId, setRuntimeId] = useState("");
   const { pending, error, run } = useSubmit();
   const t = titlesOf(snapshot);
-  const hasDepartment = snapshot.departments.some(
+  const development = snapshot.departments.find(
     (d) => d.active && d.name.toLowerCase() === "development",
   );
+  // The department it joins (Phase 25, item 2.7): the Development department, or one you pick.
+  const [departmentId, setDepartmentId] = useState(development?.id ?? "");
+  const hasDepartment = departmentId !== "";
+  const department = snapshot.departments.find((d) => d.id === departmentId);
+  // Each job uses a worker the department already has, unless you ask for a new one.
+  const reuse = reusableWorkers(snapshot, departmentId || null, DEVELOPMENT_TEAM);
+  const [hireNew, setHireNew] = useState<string[]>([]);
   const refused = runtimeId !== "" && !settings.allowedRuntimes.includes(runtimeId);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     void run(() =>
-      onSubmit({ project: settingsInput(settings), ...(runtimeId ? { runtimeId } : {}) }),
+      onSubmit({
+        project: settingsInput(settings),
+        ...(runtimeId ? { runtimeId } : {}),
+        ...(departmentId && departmentId !== development?.id ? { departmentId } : {}),
+        hireNew,
+      }),
     );
   };
   return (
@@ -1059,12 +1072,60 @@ export function SetUpDevelopmentDialog({
       <form className="modal__body" aria-label="Set up a Development project" onSubmit={submit}>
         <p className="muted">
           {hasDepartment
-            ? "The project joins the Development department"
+            ? `The project joins the ${department?.name ?? "Development"} department`
             : `Plenipo creates the Development department with its ${rankName(t, "superintendent")}`}
           , then the project with its {rankName(t, "projectCoordinator")} and a team on call:{" "}
           {DEVELOPMENT_TEAM.join(", ")}. Give objectives on the Projects page; each one gets its own
           branch.
         </p>
+        <Field
+          label="Department"
+          hint="The project's team uses the department's workers first, and hires only what's missing."
+        >
+          <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+            {!development && <option value="">A new Development department</option>}
+            {snapshot.departments
+              .filter((d) => d.active)
+              .map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+          </select>
+        </Field>
+        <fieldset className="choices">
+          <legend>The team</legend>
+          {DEVELOPMENT_TEAM.map((job, i) => {
+            const p = reuse[i];
+            if (!p) {
+              return (
+                <p key={job} className="muted">
+                  {job}: hire new (the department has none)
+                </p>
+              );
+            }
+            const model = p.route?.choice?.label ?? runtimeChoiceLabel(snapshot, p.runtimeId ?? "");
+            const fresh = hireNew.includes(job);
+            return (
+              <Field key={job} label={job}>
+                <select
+                  value={fresh ? "new" : "use"}
+                  onChange={(e) =>
+                    setHireNew((h) =>
+                      e.target.value === "new" ? [...h, job] : h.filter((x) => x !== job),
+                    )
+                  }
+                >
+                  <option value="use">
+                    Use {p.title} ({p.roleName}
+                    {model ? `, ${model}` : ""})
+                  </option>
+                  <option value="new">Hire new</option>
+                </select>
+              </Field>
+            );
+          })}
+        </fieldset>
         <ProjectSettingsFields
           snapshot={snapshot}
           value={settings}

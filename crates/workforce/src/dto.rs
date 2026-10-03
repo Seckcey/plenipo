@@ -774,4 +774,14 @@ pub struct DevelopmentInput {
     /// automatic (each role's model choices pick).
     #[ts(optional)]
     pub runtime_id: Option<String>,
+    /// The department the project joins (Phase 25, item 2.7); absent: the template's own,
+    /// made with its VP when there is none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub department_id: Option<String>,
+    /// Jobs (by title) to hire a new worker for even when the department has one for them.
+    /// Every other job uses a matching worker the department already has (Phase 25, item 2.7).
+    #[serde(default)]
+    #[ts(optional)]
+    pub hire_new: Option<Vec<String>>,
 }

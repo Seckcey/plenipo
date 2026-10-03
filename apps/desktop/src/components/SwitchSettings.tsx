@@ -152,6 +152,13 @@ export function SwitchSettings({ learning, phone }: { learning?: ReactNode; phon
           disabled={pending}
           onChange={flip("paidAiKeys")}
         />
+        <Toggle
+          label="Let leads hire missing workers on their own"
+          hint="Off to start with: when a supervisor or manager needs a job nobody in its department does, Plenipo asks you first on Home. On: it hires one on call for that team by itself."
+          checked={s.hireOnItsOwn}
+          disabled={pending}
+          onChange={flip("hireOnItsOwn")}
+        />
         {learning}
       </section>
       <section aria-labelledby="switches-websites">
