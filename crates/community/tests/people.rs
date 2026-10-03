@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use plenipo_community::client;
 use plenipo_community::people::{Found, PeoplePage};
+use plenipo_community::profile::{ProfileDraft, Tile, TileStatus};
 use plenipo_community::service::{Clock, Community, Recorder, Settings, Stage, Store};
 use plenipo_community::stand_in::{tiny_png, AccountId, StandIn};
 use plenipo_community::wire;
@@ -118,9 +119,18 @@ impl World {
     }
 }
 
-/// Join, as Settings → Community does.
+/// Join, as Settings → Community does, with an empty profile and a plain tile.
 async fn join(community: &Community<StandIn>, name: &str, birth_year: u16, terms: &str) {
-    community.join(name, 3, birth_year, terms).await.unwrap();
+    let tile = Tile {
+        status: TileStatus::Available,
+        mood: None,
+        message: String::new(),
+        picture: None,
+    };
+    community
+        .join(name, 3, birth_year, terms, &ProfileDraft::default(), &tile)
+        .await
+        .unwrap();
 }
 
 /// Show a profile, as Save does.
