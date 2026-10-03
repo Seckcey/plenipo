@@ -41,13 +41,14 @@ pub fn create(agents: &AgentRuntime, broker: &Broker) -> AiTools {
 }
 
 /// A task ended on an AI tool: one that reports its plan through its check is asked again
-/// (at most every five minutes).
+/// (at most every five minutes, or at once after a usage limit).
 pub fn listen(ledger: &Arc<Ledger>, tools: &AiTools) {
     let tools = tools.clone();
     ledger.add_listener(Arc::new(move |event| {
         if event.event_type == "agent.result" {
             if let Some(runtime) = event.source.strip_prefix("agent:") {
-                tools.task_ended(runtime);
+                let limited = event.payload["outcome"] == "usageLimited";
+                tools.task_ended(runtime, limited);
             }
         }
     }));

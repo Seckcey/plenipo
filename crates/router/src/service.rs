@@ -23,10 +23,13 @@ const OWNER: &str = "owner";
 const PLENIPO: &str = "plenipo";
 
 type Tools = Arc<dyn Fn() -> Vec<AgentRuntimeInfo> + Send + Sync>;
+/// The latest plan an AI tool reported on this PC (Phase 25, item 4.3).
+type Plans = Arc<dyn Fn(&str) -> Option<plenipo_runtime::agent::PlanReport> + Send + Sync>;
 
 struct Inner {
     ledger: Arc<Ledger>,
     tools: Tools,
+    plans: Plans,
     notices: Mutex<Vec<String>>,
 }
 
@@ -319,16 +322,27 @@ fn to_ledger(e: RouterError) -> LedgerError {
 impl Router {
     /// The router for the desktop app: AI tool state comes from the agent runtime.
     pub fn new(ledger: Arc<Ledger>, runtime: AgentRuntime) -> Self {
-        Self::with_tools(ledger, Arc::new(move || runtime.runtimes()))
+        let plans = runtime.clone();
+        Self::with_sources(
+            ledger,
+            Arc::new(move || runtime.runtimes()),
+            Arc::new(move |id| plans.plans().latest(id)),
+        )
     }
 
     /// A router with its own source of AI tool state (tests). Adds each AI tool's built-in
     /// "default model" entry when it is missing.
     pub fn with_tools(ledger: Arc<Ledger>, tools: Tools) -> Self {
+        Self::with_sources(ledger, tools, Arc::new(|_| None))
+    }
+
+    /// A router with its own sources of AI tool state and of the plans they reported (tests).
+    pub fn with_sources(ledger: Arc<Ledger>, tools: Tools, plans: Plans) -> Self {
         let this = Self {
             inner: Arc::new(Inner {
                 ledger,
                 tools,
+                plans,
                 notices: Mutex::new(Vec::new()),
             }),
         };
@@ -485,7 +499,11 @@ impl Router {
         let outcomes = self
             .ledger()
             .recent_turn_outcomes(now.saturating_sub(limits::LOOKBACK_MS))?;
-        let mut active = limits::active(&outcomes, &config.cleared_limits, now);
+        // A limit whose message gave no reset time waits for the one its plan report gives
+        // (Phase 25, item 4.3).
+        let plans = Arc::clone(&self.inner.plans);
+        let reported = move |runtime: &str, at: u64| plans(runtime).and_then(|p| p.reset_after(at));
+        let mut active = limits::active(&outcomes, &config.cleared_limits, now, &reported);
         let paid = crate::engine::paid_tool_ids();
         let tools = self
             .tools()

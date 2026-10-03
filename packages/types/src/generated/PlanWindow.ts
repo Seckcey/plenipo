@@ -16,4 +16,9 @@ usedPercent: number | null,
 /**
  * When the window starts again (milliseconds since 1970), when the tool says.
  */
-resetsAt: number | null, };
+resetsAt: number | null, 
+/**
+ * The models it counts, when it counts only some: Claude Code's weekly limits for Opus
+ * and for Sonnet ("Opus"). Phase 25, item 4.3.
+ */
+models?: string, };

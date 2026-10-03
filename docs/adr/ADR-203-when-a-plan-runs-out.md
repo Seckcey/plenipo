@@ -48,6 +48,12 @@ again now** button on the AI tool's card, and nothing started the work again aft
   again (the position was removed, say) is recorded with the reason (`work.not_picked_up`) and not
   tried again. If you gave the same objective again yourself meanwhile, the old one is not picked
   up, so the work is never done twice.
+- **The reset time it waits for (item 4.3).** The reset in the AI tool's message first; else the
+  reset its own plan report gives for the window that is full (Claude Code's "limit reached"
+  report during the task; Codex's and Copilot's plan check, asked at once after the limit). The
+  latest plan each AI tool reported is kept in one plan book for the PC, since the plan is the
+  owner's account in every organization. Only a reset after the limit and within a month is
+  believed; with none, an hour, as before.
 - **Stop all work** (ADR-199) wins: nothing is picked up until Allow again, and **Pick it up now**
   is refused while work is stopped.
 - **The look** keeps only a weak link to its organization, so a closed, archived, or deleted

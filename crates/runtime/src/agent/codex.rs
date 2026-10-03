@@ -443,6 +443,7 @@ fn parse_plan(out: &ProbeOutput, now: u64) -> Option<PlanReport> {
                 .filter(|p| p.is_finite() && *p >= 0.0)
                 .map(|p| p.round().min(100.0) as u8),
             resets_at: w.get("resetsAt").and_then(Value::as_f64).and_then(epoch_ms),
+            models: None,
         })
         .collect();
     let plan = talk_answer(out, 2)
@@ -467,6 +468,7 @@ fn parse_plan(out: &ProbeOutput, now: u64) -> Option<PlanReport> {
         warning: false,
         plan,
         reported_at: now,
+        key_limit: None,
     })
 }
 
@@ -1290,6 +1292,7 @@ mod ai_tools_page_tests {
                 minutes: Some(300),
                 used_percent: Some(25),
                 resets_at: Some(1_730_947_200_000),
+                models: None,
             }]
         );
         assert_eq!(plan.plan.as_deref(), Some("pro"));

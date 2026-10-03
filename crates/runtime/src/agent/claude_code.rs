@@ -259,6 +259,7 @@ impl RuntimeAdapter for ClaudeCode {
             init_seen: false,
             writing: std::collections::HashMap::new(),
             pace: PreviewPace::default(),
+            rejected_reset: None,
         })
     }
 }
@@ -380,6 +381,9 @@ struct Parser {
     /// tool call's ID, which change, and its arguments so far.
     writing: std::collections::HashMap<u64, (String, WriteTool, String)>,
     pace: PreviewPace,
+    /// When the limit Claude Code last said was reached starts again (ms): added to the turn's
+    /// error, so the hold waits for it (Phase 25, item 4.3).
+    rejected_reset: Option<u64>,
 }
 
 impl Parser {
@@ -605,10 +609,18 @@ impl Parser {
             self.state.completed = true;
             self.state.final_text = text.map(str::to_owned);
         } else {
-            let detail = text.filter(|t| !t.trim().is_empty()).map_or_else(
+            let mut detail = text.filter(|t| !t.trim().is_empty()).map_or_else(
                 || format!("Claude Code ended with {subtype:?}"),
                 str::to_owned,
             );
+            // The reset time its plan report gave, in the form the Router reads, unless the
+            // message carries one already.
+            if let Some(reset) = self.rejected_reset {
+                if !detail.contains('|') {
+                    detail.truncate(MAX_EVENT_TEXT.saturating_sub(24));
+                    detail.push_str(&format!("|{reset}"));
+                }
+            }
             self.state.error = Some(cap(&detail, MAX_EVENT_TEXT));
         }
         parsed
@@ -616,9 +628,11 @@ impl Parser {
 }
 
 /// Claude Code's `rate_limit_event`, documented as the Agent SDK's `SDKRateLimitEvent`: whether
-/// the plan's limit was reached or is near, the share of it used (`utilization`, 0 to 1), and
-/// when it resets (`resetsAt`, seconds). Only those documented fields are read; the share and the
-/// reset time are optional, and a missing one is left out, never worked out (ADR-060 §3).
+/// the plan's limit was reached or is near, the share of it used (`utilization`, 0 to 1), when it
+/// resets (`resetsAt`, seconds), and which limit it is (`rateLimitType`: five hours, the week, or
+/// the week's for Opus or Sonnet; Phase 25, item 4.3). Only those documented fields are read; the
+/// share and the reset time are optional, and a missing one is left out, never worked out (ADR-060
+/// §3). A report about extra paid usage (`overage`) is not a plan window, and is left out.
 fn plan_report(v: &Value, now: u64) -> Option<PlanReport> {
     let info = v.get("rate_limit_info")?;
     let (limited, warning) = match info.get("status").and_then(Value::as_str)? {
@@ -626,6 +640,15 @@ fn plan_report(v: &Value, now: u64) -> Option<PlanReport> {
         "allowed_warning" => (false, true),
         "rejected" => (true, false),
         _ => return None,
+    };
+    const WEEK: u64 = 7 * 24 * 60;
+    let (minutes, models) = match info.get("rateLimitType").and_then(Value::as_str) {
+        Some("five_hour") => (Some(300), None),
+        Some("seven_day" | "seven_day_overage_included") => (Some(WEEK), None),
+        Some("seven_day_opus") => (Some(WEEK), Some("Opus".to_owned())),
+        Some("seven_day_sonnet") => (Some(WEEK), Some("Sonnet".to_owned())),
+        Some("overage") => return None,
+        _ => (None, None),
     };
     let used_percent = info
         .get("utilization")
@@ -638,9 +661,10 @@ fn plan_report(v: &Value, now: u64) -> Option<PlanReport> {
         .and_then(epoch_ms);
     let windows = if used_percent.is_some() || resets_at.is_some() {
         vec![PlanWindow {
-            minutes: None,
+            minutes,
             used_percent,
             resets_at,
+            models,
         }]
     } else {
         Vec::new()
@@ -651,6 +675,7 @@ fn plan_report(v: &Value, now: u64) -> Option<PlanReport> {
         warning,
         plan: None,
         reported_at: now,
+        key_limit: None,
     })
 }
 
@@ -695,10 +720,16 @@ impl TurnParser for Parser {
             Some("user") => Self::user(&v),
             Some("result") => self.result(&v),
             // How much of the plan is used (ADR-060 §3).
-            Some("rate_limit_event") => Parsed {
-                plan: plan_report(&v, crate::now_ms()),
-                ..Parsed::none()
-            },
+            Some("rate_limit_event") => {
+                let plan = plan_report(&v, crate::now_ms());
+                if let Some(p) = plan.as_ref().filter(|p| p.limited) {
+                    self.rejected_reset = p.windows.iter().filter_map(|w| w.resets_at).max();
+                }
+                Parsed {
+                    plan,
+                    ..Parsed::none()
+                }
+            }
             // Claude Code compacted the conversation: it keeps a summary of the earlier part
             // (ADR-044 §2.5).
             Some("system")
@@ -1218,6 +1249,57 @@ mod tests {
             ["DISABLE_AUTOUPDATER", "CLAUDE_CONFIG_DIR", "HTTPS_PROXY"]
         );
     }
+
+    /// Phase 25, item 4.3: each report says which limit it is, and a limit reached in a turn
+    /// waits for the reset time its report gave.
+    #[test]
+    fn each_report_names_its_limit_and_a_reached_one_gives_its_reset() {
+        let report = |kind: &str| {
+            plan_report(
+                &json!({ "type": "rate_limit_event", "rate_limit_info": {
+                    "status": "allowed", "rateLimitType": kind, "utilization": 0.4,
+                    "resetsAt": 1_790_578_200u64 } }),
+                1,
+            )
+        };
+        let five = report("five_hour").unwrap();
+        assert_eq!(
+            (five.windows[0].minutes, five.windows[0].models.as_deref()),
+            (Some(300), None)
+        );
+        let week = report("seven_day").unwrap();
+        assert_eq!(week.windows[0].minutes, Some(7 * 24 * 60));
+        let opus = report("seven_day_opus").unwrap();
+        assert_eq!(opus.windows[0].models.as_deref(), Some("Opus"));
+        assert_eq!(
+            report("seven_day_sonnet").unwrap().windows[0]
+                .models
+                .as_deref(),
+            Some("Sonnet")
+        );
+        // Extra paid usage is not a plan window.
+        assert_eq!(report("overage"), None);
+
+        let mut p = ClaudeCode.parser(&new_request());
+        feed(
+            p.as_mut(),
+            &[
+                json!({ "type": "system", "subtype": "init", "session_id": "s",
+                        "apiKeySource": "none" }),
+                json!({ "type": "rate_limit_event", "rate_limit_info": {
+                    "status": "rejected", "rateLimitType": "five_hour",
+                    "resetsAt": 1_790_578_200u64 } }),
+                json!({ "type": "result", "subtype": "success", "is_error": true,
+                        "result": "You've hit your limit · resets 3pm" }),
+            ],
+        );
+        let r = p.finish(&end(ExecutionState::Failed, Some(1)));
+        assert_eq!(r.outcome, TurnOutcome::UsageLimited);
+        assert_eq!(
+            r.error.as_deref(),
+            Some("You've hit your limit · resets 3pm|1790578200000")
+        );
+    }
 }
 
 /// Phase 19: the AI tools page (ADR-058 to ADR-060).
@@ -1279,6 +1361,7 @@ mod ai_tools_page_tests {
                 minutes: None,
                 used_percent: Some(91),
                 resets_at: Some(1_790_578_200_000),
+                models: None,
             }]
         );
         assert!(report.warning && !report.limited);

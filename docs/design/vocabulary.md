@@ -242,7 +242,8 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Usage / tokens (pieces of words) read, reused, written                         | token usage, input / cached / output tokens                                                |
 | today / this week (Monday to Sunday) / last week / the last 14 days            | rolling window, time bucket, period                                                        |
 | left of your plan / reported by Codex at 1:05 PM                               | quota, rate-limit utilization, remaining quota                                             |
-| resets at 3:10 PM / 5-hour limit / weekly limit                                | reset timestamp, rate-limit window                                                         |
+| 5-hour: 62% used, resets 3:10 PM / Week (Opus): 40% used, resets Monday        | reset timestamp, rate-limit window, utilization                                            |
+| Key limit: $10.00 · $3.20 spent · $6.80 left (a paid key's own limit)          | credit limit, quota, balance                                                               |
 | How it is paid for: Subscription / Paid per use with your key                  | billing mode, BYOK, metered API                                                            |
 | installed / checked by Plenipo (an AI tool's version)                          | CLI version, tested version, compatibility                                                 |
 | a new version / Update / Updating… / Updated to 1.0.43                         | upgrade, self-update, patch                                                                |

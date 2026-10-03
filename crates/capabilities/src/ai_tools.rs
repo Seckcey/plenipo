@@ -521,6 +521,10 @@ impl AiTools {
             if tool.out_of_service.is_some() {
                 self.agents().set_out_of_service(&id, tool.out_of_service);
             }
+            // The plans reported before, for the hold after a usage limit (Phase 25, item 4.3).
+            if let Some(plan) = tool.plan {
+                self.agents().plans().keep(&id, plan);
+            }
         }
     }
 
@@ -783,7 +787,9 @@ impl AiTools {
                     self.models_reported(runtime_id, models);
                 }
                 if let Some(plan) = answer.plan {
-                    self.keep_tool(runtime_id, |t| t.plan = Some(plan));
+                    self.keep_tool(runtime_id, |t| {
+                        t.plan = Some(plan.merged_with(t.plan.as_ref(), now()));
+                    });
                 }
                 true
             }
@@ -821,18 +827,23 @@ impl AiTools {
         self.keep_tool(runtime_id, |t| t.models = Some(reported));
     }
 
-    /// An AI tool reported how much of the plan is used during a task (Claude Code's
-    /// `rate_limit_event`, ADR-060 §3).
+    /// An AI tool reported how much of the plan is used (Claude Code's `rate_limit_event`
+    /// during a task, a check, ADR-060 §3), added to what it reported before: Claude Code reports
+    /// one window at a time (Phase 25, item 4.3).
     pub fn plan_reported(&self, runtime_id: &str, report: PlanReport) {
         if self.agents().adapter_for(runtime_id).is_none() {
             return;
         }
-        self.keep_tool(runtime_id, |t| t.plan = Some(report));
+        self.keep_tool(runtime_id, |t| {
+            t.plan = Some(report.merged_with(t.plan.as_ref(), now()));
+        });
     }
 
     /// A task on `runtime_id` ended: a tool that reports its plan through its check (Codex's
-    /// app server) is asked again, at most every five minutes (ADR-060 §3).
-    pub fn task_ended(&self, runtime_id: &str) {
+    /// app server) is asked again, at most every five minutes (ADR-060 §3) — at once when the
+    /// task reached a usage limit, so the hold waits for the reset it reports (Phase 25, item
+    /// 4.3).
+    pub fn task_ended(&self, runtime_id: &str, limited: bool) {
         let Some(adapter) = self.agents().adapter_for(runtime_id) else {
             return;
         };
@@ -848,7 +859,7 @@ impl AiTools {
         {
             let mut live = lock(&self.inner.live);
             let last = live.plan_checked.get(runtime_id).copied().unwrap_or(0);
-            if now().saturating_sub(last) < PLAN_CHECK_EVERY_MS {
+            if !limited && now().saturating_sub(last) < PLAN_CHECK_EVERY_MS {
                 return;
             }
             live.plan_checked.insert(runtime_id.to_owned(), now());

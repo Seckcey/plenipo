@@ -28,9 +28,11 @@ import {
   atLimit,
   countsNothing,
   isNewerVersion,
+  keyLimitWords,
   MOVING,
-  planLeft,
+  planUsed,
   planWindowName,
+  resetWhen,
   usageBetween,
   usageLine,
   usingWords,
@@ -167,6 +169,8 @@ export function Overview({
               No plan: {info.label} is paid per use. A spending limit is up to you, in Spending
               caps.
             </p>
+            {/* The key's own limit, where the service reports it (Phase 25, item 4.3). */}
+            {tool?.plan?.keyLimit && <p>{keyLimitWords(tool.plan.keyLimit)}</p>}
             {go && (
               <div className="ai-tool__buttons">
                 <Button
@@ -562,12 +566,12 @@ function PlanLeft({
       {limitedAbove && <div>Limit reached</div>}
       <ul className="ai-tool__list" aria-label={`Left of your plan with ${label}`}>
         {windows.map((w, i) => {
-          const name = planWindowName(w.minutes);
+          const name = planWindowName(w.minutes, w.models);
           return (
-            <li key={`${w.minutes ?? "plan"}-${i}`}>
+            <li key={`${w.minutes ?? "plan"}-${w.models ?? ""}-${i}`}>
               {name && <strong>{name}: </strong>}
-              {planLeft(w, plan)}
-              {w.resetsAt ? ` · resets at ${when(w.resetsAt)}` : ""}
+              {planUsed(w, plan)}
+              {w.resetsAt ? `, resets ${resetWhen(w.resetsAt)}` : ""}
             </li>
           );
         })}

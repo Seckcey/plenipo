@@ -23,7 +23,14 @@ import { session } from "../../test/agentFixtures";
 import { AI_TOOL_IDS, aiPage, aiRuntime, aiTool, idle, route, T0 } from "../../test/aiToolFixtures";
 import { sampleRouting } from "../../test/routingFixtures";
 import { RuntimesView } from "../../views/RuntimesView";
-import { firstSentence, isNewerVersion, planLeft, planWindowName } from "./words";
+import {
+  firstSentence,
+  isNewerVersion,
+  keyLimitWords,
+  planUsed,
+  planWindowName,
+  resetWhen,
+} from "./words";
 
 // xterm.js draws on a real screen; a stand-in records what it is given.
 const xterm = vi.hoisted(() => {
@@ -972,17 +979,14 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     const claudePlan = within(card("Claude Code")).getByRole("list", {
       name: "Left of your plan with Claude Code",
     });
-    expect(claudePlan).toHaveTextContent("5-hour limit: 91% of your plan left · resets at");
+    expect(claudePlan).toHaveTextContent("5-hour: 9% used, resets ");
     expect(card("Claude Code")).toHaveTextContent("Reported by Claude Code at");
     const codexPlan = within(codex).getByRole("list", { name: "Left of your plan with Codex" });
     expect(
       within(codexPlan)
         .getAllByRole("listitem")
         .map((i) => i.textContent),
-    ).toEqual([
-      expect.stringMatching(/^5-hour limit: 75% of your plan left · resets at /),
-      "Weekly limit: 60% of your plan left",
-    ]);
+    ).toEqual([expect.stringMatching(/^5-hour: 25% used, resets /), "Week: 40% used"]);
     expect(codex).toHaveTextContent("your plan: plus");
     expect(card("Grok")).toHaveTextContent("Grok doesn't report how much of your plan is left.");
     // A new report during a task: the page reads it again.
@@ -1048,11 +1052,11 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
       within(codexPlan)
         .getAllByRole("listitem")
         .map((i) => i.textContent),
-    ).toEqual(["5-hour limit: 80% of your plan left", "Weekly limit: Limit reached"]);
+    ).toEqual(["5-hour: 20% used", "Week: Limit reached"]);
     expect(within(codex).getAllByText(/Limit reached/)).toHaveLength(1);
     const claude = card("Claude Code");
     expect(within(claude).getAllByText(/Limit reached/)).toHaveLength(1);
-    expect(claude).toHaveTextContent("Limit reached5-hour limit: 5% of your plan left");
+    expect(claude).toHaveTextContent("Limit reached5-hour: 95% used");
   });
 
   it("says where each tool's plan left comes from before it has reported any", async () => {
@@ -1380,6 +1384,25 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
       "You can set a spending limit in Settings → Spending caps if you want; it is not required.",
     );
     expect(a11yProblems(container)).toEqual([]);
+  });
+
+  it("shows the key's own limit, as OpenRouter reports it (Phase 25, item 4.3)", async () => {
+    withOpenRouter(
+      { ready: true, auth: { state: "paidKey", method: "Paid key (pay per use)", detail: null } },
+      {
+        paidKey: SAVED,
+        plan: {
+          windows: [],
+          limited: false,
+          warning: false,
+          plan: null,
+          reportedAt: T0,
+          keyLimit: { limitCents: 1000, usedCents: 320, freeTier: false },
+        },
+      },
+    );
+    await show();
+    expect(card("OpenRouter")).toHaveTextContent("Key limit: $10.00 · $3.20 spent · $6.80 left");
   });
 
   it("Save and check sends the key once, then the card shows its name and never the key", async () => {
@@ -1776,30 +1799,53 @@ describe("the AI tools page: accessibility smoke", () => {
 });
 
 describe("left of your plan, in words", () => {
-  it("names a window by its length, and says nothing twice when the tool gave none", () => {
-    expect(planWindowName(300)).toBe("5-hour limit");
-    expect(planWindowName(1440)).toBe("Daily limit");
-    expect(planWindowName(10080)).toBe("Weekly limit");
-    expect(planWindowName(4320)).toBe("3-day limit");
-    expect(planWindowName(90)).toBe("90-minute limit");
-    // Claude Code does not say how long its window is: "91% of your plan left", never
-    // "Your plan: 91% of your plan left".
+  it("names a window by its length and its models, and says nothing twice when the tool gave none", () => {
+    expect(planWindowName(300)).toBe("5-hour");
+    expect(planWindowName(1440)).toBe("Day");
+    expect(planWindowName(10080)).toBe("Week");
+    expect(planWindowName(10080, "Opus")).toBe("Week (Opus)");
+    expect(planWindowName(4320)).toBe("3 days");
+    expect(planWindowName(90)).toBe("90 minutes");
+    // A tool that does not say how long its window is: "9% used", never "Your plan: 9% used".
     expect(planWindowName(null)).toBeNull();
     const ok = { limited: false, warning: false };
-    expect(planLeft({ minutes: null, usedPercent: 9, resetsAt: null }, ok)).toBe(
-      "91% of your plan left",
+    expect(planUsed({ minutes: null, usedPercent: 9, resetsAt: null }, ok)).toBe("9% used");
+    expect(
+      planUsed(
+        { minutes: 300, usedPercent: 92, resetsAt: null },
+        { limited: false, warning: true },
+      ),
+    ).toBe("Close to the limit: 92% used");
+  });
+
+  it("says when a window resets, and a paid key's own limit (Phase 25, item 4.3)", () => {
+    const now = new Date(2026, 9, 5, 9, 0).getTime(); // a Monday morning
+    const at = (d: number, h: number) => new Date(2026, 9, d, h, 0).getTime();
+    const time = (ms: number) =>
+      new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    expect(resetWhen(at(5, 15), now)).toBe(time(at(5, 15)));
+    expect(resetWhen(at(6, 1), now)).toBe(`tomorrow ${time(at(6, 1))}`);
+    expect(resetWhen(at(9, 8), now)).toBe(
+      new Date(at(9, 8)).toLocaleDateString([], { weekday: "long" }),
+    );
+    expect(resetWhen(at(20, 8), now)).toBe(
+      new Date(at(20, 8)).toLocaleDateString([], { month: "short", day: "numeric" }),
+    );
+    expect(keyLimitWords({ limitCents: 1000, usedCents: 320, freeTier: false })).toBe(
+      "Key limit: $10.00 · $3.20 spent · $6.80 left",
+    );
+    expect(keyLimitWords({ limitCents: null, usedCents: 200, freeTier: true })).toBe(
+      "No limit on this key · $2.00 spent · free tier",
     );
   });
 
   it("keeps a window's share left when the report says limited; a used-up window says Limit reached", () => {
     const limited = { limited: true, warning: false };
-    expect(planLeft({ minutes: 300, usedPercent: 20, resetsAt: null }, limited)).toBe(
-      "80% of your plan left",
-    );
-    expect(planLeft({ minutes: 10080, usedPercent: 100, resetsAt: null }, limited)).toBe(
+    expect(planUsed({ minutes: 300, usedPercent: 20, resetsAt: null }, limited)).toBe("20% used");
+    expect(planUsed({ minutes: 10080, usedPercent: 100, resetsAt: null }, limited)).toBe(
       "Limit reached",
     );
-    expect(planLeft({ minutes: null, usedPercent: null, resetsAt: null }, limited)).toBe(
+    expect(planUsed({ minutes: null, usedPercent: null, resetsAt: null }, limited)).toBe(
       "Limit reached",
     );
   });

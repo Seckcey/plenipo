@@ -541,6 +541,7 @@ fn parse_plan(out: &ProbeOutput, now: u64) -> Option<PlanReport> {
                 minutes: None,
                 used_percent: used,
                 resets_at: v.get("resetDate").and_then(Value::as_str).and_then(iso_ms),
+                models: None,
             }
         })
         .collect();
@@ -553,6 +554,7 @@ fn parse_plan(out: &ProbeOutput, now: u64) -> Option<PlanReport> {
         warning,
         plan: None,
         reported_at: now,
+        key_limit: None,
     })
 }
 

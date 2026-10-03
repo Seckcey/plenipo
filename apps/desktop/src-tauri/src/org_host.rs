@@ -119,6 +119,11 @@ pub fn build<R: Runtime>(
         ledger.clone(),
         supervisor.clone(),
     );
+    // One plan book for the PC: an AI tool's plan is the owner's account in every organization,
+    // and the hold after a usage limit waits for the reset it reported (Phase 25, item 4.3).
+    if let Some(first) = how.first {
+        agents.share_plans(first.agents.plans());
+    }
     // Stop all work holds every organization's work until Allow again (Phase 25, item 3.4): one
     // opened meanwhile is held too.
     if how.control.status().stopped {

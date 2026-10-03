@@ -1066,6 +1066,7 @@ async fn what_plenipo_keeps_but_cannot_read_is_never_written_over() {
             warning: false,
             plan: None,
             reported_at: 1,
+            key_limit: None,
         },
     );
     assert_eq!(h.ledger.setting("ai_tools").unwrap().unwrap(), odd);

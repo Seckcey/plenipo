@@ -7,11 +7,13 @@ import type {
   AgentSession,
   AiToolUpdateState,
   AiToolUsage,
+  KeyLimit,
   PlanWindow,
   UsageModel,
 } from "@plenipo/types";
 
 import { count } from "../../pages/words";
+import { dollars } from "../../spending/words";
 import { tokens } from "../../routing/format";
 
 /** The switch's words, the same on the AI tools page and in Settings → Switches. */
@@ -84,37 +86,62 @@ export function firstSentence(message: string): string {
 // ---- Left of your plan (ADR-060 §3) ----------------------------------------------------------
 
 /**
- * "5-hour limit", "Weekly limit": a window's name, from its length; `null` when the tool did not
- * say how long it is (the line then reads "91% of your plan left").
+ * "5-hour", "Week", "Week (Opus)": a window's name, from its length and the models it counts
+ * (Phase 25, item 4.3); `null` when the tool did not say how long it is (the line then reads
+ * only "62% used").
  */
-export function planWindowName(minutes: number | null): string | null {
-  if (minutes === null || !Number.isInteger(minutes) || minutes <= 0) return null;
-  if (minutes === 10080) return "Weekly limit";
-  if (minutes === 1440) return "Daily limit";
-  if (minutes % 1440 === 0) return `${minutes / 1440}-day limit`;
-  if (minutes % 60 === 0) return `${minutes / 60}-hour limit`;
-  return `${minutes}-minute limit`;
+export function planWindowName(minutes: number | null, models?: string | null): string | null {
+  let name: string | null = null;
+  if (minutes !== null && Number.isInteger(minutes) && minutes > 0) {
+    if (minutes === 10080) name = "Week";
+    else if (minutes === 1440) name = "Day";
+    else if (minutes % 1440 === 0) name = `${minutes / 1440} days`;
+    else if (minutes % 60 === 0) name = `${minutes / 60}-hour`;
+    else name = `${minutes} minutes`;
+  }
+  if (models) return name ? `${name} (${models})` : models;
+  return name;
 }
 
 /**
  * One window is at its limit: all of it used, or the tool said the plan is limited and gave no
- * number. (Codex says "limited" once for all its windows: the others keep their "% left".)
+ * number. (Codex says "limited" once for all its windows: the others keep their "% used".)
  */
 export function atLimit(window: PlanWindow, report: { limited: boolean }): boolean {
   const used = window.usedPercent;
   return used === null ? report.limited : used >= 100;
 }
 
-/** "91% of your plan left", or only what the tool said. */
-export function planLeft(
+/** "62% used", or only what the tool said. */
+export function planUsed(
   window: PlanWindow,
   report: { limited: boolean; warning: boolean },
 ): string {
   if (atLimit(window, report)) return "Limit reached";
   const used = window.usedPercent;
-  const left = used === null ? null : `${Math.max(0, Math.round(100 - used))}% of your plan left`;
-  if (report.warning) return left ? `Close to the limit: ${left}` : "Close to the limit";
-  return left ?? "Within your plan";
+  const share = used === null ? null : `${Math.min(100, Math.max(0, Math.round(used)))}% used`;
+  if (report.warning) return share ? `Close to the limit: ${share}` : "Close to the limit";
+  return share ?? "Within your plan";
+}
+
+/** When a window starts again: "3:00 PM", "tomorrow 1:00 AM", "Monday", or "Oct 12". */
+export function resetWhen(ms: number, now: number = Date.now()): string {
+  const time = new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const days = Math.round((midnight(ms) - midnight(now)) / 86_400_000);
+  if (days <= 0) return time;
+  if (days === 1) return `tomorrow ${time}`;
+  if (days < 7) return new Date(ms).toLocaleDateString([], { weekday: "long" });
+  return new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+/** "Key limit: $10.00 · $3.20 spent · $6.80 left": a paid key's own limit (OpenRouter). */
+export function keyLimitWords(key: KeyLimit): string {
+  const money = (cents: number) => dollars(cents * 10_000);
+  const spent = `${money(key.usedCents)} spent`;
+  const tier = key.freeTier ? " · free tier" : "";
+  if (key.limitCents === null) return `No limit on this key · ${spent}${tier}`;
+  const left = Math.max(0, key.limitCents - key.usedCents);
+  return `Key limit: ${money(key.limitCents)} · ${spent} · ${money(left)} left${tier}`;
 }
 
 // ---- Usage by day and week (ADR-060 §1) ------------------------------------------------------

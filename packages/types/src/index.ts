@@ -56,6 +56,7 @@ export type { AccountCommands } from "./generated/AccountCommands";
 export type { HoldFor } from "./generated/HoldFor";
 export type { ReportedModels } from "./generated/ReportedModels";
 export type { PlanWindow } from "./generated/PlanWindow";
+export type { KeyLimit } from "./generated/KeyLimit";
 export type { PlanReport } from "./generated/PlanReport";
 export type { PlanStatus } from "./generated/PlanStatus";
 export type { PlanStep } from "./generated/PlanStep";

@@ -1353,7 +1353,8 @@ fn claude_turn(args: &[String]) -> i32 {
             &json!({ "type": "rate_limit_event", "uuid": "00000000-0000-4000-8000-000000000009",
                      "session_id": id, "rate_limit_info": {
                         "status": if used >= 100 { "rejected" } else if used >= 80 { "allowed_warning" } else { "allowed" },
-                        "resetsAt": resets, "utilization": used as f64 / 100.0 } }),
+                        "resetsAt": resets, "utilization": used as f64 / 100.0,
+                        "rateLimitType": "five_hour" } }),
         );
     }
     if own.contains("[compact]") {

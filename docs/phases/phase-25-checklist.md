@@ -733,12 +733,26 @@ About 6 to 8 build sessions.
   - Grok, Kimi, Ollama, and Antigravity report no plan numbers at all. Plenipo only uses what each
     AI tool reports (ADR-060), so those show "not reported".
 - **Do:**
-  - [ ] Label each window: "5-hour: 62% used, resets 3:00 PM" and "Week: 40% used, resets
-        Monday".
-  - [ ] Use the reported reset time for every hold.
-  - [ ] Show OpenRouter's key limit and balance.
-  - [ ] From 1.2: tell the open page when a background plan check saves a new report.
+  - [x] Label each window: "5-hour: 62% used, resets 3:00 PM" and "Week: 40% used, resets
+        Monday". Claude Code's `rateLimitType` (in Anthropic's own Agent SDK types) names each
+        window, its weekly Opus and Sonnet limits too ("Week (Opus)"). It reports one window at a
+        time, so each report adds to the last until that window resets.
+  - [x] Use the reported reset time for every hold. Claude Code: the reset from its "limit
+        reached" report goes into the turn's message. Codex and Copilot: their plan check is asked
+        at once after a limit (not up to five minutes later), and the Router waits for the reset
+        of the window that is full. One plan book is shared by every organization, as the plan is
+        the owner's account. With nothing reported, an hour, as before
+        ([ADR-203 (when a plan runs out)](../adr/ADR-203-when-a-plan-runs-out.md)).
+  - [x] Show OpenRouter's key limit and balance: "Key limit: $10.00 · $3.20 spent · $6.80 left"
+        (or "No limit on this key"), from the key check Plenipo already makes. OpenRouter's key
+        answer has no account balance, so "left" is what the key may still spend.
+  - [x] From 1.2: tell the open page when a background plan check saves a new report (the check
+        now tells the screen, like a report during a task).
 - **Tests:** each tool's report is read correctly.
+  - [x] runtime `each_report_names_its_limit_and_a_reached_one_gives_its_reset`,
+        `plan_reports_add_up_and_say_when_a_full_window_resets`, `the_check_reads_the_keys_own_limit`
+  - [x] router `a_limit_without_a_reset_time_uses_the_plan_reports`
+  - [x] desktop `aiTools.test.tsx` (window names, reset words, the key limit on OpenRouter's card)
 
 ### 4.4 Your subscription first, then the same company's key — M
 

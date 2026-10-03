@@ -361,6 +361,9 @@ struct Inner {
     state: Mutex<State>,
     /// Woken when a hold on an AI tool ends.
     holds_changed: tokio::sync::Notify,
+    /// The latest plan each AI tool reported, shared by every organization on the PC (Phase 25,
+    /// item 4.3).
+    plans: RwLock<Arc<PlanBook>>,
 }
 
 /// Cheap to clone; clones share state.
@@ -422,6 +425,7 @@ impl AgentRuntime {
                     ..State::default()
                 }),
                 holds_changed: tokio::sync::Notify::new(),
+                plans: RwLock::new(Arc::default()),
             }),
         };
         this.recover();
@@ -991,7 +995,8 @@ impl AgentRuntime {
             }
         };
         info.auth = adapter.parse_auth(&out);
-        // A paid AI tool's check lists its models with today's prices (ADR-085, ADR-086).
+        // A paid AI tool's check lists its models with today's prices (ADR-085, ADR-086), and
+        // OpenRouter's its key's own limit (Phase 25, item 4.3).
         if adapter.paid() {
             if let Some(models) = adapter.parse_models(&out) {
                 info.reported_models = Some(ReportedModels {
@@ -999,6 +1004,9 @@ impl AgentRuntime {
                     complete: true,
                     checked_at: crate::now_ms(),
                 });
+            }
+            if let Some(plan) = adapter.parse_plan(&out) {
+                self.plan_reported(adapter.id(), plan);
             }
         }
         info.ready = auth_allowed(adapter, info.auth.state);
@@ -1481,7 +1489,15 @@ impl AgentRuntime {
             }
         };
         let models = adapter.parse_models(&out);
-        let plan = adapter.parse_plan(&out);
+        let plan = adapter
+            .parse_plan(&out)
+            .map(|p| self.plans().keep(runtime_id, p));
+        if let Some(plan) = &plan {
+            self.inner.sink.emit(AgentUpdate::Plan(PlanUpdate {
+                runtime_id: runtime_id.to_owned(),
+                report: plan.clone(),
+            }));
+        }
         let greeted = greeting.is_some_and(|id| talk_answer(&out, id).is_some());
         if models.is_none() && plan.is_none() && !greeted {
             return Err(probe_failure("check", &out));
@@ -1534,12 +1550,35 @@ impl AgentRuntime {
         self.lock().out_of_service.get(runtime_id).cloned()
     }
 
-    /// An AI tool reported how much of the plan is used, during a task (ADR-060 §3).
+    /// An AI tool reported how much of the plan is used, during a task or in its check (ADR-060
+    /// §3): kept in the PC's plan book, added to what it reported before, and told to the screen
+    /// (Phase 25, item 4.3: a check in the background updates the open page too).
     fn plan_reported(&self, runtime_id: &str, report: PlanReport) {
+        let report = self.plans().keep(runtime_id, report);
         self.inner.sink.emit(AgentUpdate::Plan(PlanUpdate {
             runtime_id: runtime_id.to_owned(),
             report,
         }));
+    }
+
+    /// Share one plan book with the PC's other organizations (Phase 25, item 4.3).
+    pub fn share_plans(&self, book: Arc<PlanBook>) {
+        *self
+            .inner
+            .plans
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = book;
+    }
+
+    /// The latest plan each AI tool reported, on this PC.
+    pub fn plans(&self) -> Arc<PlanBook> {
+        Arc::clone(
+            &self
+                .inner
+                .plans
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
     }
 
     // ---- Sessions -----------------------------------------------------------------------

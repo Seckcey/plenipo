@@ -357,7 +357,7 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     await waitForText(browser, '[aria-label="Tasks"]', "Turn 1:");
     await openAiTools(browser);
     // Claude Code reports how much of the plan is used in its own task messages.
-    await waitForText(browser, card("Claude Code"), "91% of your plan left");
+    await waitForText(browser, card("Claude Code"), "5-hour: 9% used, resets");
     await waitForText(browser, card("Claude Code"), "Reported by Claude Code");
     // Grok does not report it, and its card says so.
     await waitForText(browser, card("Grok"), "Grok doesn't report how much of your plan is left");
