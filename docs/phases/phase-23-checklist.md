@@ -222,8 +222,13 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
 - [ ] **Sign-in checks.** Record each AI tool's real answers on Mac and Linux (today's samples were
       recorded on Windows) and check that giving a tool its own home folder (Antigravity, Copilot)
       does not hide the Mac Keychain from it.
-- [ ] **Guard's path rules** on the Mac's file system, which ignores upper and lower case, and on
+- [x] **Guard's path rules** on the Mac's file system, which ignores upper and lower case, and on
       Linux's, which does not; and on Mac folders that are really links (`/tmp` is `/private/tmp`).
+      Checked: the project folder is kept as where it really is (after links), so paths written
+      through `/tmp` or `/private/tmp` both resolve inside it, and one through a link that leaves it is
+      refused. A name in other letters stays inside: the same file on a Mac's disk, a new name on
+      Linux's. Blocked-file patterns catch any spelling. Tests for each, run on GitHub's Mac and
+      Linux machines.
 - [ ] **The terminal's shells.** Today the choice is Windows PowerShell, PowerShell 7, or Command
       Prompt. Add the owner's own shell on Mac and Linux (zsh, bash, fish from `/etc/shells`).
 - [x] **One Plenipo at a time** on every system (the single-instance switch is Windows only today

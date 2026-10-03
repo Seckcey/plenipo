@@ -45,13 +45,16 @@ const GIT_DIR: &str = ".git";
 
 /// File name endings of programs and scripts: files that run when opened. Plenipo never starts
 /// them, and never opens them in another program (ADR-091 §7). Windows' own list of files that
-/// run, and the scripts and installers people send.
+/// run, a Mac's and Linux's (Phase 23), and the scripts and installers people send.
 const RUNS: &[&str] = &[
+    "action",
     "ade",
     "adp",
     "app",
     "appcontent-ms",
+    "appimage",
     "appinstaller",
+    "applescript",
     "application",
     "appref-ms",
     "appx",
@@ -63,6 +66,7 @@ const RUNS: &[&str] = &[
     "bash",
     "bat",
     "bgi",
+    "bin",
     "cab",
     "cer",
     "chm",
@@ -73,15 +77,20 @@ const RUNS: &[&str] = &[
     "cpl",
     "crt",
     "csh",
+    "deb",
     "der",
     "deskthemepack",
     "desktop",
     "diagcab",
     "dll",
+    "dmg",
     "docm",
     "dotm",
     "drv",
     "exe",
+    "fileloc",
+    "fish",
+    "flatpakref",
     "fxp",
     "gadget",
     "grp",
@@ -90,6 +99,7 @@ const RUNS: &[&str] = &[
     "hta",
     "htc",
     "img",
+    "inetloc",
     "inf",
     "ins",
     "iqy",
@@ -100,9 +110,11 @@ const RUNS: &[&str] = &[
     "jnlp",
     "js",
     "jse",
+    "kext",
     "ksh",
     "library-ms",
     "lnk",
+    "lua",
     "mad",
     "maf",
     "mag",
@@ -121,6 +133,7 @@ const RUNS: &[&str] = &[
     "mdt",
     "mdw",
     "mdz",
+    "mpkg",
     "msc",
     "msh",
     "msh1",
@@ -139,13 +152,16 @@ const RUNS: &[&str] = &[
     "ops",
     "osd",
     "pcd",
+    "php",
     "pif",
+    "pkg",
     "pl",
     "plg",
     "potm",
     "ppam",
     "ppsm",
     "pptm",
+    "prefpane",
     "prf",
     "prg",
     "printerexport",
@@ -165,9 +181,14 @@ const RUNS: &[&str] = &[
     "pyw",
     "pyz",
     "pyzw",
+    "rb",
     "rdp",
     "reg",
+    "rpm",
+    "run",
     "scf",
+    "scpt",
+    "scptd",
     "scr",
     "sct",
     "search-ms",
@@ -178,9 +199,13 @@ const RUNS: &[&str] = &[
     "shs",
     "sldm",
     "slk",
+    "snap",
     "sys",
+    "tcsh",
+    "terminal",
     "theme",
     "themepack",
+    "tool",
     "udl",
     "url",
     "vb",
@@ -192,8 +217,10 @@ const RUNS: &[&str] = &[
     "vsix",
     "vsmacros",
     "vsw",
+    "webloc",
     "webpnp",
     "website",
+    "workflow",
     "ws",
     "wsb",
     "wsc",
@@ -216,6 +243,24 @@ pub fn runs(name: &str) -> bool {
     lower
         .rsplit_once('.')
         .is_some_and(|(_, ext)| RUNS.contains(&ext))
+}
+
+/// A file that runs when opened: a program or a script by the end of its name, or, on a Mac and
+/// Linux, any file marked as a program, which runs there whatever its name (Phase 23).
+pub fn runs_at(path: &Path, name: &str) -> bool {
+    runs(name) || marked_to_run(path)
+}
+
+#[cfg(unix)]
+fn marked_to_run(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+/// Windows runs a file by the end of its name only.
+#[cfg(not(unix))]
+fn marked_to_run(_path: &Path) -> bool {
+    false
 }
 
 /// A picture Plenipo shows, and its type.
@@ -623,7 +668,7 @@ impl Broker {
                     .map(std::fs::Metadata::len),
                 modified: meta.as_ref().and_then(modified_ms),
                 blocked: blocked_by(&blocked, &rel).is_some(),
-                runs: !folder && runs(&name),
+                runs: !folder && runs_at(&entry.path(), &name),
                 name,
                 path: rel,
                 folder,
@@ -671,7 +716,7 @@ impl Broker {
                     .into(),
             ));
         }
-        let runs = runs(&name);
+        let runs = runs_at(&resolved.abs, &name);
         let size = meta.len();
         let (content, hash) = if let Some(mime) = picture_type(&name) {
             if size > MAX_PICTURE_BYTES {
@@ -858,7 +903,7 @@ impl Broker {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        if to_open && runs(&name) {
+        if to_open && runs_at(&resolved.abs, &name) {
             return Err(BrokerError::Invalid(
                 "Plenipo never starts programs or scripts. Open it in Plenipo, or show it in its \
                  folder."
@@ -947,6 +992,12 @@ mod tests {
             "root.cer",
             "extension.vsix",
             "query.iqy",
+            "Open Me.command",
+            "Installer.pkg",
+            "shortcut.webloc",
+            "Tool.AppImage",
+            "app.desktop",
+            "setup.run",
         ] {
             assert!(runs(name), "{name} runs");
         }
@@ -960,6 +1011,24 @@ mod tests {
         ] {
             assert!(!runs(name), "{name} does not run");
         }
+    }
+
+    /// Phase 23: on a Mac and Linux a file marked as a program runs whatever its name, so it is
+    /// never opened in another program either.
+    #[cfg(unix)]
+    #[test]
+    fn a_file_marked_as_a_program_runs_on_a_mac_and_linux() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("deploy");
+        std::fs::write(&script, "#!/bin/sh\necho hi\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(!runs_at(&script, "deploy"), "not marked: a plain file");
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(runs_at(&script, "deploy"), "marked as a program");
+        // A folder is not a program, whatever its marks.
+        assert!(!runs_at(dir.path(), "folder"));
+        assert!(runs_at(&dir.path().join("missing.sh"), "missing.sh"));
     }
 
     #[test]
