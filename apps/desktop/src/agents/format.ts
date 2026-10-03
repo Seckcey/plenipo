@@ -121,6 +121,8 @@ export function heldNote(r: AgentRuntimeInfo): string | null {
       return `Waiting: ${r.label} is being updated. A new task starts on it when that's done.`;
     case "signIn":
       return `${r.label}'s sign-in tab is open. A new task waits until it closes, or 10 minutes at most.`;
+    case "stopAll":
+      return "All work is stopped. A new task starts when you press Allow again.";
     default:
       return null;
   }

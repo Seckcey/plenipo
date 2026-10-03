@@ -333,6 +333,9 @@ pub enum HoldFor {
     /// An update and the checks after it (ADR-059 §4): a task waits until they are done, and
     /// starts on the new version, or on the old one if the update failed.
     Update,
+    /// The owner pressed Stop all work (Phase 25, item 3.4; ADR-199): every AI tool is held, and
+    /// a task waits until the owner presses Allow again.
+    StopAll,
 }
 
 /// Signing in to, or out of, an AI tool, in a terminal tab that runs the tool's own command

@@ -100,7 +100,7 @@ describe("what tapping a notice does", () => {
       ...approval,
       kind: "plenipo",
       title: "Stopped: everything",
-      body: "Browser, desktop, and server work is stopped. Allow it again from Plenipo.",
+      body: "All work is stopped: every task, and the browser, desktop, and servers. Allow it again from Plenipo.",
       about: { kind: "stopped" },
       tag: "stopped",
     };

@@ -36,6 +36,7 @@ import {
   type ViewId,
 } from "./components/views";
 import { RuntimeProvider } from "./runtime/RuntimeProvider";
+import { StopAllButton } from "./components/stop/StopAll";
 import { SetupTour } from "./tour/SetupTour";
 import { isActive } from "./runtime/store";
 import { useRuntime } from "./runtime/useRuntime";
@@ -184,6 +185,16 @@ export function App() {
   );
 }
 
+/** The pages that show work: Stop all is in their top bar (Phase 25, item 3.4). */
+const WORK_PAGES: ReadonlySet<ViewId> = new Set<ViewId>([
+  "home",
+  "organization",
+  "projects",
+  "workers",
+  "task",
+  "worker",
+]);
+
 function Shell({ core }: { core: CoreState }) {
   const { state } = useRuntime();
   const agents = useAgents();
@@ -323,6 +334,8 @@ function Shell({ core }: { core: CoreState }) {
           title={placeTitle(place, organization.snapshot)}
           end={
             <>
+              {/* Stop all work on every page that shows work (Phase 25, item 3.4). */}
+              {WORK_PAGES.has(view) && <StopAllButton control={control} />}
               <UpdateMark go={go} />
               {info && (
                 <span className="shell__version" aria-label="Application version">
@@ -442,6 +455,7 @@ function Shell({ core }: { core: CoreState }) {
               onOpenPage={go}
               focusId={orgFocus}
               onFocusHandled={clearOrgFocus}
+              control={control}
             />
           )}
           {view === "projects" && (

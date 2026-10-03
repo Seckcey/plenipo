@@ -332,6 +332,9 @@ struct State {
     /// AI tools Plenipo gives no tasks, and why: an update left one that does not answer the way
     /// Plenipo reads it (ADR-059 §6).
     out_of_service: HashMap<String, String>,
+    /// The owner pressed Stop all work (Phase 25, item 3.4): no new turn starts on any AI tool
+    /// until Allow again. In memory only: after a restart nothing resumes anyway.
+    work_held: bool,
 }
 
 impl State {
@@ -701,7 +704,11 @@ impl AgentRuntime {
             .runtimes
             .iter()
             .map(|r| AgentRuntimeInfo {
-                held: state.holds.get(&r.id).map(|h| h.reason()),
+                held: if state.work_held {
+                    Some(HoldFor::StopAll)
+                } else {
+                    state.holds.get(&r.id).map(|h| h.reason())
+                },
                 ..r.clone()
             })
             .collect()
@@ -1194,7 +1201,50 @@ impl AgentRuntime {
 
     /// Whether `runtime_id` is held now.
     pub fn held(&self, runtime_id: &str) -> bool {
-        self.lock().holds.contains_key(runtime_id)
+        let state = self.lock();
+        state.work_held || state.holds.contains_key(runtime_id)
+    }
+
+    // ---- Stop all work (Phase 25, item 3.4; ADR-199) ------------------------------------
+
+    /// Hold all work: no new turn starts on any AI tool — each waits, and can still be stopped —
+    /// until [`Self::allow_work`]. Turns already running go on; [`Self::stop_all_turns`] stops
+    /// them.
+    pub fn hold_all_work(&self) {
+        self.lock().work_held = true;
+        self.holds_shown();
+    }
+
+    /// Allow again after Stop all work: the turns that waited start.
+    pub fn allow_work(&self) {
+        self.lock().work_held = false;
+        self.inner.holds_changed.notify_waiters();
+        self.holds_shown();
+    }
+
+    /// Whether Stop all work holds the work now.
+    pub fn work_held(&self) -> bool {
+        self.lock().work_held
+    }
+
+    /// Stop every turn running or waiting now, as Stop does for one. Returns how many stopped.
+    pub async fn stop_all_turns(&self) -> usize {
+        let sessions: Vec<String> = {
+            let state = self.lock();
+            state
+                .active
+                .iter()
+                .filter(|(_, a)| a.claim != Claim::Close)
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        let mut stopped = 0;
+        for id in sessions {
+            if self.cancel(&id, None).await.is_ok() {
+                stopped += 1;
+            }
+        }
+        stopped
     }
 
     fn release_hold(&self, runtime_id: &str, reason: HoldFor) {
@@ -1224,6 +1274,7 @@ impl AgentRuntime {
             let updating = {
                 let mut state = self.lock();
                 let holds = state.holds.get(runtime_id).copied().unwrap_or_default();
+                let held_by_owner = state.work_held;
                 let past = tokio::time::Instant::now() >= deadline;
                 let Some(active) = state.active.get_mut(session_id) else {
                     return true;
@@ -1232,13 +1283,14 @@ impl AgentRuntime {
                     active.waiting_for_hold = false;
                     return false;
                 }
-                if holds.update == 0 && (holds.sign_in == 0 || past) {
+                if !held_by_owner && holds.update == 0 && (holds.sign_in == 0 || past) {
                     active.runtime_id = Some(runtime_id.to_owned());
                     active.waiting_for_hold = false;
                     return true;
                 }
                 active.waiting_for_hold = true;
-                holds.update > 0
+                // An update, or Stop all work: until it is let go.
+                holds.update > 0 || held_by_owner
             };
             if updating {
                 // Each step of an update has its own time limit, so the hold is let go.
@@ -2676,7 +2728,9 @@ impl Holds {
     fn count(&mut self, reason: HoldFor) -> &mut u32 {
         match reason {
             HoldFor::SignIn => &mut self.sign_in,
-            HoldFor::Update => &mut self.update,
+            // Stop all work holds every AI tool at once (`State::work_held`); counted with
+            // updates if a single tool is ever held for it.
+            HoldFor::Update | HoldFor::StopAll => &mut self.update,
         }
     }
 }

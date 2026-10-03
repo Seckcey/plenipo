@@ -602,13 +602,38 @@ describe("AI tools page", () => {
     const again = await screen.findByRole("alert", { name: "Browser, desktop, and server work" });
     await user.click(within(again).getByRole("button", { name: "Stop all" }));
     expect(api.stopAllControl).toHaveBeenCalled();
-    await waitFor(() =>
-      expect(again).toHaveTextContent("Browser, desktop, and server work is stopped."),
-    );
+    await waitFor(() => expect(again).toHaveTextContent("All work is stopped."));
     await user.click(within(again).getByRole("button", { name: "Allow again" }));
     expect(api.allowControl).toHaveBeenCalled();
     await waitFor(() =>
       expect(screen.queryByRole("alert", { name: "Browser, desktop, and server work" })).toBeNull(),
+    );
+  });
+
+  it("has Stop all in the top bar of the pages that show work, then Allow again (Phase 25, item 3.4)", async () => {
+    api.getControlStatus.mockResolvedValue({ stopped: false, sessions: [], revision: 1 });
+    api.stopAllControl.mockResolvedValue({ stopped: true, sessions: [], revision: 2 });
+    api.allowControl.mockResolvedValue({ stopped: false, sessions: [], revision: 3 });
+    render(<App />);
+    const user = userEvent.setup();
+    const top = () => document.querySelector<HTMLElement>(".ui-topbar__end")!;
+    // Home shows work: Stop all is there, with no question first (it is the emergency stop).
+    const stop = await within(top()).findByRole("button", { name: "Stop all" });
+    await waitFor(() => expect(stop).toBeEnabled());
+    await user.click(stop);
+    expect(api.stopAllControl).toHaveBeenCalledTimes(1);
+    // While everything is stopped, it is Allow again, and the sign says so.
+    const allow = await within(top()).findByRole("button", { name: "Allow again" });
+    expect(
+      await screen.findByRole("alert", { name: "Browser, desktop, and server work" }),
+    ).toHaveTextContent("All work is stopped.");
+    await user.click(allow);
+    expect(api.allowControl).toHaveBeenCalledTimes(1);
+    await within(top()).findByRole("button", { name: "Stop all" });
+    // Settings shows no work: no Stop all in its top bar.
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await waitFor(() =>
+      expect(within(top()).queryByRole("button", { name: "Stop all" })).toBeNull(),
     );
   });
 

@@ -14,6 +14,8 @@ import { useObjectiveFiles } from "../../../files/useObjectiveFiles";
 import { EFFORT_LABEL } from "../../../routing/format";
 import { useOpenWatch } from "../../../terminal/useTerminal";
 import { PILL_TONE } from "../../tones";
+import { StopButton } from "../../stop/StopWork";
+import { workToStop } from "../../stop/stopWork";
 import { Glyph } from "../Glyph";
 import { Field, ItemLink, Option, Options, Refusal, Section, TaskRow } from "./parts";
 import type { InspectorActions } from "./types";
@@ -69,6 +71,8 @@ export function OverviewTab({
   const role = snapshot.roles.find((r) => r.id === p.roleId);
   const t = titlesOf(snapshot);
   const sessionId = p.agent?.sessionId ?? null;
+  const stopWork = workToStop(p);
+  const stopHint = useId();
   // Watch (Phase 18, ADR-055): what its workers change, in the terminal panel. Hidden where
   // there is no terminal panel, and for an archived or vacant position.
   const openWatch = useOpenWatch();
@@ -90,6 +94,22 @@ export function OverviewTab({
           </div>
           <StatusPill status={POSITION_STATUS[p.status]} label={STATUS_LABEL[p.status]} />
           {p.statusDetail && <p className="inspector__detail">{p.statusDetail}</p>}
+          {/* Stop its work now, after a question (Phase 25, item 3.3). */}
+          {stopWork.length > 0 && (
+            <div className="inspector__stop">
+              <StopButton
+                who={p.title}
+                work={stopWork}
+                fullTime={p.staffing === "persistent"}
+                describedBy={stopHint}
+              />
+              <span id={stopHint} className="muted">
+                {p.staffing === "persistent"
+                  ? "Stops its task now, after a question. Its conversation stays."
+                  : "Stops its workers' tasks now, after a question."}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

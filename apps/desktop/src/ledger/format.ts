@@ -540,6 +540,15 @@ function describeControlEvent(type: string, p: Record<string, unknown>): string 
     }
     case "control.allowed":
       return "You allowed browser, desktop, and server work again";
+    // Stop all work (Phase 25, item 3.4).
+    case "work.stopped_all": {
+      const n = typeof p.stopped === "number" ? p.stopped : 0;
+      return n === 0
+        ? "You pressed Stop all: nothing new starts until you allow work again"
+        : `You pressed Stop all: ${n} task${n === 1 ? "" : "s"} stopped, and nothing new starts until you allow work again`;
+    }
+    case "work.allowed_again":
+      return "You pressed Allow again: work can start again";
     case "control.switched_off": {
       const n = count(p.sessions);
       const off = p.kind === "server" ? "remote computers (SSH)" : what;

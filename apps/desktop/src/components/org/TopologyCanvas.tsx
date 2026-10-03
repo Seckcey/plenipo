@@ -58,6 +58,7 @@ import { nodeAt, type LayoutNode, type OrgLayout, type Point } from "../../org/l
 import type { HandoffMark, WhereLine } from "../../org/live";
 import type { DropState, NodeContext } from "../../org/nodes";
 import type { PointerMode } from "../../org/tour";
+import { workToStop } from "../stop/stopWork";
 import { CanvasControlsContext } from "./canvasContext";
 import { Glyph } from "./Glyph";
 import { OrgNode } from "./OrgNode";
@@ -134,6 +135,8 @@ interface Props {
   onLent?: (positionId: string, at: { x: number; y: number }) => void;
   /** Watch a working agent write code (`null` when there is no terminal panel). */
   onWatch?: ((positionId: string) => void) | null;
+  /** Stop a tile's work now, after a question (Phase 25, item 3.3). */
+  onStop?: ((positionId: string) => void) | null;
   live?: CanvasLive | null;
   /** The toolbar (it reads the zoom and the trash can's drop state from the canvas). */
   toolbar?: ReactNode;
@@ -247,6 +250,7 @@ export function TopologyCanvas({
   onLineMenu,
   onLent,
   onWatch = null,
+  onStop = null,
   live: liveView = null,
   toolbar,
   onSelect,
@@ -1049,6 +1053,7 @@ export function TopologyCanvas({
           onLineMenu={lineMenu}
           onLent={onLent}
           onWatch={onWatch}
+          onStop={onStop}
         />
       </div>
       {children}
@@ -1100,6 +1105,7 @@ const World = memo(function World({
   onLineMenu,
   onLent,
   onWatch,
+  onStop,
 }: {
   layout: OrgLayout;
   ctx: NodeContext;
@@ -1118,6 +1124,7 @@ const World = memo(function World({
   onLineMenu: (line: LineEnd, at: { x: number; y: number }) => void;
   onLent: ((positionId: string, at: { x: number; y: number }) => void) | undefined;
   onWatch: ((positionId: string) => void) | null;
+  onStop: ((positionId: string) => void) | null;
 }) {
   const oversight = showOversight ? layout.oversight : [];
   const handoffs = live?.handoffs ?? [];
@@ -1326,6 +1333,21 @@ const World = memo(function World({
               >
                 <Glyph name="watch" size={13} />
                 Watch
+              </button>
+            )}
+            {/* Stop, while it has work to stop (Phase 25, item 3.3). */}
+            {onStop && p.active && workToStop(p).length > 0 && (
+              <button
+                type="button"
+                data-canvas-ui
+                className="topo-stop"
+                style={{ left: n.x, top: n.y + n.h }}
+                aria-label={`Stop ${p.title}`}
+                title={`Stop ${p.title}'s work now`}
+                onClick={() => onStop(p.id)}
+              >
+                <Glyph name="stop" size={11} />
+                Stop
               </button>
             )}
           </span>

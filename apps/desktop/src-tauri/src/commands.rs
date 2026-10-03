@@ -407,6 +407,7 @@ pub async fn get_agent_session(
 #[tauri::command]
 pub async fn start_agent_session(
     liaison: Org<'_, Liaison>,
+    agents: Org<'_, AgentRuntime>,
     runtime_id: String,
     objective: String,
     model: Option<String>,
@@ -414,6 +415,7 @@ pub async fn start_agent_session(
 ) -> Result<AgentSessionDetail, CommandError> {
     validate_runtime_id(&runtime_id)?;
     validate_objective(&objective)?;
+    refuse_while_stopped(&agents)?;
     liaison
         .start_session(
             &runtime_id,
@@ -430,11 +432,13 @@ pub async fn start_agent_session(
 #[tauri::command]
 pub async fn resume_agent_session(
     liaison: Org<'_, Liaison>,
+    agents: Org<'_, AgentRuntime>,
     session_id: String,
     objective: String,
 ) -> Result<AgentSessionDetail, CommandError> {
     validate_session_id(&session_id)?;
     validate_objective(&objective)?;
+    refuse_while_stopped(&agents)?;
     liaison
         .resume_session(&session_id, &objective)
         .await
@@ -1173,6 +1177,7 @@ pub async fn give_objective<R: Runtime>(
     window: tauri::WebviewWindow<R>,
     workforce: Org<'_, Workforce>,
     broker: Org<'_, Broker>,
+    agents: Org<'_, AgentRuntime>,
     drops: State<'_, crate::files_commands::Drops>,
     position_id: String,
     objective: String,
@@ -1183,6 +1188,7 @@ pub async fn give_objective<R: Runtime>(
     validate_id("position", &position_id)?;
     validate_optional_id("project", project_id.as_deref())?;
     validate_objective(&objective)?;
+    refuse_while_stopped(&agents)?;
     // The files the owner put on it (Phase 21, ADR-093 §19–§22): named or copied first, so its
     // first worker finds them.
     let files = files.unwrap_or_default();
@@ -1675,25 +1681,93 @@ pub async fn stop_all_control<R: Runtime>(
         .map_err(broker_error)
 }
 
-/// The emergency stop, from a window or the tray: every organization's browser, desktop, and
-/// server work halts at once (Phase 21, ADR-094 §7). The PC's one record stops them all, and
-/// each organization's Ledger records its own part.
+/// Stop all work, from a window, the tray, or a phone (Phase 25, item 3.4; ADR-199): in every
+/// organization, browser, desktop, and server work halts at once (Phase 21, ADR-094 §7), every
+/// task running now stops, and nothing new starts until Allow again. The PC's one record stops
+/// them all, and each organization's Ledger records its own part.
 pub async fn stop_control_everywhere<R: Runtime>(
     app: &AppHandle<R>,
     broker: Broker,
 ) -> Result<ControlStatus, plenipo_capabilities::BrokerError> {
-    let brokers: Vec<Broker> = crate::orgs::all_stacks(app)
-        .iter()
-        .map(|s| s.broker.clone())
-        .collect();
-    if brokers.len() <= 1 {
-        return broker.stop_all_control(OWNER).await;
+    let stacks = crate::orgs::all_stacks(app);
+    if stacks.len() <= 1 {
+        broker.stop_all_control(OWNER).await?;
+    } else {
+        let stopped = broker.control_center().stop_all();
+        for s in &stacks {
+            s.broker.stopped_all(&stopped, OWNER).await?;
+        }
     }
-    let stopped = broker.control_center().stop_all();
-    for b in &brokers {
-        b.stopped_all(&stopped, OWNER).await?;
+    // The AI work: held first, so nothing a stopped task leaves starts, then stopped.
+    for (agents, ledger) in work_everywhere(app, &stacks) {
+        stop_all_work(&agents, &ledger).await;
     }
     Ok(broker.control_status())
+}
+
+/// Every organization's AI tools and Ledger (the first's alone before any is open).
+fn work_everywhere<R: Runtime>(
+    app: &AppHandle<R>,
+    stacks: &[Arc<crate::orgs::OrgStack>],
+) -> Vec<(AgentRuntime, Arc<Ledger>)> {
+    if !stacks.is_empty() {
+        return stacks
+            .iter()
+            .map(|s| (s.agents.clone(), s.ledger.clone()))
+            .collect();
+    }
+    match (
+        tauri::Manager::try_state::<AgentRuntime>(app),
+        tauri::Manager::try_state::<Arc<Ledger>>(app),
+    ) {
+        (Some(agents), Some(ledger)) => vec![(agents.inner().clone(), ledger.inner().clone())],
+        _ => Vec::new(),
+    }
+}
+
+/// One organization's part of Stop all work: hold its work, stop each task running or waiting
+/// now, and record it. Returns how many tasks stopped.
+pub async fn stop_all_work(agents: &AgentRuntime, ledger: &Ledger) -> usize {
+    agents.hold_all_work();
+    let stopped = agents.stop_all_turns().await;
+    if let Err(e) = ledger.append_event(plenipo_ledger::NewEvent {
+        source: OWNER.into(),
+        event_type: "work.stopped_all".into(),
+        payload: serde_json::json!({ "stopped": stopped }),
+        ..plenipo_ledger::NewEvent::default()
+    }) {
+        log::warn!("could not record Stop all work: {e}");
+    }
+    stopped
+}
+
+/// One organization's part of Allow again: the work it held starts, and it is recorded.
+pub fn allow_work_again(agents: &AgentRuntime, ledger: &Ledger) {
+    let was_held = agents.work_held();
+    agents.allow_work();
+    if was_held {
+        if let Err(e) = ledger.append_event(plenipo_ledger::NewEvent {
+            source: OWNER.into(),
+            event_type: "work.allowed_again".into(),
+            payload: serde_json::json!({}),
+            ..plenipo_ledger::NewEvent::default()
+        }) {
+            log::warn!("could not record Allow again: {e}");
+        }
+    }
+}
+
+/// What the owner is told when new work is given while Stop all work holds it.
+pub const STOPPED_ALL: &str =
+    "All work is stopped (you pressed Stop all). Press Allow again to start work.";
+
+/// While Stop all work holds the work, the owner's new work is refused at once, with what to
+/// do, instead of waiting (Phase 25, item 3.4). Work already handed out waits.
+pub fn refuse_while_stopped(agents: &AgentRuntime) -> Result<(), CommandError> {
+    if agents.work_held() {
+        return Err(CommandError::invalid_input(STOPPED_ALL));
+    }
+    Ok(())
 }
 
 /// Every organization's supervisor (the first's alone before any is open).
@@ -1742,8 +1816,12 @@ pub async fn allow_control<R: Runtime>(
     app: AppHandle<R>,
     broker: State<'_, Broker>,
 ) -> Result<ControlStatus, CommandError> {
-    // Allowed again in every organization, each recording it (Phase 21).
+    // Allowed again in every organization, each recording it (Phase 21), and the work Stop all
+    // held starts (Phase 25, item 3.4).
     let stacks = crate::orgs::all_stacks(&app);
+    for (agents, ledger) in work_everywhere(&app, &stacks) {
+        allow_work_again(&agents, &ledger);
+    }
     if stacks.len() <= 1 {
         return with_broker(&broker, |b| b.allow_control(OWNER)).await;
     }

@@ -88,6 +88,7 @@ export function ConfirmDialog({
   title,
   message,
   confirmLabel,
+  cancelLabel = "Cancel",
   danger = false,
   onConfirm,
   onCancel,
@@ -95,6 +96,8 @@ export function ConfirmDialog({
   title: string;
   message: ReactNode;
   confirmLabel: string;
+  /** The button that closes it without doing anything. */
+  cancelLabel?: string;
   danger?: boolean;
   /** Resolves with an error message, or `null` when done. */
   onConfirm: () => Promise<string | null>;
@@ -118,7 +121,7 @@ export function ConfirmDialog({
       )}
       <footer className="modal__footer">
         <Button variant="quiet" onClick={onCancel}>
-          Cancel
+          {cancelLabel}
         </Button>
         <Button
           variant={danger ? "danger" : "primary"}

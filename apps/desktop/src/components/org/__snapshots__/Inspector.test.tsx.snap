@@ -1,7 +1,8 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`The properties panel > has six tabs, and every option on every tab says what it does 1`] = `
-"a full-time agent › Overview › Objective for VP — Say what it should get done. It can hand parts of it to its team.
+"a full-time agent › Overview › Stop VP — Stops its task now, after a question. Its conversation stays.
+a full-time agent › Overview › Objective for VP — Say what it should get done. It can hand parts of it to its team.
 a full-time agent › Overview › Give objective — Its agent starts on it now, in its first conversation.
 a full-time agent › Overview › Open its page — Its work, history, and permissions on a page of its own.
 a full-time agent › Job › Add your own specialty — Write a specialty of your own for the VP role.
@@ -22,6 +23,7 @@ a full-time agent › Manage › Rename — Keeps the new title. Its agent and c
 a full-time agent › Manage › Hire into team — Add a position to its team: a new agent, or one from your Workforce.
 a full-time agent › Manage › Let agent go — Its agent retires and its conversation ends; the position stays, vacant.
 a full-time agent › Manage › Archive — Takes it off the chart; you can bring it back, save it to your Workforce, or delete it for good.
+an on-call agent › Overview › Stop Senior Developer — Stops its workers' tasks now, after a question.
 an on-call agent › Overview › Open its page — Its work, history, and permissions on a page of its own.
 an on-call agent › Job › Specialty — Adds lines for one area of work to its instructions. Changing it never hires a new agent.
 an on-call agent › Job › Add your own specialty — Write a specialty of your own for the Senior Developer role.

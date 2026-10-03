@@ -119,6 +119,11 @@ pub fn build<R: Runtime>(
         ledger.clone(),
         supervisor.clone(),
     );
+    // Stop all work holds every organization's work until Allow again (Phase 25, item 3.4): one
+    // opened meanwhile is held too.
+    if how.control.status().stopped {
+        agents.hold_all_work();
+    }
     // Liaison (Phase 4): handoffs between workers, reconciled from the Ledger.
     let liaison = Liaison::new(ledger.clone(), agents.clone(), LiaisonConfig::default());
     // Free runs three workers at once across the PC (ADR-113).

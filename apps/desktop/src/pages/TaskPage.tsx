@@ -12,6 +12,8 @@ import {
   TopologyMap,
 } from "@plenipo/ui";
 
+import { StopButton } from "../components/stop/StopWork";
+import { isStoppable } from "../components/stop/stopWork";
 import { getTaskEvents, getTaskRecord, getTaskTimeline, getTaskTree } from "../api/commands";
 import { ObjectiveResult } from "../components/ObjectiveResult";
 import type { Go } from "../components/views";
@@ -119,6 +121,16 @@ export function TaskPage({
             <Button size="sm" icon="activity" onClick={() => go({ view: "activity", id })}>
               Show in Activity
             </Button>
+            {/* Stop this task (Phase 25, item 3.3): its worker's conversation stays. */}
+            <StopButton
+              who={position?.title ?? "this worker"}
+              work={
+                sessionId && isStoppable(task.state)
+                  ? [{ sessionId, objective: firstLine(task.objective) }]
+                  : []
+              }
+              fullTime={position?.staffing === "persistent"}
+            />
           </>
         }
       />

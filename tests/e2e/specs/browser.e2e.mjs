@@ -394,7 +394,7 @@ describe("Phase 10 Plenipo's browser, control sign, Stop, and Take over (real ap
     await delegate(browser, "Contact the shop a third time", contact("Alan Turing"));
     await waitForText(browser, CONTROL, "Web Assistant is using Plenipo's browser", 60_000);
     await clickButton(browser, "Stop all");
-    await waitForText(browser, CONTROL, "Browser, desktop, and server work is stopped.");
+    await waitForText(browser, CONTROL, "All work is stopped.");
     await screenshot(browser, "emergency-stop");
     await waitUntil(
       async () => !(await exists(browser, ".banner--approval")),

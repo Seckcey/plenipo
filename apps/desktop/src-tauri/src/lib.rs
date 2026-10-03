@@ -2942,11 +2942,36 @@ mod ipc_boundary_tests {
         // Nobody uses the browser or the desktop yet.
         let status: ControlStatus = body(invoke(&main, "get_control_status"));
         assert!(!status.stopped && status.sessions.is_empty());
-        // The emergency stop holds until allowed again.
+        // The emergency stop holds until allowed again: Stop all work (Phase 25, item 3.4) holds
+        // the AI work too, refuses new work at once, and both are recorded.
         let status: ControlStatus = body(invoke(&main, "stop_all_control"));
         assert!(status.stopped);
+        assert!(app.state::<AgentRuntime>().work_held());
+        let refused = invoke_json(
+            &main,
+            "start_agent_session",
+            serde_json::json!({ "runtimeId": "claude-code", "objective": "Write it" }),
+        )
+        .unwrap_err();
+        assert_eq!(
+            refused["message"],
+            crate::commands::STOPPED_ALL,
+            "{refused}"
+        );
         let status: ControlStatus = body(invoke(&main, "allow_control"));
         assert!(!status.stopped);
+        assert!(!app.state::<AgentRuntime>().work_held());
+        let types: Vec<String> = app
+            .state::<std::sync::Arc<plenipo_ledger::Ledger>>()
+            .recent_events(50)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.event_type)
+            .collect();
+        for want in ["work.stopped_all", "work.allowed_again"] {
+            assert!(types.iter().any(|t| t == want), "{want}: {types:?}");
+        }
+
         // Take over: session IDs are checked; nobody to take over is refused.
         for bad in [
             "x",

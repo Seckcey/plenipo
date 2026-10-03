@@ -121,6 +121,10 @@ import {
 } from "../org/rules";
 import { searchMatches } from "../org/search";
 import { rankName, roleLabel, titleSet, withArticle } from "../org/titles";
+import { StopAllButton } from "../components/stop/StopAll";
+import { StopConfirm } from "../components/stop/StopWork";
+import { workToStop } from "../components/stop/stopWork";
+import type { Control } from "../control/useControl";
 import { useSetupTourRunning } from "../tour/store";
 import { LEGEND_KEY, TOUR_KEY, readFlag, writeFlag, type PointerMode } from "../org/tour";
 import { useLiveView, useReducedMotion } from "../org/useLiveView";
@@ -157,6 +161,7 @@ type Dialog =
   | { kind: "role" }
   | { kind: "editRole"; id: string }
   | { kind: "rename" }
+  | { kind: "stop"; positionId: string }
   | {
       kind: "confirm";
       title: string;
@@ -246,6 +251,7 @@ export function OrganizationView({
   onOpenPage,
   focusId = null,
   onFocusHandled,
+  control,
 }: {
   onOpenSession: (sessionId: string) => void;
   onOpenTask: (taskId: string) => void;
@@ -254,6 +260,8 @@ export function OrganizationView({
   /** A position to show on arrival (from another view). */
   focusId?: string | null;
   onFocusHandled?: () => void;
+  /** Stop all work on the toolbar (Phase 25, item 3.4). */
+  control?: Control;
 }) {
   const org = useOrganization();
   const { snapshot, apply, reload } = org;
@@ -1032,6 +1040,10 @@ export function OrganizationView({
       : undefined;
   const editingProject =
     dialog?.kind === "editProject" ? snapshot.projects.find((p) => p.id === dialog.id) : undefined;
+  const stopping =
+    dialog?.kind === "stop"
+      ? snapshot.positions.find((p) => p.id === dialog.positionId)
+      : undefined;
   const editingRole =
     dialog?.kind === "editRole" ? snapshot.roles.find((r) => r.id === dialog.id) : undefined;
   const savedForHire =
@@ -1159,6 +1171,7 @@ export function OrganizationView({
             onWatch={
               openWatch ? (id: string) => openWatch(id, byId.get(id)?.title ?? "Agent") : null
             }
+            onStop={(id: string) => setDialog({ kind: "stop", positionId: id })}
             live={canvasLive}
             onSelect={setSelected}
             onToggle={toggle}
@@ -1168,6 +1181,7 @@ export function OrganizationView({
             insetRight={selectedExists ? panelWidth : 0}
             toolbar={
               <CanvasToolbar
+                stopAll={control ? <StopAllButton control={control} /> : undefined}
                 mode={pointer}
                 onMode={setPointer}
                 onTidy={tidyUp}
@@ -1404,6 +1418,14 @@ export function OrganizationView({
           onUpdate={(input) =>
             submit(() => updateRole(editingRole.id, input), `Saved the ${input.name} role.`)
           }
+        />
+      )}
+      {dialog?.kind === "stop" && stopping && (
+        <StopConfirm
+          who={stopping.title}
+          work={workToStop(stopping)}
+          fullTime={stopping.staffing === "persistent"}
+          onClose={closeDialog}
         />
       )}
       {dialog?.kind === "rename" && (

@@ -358,6 +358,12 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
     expect(describeEvent(event("control.allowed", {}))).toBe(
       "You allowed browser, desktop, and server work again",
     );
+    expect(describeEvent(event("work.stopped_all", { stopped: 3 }))).toBe(
+      "You pressed Stop all: 3 tasks stopped, and nothing new starts until you allow work again",
+    );
+    expect(describeEvent(event("work.allowed_again", {}))).toBe(
+      "You pressed Allow again: work can start again",
+    );
     expect(describeEvent(event("guard.websites_changed", {}))).toBe("Website lists changed");
     expect(describeEvent(event("guard.switches_changed", {}))).toBe(
       "Switches changed (Settings → Switches)",

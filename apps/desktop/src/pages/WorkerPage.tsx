@@ -19,6 +19,8 @@ import {
   type Status,
 } from "@plenipo/ui";
 
+import { StopButton } from "../components/stop/StopWork";
+import { workToStop } from "../components/stop/stopWork";
 import { getAgentSession, getPermissions, getScopeEvents, getWork } from "../api/commands";
 import type { Go } from "../components/views";
 import { OUTCOME_LABEL, outcomeTone } from "../agents/format";
@@ -203,6 +205,8 @@ export function WorkerPage({
             >
               Show on the map
             </Button>
+            {/* Phase 25, item 3.3. */}
+            <StopButton who={p.title} work={workToStop(p)} fullTime={p.staffing === "persistent"} />
           </>
         }
       />

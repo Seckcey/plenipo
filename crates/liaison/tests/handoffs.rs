@@ -680,6 +680,38 @@ async fn an_unavailable_destination_fails_the_handoff_without_switching_provider
     assert!(h.ledger.executions_for_task(&child.id).unwrap().is_empty());
 }
 
+/// Stop on a worker (Phase 25, item 3.3): only its task ends; the lead that asked for it is told
+/// it was stopped, and carries on with its own task.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stopping_a_worker_tells_its_lead_and_the_lead_carries_on() {
+    let h = harness().await;
+    let (_, root) = h
+        .start("codex", "Build it [handoff:claude-code+slow]")
+        .await;
+    h.until("the child to run", |h| {
+        h.children(&root)
+            .first()
+            .is_some_and(|c| c.state == TaskState::Running && c.metadata["sessionId"].is_string())
+    })
+    .await;
+    let child = h.only_child(&root);
+    let worker = child.metadata["sessionId"].as_str().unwrap().to_owned();
+
+    // The owner stops the worker, as Stop does from any page.
+    h.rt.cancel_turn(&worker).await.unwrap();
+    assert_eq!(h.finished(&child.id).await.state, TaskState::Cancelled);
+
+    // The lead hears that it was stopped, and finishes its own task.
+    let request = h.requests(&root)[0].id.clone();
+    h.until("the lead to be told", |h| {
+        h.ledger.liaison_reply_to(&request).unwrap().is_some()
+    })
+    .await;
+    let reply = h.ledger.liaison_reply_to(&request).unwrap().unwrap();
+    assert_eq!(reply.envelope["result"]["outcome"], "cancelled");
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cancelling_a_waiting_parent_cancels_its_handoffs_down_the_tree() {
     let h = harness().await;

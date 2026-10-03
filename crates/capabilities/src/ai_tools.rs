@@ -630,7 +630,9 @@ impl AiTools {
             Some(_) => match self.agents().hold_if_free(runtime_id, HoldFor::SignIn) {
                 Ok(hold) => (Some(hold), 0, None),
                 Err(NotFree::Tasks(tasks)) => (None, tasks.len(), None),
-                Err(NotFree::Held(HoldFor::Update)) => (None, 0, Some(AiToolBusy::Updating)),
+                Err(NotFree::Held(HoldFor::Update | HoldFor::StopAll)) => {
+                    (None, 0, Some(AiToolBusy::Updating))
+                }
                 Err(NotFree::Held(HoldFor::SignIn)) => (None, 0, Some(AiToolBusy::SignInOpen)),
             },
             None => (None, 0, None),

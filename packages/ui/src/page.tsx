@@ -105,6 +105,8 @@ export interface RowItem {
   onOpen?: (() => void) | undefined;
   /** Said by screen readers for the button, when the title is not enough. */
   openLabel?: string | undefined;
+  /** Buttons at the end of the row, beside (not inside) the part that opens it: Watch, Stop. */
+  actions?: ReactNode;
 }
 
 /** A short list of things to open (under about 30; longer lists are tables). */
@@ -148,7 +150,7 @@ export function RowList({
           </>
         );
         return (
-          <li key={item.id}>
+          <li key={item.id} className={item.actions ? "ui-rows__row" : undefined}>
             {item.onOpen ? (
               <button
                 type="button"
@@ -161,6 +163,7 @@ export function RowList({
             ) : (
               <div className="ui-rows__item">{body}</div>
             )}
+            {item.actions && <span className="ui-rows__actions">{item.actions}</span>}
           </li>
         );
       })}

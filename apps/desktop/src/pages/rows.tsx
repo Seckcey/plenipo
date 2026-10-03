@@ -11,6 +11,8 @@ import type {
 } from "@plenipo/types";
 import { StatusPill, type RowItem, type Status } from "@plenipo/ui";
 
+import { StopButton } from "../components/stop/StopWork";
+import { isStoppable, workToStop } from "../components/stop/stopWork";
 import type { Go } from "../components/views";
 import { describeEvent } from "../ledger/format";
 import { POSITION_STATUS } from "../org/cards";
@@ -37,6 +39,8 @@ export function workingRows(
         status: { status: POSITION_STATUS[p.status], label: STATUS_LABEL[p.status] },
         meta: positionToolLabel(org, p),
         onOpen: () => go({ view: "worker", id: p.id }),
+        // Stop, beside the row (Phase 25, item 3.3).
+        actions: <StopButton who={p.title} work={workToStop(p)} fullTime />,
       });
     } else {
       for (const w of p.workers) {
@@ -48,6 +52,16 @@ export function workingRows(
           status: TASK_STATUS[w.state],
           meta: org.runtimes.find((r) => r.id === w.runtimeId)?.label ?? w.runtimeId,
           onOpen: () => go({ view: "worker", id: p.id }),
+          actions: (
+            <StopButton
+              who={p.title}
+              work={
+                w.sessionId && isStoppable(w.state)
+                  ? [{ sessionId: w.sessionId, objective: firstLine(w.objective) }]
+                  : []
+              }
+            />
+          ),
         });
       }
     }

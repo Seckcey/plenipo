@@ -341,6 +341,14 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | On the lock screen: Show what it is / Show only “Something needs you”          | notification privacy, redacted payload                                                     |
 | Already answered                                                               | stale notification, conflict, 409                                                          |
 | Add Plenipo to your Home Screen (iPhone)                                       | install the PWA, A2HS                                                                      |
+| Subscription connected / API key connected (Phase 25)                          | authenticated, credentials valid                                                           |
+| Claude Code: its own choice                                                    | (default model), provider default                                                          |
+| Who uses what                                                                  | routing matrix, model policy table                                                         |
+| Use Senior Developer / Hire new / Hire one?                                    | reuse instance, spawn agent, provision                                                     |
+| Use a template / Save this organization as a template                          | scaffold, preset, blueprint                                                                |
+| Take the setup tour / Pick up the setup tour / Skip this step                  | onboarding flow, walkthrough, wizard                                                       |
+| Stop (one worker's task) / Keep working                                        | cancel turn, abort, kill                                                                   |
+| Stop all (all work) / Allow again / All work is stopped.                       | kill switch, global halt, resume dispatch                                                  |
 
 ## Words that change with the system
 

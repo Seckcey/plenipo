@@ -35,6 +35,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     lendAgent: vi.fn(),
     sendHome: vi.fn(),
     retargetOversight: vi.fn(),
+    cancelAgentTurn: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -981,5 +982,34 @@ describe("plain words on the canvas (ADR-010)", () => {
     expect(screen.getByText("Touching Shop")).toBeInTheDocument();
     expect(errors.mock.calls.flat().join(" ")).not.toMatch(/same key/);
     errors.mockRestore();
+  });
+});
+
+describe("Stop on a working tile (Phase 25, item 3.3)", () => {
+  it("shows Stop only on tiles with work, asks first, and stops each of its tasks", async () => {
+    api.cancelAgentTurn.mockResolvedValue({} as never);
+    const user = userEvent.setup();
+    show();
+    // The VP works on its objective; the Senior Developer has one worker started, one queued.
+    const vp = await screen.findByRole("button", { name: "Stop VP" });
+    expect(screen.getByRole("button", { name: "Stop Senior Developer" })).toBeInTheDocument();
+    // An idle tile has no Stop.
+    expect(screen.queryByRole("button", { name: "Stop Engineering Manager" })).toBeNull();
+
+    await user.click(vp);
+    let dialog = screen.getByRole("dialog", { name: "Stop VP's task?" });
+    expect(dialog).toHaveTextContent("Relaunch the website before the Q4 campaign");
+    expect(dialog).toHaveTextContent("Its conversation stays");
+    await user.click(within(dialog).getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(api.cancelAgentTurn).toHaveBeenCalledWith("session-super"));
+
+    // An on-call position stops the worker that started, not the one still queued.
+    await user.click(screen.getByRole("button", { name: "Stop Senior Developer" }));
+    dialog = screen.getByRole("dialog", { name: "Stop Senior Developer's task?" });
+    expect(dialog).toHaveTextContent("Build the new pricing page");
+    expect(dialog).not.toHaveTextContent("Migrate the blog");
+    await user.click(within(dialog).getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(api.cancelAgentTurn).toHaveBeenCalledWith("session-a-dev-1"));
+    expect(api.cancelAgentTurn).toHaveBeenCalledTimes(2);
   });
 });

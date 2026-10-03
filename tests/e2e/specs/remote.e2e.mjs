@@ -985,7 +985,7 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     );
   });
 
-  it("Stop all from the phone stops the PC's browser, desktop, and server work", async () => {
+  it("Stop all from the phone stops all work on the PC", async () => {
     const { browser } = app;
     await page(phone, "Home", "home-title");
     await tap(phone, "Stop all", "//header");
@@ -996,8 +996,8 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     });
     await screenshot(phone, "phone-stop-all-ask");
     await tap(phone, "Stop all", '//*[@role="alertdialog"]');
-    await phoneSays(phone, "Browser, desktop, and server work is stopped.");
-    await waitForText(browser, ".banner--control", "Browser, desktop, and server work is stopped.");
+    await phoneSays(phone, "All work is stopped.");
+    await waitForText(browser, ".banner--control", "All work is stopped.");
     // The phone, which takes notices, is told too, sealed for it alone (part 14C).
     const stoppedNotice = await waitUntil(
       () => notices.got.map((n) => openNotice(n.body)).find((n) => n.about?.kind === "stopped"),

@@ -2769,6 +2769,39 @@ body.popout {
   transform: translate(-100%, -50%);
 }
 
+/* Stop in the details panel, with what it does (Phase 25, item 3.3). */
+.inspector__stop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: var(--ui-font-sm);
+}
+
+/* Stop on a working tile, at its other corner (Phase 25, item 3.3). */
+.topo-stop {
+  position: absolute;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid var(--ui-error);
+  border-radius: 999px;
+  background: var(--ui-map-chip);
+  color: var(--ui-error-text);
+  cursor: pointer;
+  font-size: var(--ui-font-xs);
+  transform: translate(0, -50%);
+  white-space: nowrap;
+}
+
+.topo-stop:hover,
+.topo-stop:focus-visible {
+  background: var(--ui-error-soft);
+  outline: none;
+}
+
 /* Watch on a tile that isn't working: there, but quiet (Phase 25, item 1.8). */
 .topo-watch--quiet {
   opacity: 0.55;

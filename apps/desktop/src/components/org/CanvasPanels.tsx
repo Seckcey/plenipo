@@ -79,6 +79,7 @@ export function CanvasToolbar({
   onTrash,
   helpOpen,
   onHelp,
+  stopAll,
 }: {
   mode: PointerMode;
   onMode: (mode: PointerMode) => void;
@@ -100,6 +101,8 @@ export function CanvasToolbar({
   onTrash: () => void;
   helpOpen: boolean;
   onHelp: () => void;
+  /** Stop all work, at the toolbar's end (Phase 25, item 3.4). */
+  stopAll?: ReactNode;
 }) {
   const bar = useRef<HTMLDivElement>(null);
   const controls = useContext(CanvasControlsContext);
@@ -258,6 +261,7 @@ export function CanvasToolbar({
           expanded: helpOpen,
           onClick: onHelp,
         })}
+        {stopAll}
       </div>
     </div>
   );

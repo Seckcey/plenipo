@@ -572,9 +572,20 @@ About 5 to 7 build sessions.
   screen), in the file editor, and on the phone. It is missing from canvas tiles, the Inspector, the
   worker popup, the Worker page, the Task page, and Home.
 - **Do:**
-  - [ ] One **Stop** part (asks "Stop Alex's task?" first), on every one of those places.
-  - [ ] Stopping a full-time worker stops only its current task, not its whole conversation.
+  - [x] One **Stop** part (asks "Stop Alex's task?" first), on every one of those places: a Stop
+        chip on each working tile (the corner across from Watch), the details panel that opens
+        when you click a tile (the "worker popup"), the Worker page, the Task page, and Home's
+        "Who's working" rows. It shows only while there is work to stop. On an on-call position
+        it stops each worker that has started; work still queued ends with the task that asked
+        for it.
+  - [x] Stopping a full-time worker stops only its current task, not its whole conversation.
 - **Tests:** Stop from each place ends the task, and the parent sees it.
+  - [x] `components/stop/stop.test.tsx` (what each kind of position stops; asks first; Keep
+        working; an error stays on screen), `OrganizationCanvas.test.tsx` "Stop on a working
+        tile", and the shared rows' actions in `packages/ui/src/page.test.tsx`. Every place uses
+        the same part and the same command as the phone's Stop.
+  - [x] Liaison `stopping_a_worker_tells_its_lead_and_the_lead_carries_on`: the lead is told
+        "cancelled" and finishes its own task.
 
 ### 3.4 Stop all: one red button on every page that shows work — M–L
 
@@ -584,17 +595,23 @@ About 5 to 7 build sessions.
   AI work, and it shows only while control is on. The tray's "Stop all programs" stops programs,
   but new work keeps getting handed out.
 - **Do:**
-  - [ ] A new **Stop all work**. In every organization it:
+  - [x] A new **Stop all work**. In every organization it:
     - stops browser, screen, and server control
     - stops every running task
-    - holds all waiting work until you press **Allow again**
-  - [ ] Written in the Ledger.
-  - [ ] A red button in the top bar of every page that shows work (Home, Organization, Projects,
-        Workers, Task, Worker), and on the canvas toolbar.
-  - [ ] The phone's Stop all and the tray's Stop all do the same.
+    - holds all waiting work until you press **Allow again** (new work you give meanwhile is
+      refused at once, with what to do)
+  - [x] Written in the Ledger ("work.stopped_all", "work.allowed_again").
+  - [x] A red button in the top bar of every page that shows work (Home, Organization, Projects,
+        Workers, Task, Worker), and on the canvas toolbar. While work is stopped it reads **Allow
+        again**.
+  - [x] The phone's Stop all and the tray's Stop all do the same (the tray now says "Stop all
+        work"). [ADR-199 (Stop all work)](../adr/ADR-199-stop-all-work.md).
 - **Tests:**
-  - [ ] after Stop all, nothing runs and nothing new starts
-  - [ ] Allow again resumes
+  - [x] after Stop all, nothing runs and nothing new starts (runtime
+        `stop_all_work_stops_what_runs_and_holds_new_work_until_allowed_again`; IPC
+        `control_and_websites_through_ipc`: new work is refused, both records written)
+  - [x] Allow again resumes (the same runtime test; `App.test.tsx` "has Stop all in the top bar
+        …")
 
 ### 3.5 Side chats with any manager or supervisor — M–L
 
