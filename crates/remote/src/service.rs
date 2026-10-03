@@ -19,7 +19,7 @@ use ts_rs::TS;
 use crate::code::Code;
 use crate::devices::{clean_name, Config, ConfigFile, Device, DeviceView, Kept, KeyStore};
 use crate::keys::PcKeys;
-use crate::limits::{Checks, DeadCodes, Meetings, CODE_TRIES};
+use crate::limits::{Checks, DeadCodes, Meetings, CODE_TRIES, CONNS_PER_DEVICE, MAX_CONNS};
 use crate::noise::{self, Assembler};
 use crate::protocol::{
     Ask, Changed, Event, MeetingHello, MeetingWelcome, PairHello, PairStep, PasskeyRequest, PcSays,
@@ -946,6 +946,24 @@ impl Remote {
         }
     }
 
+    /// Is there room for one more connection of this kind? The relay says who joined and is
+    /// trusted for nothing else (ADR-143): one that keeps saying a phone joined, and never that
+    /// it left, would otherwise grow this table without end.
+    fn room_for(st: &State, kind: &Kind) -> bool {
+        let same = st.conns.values().filter(|c| c.kind == *kind).count();
+        same < CONNS_PER_DEVICE && st.conns.len() < MAX_CONNS
+    }
+
+    /// A connection the relay announced that there is no room for: closed, and counted as a
+    /// failed meeting, so a relay that keeps doing it trips the stop (ADR-143 §8).
+    fn no_room(&self, st: MutexGuard<'_, State>, conn: &str) {
+        drop(st);
+        self.send(ToRelay::Close {
+            conn: conn.to_owned(),
+        });
+        self.count_failed_meeting();
+    }
+
     /// Seal and send a message on an open connection (sealing and sending together, so the
     /// counters go out in order).
     fn send_sealed(&self, st: &mut State, conn: &str, message: &PcSays) {
@@ -1028,6 +1046,10 @@ impl Remote {
                 return;
             }
         };
+        if !Self::room_for(&st, &Kind::Mailbox) {
+            self.no_room(st, conn);
+            return;
+        }
         let psk = st.pairing.as_ref().expect("open").code.psk();
         match noise::pairing_pc(keys.noise_private(), &psk) {
             Ok(hs) => {
@@ -1087,13 +1109,18 @@ impl Remote {
             self.count_failed_meeting();
             return;
         };
+        let kind = Kind::Phone(id);
+        if !Self::room_for(&st, &kind) {
+            self.no_room(st, conn);
+            return;
+        }
         let prologue = noise::everyday_prologue(&keys.fingerprint(), phone);
         match noise::everyday_pc(keys.noise_private(), &key, &prologue) {
             Ok(hs) => {
                 st.conns.insert(
                     conn.to_owned(),
                     Conn {
-                        kind: Kind::Phone(id),
+                        kind,
                         lock: Lock::Meeting(Box::new(hs)),
                         read: 0,
                         assembler: Assembler::default(),
