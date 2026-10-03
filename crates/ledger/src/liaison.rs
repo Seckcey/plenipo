@@ -296,6 +296,81 @@ fn insert_reply(
     Ok(message)
 }
 
+/// One stop of a lead's check-in (ADR-259), checked again inside the check-in's transaction:
+/// only a request the lead's own task made, whose task is not stopped already and has not
+/// finished. A task that had not started is cancelled and its request answered with the stop's
+/// reply; a running or waiting one is left for Liaison to stop.
+fn lead_stop(
+    tx: &Connection,
+    out: &mut Vec<LedgerEvent>,
+    lead: &str,
+    stop: &crate::dto::LeadStop,
+    actor: &str,
+) -> Result<crate::dto::StopOutcome> {
+    use crate::dto::StopOutcome;
+    let refused = |why: String| Ok(StopOutcome::Refused(why));
+    let id = &stop.child_task_id;
+    let request = get(tx, &stop.request_id)?;
+    let child = tasks::get(tx, id)?;
+    let (Some(request), Some(child)) = (request, child) else {
+        return refused(format!("task {id} is not one you handed on"));
+    };
+    let own = request.kind == MessageKind::Request
+        && request.task_id == lead
+        && request.child_task_id.as_deref() == Some(id.as_str())
+        && child.parent_task_id.as_deref() == Some(lead);
+    if !own {
+        return refused(format!("task {id} is not one you handed on"));
+    }
+    let stopped: bool = tx.query_row(
+        "SELECT EXISTS (SELECT 1 FROM events WHERE task_id = ?1
+                          AND event_type = 'liaison.work_stopped')",
+        [id],
+        |r| r.get(0),
+    )?;
+    if stopped {
+        return refused(format!("task {id} is already stopped"));
+    }
+    if !request.state.is_open() || child.state.is_terminal() {
+        return refused(format!("task {id} already finished"));
+    }
+    out.push(events::insert(
+        tx,
+        event(id, actor, "liaison.work_stopped", stop.payload.clone()),
+    )?);
+    out.push(events::insert(
+        tx,
+        event(
+            lead,
+            actor,
+            "liaison.stop_asked",
+            payload(&stop.payload, json!({ "taskId": id })),
+        ),
+    )?);
+    if child.state != TaskState::Queued {
+        return Ok(StopOutcome::Stopping(Box::new(child)));
+    }
+    let why = stop.payload["reason"]
+        .as_str()
+        .unwrap_or("stopped by its lead");
+    tasks::transition(
+        tx,
+        out,
+        id,
+        TaskState::Cancelled,
+        actor,
+        Some(&format!("stopped by its lead: {why}")),
+    )?;
+    insert_reply(tx, out, &request, &stop.reply, actor)?;
+    set_state(
+        tx,
+        &request.id,
+        &[MessageState::Accepted, MessageState::Dispatched],
+        MessageState::Answered,
+    )?;
+    Ok(StopOutcome::Cancelled)
+}
+
 impl Ledger {
     /// Record a step's handoff requests and move the requesting task from `running` to
     /// `blocked` — one transaction: `step_result` (the step's `agent.result`), then per request
@@ -904,6 +979,122 @@ impl Ledger {
         })
     }
 
+    /// Begin a check-in step (ADR-259, leads stop their team mid-task): the waiting lead moves
+    /// from `blocked` to `running`, with `liaison.check_in_started` (`payload`, which names the
+    /// step, the round, and the check-in's number). It is not a delivery: no reply is given and
+    /// no round is counted.
+    pub fn begin_check_in(
+        &self,
+        task_id: &str,
+        payload: Value,
+        reason: &str,
+        actor: &str,
+    ) -> Result<Task> {
+        let result = self.write(|tx, out| {
+            out.push(events::insert(
+                tx,
+                event(task_id, actor, "liaison.check_in_started", payload),
+            )?);
+            tasks::transition(tx, out, task_id, TaskState::Running, actor, Some(reason))
+        });
+        self.record_rejection(task_id, actor, Some(reason), &result);
+        result
+    }
+
+    /// End a check-in step (ADR-259) in one transaction, however the step ended: `step_result`
+    /// (the step's `agent.result`); `liaison.stop_refused` for each of `refusals`; each of
+    /// `stops`, checked again here; `liaison.checked_in` (`checked_in`, which names the step);
+    /// and the lead back to `blocked`. A stop is refused here when its request is not the lead's
+    /// own, its task was already stopped, or it already finished. Otherwise
+    /// `liaison.work_stopped` goes on its task and `liaison.stop_asked` on the lead's. A task that
+    /// had not started is cancelled and its request answered at once with the stop's reply. A
+    /// running or waiting one is left for Liaison to stop, and its request is answered when it
+    /// ends. When this step's check-in is already recorded, nothing changes (`replayed`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn end_check_in(
+        &self,
+        task_id: &str,
+        step: u32,
+        step_result: NewEvent,
+        checked_in: Value,
+        refusals: Vec<Value>,
+        stops: Vec<crate::dto::LeadStop>,
+        reason: &str,
+        actor: &str,
+    ) -> Result<crate::dto::CheckInEnded> {
+        use crate::dto::{CheckInEnded, StopOutcome};
+        let result = self.write(|tx, out| {
+            let task = tasks::require(tx, task_id)?;
+            let recorded: bool = tx.query_row(
+                "SELECT EXISTS (SELECT 1 FROM events WHERE task_id = ?1
+                                  AND event_type = 'liaison.checked_in'
+                                  AND json_extract(payload, '$.step') = ?2)",
+                params![task_id, step],
+                |r| r.get(0),
+            )?;
+            if recorded {
+                return Ok(CheckInEnded {
+                    task,
+                    stops: Vec::new(),
+                    replayed: true,
+                });
+            }
+            if task.state != TaskState::Running {
+                return Err(LedgerError::InvalidTransition {
+                    entity: "task",
+                    id: task_id.into(),
+                    from: task.state.as_str().into(),
+                    to: TaskState::Blocked.as_str().into(),
+                });
+            }
+            out.push(events::insert(
+                tx,
+                NewEvent {
+                    task_id: Some(task_id.into()),
+                    ..step_result
+                },
+            )?);
+            for refusal in refusals {
+                out.push(events::insert(
+                    tx,
+                    event(task_id, actor, "liaison.stop_refused", refusal),
+                )?);
+            }
+            let mut outcomes = Vec::new();
+            for stop in stops {
+                let outcome = lead_stop(tx, out, task_id, &stop, actor)?;
+                if let StopOutcome::Refused(why) = &outcome {
+                    out.push(events::insert(
+                        tx,
+                        event(
+                            task_id,
+                            actor,
+                            "liaison.stop_refused",
+                            payload(
+                                &stop.payload,
+                                json!({ "taskId": stop.child_task_id, "why": why }),
+                            ),
+                        ),
+                    )?);
+                }
+                outcomes.push((stop.child_task_id, outcome));
+            }
+            out.push(events::insert(
+                tx,
+                event(task_id, actor, "liaison.checked_in", checked_in),
+            )?);
+            let task =
+                tasks::transition(tx, out, task_id, TaskState::Blocked, actor, Some(reason))?;
+            Ok(CheckInEnded {
+                task,
+                stops: outcomes,
+                replayed: false,
+            })
+        });
+        self.record_rejection(task_id, actor, Some(reason), &result);
+        result
+    }
+
     // ---- Queries ------------------------------------------------------------------------
 
     /// Hand-offs that changed since `since` (ms), newest first, with the positions at both ends
@@ -1045,6 +1236,119 @@ impl Ledger {
                 .query_map([], rows::task)?
                 .collect::<rusqlite::Result<_>>()?;
             Ok(rows)
+        })
+    }
+
+    /// Tasks a lead stopped (`liaison.work_stopped`, ADR-259) that are still queued, running, or
+    /// waiting: Liaison stops them.
+    pub fn liaison_stopped_live_children(&self) -> Result<Vec<Task>> {
+        self.read(|c| {
+            let columns = rows::prefixed(TASK_COLUMNS, "t");
+            let mut stmt = c.prepare(&format!(
+                "SELECT {columns} FROM tasks t
+                 WHERE t.state NOT IN ('succeeded', 'failed', 'cancelled')
+                   AND EXISTS (SELECT 1 FROM events e WHERE e.task_id = t.id
+                               AND e.event_type = 'liaison.work_stopped')
+                 ORDER BY t.updated_at"
+            ))?;
+            let rows = stmt
+                .query_map([], rows::task)?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(rows)
+        })
+    }
+
+    /// Waiting (`blocked`) tasks with requests still working (ADR-259): with what decides
+    /// whether a check-in is due.
+    pub fn liaison_check_in_candidates(&self) -> Result<Vec<crate::dto::CheckInCandidate>> {
+        self.read(|c| {
+            let columns = rows::prefixed(TASK_COLUMNS, "t");
+            let mut stmt = c.prepare(&format!(
+                "SELECT {columns} FROM tasks t
+                 WHERE t.state = 'blocked'
+                   AND EXISTS (SELECT 1 FROM liaison_messages q WHERE q.task_id = t.id
+                               AND q.kind = 'request' AND q.state IN ('accepted', 'dispatched'))
+                 ORDER BY t.updated_at"
+            ))?;
+            let tasks: Vec<Task> = stmt
+                .query_map([], rows::task)?
+                .collect::<rusqlite::Result<_>>()?;
+            let count =
+                |sql: &str, id: &str| -> Result<u32> { Ok(c.query_row(sql, [id], |r| r.get(0))?) };
+            let mut out = Vec::new();
+            for task in tasks {
+                let id = task.id.as_str();
+                let working = count(
+                    "SELECT COUNT(*) FROM liaison_messages WHERE task_id = ?1
+                     AND kind = 'request' AND state IN ('accepted', 'dispatched')",
+                    id,
+                )?;
+                let answered = count(
+                    "SELECT COUNT(*) FROM liaison_messages WHERE task_id = ?1
+                     AND kind = 'reply' AND state = 'pending'",
+                    id,
+                )?;
+                let round = count(
+                    "SELECT COUNT(*) FROM events WHERE task_id = ?1
+                     AND event_type = 'liaison.replies_delivered'",
+                    id,
+                )?;
+                let check_ins: u32 = c.query_row(
+                    "SELECT COUNT(*) FROM events WHERE task_id = ?1
+                     AND event_type IN ('liaison.check_in_started', 'liaison.check_in_skipped')
+                     AND json_extract(payload, '$.round') = ?2",
+                    params![id, round],
+                    |r| r.get(0),
+                )?;
+                // The answers its last check-in already showed (`seen`): only others are new.
+                let seen: Vec<String> = c
+                    .query_row(
+                        "SELECT payload FROM events WHERE task_id = ?1
+                         AND event_type = 'liaison.check_in_started'
+                         ORDER BY seq DESC LIMIT 1",
+                        [id],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .optional()?
+                    .and_then(|p| serde_json::from_str::<Value>(&p).ok())
+                    .and_then(|p| serde_json::from_value(p["seen"].clone()).ok())
+                    .unwrap_or_default();
+                let mut pending = c.prepare(
+                    "SELECT id, created_at, child_task_id FROM liaison_messages
+                     WHERE task_id = ?1 AND kind = 'reply' AND state = 'pending'
+                     ORDER BY created_at DESC, rowid DESC",
+                )?;
+                let newest_answer = pending
+                    .query_map([id], |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            u64_of(r.get(1)?),
+                            r.get::<_, Option<String>>(2)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?
+                    .into_iter()
+                    .find(|(reply, _, _)| !seen.contains(reply))
+                    .map(|(_, at, child)| (at, child));
+                let waiting_since: Option<i64> = c.query_row(
+                    "SELECT MAX(created_at) FROM events WHERE task_id = ?1
+                     AND event_type = 'task.state_changed'
+                     AND json_extract(payload, '$.to') = 'blocked'",
+                    [id],
+                    |r| r.get(0),
+                )?;
+                let waiting_since = waiting_since.map_or(task.updated_at, u64_of);
+                out.push(crate::dto::CheckInCandidate {
+                    task,
+                    working,
+                    answered,
+                    newest_answer,
+                    waiting_since,
+                    round,
+                    check_ins,
+                });
+            }
+            Ok(out)
         })
     }
 
@@ -1527,6 +1831,195 @@ mod tests {
         );
         assert!(l.liaison_cancelled_live_children().unwrap().is_empty());
         assert!(types(&l, &queued.id).contains(&"liaison.handoff_cancelled".to_owned()));
+    }
+
+    /// ADR-259 (leads stop their team mid-task): a check-in ends in one transaction, the lead
+    /// back to waiting; it stops only the lead's own work, once, and only while unfinished. It
+    /// is no delivery: no round is counted.
+    #[test]
+    fn a_check_in_ends_in_one_transaction_and_stops_only_the_leads_own_work() {
+        use crate::dto::{LeadStop, StopOutcome};
+        let l = ledger();
+        let lead = running(&l, "lead");
+        let s = l
+            .suspend_for_handoffs(
+                &lead.id,
+                step_result(),
+                vec![
+                    accept(&lead.id, "m-1", "k-1"),
+                    accept(&lead.id, "m-2", "k-2"),
+                    accept(&lead.id, "m-3", "k-3"),
+                ],
+                "waiting",
+                "liaison",
+            )
+            .unwrap();
+        let (queued, running_child, done) = (&s.children[0], &s.children[1], &s.children[2]);
+        l.begin_handoff_turn(&running_child.id, "s-m-2", 1, "agent:claude-code")
+            .unwrap();
+        l.begin_handoff_turn(&done.id, "s-m-3", 1, "agent:claude-code")
+            .unwrap();
+        l.transition_task(&done.id, TaskState::Succeeded, "agent:claude-code", None)
+            .unwrap();
+        let m3 = l.liaison_message("m-3").unwrap().unwrap();
+        l.answer_request(reply(&m3, "r-3"), "liaison").unwrap();
+        // Another lead's work.
+        let other = running(&l, "another lead");
+        let o = l
+            .suspend_for_handoffs(
+                &other.id,
+                step_result(),
+                vec![accept(&other.id, "m-9", "k-9")],
+                "waiting",
+                "liaison",
+            )
+            .unwrap();
+        let theirs = &o.children[0];
+
+        let candidates = l.liaison_check_in_candidates().unwrap();
+        let mine = candidates.iter().find(|c| c.task.id == lead.id).unwrap();
+        assert_eq!((mine.working, mine.answered, mine.round), (2, 1, 0));
+        assert_eq!(
+            mine.newest_answer.as_ref().unwrap().1.as_deref(),
+            Some(done.id.as_str())
+        );
+
+        l.begin_check_in(
+            &lead.id,
+            json!({ "step": 2, "round": 0, "number": 1, "seen": ["r-3"] }),
+            "checking in on its team",
+            "liaison",
+        )
+        .unwrap();
+        let stop = |request: &str, child: &str| LeadStop {
+            request_id: request.into(),
+            child_task_id: child.into(),
+            payload: json!({ "by": "Website Supervisor", "byTaskId": lead.id,
+                             "reason": "No longer needed", "checkIn": 1, "triggeredBy": done.id }),
+            reply: NewReply {
+                message_id: format!("stop-{request}-{child}"),
+                correlation_id: CORRELATION.into(),
+                in_reply_to: request.into(),
+                child_task_id: Some(child.into()),
+                source: "liaison".into(),
+                envelope: json!({ "result": { "outcome": "cancelled",
+                                              "summary": "Stopped by you: No longer needed" } }),
+                summary: json!({ "outcome": "cancelled" }),
+            },
+        };
+        let ended = l
+            .end_check_in(
+                &lead.id,
+                2,
+                step_result(),
+                json!({ "step": 2, "round": 0, "number": 1 }),
+                vec![json!({ "taskId": "t-x", "why": "\"stop\" must be the ID of a task" })],
+                vec![
+                    stop("m-1", &queued.id),
+                    stop("m-2", &running_child.id),
+                    stop("m-3", &done.id),
+                    stop("m-9", &theirs.id),
+                    stop("m-2", &running_child.id),
+                ],
+                "waiting for 1 reply",
+                "liaison",
+            )
+            .unwrap();
+        assert!(!ended.replayed);
+        assert_eq!(ended.task.state, TaskState::Blocked);
+        let outcomes: Vec<String> = ended
+            .stops
+            .iter()
+            .map(|(_, o)| match o {
+                StopOutcome::Cancelled => "cancelled".into(),
+                StopOutcome::Stopping(t) => format!("stopping {}", t.state.as_str()),
+                StopOutcome::Refused(why) => why.clone(),
+            })
+            .collect();
+        assert_eq!(
+            outcomes,
+            [
+                "cancelled".to_owned(),
+                "stopping running".to_owned(),
+                format!("task {} already finished", done.id),
+                format!("task {} is not one you handed on", theirs.id),
+                format!("task {} is already stopped", running_child.id),
+            ]
+        );
+        // The task that hadn't started is cancelled, and its request answered at once.
+        assert_eq!(
+            l.task(&queued.id).unwrap().unwrap().state,
+            TaskState::Cancelled
+        );
+        assert_eq!(
+            l.liaison_message("m-1").unwrap().unwrap().state,
+            MessageState::Answered
+        );
+        let r1 = l.liaison_reply_to("m-1").unwrap().unwrap();
+        assert_eq!(r1.state, MessageState::Pending);
+        // The running one is left for Liaison to stop; its request stays open until it ends.
+        assert_eq!(
+            l.liaison_message("m-2").unwrap().unwrap().state,
+            MessageState::Dispatched
+        );
+        let live: Vec<String> = l
+            .liaison_stopped_live_children()
+            .unwrap()
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        assert_eq!(live, [running_child.id.clone()]);
+        // Nothing of the other lead's changed.
+        assert_eq!(
+            l.task(&theirs.id).unwrap().unwrap().state,
+            TaskState::Queued
+        );
+        assert!(!types(&l, &theirs.id).contains(&"liaison.work_stopped".to_owned()));
+        // Recorded on both sides; no round counted.
+        let lead_types = types(&l, &lead.id);
+        let n = |t: &str| lead_types.iter().filter(|x| *x == t).count();
+        assert_eq!(n("liaison.checked_in"), 1);
+        assert_eq!(n("liaison.stop_asked"), 2);
+        assert_eq!(n("liaison.stop_refused"), 4);
+        assert_eq!(n("liaison.replies_delivered"), 0);
+        assert!(types(&l, &queued.id).contains(&"liaison.work_stopped".to_owned()));
+        assert!(types(&l, &running_child.id).contains(&"liaison.work_stopped".to_owned()));
+
+        // The same step again changes nothing; a step that isn't running can't end a check-in.
+        let again = l
+            .end_check_in(
+                &lead.id,
+                2,
+                step_result(),
+                json!({ "step": 2 }),
+                vec![],
+                vec![],
+                "waiting",
+                "liaison",
+            )
+            .unwrap();
+        assert!(again.replayed);
+        assert_eq!(types(&l, &lead.id).len(), lead_types.len());
+        assert!(l
+            .end_check_in(
+                &lead.id,
+                3,
+                step_result(),
+                json!({ "step": 3 }),
+                vec![],
+                vec![],
+                "waiting",
+                "liaison",
+            )
+            .is_err());
+        // Its check-in is counted for this round, and the answers since it began are new.
+        let candidates = l.liaison_check_in_candidates().unwrap();
+        let mine = candidates.iter().find(|c| c.task.id == lead.id).unwrap();
+        assert_eq!((mine.working, mine.answered, mine.check_ins), (1, 2, 1));
+        assert_eq!(
+            mine.newest_answer.as_ref().unwrap().1.as_deref(),
+            Some(queued.id.as_str())
+        );
     }
 
     #[test]

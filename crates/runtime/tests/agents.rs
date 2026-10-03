@@ -1554,6 +1554,41 @@ async fn continuing_needs_a_waiting_turn_and_a_free_worker_slot() {
     assert_eq!(outcome(&detail.turns[0]), TurnOutcome::Completed);
 }
 
+/// ADR-259 (a lead's check-in on its team): a check-in whose AI tool can't take work now leaves
+/// the turn waiting, unchanged, where a real continuation in the same state ends it.
+#[tokio::test]
+async fn a_check_in_that_cannot_start_leaves_the_turn_waiting() {
+    let h = harness();
+    with_hook(&h);
+    let (id, task) = waiting_turn(&h, "codex").await;
+    h.set_auth("signed-out");
+    let err =
+        h.rt.check_in_turn(&id, &task, "how is your team doing?", StepNote::default())
+            .await
+            .unwrap_err();
+    assert!(matches!(err, RuntimeError::NotReady(_)), "{err}");
+    let detail = h.rt.session(&id).await.unwrap();
+    assert_eq!(
+        detail.session.waiting_task_id.as_deref(),
+        Some(task.as_str()),
+        "it still waits"
+    );
+    let turn = &detail.turns[0];
+    assert!(turn.result.is_none(), "{turn:#?}");
+    assert_eq!(turn.steps.len(), 1, "no step was added");
+    // The turn can still be continued: here, a real continuation ends it with the reason.
+    let err =
+        h.rt.continue_turn(&id, &task, "replies", StepNote::default())
+            .await
+            .unwrap_err();
+    assert!(matches!(err, RuntimeError::NotReady(_)), "{err}");
+    let detail = h.rt.session(&id).await.unwrap();
+    assert_eq!(
+        detail.turns[0].result.clone().unwrap().outcome,
+        TurnOutcome::AuthRequired
+    );
+}
+
 #[tokio::test]
 async fn a_turn_that_cannot_continue_ends_with_the_reason() {
     let h = harness();
