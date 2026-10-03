@@ -527,6 +527,134 @@ async fn a_connection_over_its_budget_of_messages_is_told_and_closed() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_phone_that_never_reads_is_closed_before_its_queue_grows_large() {
+    let relay = start_relay(Limits {
+        outgoing_bytes: 256 * 1024,
+        ..quick_limits()
+    })
+    .await;
+    let keys = PcKeys::new();
+    let mut pc = raw_pc(&relay, &keys, SubscriptionState::Active)
+        .await
+        .unwrap();
+    let mut phone = raw_phone(&relay, &pass_message(&pass_for(&keys, &phone_id(8))))
+        .await
+        .unwrap();
+    let RelayToPc::Joined { conn, .. } = read_pc(&next_text(&mut pc).await.unwrap()) else {
+        panic!("no joined");
+    };
+    // The phone reads nothing more, while the PC sends it 4 MB in the largest sealed messages:
+    // fewer messages than the queue counts, far more bytes than it may hold.
+    let largest = b64::encode(&[7u8; 65_535]);
+    for _ in 0..48 {
+        send_text(
+            &mut pc,
+            wire::write(&PcToRelay::Send {
+                conn: conn.clone(),
+                data: largest.clone(),
+            }),
+        )
+        .await;
+    }
+    // The relay closes the phone, and the PC hears it left.
+    let mut left = false;
+    while let Some(text) = next_text(&mut pc).await {
+        if read_pc(&text) == (RelayToPc::Left { conn: conn.clone() }) {
+            left = true;
+            break;
+        }
+    }
+    assert!(left, "the PC was not told the phone left");
+    // The phone's socket is gone too (not held open with a queue behind it).
+    assert!(closed_within(&mut phone, Duration::from_secs(10)).await);
+    wait_for(
+        || relay.stats().connections == 1,
+        "the phone's connection to go",
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn one_license_connects_only_so_many_pcs() {
+    // Every test PC shows the same weekly answer, so the same license.
+    let relay = start_relay(Limits {
+        pcs_per_license: 3,
+        ..quick_limits()
+    })
+    .await;
+    let keys: Vec<PcKeys> = (0..3).map(|_| PcKeys::new()).collect();
+    let mut pcs = Vec::new();
+    for k in &keys {
+        pcs.push(raw_pc(&relay, k, SubscriptionState::Active).await.unwrap());
+    }
+    let fourth = PcKeys::new();
+    assert_eq!(
+        raw_pc(&relay, &fourth, SubscriptionState::Active)
+            .await
+            .unwrap_err(),
+        "too_many_tries"
+    );
+    // A PC already connected may connect again: the new connection replaces the old one and
+    // takes its place, not a new one.
+    let _again = raw_pc(&relay, &keys[0], SubscriptionState::Active)
+        .await
+        .unwrap();
+    assert!(closed_within(&mut pcs[0], Duration::from_secs(3)).await);
+    assert_eq!(relay.stats().pcs, 3);
+    // One leaves: there is room again.
+    drop(pcs.remove(1));
+    wait_for(|| relay.stats().pcs == 2, "a PC to leave").await;
+    assert!(raw_pc(&relay, &fourth, SubscriptionState::Active)
+        .await
+        .is_ok());
+    assert_eq!(counts(&relay)["too_many_tries"], 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn one_address_connects_only_so_many_pcs() {
+    let relay = start_relay(Limits {
+        pcs_per_address: 2,
+        ..quick_limits()
+    })
+    .await;
+    let first = PcKeys::new();
+    let mut a = raw_pc(&relay, &first, SubscriptionState::Active)
+        .await
+        .unwrap();
+    let _b = raw_pc(&relay, &PcKeys::new(), SubscriptionState::Active)
+        .await
+        .unwrap();
+    let third = PcKeys::new();
+    assert_eq!(
+        raw_pc(&relay, &third, SubscriptionState::Active)
+            .await
+            .unwrap_err(),
+        "too_many_tries"
+    );
+    // The same PC again replaces its own connection.
+    let _again = raw_pc(&relay, &first, SubscriptionState::Active)
+        .await
+        .unwrap();
+    assert!(closed_within(&mut a, Duration::from_secs(3)).await);
+    assert_eq!(relay.stats().pcs, 2);
+    // Phones from the address do not count as PCs.
+    let _phone = raw_phone(&relay, &pass_message(&pass_for(&first, &phone_id(1))))
+        .await
+        .unwrap();
+    assert_eq!(
+        raw_pc(&relay, &third, SubscriptionState::Active)
+            .await
+            .unwrap_err(),
+        "too_many_tries"
+    );
+    drop(_b);
+    wait_for(|| relay.stats().pcs == 1, "a PC to leave").await;
+    assert!(raw_pc(&relay, &third, SubscriptionState::Active)
+        .await
+        .is_ok());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_off_switch_closes_everything_and_turns_new_ones_away() {
     let relay = start_relay(quick_limits()).await;
     let keys = PcKeys::new();

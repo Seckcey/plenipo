@@ -4,6 +4,7 @@
 //! exists.
 
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -106,10 +107,15 @@ pub(crate) async fn serve(hub: Arc<Hub>, mut stream: TcpStream, peer: SocketAddr
         tokio::sync::mpsc::channel::<Message>(hub.config.limits.outgoing_queue);
     let kill = Arc::new(Notify::new());
     let writer_kill = kill.clone();
-    let writer = tokio::spawn(async move {
+    let queued = Arc::new(AtomicUsize::new(0));
+    let writer_queued = queued.clone();
+    let mut writer = tokio::spawn(async move {
         while let Some(m) = outgoing.recv().await {
             let close = matches!(m, Message::Close(_));
-            if sink.send(m).await.is_err() || close {
+            let len = m.len();
+            let sent = sink.send(m).await.is_ok();
+            writer_queued.fetch_sub(len, Ordering::SeqCst);
+            if !sent || close {
                 break;
             }
         }
@@ -117,7 +123,12 @@ pub(crate) async fn serve(hub: Arc<Hub>, mut stream: TcpStream, peer: SocketAddr
         // The reader may be waiting on a peer that never says more: it stops too.
         writer_kill.notify_one();
     });
-    let link = Link { out, kill };
+    let link = Link {
+        out,
+        kill,
+        queued,
+        most_queued: hub.config.limits.outgoing_bytes,
+    };
     let mut line = Line::new(reader, link, &hub.config.limits, hub.config.clock.clone());
     match role {
         Role_::Pc => crate::pc::serve(&hub, &mut line, address).await,
@@ -126,10 +137,15 @@ pub(crate) async fn serve(hub: Arc<Hub>, mut stream: TcpStream, peer: SocketAddr
     // Over: the queue closes and the writer sends what is left, its close last; meanwhile the
     // line reads what the peer still sends, until its close comes back (`Line::finish`), so the
     // socket never closes on a peer that is still sending.
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        tokio::join!(line.finish(CLOSE_WAIT), writer)
+    let finished = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(line.finish(CLOSE_WAIT), &mut writer)
     })
     .await;
+    if finished.is_err() {
+        // A peer that still does not read: the writer stops, so the socket closes and the
+        // memory behind it goes, instead of waiting on the peer.
+        writer.abort();
+    }
     hub.leave(address);
 }
 

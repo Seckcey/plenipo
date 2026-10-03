@@ -4,10 +4,12 @@
 //! anywhere.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
 use plenipo_relay_contract::wire::{self, codes, RelayToPc, RelayToPhone};
+use sha2::{Digest as _, Sha256};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Notify;
 use tokio_tungstenite::tungstenite::Message;
@@ -18,16 +20,22 @@ use crate::{Config, Stats};
 pub(crate) type ConnId = String;
 
 /// How the hub reaches one connection: its outgoing queue, and a way to end it at once when the
-/// queue is full (a peer that does not read).
+/// queue is full (a peer that does not read), by messages or by bytes.
 #[derive(Clone)]
 pub(crate) struct Link {
     pub out: Sender<Message>,
     pub kill: Arc<Notify>,
+    /// Bytes queued and not yet written to the socket (the writer takes them off).
+    pub queued: Arc<AtomicUsize>,
+    /// The most `queued` may hold: over it, the peer is killed instead.
+    pub most_queued: usize,
 }
 
 impl Link {
     pub fn send_message(&self, m: Message) {
-        if self.out.try_send(m).is_err() {
+        let len = m.len();
+        let before = self.queued.fetch_add(len, Ordering::SeqCst);
+        if before.saturating_add(len) > self.most_queued || self.out.try_send(m).is_err() {
             self.kill.notify_one();
         }
     }
@@ -56,6 +64,9 @@ struct Pc {
     phones: HashSet<ConnId>,
     /// Which connection this is: a replaced connection must not undo its replacement.
     generation: u64,
+    /// Its license's mark ([`Hub::license_mark`]), to count the PCs on one license.
+    license: [u8; 32],
+    address: AddressKey,
 }
 
 struct Phone {
@@ -67,6 +78,8 @@ struct Phone {
 #[derive(Default)]
 struct AddressUse {
     open: usize,
+    /// PCs connected from this address.
+    pcs: usize,
     new: Window,
     tries: Window,
 }
@@ -76,6 +89,8 @@ struct State {
     pcs: HashMap<String, Pc>,
     phones: HashMap<ConnId, Phone>,
     addresses: HashMap<AddressKey, AddressUse>,
+    /// License mark → PCs connected on it. An entry goes when its count does.
+    licenses: HashMap<[u8; 32], usize>,
     connections: usize,
     next_conn: u64,
     next_generation: u64,
@@ -99,6 +114,10 @@ pub(crate) enum Turned {
 pub(crate) struct Hub {
     pub config: Config,
     state: Mutex<State>,
+    /// Random, made when the relay starts, known to nothing else: what makes a license mark
+    /// impossible to turn back into a key ID, or to match against another relay's or another
+    /// run's.
+    salt: [u8; 32],
 }
 
 fn lock(m: &Mutex<State>) -> MutexGuard<'_, State> {
@@ -110,11 +129,22 @@ impl Hub {
         Self {
             config,
             state: Mutex::new(State::default()),
+            salt: crate::random32(),
         }
     }
 
     pub fn now(&self) -> i64 {
         (self.config.clock)()
+    }
+
+    /// A license's mark: a one-way hash of its key ID with this run's salt, so the relay can
+    /// count the PCs on one license while it keeps no key ID (the contract). Never logged.
+    pub fn license_mark(&self, key_id: &str) -> [u8; 32] {
+        Sha256::new()
+            .chain_update(self.salt)
+            .chain_update(key_id.as_bytes())
+            .finalize()
+            .into()
     }
 
     pub fn stats(&self) -> Stats {
@@ -223,17 +253,48 @@ impl Hub {
 
     // ---- PCs ---------------------------------------------------------------------------
 
-    /// A PC proved its key: know it by `fingerprint`. A connection already there for that key is
-    /// closed (its phones hear `pc_offline`). Gives this connection's generation.
-    pub fn register_pc(&self, fingerprint: &str, key: [u8; 32], link: Link) -> u64 {
+    /// A PC proved its key and its license: know it by `fingerprint`. A connection already there
+    /// for that key is closed (its phones hear `pc_offline`) and this one takes its place. Gives
+    /// this connection's generation, or the code when the license or the address already has
+    /// as many PCs as it may.
+    pub fn register_pc(
+        &self,
+        fingerprint: &str,
+        key: [u8; 32],
+        link: Link,
+        license: [u8; 32],
+        address: AddressKey,
+    ) -> Result<u64, &'static str> {
+        let limits = &self.config.limits;
         let mut st = lock(&self.state);
+        // The connection this one replaces, if any, is not counted against it.
+        let old = st.pcs.get(fingerprint);
+        let replaces_on_license = old.is_some_and(|o| o.license == license);
+        let replaces_at_address = old.is_some_and(|o| o.address == address);
+        let on_license = st
+            .licenses
+            .get(&license)
+            .copied()
+            .unwrap_or(0)
+            .saturating_sub(usize::from(replaces_on_license));
+        let at_address = st
+            .addresses
+            .get(&address)
+            .map_or(0, |u| u.pcs)
+            .saturating_sub(usize::from(replaces_at_address));
+        if on_license >= limits.pcs_per_license || at_address >= limits.pcs_per_address {
+            return Err(codes::TOO_MANY_TRIES);
+        }
         st.next_generation += 1;
         let generation = st.next_generation;
         if let Some(old) = st.pcs.remove(fingerprint) {
             log::info!("pc replaced its connection");
             Self::phones_lose_pc(&mut st, &old);
+            Self::forget_pc(&mut st, &old);
             old.link.close();
         }
+        *st.licenses.entry(license).or_default() += 1;
+        st.addresses.entry(address).or_default().pcs += 1;
         st.pcs.insert(
             fingerprint.to_owned(),
             Pc {
@@ -243,9 +304,11 @@ impl Hub {
                 dropped: HashMap::new(),
                 phones: HashSet::new(),
                 generation,
+                license,
+                address,
             },
         );
-        generation
+        Ok(generation)
     }
 
     /// This PC connection ended: its phones hear `pc_offline` and are closed.
@@ -258,7 +321,21 @@ impl Hub {
         {
             if let Some(pc) = st.pcs.remove(fingerprint) {
                 Self::phones_lose_pc(&mut st, &pc);
+                Self::forget_pc(&mut st, &pc);
             }
+        }
+    }
+
+    /// A PC is gone: its license and its address have one PC fewer.
+    fn forget_pc(st: &mut State, pc: &Pc) {
+        if let Some(n) = st.licenses.get_mut(&pc.license) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                st.licenses.remove(&pc.license);
+            }
+        }
+        if let Some(u) = st.addresses.get_mut(&pc.address) {
+            u.pcs = u.pcs.saturating_sub(1);
         }
     }
 
