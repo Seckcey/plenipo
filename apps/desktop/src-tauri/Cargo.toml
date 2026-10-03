@@ -63,11 +63,6 @@ tokio = { version = "1", features = ["signal"] }
 zbus = "5"
 webkit2gtk = { version = "2", features = ["v2_40"] }
 
-# The Mac's WKWebView, for the one setting that lets pop-out windows open (Phase 23): the
-# version and parts Tauri already uses.
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "objc2-app-kit", "WKWebView", "WKWebViewConfiguration", "WKPreferences"] }
-
 [lints]
 workspace = true
 

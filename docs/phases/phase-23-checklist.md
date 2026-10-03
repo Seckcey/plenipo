@@ -369,6 +369,12 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
 - [ ] **Fit in on a Mac:** a menu bar icon, clicking the Dock icon brings the window back, the system's
       Edit menu so Cmd+C and Cmd+V work, Cmd and Option in labels, "Show in Finder" (`open -R`; today
       it would fail on a Mac).
+      **Open question, pop-out windows:** the page opens a pop-out only after waiting for Plenipo,
+      and Apple's web engine may then block it as a window nobody clicked for. Linux turns on a
+      setting that allows it; on a Mac that setting can only be reached with `unsafe` code, which
+      this workspace forbids. Check on the first Mac test build; if Pop out fails, either the page
+      asks Plenipo before the click (so it opens the window at once), or the owner allows one
+      small, reviewed exception to the no-`unsafe` rule.
 - [ ] **The right data folder:** `~/Library/Application Support/com.eightwest.plenipo` (the uninstall
       code looks in the Linux folder on a Mac today). "Delete my Plenipo data" (Wave 2) also
       deletes the Mac's web-page folders (`~/Library/WebKit` and `~/Library/HTTPStorages`); it

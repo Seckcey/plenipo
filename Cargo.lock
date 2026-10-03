@@ -4457,7 +4457,6 @@ version = "1.23.0"
 dependencies = [
  "chrono",
  "log",
- "objc2-web-kit",
  "plenipo-capabilities",
  "plenipo-community",
  "plenipo-core",
