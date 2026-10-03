@@ -19,7 +19,9 @@ use ts_rs::TS;
 use crate::code::Code;
 use crate::devices::{clean_name, Config, ConfigFile, Device, DeviceView, Kept, KeyStore};
 use crate::keys::PcKeys;
-use crate::limits::{Checks, DeadCodes, Meetings, CODE_TRIES};
+use crate::limits::{
+    Checks, DeadCodes, Meetings, CODE_TRIES, CONNS_PER_DEVICE, MAX_CONNS, MEETING_DEADLINE_MS,
+};
 use crate::noise::{self, Assembler};
 use crate::protocol::{
     Ask, Changed, Event, MeetingHello, MeetingWelcome, PairHello, PairStep, PasskeyRequest, PcSays,
@@ -271,6 +273,9 @@ enum Kind {
 struct Conn {
     kind: Kind,
     lock: Lock,
+    /// When the relay said it joined (Unix milliseconds): a meeting not finished within
+    /// `MEETING_DEADLINE_MS` of this is closed.
+    since: u64,
     /// Meeting messages read so far.
     read: u8,
     assembler: Assembler,
@@ -676,11 +681,19 @@ impl Remote {
             )));
         }
         self.keys(&mut st)?;
-        // A new code replaces any other.
-        if let Some(old) = st.pairing.take() {
-            if let Some((conn, ..)) = old.candidate {
-                self.close(&mut st, &conn);
-            }
+        // A new code replaces any other, and every connection to the old mailbox goes with it
+        // (the old candidate's, and any that joined and never finished its meeting): none of
+        // them can pair on the new code, and each would otherwise hold one of the mailbox's
+        // few slots. Phones are not touched.
+        st.pairing = None;
+        let old_mailbox: Vec<String> = st
+            .conns
+            .iter()
+            .filter(|(_, c)| c.kind == Kind::Mailbox)
+            .map(|(conn, _)| conn.clone())
+            .collect();
+        for conn in &old_mailbox {
+            self.close(&mut st, conn);
         }
         let code = Code::new();
         let mailbox = code.mailbox();
@@ -951,6 +964,49 @@ impl Remote {
         }
     }
 
+    /// Make room for one more connection of this kind, or say there is none. The relay says who
+    /// joined and is trusted for nothing else (ADR-143), so the table has a ceiling: a relay
+    /// that keeps saying phones joined, and never that they left, cannot grow it without end.
+    /// Below the ceiling, a phone at its own limit gives up one connection for the new one: the
+    /// oldest that never finished its meeting, if there is one (a join that went quiet, or a
+    /// stolen pass holding slots), and only when every one of them is open, the oldest open one
+    /// (an honest phone that changed networks, whose old lines the relay has not yet reported
+    /// gone). So a stolen pass cannot push out the owner's live lines. The mailbox gets no such
+    /// favour: an honest relay never sends more mailbox joins than the mailbox takes.
+    fn make_room(&self, st: &mut State, kind: &Kind) -> bool {
+        if st.conns.len() >= MAX_CONNS {
+            return false;
+        }
+        let same = st.conns.iter().filter(|(_, c)| c.kind == *kind);
+        if same.clone().count() < CONNS_PER_DEVICE {
+            return true;
+        }
+        let oldest = |unfinished: bool| {
+            same.clone()
+                .filter(|(_, c)| !unfinished || matches!(c.lock, Lock::Meeting(_)))
+                .min_by_key(|(_, c)| c.since)
+                .map(|(conn, _)| conn.clone())
+        };
+        let gives_way = oldest(true).or_else(|| oldest(false));
+        match (kind, gives_way) {
+            (Kind::Phone(_), Some(conn)) => {
+                self.close(st, &conn);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// A connection the relay announced that there is no room for: closed, and counted as a
+    /// failed meeting, so a relay that keeps doing it trips the stop (ADR-143 §8).
+    fn no_room(&self, st: MutexGuard<'_, State>, conn: &str) {
+        drop(st);
+        self.send(ToRelay::Close {
+            conn: conn.to_owned(),
+        });
+        self.count_failed_meeting();
+    }
+
     /// Seal and send a message on an open connection (sealing and sending together, so the
     /// counters go out in order).
     fn send_sealed(&self, st: &mut State, conn: &str, message: &PcSays) {
@@ -1033,6 +1089,10 @@ impl Remote {
                 return;
             }
         };
+        if !self.make_room(&mut st, &Kind::Mailbox) {
+            self.no_room(st, conn);
+            return;
+        }
         let psk = st.pairing.as_ref().expect("open").code.psk();
         match noise::pairing_pc(keys.noise_private(), &psk) {
             Ok(hs) => {
@@ -1041,6 +1101,7 @@ impl Remote {
                     Conn {
                         kind: Kind::Mailbox,
                         lock: Lock::Meeting(Box::new(hs)),
+                        since: now,
                         read: 0,
                         assembler: Assembler::default(),
                         challenge: None,
@@ -1092,14 +1153,20 @@ impl Remote {
             self.count_failed_meeting();
             return;
         };
+        let kind = Kind::Phone(id);
+        if !self.make_room(&mut st, &kind) {
+            self.no_room(st, conn);
+            return;
+        }
         let prologue = noise::everyday_prologue(&keys.fingerprint(), phone);
         match noise::everyday_pc(keys.noise_private(), &key, &prologue) {
             Ok(hs) => {
                 st.conns.insert(
                     conn.to_owned(),
                     Conn {
-                        kind: Kind::Phone(id),
+                        kind,
                         lock: Lock::Meeting(Box::new(hs)),
+                        since: now,
                         read: 0,
                         assembler: Assembler::default(),
                         challenge: None,
@@ -2019,6 +2086,23 @@ impl Remote {
             if c.challenge.is_some_and(|(_, ends)| now >= ends) {
                 c.challenge = None;
             }
+        }
+        // A meeting that has not finished in its time: the connection joined and went quiet,
+        // or sent a first message and no more. Closed, so it cannot hold a slot (phone or
+        // mailbox), and not counted as a failed meeting: a held slot is not a wrong try, and
+        // counting it would let a stranger trip the stop on purpose.
+        let quiet: Vec<String> = st
+            .conns
+            .iter()
+            .filter(|(_, c)| {
+                matches!(c.lock, Lock::Meeting(_))
+                    && now.saturating_sub(c.since) >= MEETING_DEADLINE_MS
+            })
+            .map(|(conn, _)| conn.clone())
+            .collect();
+        for conn in &quiet {
+            log::debug!("a meeting did not finish in time: closed");
+            self.close(&mut st, conn);
         }
         drop(st);
         if pairing_changed {

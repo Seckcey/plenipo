@@ -83,12 +83,17 @@ pub fn quick_limits() -> Limits {
 }
 
 pub async fn start_relay(limits: Limits) -> Handle {
+    start_relay_with_clock(limits, Arc::new(plenipo_licensing::clock)).await
+}
+
+/// A relay whose clock (Unix seconds) the test moves.
+pub async fn start_relay_with_clock(limits: Limits, clock: plenipo_relay::Clock) -> Handle {
     keep_logs();
     Relay::start(Config {
         listen: "127.0.0.1:0".parse().unwrap(),
         client_address: ClientAddress::Peer,
         limits,
-        clock: Arc::new(plenipo_licensing::clock),
+        clock,
     })
     .await
     .expect("a free port")
