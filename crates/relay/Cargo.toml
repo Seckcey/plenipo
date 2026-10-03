@@ -29,6 +29,8 @@ httparse = "1"
 log = { version = "0.4", features = ["std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The license mark (P-SRV-5): a one-way, salted hash of the key ID the relay must not keep.
+sha2 = "0.11"
 tokio = { version = "1", features = ["net", "time", "sync", "rt", "rt-multi-thread", "macros", "signal", "io-util"] }
 # WebSockets, server side only: no TLS here (the proxy in front of the relay ends TLS), so the
 # program builds static for musl.

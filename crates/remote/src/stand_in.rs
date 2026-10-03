@@ -238,6 +238,8 @@ struct Hub {
     refused: Vec<String>,
     /// Every message a PC sent, as it arrived (to check what Plenipo sends, ADR-143 §10).
     pc_said: Vec<String>,
+    /// Every connection a PC asked to close, in order (to check which ones the PC gives up).
+    closed_by_pc: Vec<String>,
 }
 
 /// A stand-in for 8 West's relay on 127.0.0.1.
@@ -313,6 +315,16 @@ impl Relay {
     /// Every message a PC sent the relay, as it arrived.
     pub fn pc_said(&self) -> Vec<String> {
         lock(&self.hub).pc_said.clone()
+    }
+
+    /// Every connection a PC asked the relay to close, in order.
+    pub fn closed_by_pc(&self) -> Vec<String> {
+        lock(&self.hub).closed_by_pc.clone()
+    }
+
+    /// The newest phone connection's name, if any.
+    pub fn newest_phone_conn(&self) -> Option<String> {
+        lock(&self.hub).phones.keys().max().cloned()
     }
 
     /// Is a PC connected?
@@ -542,6 +554,7 @@ impl Relay {
                     }
                 }
                 PcToRelay::Close { conn } => {
+                    hub.closed_by_pc.push(conn.clone());
                     if hub.phones.get(&conn).is_some_and(|l| l.pc == pc) {
                         if let Some(l) = hub.phones.remove(&conn) {
                             let _ = l.out.send(Message::Close(None));

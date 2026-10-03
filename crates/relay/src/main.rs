@@ -38,8 +38,13 @@ container); a proxy in front of it ends TLS. Settings come from the environment:
   PLENIPO_RELAY_MAX_NEW_PER_MINUTE       new connections from one address in a minute (default 120)
   PLENIPO_RELAY_MAX_TRIES_PER_MINUTE     refusals for one address in a minute (default 30)
   PLENIPO_RELAY_MAX_PHONES_PER_PC        phone connections one PC may have at once (default 40)
+  PLENIPO_RELAY_MAX_PCS_PER_LICENSE      PCs one license may have connected at once (default 10)
+  PLENIPO_RELAY_MAX_PCS_PER_ADDRESS      PCs one address may have connected at once (default 32)
   PLENIPO_RELAY_MAX_MESSAGES_PER_MINUTE  messages one connection may send in a minute (default 1200)
   PLENIPO_RELAY_MAX_BYTES_PER_MINUTE     bytes one connection may send in a minute (default 16777216)
+  PLENIPO_RELAY_MAX_OUTGOING_BYTES       bytes waiting to go out to one connection; over it, the
+                                         connection is closed (default 1048576)
+  PLENIPO_RELAY_MAX_ADDRESSES            addresses remembered at once (default 100000)
   PLENIPO_RELAY_IDLE_SECONDS             a connection quiet this long is closed (default 90)
 
 GET /healthz answers `ok` (or `off`). Logs hold counts, codes, and addresses only: never a message,
@@ -59,13 +64,31 @@ fn env(name: &str) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-fn env_number<T: std::str::FromStr>(name: &str, default: T) -> Result<T, String> {
-    match env(name) {
-        None => Ok(default),
-        Some(v) => v
-            .parse::<T>()
-            .map_err(|_| format!("{name} must be a whole number, not \"{v}\"")),
+/// A count or size from the environment: a whole number of at least 1 (every one of them is a
+/// limit or a time that 0 would turn into "nothing at all" or "everything at once"), or the
+/// default when unset.
+fn env_number<T: std::str::FromStr + PartialOrd + From<u8>>(
+    name: &str,
+    default: T,
+) -> Result<T, String> {
+    number(name, env(name), default)
+}
+
+fn number<T: std::str::FromStr + PartialOrd + From<u8>>(
+    name: &str,
+    value: Option<String>,
+    default: T,
+) -> Result<T, String> {
+    let Some(v) = value else {
+        return Ok(default);
+    };
+    let n = v
+        .parse::<T>()
+        .map_err(|_| format!("{name} must be a whole number, not \"{v}\""))?;
+    if n < T::from(1) {
+        return Err(format!("{name} must be at least 1, not \"{v}\""));
     }
+    Ok(n)
 }
 
 impl Settings {
@@ -112,6 +135,22 @@ impl Settings {
                 defaults.tries_per_address_per_minute,
             )?,
             phones_per_pc: env_number("PLENIPO_RELAY_MAX_PHONES_PER_PC", defaults.phones_per_pc)?,
+            pcs_per_license: env_number(
+                "PLENIPO_RELAY_MAX_PCS_PER_LICENSE",
+                defaults.pcs_per_license,
+            )?,
+            pcs_per_address: env_number(
+                "PLENIPO_RELAY_MAX_PCS_PER_ADDRESS",
+                defaults.pcs_per_address,
+            )?,
+            outgoing_bytes: env_number(
+                "PLENIPO_RELAY_MAX_OUTGOING_BYTES",
+                defaults.outgoing_bytes,
+            )?,
+            addresses_remembered: env_number(
+                "PLENIPO_RELAY_MAX_ADDRESSES",
+                defaults.addresses_remembered,
+            )?,
             messages_per_minute: env_number(
                 "PLENIPO_RELAY_MAX_MESSAGES_PER_MINUTE",
                 defaults.messages_per_minute,
@@ -248,10 +287,12 @@ async fn run(settings: Settings) -> i32 {
             let s = counting.stats();
             let refused: u64 = s.refused.values().sum();
             log::info!(
-                "{} connections: {} PCs, {} phones; {} refused and {} turned away so far",
+                "{} connections: {} PCs, {} phones, {} addresses; {} refused and {} turned \
+                 away so far",
                 s.connections,
                 s.pcs,
                 s.phones,
+                s.addresses,
                 refused,
                 s.turned_away
             );
@@ -336,5 +377,29 @@ mod test_hooks {
                 refused = codes.len();
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::number;
+
+    #[test]
+    fn a_setting_is_a_whole_number_of_at_least_one_or_the_default() {
+        assert_eq!(number("X", None, 7usize), Ok(7));
+        assert_eq!(number("X", Some("12".into()), 7usize), Ok(12));
+        assert_eq!(number("X", Some("1".into()), 7usize), Ok(1));
+        assert_eq!(
+            number("X", Some("0".into()), 7usize),
+            Err("X must be at least 1, not \"0\"".into())
+        );
+        assert_eq!(
+            number("X", Some("-3".into()), 7u64),
+            Err("X must be a whole number, not \"-3\"".into())
+        );
+        assert_eq!(
+            number("X", Some("many".into()), 7u32),
+            Err("X must be a whole number, not \"many\"".into())
+        );
     }
 }
