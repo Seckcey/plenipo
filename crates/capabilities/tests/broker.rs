@@ -1869,7 +1869,8 @@ fn results_of(text: &str, tool: &str) -> Vec<Vec<String>> {
 
 /// The blocked-files list holds for the git tools too. A blocked file (`.env.local`, by the
 /// default rule `.env.*`) is refused by `git add`, whether named or found under `.`; a diff,
-/// staged or not, leaves its contents out and says how many files it left out; a commit with it
+/// staged or not, leaves its contents out and says how many files it left out; `git status`
+/// leaves its name out the same way; `git log` of it is refused like a read; a commit with it
 /// staged is refused and nothing is unstaged for the worker; and the push's approval card
 /// names it among the commits' files, while the push itself still waits for the owner.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1934,6 +1935,9 @@ async fn git_tools_keep_blocked_files_out_of_gits_hands() {
         tool("git_add", serde_json::json!({ "paths": ["."] })),
         tool("git_diff", serde_json::json!({ "staged": true })),
         tool("git_diff", serde_json::json!({})),
+        tool("git_status", serde_json::json!({})),
+        tool("git_log", serde_json::json!({ "path": ".env.local" })),
+        tool("git_log", serde_json::json!({})),
         tool(
             "git_commit",
             serde_json::json!({ "message": "Save everything" }),
@@ -1997,6 +2001,31 @@ async fn git_tools_keep_blocked_files_out_of_gits_hands() {
         Some("1 file(s) on the blocked list are not shown."),
         "{unstaged}"
     );
+    // git status names the other files, not the blocked one, and says one was left out
+    // (P-GUARD-6).
+    let statuses = results_of(&text, "git_status");
+    assert_eq!(statuses.len(), 1, "{text}");
+    let status = statuses[0].join("\n");
+    assert!(status.contains("src/app.txt"), "{status}");
+    assert!(!status.contains(".env.local"), "{status}");
+    assert_eq!(
+        statuses[0].last().map(String::as_str),
+        Some("1 file(s) on the blocked list are not shown."),
+        "{status}"
+    );
+    // git log of the blocked file is refused like a read; of the folder, it lists the commits.
+    let logs = lines_of(&text, "Tool git_log failed:");
+    assert_eq!(logs.len(), 1, "{text}");
+    assert!(
+        logs[0].contains("Blocked: .env.local is a blocked file (your rule \".env.*\")."),
+        "{text}"
+    );
+    let log = results_of(&text, "git_log")
+        .into_iter()
+        .find(|r| !r[0].starts_with("Tool git_log failed:"))
+        .expect("git log of the folder")
+        .join("\n");
+    assert!(log.contains("Add the secret"), "{log}");
     // The commit is refused while the blocked file is staged, and stays staged.
     let commits = lines_of(&text, "Tool git_commit failed:");
     assert_eq!(commits.len(), 1, "{text}");
@@ -2020,9 +2049,9 @@ async fn git_tools_keep_blocked_files_out_of_gits_hands() {
         ),
         "Start"
     );
-    // Recorded: three refusals by the blocked-files rule, none by the role.
+    // Recorded: four refusals by the blocked-files rule, none by the role.
     let denied = h.events(&child.id, "guard.denied");
-    assert_eq!(denied.len(), 3, "{denied:#?}");
+    assert_eq!(denied.len(), 4, "{denied:#?}");
     for d in &denied {
         assert_eq!(d["layer"], "rule", "{d}");
     }
@@ -2035,6 +2064,7 @@ async fn git_tools_keep_blocked_files_out_of_gits_hands() {
         [
             "git add .env.local",
             "git add .",
+            "git log",
             "git commit (Save everything)"
         ]
     );
@@ -2165,6 +2195,25 @@ async fn a_fourth_request_for_approval_waits_for_the_first_three() {
     let sixth = h.ask_to_run(&grant);
     h.cards_waiting(3).await;
     assert_eq!(h.events(&task, "approval.requested").len(), 4);
+    // A card is in the Ledger a moment before the step counts it: wait for the step's count,
+    // so closing the step now records all four.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let asked = h
+            .broker
+            .grants()
+            .into_iter()
+            .find(|g| g.grant_id == grant)
+            .map(|g| g.asked);
+        if asked == Some(4) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the step counted {asked:?} requests, not 4"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     // The step ends: the cards left expire, and every call comes back with its answer.
     ToolProvider::close(&h.broker, &grant);
     let mut answers = Vec::new();

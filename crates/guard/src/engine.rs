@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::add_ons::{AddOn, AddOnCheck, ToolMark};
-use crate::commands::{first_catch, first_match, rule_matches, CommandLine};
+use crate::commands::{first_approval, first_catch, rule_approves, CommandLine};
 use crate::config::GuardConfig;
 use crate::connections::{self, AccessLevel, Connection, ConnectionCheck, ConnectionVerdict};
 use crate::dto::*;
@@ -817,18 +817,20 @@ pub fn evaluate(
             checks,
         );
     }
-    // A rule that names a program and its secrets (ADR-048) approves the command too.
+    // A rule that names a program and its secrets (ADR-048) approves the command too. A program
+    // inside the project folder is named only by its own path, never by a pattern (ADR-213).
     let names_program = |r: &SecretRule| {
         request
             .command
-            .is_some_and(|cmd| rule_matches(&r.rule, cmd))
+            .is_some_and(|cmd| rule_approves(&r.rule, cmd))
     };
     if let Some(cmd) = request.command {
         // Light (ADR-201): a program that is on no list runs without asking. The never-run list,
         // the always-ask list, and anything sensitive about the command were checked above, so
-        // they still stop it or ask.
+        // they still stop it or ask. Otherwise a program inside the project folder is approved
+        // only by a rule naming its own path (ADR-213).
         if config.safety != Safety::Light
-            && first_match(&config.commands.approved, cmd).is_none()
+            && first_approval(&config.commands.approved, cmd).is_none()
             && !config.commands.with_secrets.iter().any(names_program)
         {
             return decision(
@@ -1467,7 +1469,10 @@ mod tests {
             };
             eval(&c, &s, &request(Capability::ShellExec, &[], Some(&cmd)))
         };
-        assert_eq!(run("cargo test --workspace").verdict, Verdict::Allow);
+        assert_eq!(run("ruff check src").verdict, Verdict::Allow);
+        // Build and test commands run the project's own code: they ask (ADR-213).
+        let test = run("cargo test --workspace");
+        assert_eq!((test.verdict, test.layer), (Verdict::Ask, Layer::Rule));
         let unknown = run("cargo run");
         assert_eq!(
             (unknown.verdict, unknown.layer),
@@ -1685,11 +1690,96 @@ mod tests {
             eval(&c, &vp, &request(Capability::FilesystemWrite, &files, None)).verdict,
             Verdict::Allow
         );
-        let cmd = CommandLine::new("cargo", &["test"]);
+        let cmd = CommandLine::new("ruff", &["check", "."]);
         assert_eq!(
             eval(&c, &vp, &request(Capability::ShellExec, &[], Some(&cmd))).verdict,
             Verdict::Allow
         );
+    }
+
+    /// P-GUARD-1 (ADR-213): under Careful, a build or test command, and a program inside the
+    /// project folder, ask; only the owner's rule naming the program's own path approves one.
+    /// Light is unchanged: a program on no list runs without asking.
+    #[test]
+    fn a_program_in_the_project_asks_unless_the_owner_names_it() {
+        let mut c = config();
+        c.safety = Safety::Careful;
+        let s = scope("dev", None);
+        let run = |c: &GuardConfig, line: &str| {
+            let mut w = line.split_whitespace();
+            let cmd = CommandLine {
+                program: w.next().unwrap().to_owned(),
+                args: w.map(str::to_owned).collect(),
+            };
+            eval(c, &s, &request(Capability::ShellExec, &[], Some(&cmd)))
+        };
+        let gradlew = run(&c, "./gradlew test");
+        assert_eq!(
+            (gradlew.verdict, gradlew.layer),
+            (Verdict::Ask, Layer::Rule)
+        );
+        assert!(gradlew
+            .reason
+            .contains("not on your approved commands list"));
+        for line in [
+            "npm test",
+            "cargo build",
+            "pytest -q",
+            "make check",
+            "npx vitest",
+        ] {
+            assert_eq!(run(&c, line).verdict, Verdict::Ask, "{line}");
+        }
+        assert_eq!(run(&c, "gofmt -l .").verdict, Verdict::Allow);
+        // A pattern never approves a program inside the project, the owner's or not.
+        let mut wide = c.clone();
+        wide.commands.approved.push("* *".into());
+        wide.commands.approved.push("./* *".into());
+        wide.commands.with_secrets.push(SecretRule {
+            rule: "./grad* *".into(),
+            secrets: vec!["Deploy key".into()],
+        });
+        assert_eq!(run(&wide, "./gradlew test").verdict, Verdict::Ask);
+        assert_eq!(run(&wide, "npm test").verdict, Verdict::Allow);
+        // The owner's rule naming it does.
+        let mut named = c.clone();
+        named.commands.approved.push("./gradlew test *".into());
+        assert_eq!(run(&named, "./gradlew test").verdict, Verdict::Allow);
+        assert_eq!(run(&named, "./gradlew publish").verdict, Verdict::Ask);
+        // Light: as every program on no list, it runs without asking.
+        let light = config();
+        assert_eq!(run(&light, "./gradlew test").verdict, Verdict::Allow);
+        assert_eq!(run(&light, "cargo test").verdict, Verdict::Allow);
+        // A stored secret, too, reaches a program in the project only by a rule that names its
+        // path, never by a pattern, whatever the Safety setting (ADR-048, ADR-213).
+        let given = ["Deploy key".to_owned()];
+        let assemble = CommandLine::new("./gradlew", &["assemble"]);
+        let mut r = request(Capability::ShellExec, &[], Some(&assemble));
+        r.secrets = &given;
+        let mut pattern = light.clone();
+        pattern.commands.with_secrets.push(SecretRule {
+            rule: "./grad* *".into(),
+            secrets: vec!["Deploy key".into()],
+        });
+        let d = eval(&pattern, &s, &r);
+        assert_eq!(
+            (d.verdict, d.layer),
+            (Verdict::Ask, Layer::Rule),
+            "{}",
+            d.reason
+        );
+        assert!(
+            d.reason.contains("stored secret Deploy key"),
+            "{}",
+            d.reason
+        );
+        let mut path = light.clone();
+        path.commands.with_secrets.push(SecretRule {
+            rule: "./gradlew assemble".into(),
+            secrets: vec!["Deploy key".into()],
+        });
+        let d = eval(&path, &s, &r);
+        assert_eq!(d.verdict, Verdict::Allow, "{}", d.reason);
     }
 
     #[test]

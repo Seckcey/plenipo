@@ -489,6 +489,13 @@ function describeGuardEvent(type: string, p: Record<string, unknown>): string | 
       return `${str(p.department) ?? "A department"}'s permission limit changed`;
     case "guard.commands_changed":
       return "Command lists changed";
+    case "guard.commands_trimmed": {
+      // ADR-213: once, the starting approved commands that run a project's own code.
+      const removed = listed(p.removed);
+      return removed
+        ? `Build and test commands that run a project's own code left your approved list, so under Careful they now ask first (Light is unchanged): ${removed}`
+        : "Your approved commands list was checked: nothing needed to change";
+    }
     case "guard.files_changed":
       return "Blocked files changed";
     case "guard.sensitive_changed":

@@ -448,6 +448,14 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
       "Built-in permission sets you had not changed were brought up to date",
     );
     expect(
+      describeEvent(event("guard.commands_trimmed", { removed: ["cargo test *", "npm test *"] })),
+    ).toBe(
+      "Build and test commands that run a project's own code left your approved list, so under Careful they now ask first (Light is unchanged): cargo test *, npm test *",
+    );
+    expect(describeEvent(event("guard.commands_trimmed", { removed: [] }))).toBe(
+      "Your approved commands list was checked: nothing needed to change",
+    );
+    expect(
       describeEvent(event("org.role_updated", { name: "Scout", formerly: "Researcher 2" })),
     ).toBe("Role renamed from Researcher 2 to Scout");
     expect(describeEvent(event("org.role_updated", { name: "Designer", template: true }))).toBe(

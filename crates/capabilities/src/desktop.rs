@@ -133,18 +133,36 @@ fn shown(parts: &[KeyPart]) -> String {
 /// the approval card: a control character other than tab and line breaks (it acts like a key
 /// press: Ctrl+C stops a program in a terminal), or an invisible one (zero-width characters,
 /// the marks that turn text right to left, tag characters, line and paragraph separators),
-/// which can make the card show other text than what is typed.
+/// which can make the card show other text than what is typed. Every format character
+/// (Unicode's category Cf, to Unicode 16) is refused, and so are the letters and marks that show
+/// nothing (blank Korean letters, the invisible joining mark); the emoji style selectors
+/// (U+FE00 to U+FE0F) are not, since they only pick how the character before them looks
+/// (P-GUARD-8).
 pub fn refuse_hidden_characters(text: &str) -> Result<(), String> {
     let hidden = |c: char| {
         (c.is_control() && !matches!(c, '\t' | '\n' | '\r'))
             || matches!(c,
-                '\u{00AD}' | '\u{061C}' | '\u{180E}'
+                '\u{00AD}' | '\u{034F}'
+                | '\u{0600}'..='\u{0605}'
+                | '\u{061C}' | '\u{06DD}' | '\u{070F}'
+                | '\u{0890}'..='\u{0891}'
+                | '\u{08E2}'
+                | '\u{115F}'..='\u{1160}'
+                | '\u{17B4}'..='\u{17B5}'
+                | '\u{180B}'..='\u{180F}'
                 | '\u{200B}'..='\u{200F}'
                 | '\u{2028}'..='\u{202E}'
                 | '\u{2060}'..='\u{206F}'
+                | '\u{3164}'
                 | '\u{FEFF}'
+                | '\u{FFA0}'
                 | '\u{FFF9}'..='\u{FFFB}'
-                | '\u{E0000}'..='\u{E007F}')
+                | '\u{110BD}' | '\u{110CD}'
+                | '\u{13430}'..='\u{1343F}'
+                | '\u{1BCA0}'..='\u{1BCA3}'
+                | '\u{1D173}'..='\u{1D17A}'
+                | '\u{E0000}'..='\u{E007F}'
+                | '\u{E0100}'..='\u{E01EF}')
     };
     match text.chars().find(|&c| hidden(c)) {
         Some(c) => Err(format!(
@@ -721,8 +739,43 @@ mod tests {
             "windows\r\nline",
             "café ✓",
             "",
+            "I \u{2764}\u{FE0F} it",
+            "مرحبا ١٢٣",
+            "한국어",
         ] {
             assert!(refuse_hidden_characters(fine).is_ok(), "{fine:?}");
+        }
+        // P-GUARD-8: every format character, and the letters that show nothing.
+        for c in [
+            '\u{0600}',
+            '\u{06DD}',
+            '\u{070F}',
+            '\u{0890}',
+            '\u{08E2}',
+            '\u{110BD}',
+            '\u{110CD}',
+            '\u{13430}',
+            '\u{1343F}',
+            '\u{1BCA0}',
+            '\u{1BCA3}',
+            '\u{1D173}',
+            '\u{1D17A}',
+            '\u{034F}',
+            '\u{115F}',
+            '\u{3164}',
+            '\u{FFA0}',
+            '\u{17B4}',
+            '\u{180B}',
+            '\u{E0100}',
+            '\u{E01EF}',
+        ] {
+            let text = format!("a{c}b");
+            let err = refuse_hidden_characters(&text).unwrap_err();
+            assert!(
+                err.contains(&format!("U+{:04X}", c as u32)),
+                "{:04X}: {err}",
+                c as u32
+            );
         }
         for bad in [
             "esc\u{1b}",

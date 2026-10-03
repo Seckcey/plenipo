@@ -210,7 +210,8 @@ impl Workspace {
             input_owned = input.replace('\\', "/");
             input_owned.as_str()
         };
-        let candidate = if looks_absolute(input) {
+        let absolute = looks_absolute(input);
+        let candidate = if absolute {
             let p = PathBuf::from(input);
             if !p.is_absolute() {
                 // e.g. "C:foo" or "\foo" on Windows, or "C:\x" on Unix.
@@ -227,6 +228,12 @@ impl Workspace {
             self.root.join(input)
         };
         let normalized = normalize(&candidate).ok_or_else(|| outside(input))?;
+        // An absolute path's names below the folder are the worker's too: the same checks as a
+        // relative path's, before Windows' own reading of the path can drop a trailing dot or
+        // open a stream (P-GUARD-5). The folder's own path is the owner's.
+        if absolute {
+            check_names_below(&normalized, &self.root)?;
+        }
         // Follow links: the deepest part that exists must really be inside the folder (this
         // also settles differences in letter case on Windows).
         let mut existing = normalized.clone();
@@ -283,6 +290,24 @@ impl Workspace {
             root: self.root.clone(),
         })
     }
+}
+
+/// `check_name` for each name of `path` (absolute, `.` and `..` resolved), from the end up to the
+/// part that is the folder itself (by its own path, or by where it really leads). A path that
+/// never reaches the folder has every name checked; it is refused as outside it anyway.
+fn check_names_below(path: &Path, root: &Path) -> Result<(), PathRefusal> {
+    let mut at = path;
+    while at != root {
+        if canonical(at).is_ok_and(|real| real == root) {
+            break;
+        }
+        let (Some(name), Some(parent)) = (at.file_name(), at.parent()) else {
+            break;
+        };
+        check_name(&name.to_string_lossy())?;
+        at = parent;
+    }
+    Ok(())
 }
 
 fn outside(input: &str) -> PathRefusal {
@@ -444,6 +469,66 @@ mod tests {
         ] {
             assert!(w.resolve(bad).is_err(), "{bad}");
         }
+        // P-GUARD-5: written as an absolute path, the same names are refused, for a file that
+        // exists and one that does not. On Windows the stream is made first, so the name is one
+        // the disk really has.
+        #[cfg(windows)]
+        std::fs::write(w.root().join("src").join("main.rs:stream"), "hidden").unwrap();
+        let src = w.root().join("src").display().to_string();
+        let sep = std::path::MAIN_SEPARATOR;
+        let spaced = format!("dir {sep}x.txt");
+        for bad in [
+            "main.rs:stream",
+            "main.rs.",
+            spaced.as_str(),
+            "new.txt:stream",
+            "NUL.txt",
+            "con",
+            "a*b.rs",
+        ] {
+            // Refused either way (a device name may already read as a place outside the folder).
+            let path = format!("{src}{sep}{bad}");
+            assert!(w.resolve(&path).is_err(), "{path}");
+        }
+        for bad in ["main.rs:stream", "main.rs."] {
+            let path = format!("{src}{sep}{bad}");
+            let got = w.resolve(&path);
+            assert!(
+                matches!(got, Err(PathRefusal::Invalid(_))),
+                "{path}: {got:?}"
+            );
+        }
+        let path = format!("{src}{sep}con{sep}main.rs");
+        assert!(w.resolve(&path).is_err(), "{path}");
+        // Ordinary absolute paths, existing or not, still resolve.
+        assert_eq!(
+            w.resolve(&format!("{src}{sep}main.rs")).unwrap().rel,
+            "src/main.rs"
+        );
+        assert_eq!(
+            w.resolve(&format!("{src}{sep}new{sep}file.txt"))
+                .unwrap()
+                .rel,
+            "src/new/file.txt"
+        );
+    }
+
+    /// P-GUARD-5: the project folder's own path, and the folders above it, are the owner's, so
+    /// an unusual name there does not stop an absolute path inside it.
+    #[cfg(unix)]
+    #[test]
+    fn the_folders_own_names_are_not_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let odd = dir.path().join("notes: 2026 ").join("proj");
+        std::fs::create_dir_all(odd.join("src")).unwrap();
+        let w = Workspace::open(&odd.display().to_string()).unwrap();
+        let inside = w.root().join("src").join("main.rs");
+        assert_eq!(
+            w.resolve(&inside.display().to_string()).unwrap().rel,
+            "src/main.rs"
+        );
+        let stream = w.root().join("src").join("main.rs:stream");
+        assert!(w.resolve(&stream.display().to_string()).is_err());
     }
 
     #[cfg(unix)]
