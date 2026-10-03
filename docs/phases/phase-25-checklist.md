@@ -850,17 +850,29 @@ About 6 to 8 build sessions.
   tests actually run (with pass or fail), and pull requests actually opened. That report goes only
   to you. A supervisor reads only the worker's own story, and nothing compares the two.
 - **Do:**
-  - [ ] Every answer handed back up the chain carries **Plenipo's facts** under the worker's
-        words.
-  - [ ] A plain check runs first:
+  - [x] Every answer handed back up the chain carries **Plenipo's facts** under the worker's
+        words ([ADR-256 (check answers against what really happened)](../adr/ADR-256-check-answers-against-what-really-happened.md)):
+        files changed, programs run, tests and checks run (passed or failed), and pull requests
+        opened, from Plenipo's own tools, each AI tool's own steps, and the working copies.
+  - [x] A plain check runs first:
     - "says tests passed, but no test ran"
-    - "names a file that didn't change"
+    - "names a file that didn't change" (on screen: "names a file it didn't change:
+      src/app.ts"; a file any recorded step names counts as touched)
     - "says it opened a pull request, but none was opened"
-    - "a review with no verdict"
-  - [ ] When a check fails, the answer goes **back to the worker** with the reason, once. If it
-        fails again, it goes to the supervisor marked "doesn't match the record".
-  - [ ] Supervisors and managers are told to compare words with facts before passing work up.
+    - "a review with no verdict" (reviewers, QA, security auditors, and workers serving a team
+      through oversight; their worker record now says `verdict`)
+  - [x] When a check fails, the answer goes **back to the worker** with the reason, once. If it
+        fails again, it goes to the supervisor marked "doesn't match the record". On screen: a
+        handoff's reply says "Doesn't match the record", and the Ledger says "Answer sent back to
+        check".
+  - [x] Supervisors and managers are told to compare words with facts before passing work up
+        (in every message that gives them their team's replies).
 - **Tests:** each mismatch is caught and sent back. A true answer passes.
+  - [x] liaison `facts` tests (each check, the honest sentences that are not claims, a true
+        answer), `context` `replies_carry_plenipos_record_and_a_mismatch_is_named`, and handoffs
+        `an_answer_that_doesnt_match_the_record_is_sent_back_once` (sent back once with the
+        reasons, marked on its second answer; a true answer goes straight up)
+  - [x] desktop `Handoffs.test.tsx`, `format.test.ts`
 
 ### 4.8 Catch made-up answers, step 2 — M–L
 

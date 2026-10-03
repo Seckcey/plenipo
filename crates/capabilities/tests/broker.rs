@@ -1142,13 +1142,16 @@ async fn plan_command_allow_and_deny_behavior() {
     assert!(results[3].contains("without spaces"), "{text}");
     assert!(results[4].contains("did not approve"), "{text}");
     assert!(h.folder.join("src").exists());
-    // A reviewer may only ask to run programs.
+    // A reviewer may only ask to run programs. (It gives its verdict, as reviewers do.)
     let task = h
         .objective(&handoff(
             "Reviewer",
-            &tool(
-                "run_command",
-                serde_json::json!({ "program": "git", "args": ["--version"] }),
+            &format!(
+                "{} [verdict:approve]",
+                tool(
+                    "run_command",
+                    serde_json::json!({ "program": "git", "args": ["--version"] }),
+                )
             ),
         ))
         .await;
@@ -1512,7 +1515,7 @@ async fn project_and_department_limits_narrow_a_role() {
         .objective(&handoff(
             "Reviewer",
             &format!(
-                "[tools-list] {}",
+                "[tools-list] {} [verdict:approve]",
                 tool("read_file", serde_json::json!({ "path": "README.md" }))
             ),
         ))

@@ -246,6 +246,7 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Key limit: $10.00 · $3.20 spent · $6.80 left (a paid key's own limit)                                          | credit limit, quota, balance                                                               |
 | on your Anthropic key / Its work moves to your Anthropic key while it waits                                    | API fallback, overflow billing, provider failover                                          |
 | Step down instead of stopping / Start stepping down at 80% used / so it steps down: Sonnet 5.5 instead of Opus | model downgrade, throttling, degradation policy                                            |
+| Doesn't match the record / Plenipo's record / Answer sent back to check / Checking its answer again            | hallucination, fact-check failure, verification error, grounding                           |
 | How it is paid for: Subscription / Paid per use with your key                                                  | billing mode, BYOK, metered API                                                            |
 | installed / checked by Plenipo (an AI tool's version)                                                          | CLI version, tested version, compatibility                                                 |
 | a new version / Update / Updating… / Updated to 1.0.43                                                         | upgrade, self-update, patch                                                                |

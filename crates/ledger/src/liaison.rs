@@ -702,6 +702,81 @@ impl Ledger {
         result
     }
 
+    /// Send a handoff's answer back to its worker to check (Phase 25, item 4.7): one
+    /// transaction records `step_result` (the step's `agent.result`), `liaison.answer_sent_back`
+    /// with `payload` (why), and moves the task from `running` to `blocked`.
+    pub fn send_back_answer(
+        &self,
+        task_id: &str,
+        step_result: NewEvent,
+        payload: Value,
+        reason: &str,
+        actor: &str,
+    ) -> Result<Task> {
+        let result = self.write(|tx, out| {
+            let task = tasks::require(tx, task_id)?;
+            if task.state != TaskState::Running {
+                return Err(LedgerError::InvalidTransition {
+                    entity: "task",
+                    id: task_id.into(),
+                    from: task.state.as_str().into(),
+                    to: TaskState::Blocked.as_str().into(),
+                });
+            }
+            out.push(events::insert(
+                tx,
+                NewEvent {
+                    task_id: Some(task_id.into()),
+                    ..step_result
+                },
+            )?);
+            out.push(events::insert(
+                tx,
+                event(task_id, actor, "liaison.answer_sent_back", payload),
+            )?);
+            tasks::transition(tx, out, task_id, TaskState::Blocked, actor, Some(reason))
+        });
+        self.record_rejection(task_id, actor, Some(reason), &result);
+        result
+    }
+
+    /// Waiting (`blocked`) tasks whose answer was sent back and not yet given to their worker,
+    /// with nothing else to wait for.
+    pub fn liaison_sent_back_waiting(&self) -> Result<Vec<String>> {
+        self.read(|c| {
+            let mut stmt = c.prepare(
+                "SELECT t.id FROM tasks t
+                 WHERE t.state = 'blocked'
+                   AND EXISTS (SELECT 1 FROM events e WHERE e.task_id = t.id
+                               AND e.event_type = 'liaison.answer_sent_back')
+                   AND NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id = t.id
+                                   AND e.event_type = 'liaison.sent_back_delivered')
+                   AND NOT EXISTS (SELECT 1 FROM liaison_messages m WHERE m.task_id = t.id
+                                   AND ((m.kind = 'request' AND m.state IN ('accepted', 'dispatched'))
+                                        OR (m.kind = 'reply' AND m.state = 'pending')))
+                 ORDER BY t.updated_at",
+            )?;
+            let rows = stmt
+                .query_map([], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            Ok(rows)
+        })
+    }
+
+    /// Give a sent-back answer to its worker (`liaison.sent_back_delivered`): the task moves
+    /// from `blocked` to `running`.
+    pub fn resume_sent_back(&self, task_id: &str, reason: &str, actor: &str) -> Result<Task> {
+        let result = self.write(|tx, out| {
+            out.push(events::insert(
+                tx,
+                event(task_id, actor, "liaison.sent_back_delivered", json!({})),
+            )?);
+            tasks::transition(tx, out, task_id, TaskState::Running, actor, Some(reason))
+        });
+        self.record_rejection(task_id, actor, Some(reason), &result);
+        result
+    }
+
     /// Resume a waiting task with its pending replies: they become `delivered`
     /// (`liaison.replies_delivered`) and the task moves from `blocked` to `running`.
     pub fn resume_with_replies(

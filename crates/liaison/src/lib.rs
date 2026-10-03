@@ -12,6 +12,7 @@ pub mod context;
 pub mod directory;
 pub mod dto;
 pub mod error;
+pub mod facts;
 pub mod protocol;
 mod service;
 pub mod store;

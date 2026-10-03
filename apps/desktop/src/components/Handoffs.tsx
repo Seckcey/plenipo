@@ -64,7 +64,14 @@ export function HandoffCard({
             />
             {reply.state === "pending" && " · not delivered yet"}
             {reply.state === "discarded" && " · not delivered (the requester stopped waiting)"}
+            {(reply.mismatches?.length ?? 0) > 0 && " · doesn't match the record"}
           </summary>
+          {reply.mismatches && reply.mismatches.length > 0 && (
+            <p className="handoff__mismatch" role="note">
+              Doesn't match Plenipo's record: {reply.mismatches.join("; ")}.
+              {reply.sentBack && " It was sent back to the worker once to check."}
+            </p>
+          )}
           <div className="turn__text">{reply.text ?? reply.summary}</div>
           {reply.error && reply.error !== reply.summary && (
             <pre className="turn__error">{reply.error}</pre>

@@ -941,6 +941,12 @@ function count(v: unknown): number {
   return Array.isArray(v) ? v.length : 0;
 }
 
+/** " · doesn't match the record: …" for a reply the checks flagged (Phase 25, item 4.7). */
+function mismatch(p: Record<string, unknown>): string {
+  const m = Array.isArray(p.mismatches) ? p.mismatches.filter((x) => typeof x === "string") : [];
+  return m.length > 0 ? ` · doesn't match the record: ${m.join("; ")}` : "";
+}
+
 /** Phase 4: handoffs between workers through Plenipo Liaison. */
 function describeLiaisonEvent(type: string, p: Record<string, unknown>): string | null {
   const why = str(p.reason) ? `: ${brief(p.reason, 200)}` : "";
@@ -960,9 +966,20 @@ function describeLiaisonEvent(type: string, p: Record<string, unknown>): string 
     case "liaison.dispatch_failed":
       return `Handoff worker could not start${why}`;
     case "liaison.reply_sent":
-      return `Reply sent: ${handoffOutcome(p.outcome)} — ${brief(p.summary)}`;
+      return `Reply sent: ${handoffOutcome(p.outcome)} — ${brief(p.summary)}${mismatch(p)}`;
     case "liaison.reply_received":
-      return `Reply received: ${handoffOutcome(p.outcome)} — ${brief(p.summary)}`;
+      return `Reply received: ${handoffOutcome(p.outcome)} — ${brief(p.summary)}${mismatch(p)}`;
+    // Phase 25, item 4.7: an answer checked against Plenipo's record.
+    case "liaison.answer_sent_back": {
+      const why = Array.isArray(p.mismatches)
+        ? p.mismatches.filter((m) => typeof m === "string")
+        : [];
+      return `Answer sent back to check: it ${why.length > 0 ? why.join("; ") : "doesn't match Plenipo's record"}`;
+    }
+    case "liaison.sent_back_delivered":
+      return "Checking its answer again";
+    case "liaison.give_back_failed":
+      return `Its answer could not be sent back${why}`;
     case "liaison.replies_delivered": {
       const n = count(p.messageIds);
       return `Continued with ${n} handoff repl${n === 1 ? "y" : "ies"}`;

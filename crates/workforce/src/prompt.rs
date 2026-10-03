@@ -281,7 +281,7 @@ pub fn worker_identity(
 
 /// Reviewers, QA, and security auditors end their answers with a verdict (Phase 8): the
 /// built-in Code Reviewer, QA Engineer, and Security Auditor roles, and custom roles marked so.
-fn gives_verdict(role: &Role) -> bool {
+pub(crate) fn gives_verdict(role: &Role) -> bool {
     role.metadata["verdict"] == true
         || (role.metadata["template"] == true
             && crate::templates::VERDICT_ROLES.contains(&role.name.as_str()))

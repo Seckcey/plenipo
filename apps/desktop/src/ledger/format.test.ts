@@ -90,6 +90,27 @@ describe("describeEvent (Phase 4 Liaison events)", () => {
     );
   });
 
+  // Phase 25, item 4.7: answers checked against Plenipo's record.
+  it("says when an answer doesn't match Plenipo's record", () => {
+    const mismatches = ["says tests passed, but no test ran"];
+    expect(describeEvent(event("liaison.answer_sent_back", { mismatches }))).toBe(
+      "Answer sent back to check: it says tests passed, but no test ran",
+    );
+    expect(describeEvent(event("liaison.sent_back_delivered", {}))).toBe(
+      "Checking its answer again",
+    );
+    expect(
+      describeEvent(
+        event("liaison.reply_sent", { outcome: "completed", summary: "Done", mismatches }),
+      ),
+    ).toBe(
+      "Reply sent: Completed — Done · doesn't match the record: says tests passed, but no test ran",
+    );
+    expect(describeEvent(event("liaison.give_back_failed", { reason: "the session closed" }))).toBe(
+      "Its answer could not be sent back: the session closed",
+    );
+  });
+
   it("explains refusals, cancellations, and failures with their reason", () => {
     expect(
       describeEvent(

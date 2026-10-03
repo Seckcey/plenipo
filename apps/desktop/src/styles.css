@@ -1817,6 +1817,12 @@ body.popout {
   font-size: var(--ui-font-sm);
 }
 
+.handoff__mismatch {
+  margin: 6px 0;
+  color: var(--ui-warn-text);
+  font-size: var(--ui-font-sm);
+}
+
 .handoff__reply {
   margin-top: 6px;
 }

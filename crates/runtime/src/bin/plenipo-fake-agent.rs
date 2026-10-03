@@ -47,6 +47,9 @@
 //!   first reply's result on by its task ID (`{"kind": "task", "taskId": …}`, ADR-044 §4.12);
 //!   once per conversation.
 //!
+//! `[verdict:V]` (a worker given a handoff request) ends its answer with a `plenipo-review` block
+//! whose verdict is V, as a reviewer's instructions ask (Phase 25, item 4.7).
+//!
 //! Markers inside a `{{handoff:DEST|OBJECTIVE}}` belong to that request's worker, never to the
 //! requester (so `{{handoff:role:Supervisor|Build it [handoff:role:Developer]}}` makes the
 //! Supervisor hand on to the Developer).
@@ -681,7 +684,17 @@ fn answer(n: usize, mode: &Mode, said: &str, previous: Option<&str>, first: &str
                 context.as_deref().unwrap_or(""),
                 if *granted { "granted" } else { "none granted" }
             ),
-            handoff_blocks(said, n),
+            {
+                let mut blocks = handoff_blocks(said, n);
+                // `[verdict:V]`: a reviewer's verdict, as its instructions ask (Phase 25, 4.7).
+                for verdict in markers(&outside_braces(said), "verdict") {
+                    blocks.push(format!(
+                        "```plenipo-review\n{}\n```",
+                        json!({ "verdict": verdict, "findings": [] })
+                    ));
+                }
+                blocks
+            },
         ),
         Mode::Replies { items, tasks } => {
             let always: String = markers(first, "handoff-always")

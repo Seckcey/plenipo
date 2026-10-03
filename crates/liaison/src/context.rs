@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use plenipo_runtime::agent::{text_hash, BriefInput, LARGE_JOB_CHARS};
 use serde::{Deserialize, Serialize};
 
+use crate::facts::Facts;
 use crate::protocol::{MAX_CRITERIA_CHARS, MAX_EXCERPT_CHARS, MAX_OBJECTIVE_CHARS, PROTOCOL};
 
 /// Format tag of a context packet.
@@ -25,6 +26,7 @@ pub const CONTEXT_FORMAT: &str = "plenipo-context/1";
 pub const ROOT_HEADER: &str = "[Plenipo Liaison — instructions]";
 pub const REQUEST_HEADER: &str = "[Plenipo Liaison — handoff request]";
 pub const REPLIES_HEADER: &str = "[Plenipo Liaison — handoff replies]";
+pub const SENT_BACK_HEADER: &str = "[Plenipo Liaison — your answer, sent back to check]";
 pub const FOOTER: &str = "[End of Plenipo instructions]";
 
 /// Everything a child worker is given, as recorded with the request.
@@ -126,6 +128,19 @@ pub struct DeliveredReply {
     pub summary: String,
     pub text: Option<String>,
     pub error: Option<String>,
+    /// Plenipo's record of the task and how the answer compares with it (Phase 25, item 4.7);
+    /// none for a refusal.
+    pub check: Option<ReplyCheck>,
+}
+
+/// Plenipo's record under a reply, and the plain checks' result (Phase 25, item 4.7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplyCheck {
+    pub record: Facts,
+    /// The answer's mismatches with the record ("says tests passed, but no test ran").
+    pub mismatches: Vec<String>,
+    /// It was given back to its worker to check once already.
+    pub sent_back: bool,
 }
 
 /// Limits a worker should know about.
@@ -662,7 +677,24 @@ pub fn replies_message(
             out.pass(&first_line(error, 300));
             out.own("\n");
         }
+        if let Some(check) = &r.check {
+            write_record(&mut out, &check.record);
+            if !check.mismatches.is_empty() {
+                out.own("Doesn't match the record: ");
+                out.pass(&check.mismatches.join("; "));
+                out.own(if check.sent_back {
+                    ". It was sent back to its worker once already.\n"
+                } else {
+                    ".\n"
+                });
+            }
+        }
     }
+    out.own(
+        "\nBefore you pass work up, compare each reply's words with Plenipo's record under it. \
+         When they don't match, don't repeat the claim: say what the record shows, or ask the \
+         worker again.\n",
+    );
     out.own(
         "\nContinue your original objective using these replies. Take only what you need from \
          them; do not copy them in full into your answer or into new requests: to pass a result \
@@ -679,6 +711,47 @@ pub fn replies_message(
             out.own("No other worker is available right now, however.\n");
         }
     }
+    out.own(FOOTER);
+    out.done()
+}
+
+/// Plenipo's record of a task, in a few plain lines (the worker's own commands and file names
+/// are passed along as they are).
+fn write_record(out: &mut Writer, record: &Facts) {
+    out.own("Plenipo's record (what really happened, from Plenipo's own logs):\n");
+    for (label, value) in record.lines() {
+        out.own("- ");
+        out.own(label);
+        out.pass(&value);
+        out.own("\n");
+    }
+}
+
+/// A handoff's answer, given back to its worker because it doesn't match Plenipo's record
+/// (Phase 25, item 4.7): the reasons, the record, and what to do.
+pub fn sent_back_message(mismatches: &[String], record: &Facts) -> Message {
+    let mut out = Writer::default();
+    out.own(SENT_BACK_HEADER);
+    out.own(
+        "\nPlenipo compared your answer with its own record of what you did, and they don't \
+         match:\n",
+    );
+    for m in mismatches {
+        // "Says tests passed, but no test ran." / "A review with no verdict."
+        let mut chars = m.chars();
+        let m = chars.next().map_or_else(String::new, |c| {
+            c.to_uppercase().collect::<String>() + chars.as_str()
+        });
+        out.own("- ");
+        out.pass(&m);
+        out.own(".\n");
+    }
+    write_record(&mut out, record);
+    out.own(
+        "\nCheck your work and answer again. Do what is missing, or say plainly what is not \
+         done: an honest \"not done\" is better than a wrong \"done\". Your next answer goes \
+         to the worker who asked, with Plenipo's record under it, and is not sent back again.\n",
+    );
     out.own(FOOTER);
     out.done()
 }
@@ -777,6 +850,65 @@ mod tests {
         }
     }
 
+    /// Phase 25, item 4.7: each reply carries Plenipo's record, and a mismatch is named; the
+    /// lead is told to compare. A worker given its answer back is told why, and what to do.
+    #[test]
+    fn replies_carry_plenipos_record_and_a_mismatch_is_named() {
+        let record: Facts = serde_json::from_value(serde_json::json!({
+            "files": ["src/app.ts"], "programs": 2,
+            "tests": [{"command": "npm test", "ok": false}], "pullRequests": [],
+        }))
+        .unwrap();
+        let reply = |check: Option<ReplyCheck>| DeliveredReply {
+            from: "Senior Developer (Claude Code)".into(),
+            task_id: Some("t-2".into()),
+            request: "Fix the login bug".into(),
+            outcome: "completed".into(),
+            summary: "Fixed".into(),
+            text: Some("Fixed. All tests pass.".into()),
+            error: None,
+            check,
+        };
+        let marked = replies_prompt(
+            &[reply(Some(ReplyCheck {
+                record: record.clone(),
+                mismatches: vec!["names a file it didn't change: src/b.ts".into()],
+                sent_back: true,
+            }))],
+            "c",
+            1,
+            &destinations(),
+        );
+        for line in [
+            "Plenipo's record (what really happened, from Plenipo's own logs):",
+            "- Files changed: src/app.ts",
+            "- Programs run: 2",
+            "- Tests and checks run: `npm test` (failed)",
+            "- Pull requests opened: none",
+            "Doesn't match the record: names a file it didn't change: src/b.ts. It was sent back \
+             to its worker once already.",
+            "compare each reply's words with Plenipo's record under it",
+        ] {
+            assert!(marked.contains(line), "{line}\n{marked}");
+        }
+        // A reply recorded before Phase 25 has no record: none is made up for it.
+        let old = replies_prompt(&[reply(None)], "c", 1, &destinations());
+        assert!(!old.contains("Plenipo's record (") && !old.contains("Doesn't match"));
+
+        let back = sent_back_message(&["says tests passed, but no test ran".into()], &record);
+        assert!(back.text.starts_with(SENT_BACK_HEADER));
+        assert!(back
+            .text
+            .contains("- Says tests passed, but no test ran.\n"));
+        assert!(back
+            .text
+            .contains("- Tests and checks run: `npm test` (failed)"));
+        assert!(back
+            .text
+            .contains("an honest \"not done\" is better than a wrong \"done\""));
+        assert!(back.text.ends_with(FOOTER));
+    }
+
     #[test]
     fn the_root_prompt_explains_the_protocol_then_gives_the_objective() {
         let p = root_prompt("  Write a parser  ", None, &destinations(), LIMITS);
@@ -823,6 +955,7 @@ mod tests {
             summary: "Looks right".into(),
             text: Some("Looks right.".into()),
             error: None,
+            check: None,
         };
         let replies = replies_prompt(&[reply], "c", 2, &destinations());
         assert!(replies.contains("do not copy them in full"));
@@ -953,6 +1086,7 @@ mod tests {
                 summary: "Looks right".into(),
                 text: Some("Looks right.\nOne nit.".into()),
                 error: None,
+                check: None,
             },
             DeliveredReply {
                 from: "Plenipo".into(),
@@ -962,6 +1096,7 @@ mod tests {
                 summary: "missing destination".into(),
                 text: None,
                 error: None,
+                check: None,
             },
             DeliveredReply {
                 from: "Codex".into(),
@@ -971,6 +1106,7 @@ mod tests {
                 summary: "Codex exited with code 101".into(),
                 text: None,
                 error: Some("thread 'main' panicked".into()),
+                check: None,
             },
         ];
         let p = replies_prompt(&replies, "corr-1234", 2, &destinations());
@@ -1015,6 +1151,7 @@ mod tests {
                 summary: "Looks right".into(),
                 text: Some("Looks right.\nOne nit.\n".into()),
                 error: None,
+                check: None,
             },
             DeliveredReply {
                 from: "Plenipo".into(),
@@ -1024,6 +1161,7 @@ mod tests {
                 summary: "missing destination".into(),
                 text: None,
                 error: None,
+                check: None,
             },
         ];
         let message = replies_message(&replies, "c", 2, &destinations());

@@ -515,6 +515,9 @@ impl Directory for WorkforceDirectory {
                 "departmentId": department_id,
                 "leadId": lead.id,
                 "routing": routing,
+                // It ends its answer with a verdict, which Plenipo checks (Phase 25, item 4.7).
+                "verdict": member.oversight.is_some()
+                    || view.role(target).is_some_and(crate::prompt::gives_verdict),
             }),
             identity: worker_identity(
                 &view,

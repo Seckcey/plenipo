@@ -1147,6 +1147,111 @@ async fn capability_requests_are_recorded_but_never_granted() {
     assert_eq!(args[tools + 1], "");
 }
 
+/// Every prompt the fake AI tools received, in every conversation.
+fn all_prompts(h: &H) -> Vec<String> {
+    let dir = h.fake_state().join("sessions");
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+        let session: serde_json::Value = serde_json::from_str(&text).unwrap();
+        for p in session["prompts"].as_array().into_iter().flatten() {
+            out.push(p.as_str().unwrap_or_default().to_owned());
+        }
+    }
+    out
+}
+
+/// Phase 25, item 4.7 (ADR-256): an answer that doesn't match Plenipo's record goes back to its
+/// worker once, with the reasons and the record; its next answer goes up as it is, marked, with
+/// the record under it. A true answer goes straight up.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_answer_that_doesnt_match_the_record_is_sent_back_once() {
+    let h = harness().await;
+    // The worker says the tests pass, and runs none.
+    let (_, root) = h
+        .start(
+            "codex",
+            "Fix it {{handoff:claude-code|Say: all tests pass}}",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.only_child(&root);
+    assert_eq!(child.state, TaskState::Succeeded);
+    let types = h.types(&child.id);
+    assert_in_order(
+        &types,
+        &[
+            "agent.result",
+            "liaison.answer_sent_back",
+            "liaison.sent_back_delivered",
+            "agent.result",
+        ],
+    );
+    assert_eq!(
+        types
+            .iter()
+            .filter(|t| *t == "liaison.answer_sent_back")
+            .count(),
+        1,
+        "sent back once only"
+    );
+    let sent = h
+        .ledger
+        .last_task_event(&child.id, "liaison.answer_sent_back")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        sent.payload["mismatches"],
+        serde_json::json!(["says tests passed, but no test ran"])
+    );
+    let prompts = all_prompts(&h);
+    let back = prompts
+        .iter()
+        .find(|p| p.contains("[Plenipo Liaison — your answer, sent back to check]"))
+        .expect("the worker was given its answer back");
+    assert!(
+        back.contains("- Says tests passed, but no test ran.")
+            && back.contains("- Tests and checks run: none"),
+        "{back}"
+    );
+    // Its second answer still says so: it goes up marked, with the record under it.
+    let reply = h.liaison.task_handoffs(&root).unwrap().sent[0]
+        .reply
+        .clone()
+        .unwrap();
+    assert_eq!(reply.mismatches, ["says tests passed, but no test ran"]);
+    assert!(reply.sent_back);
+    // The requester's answer came after the reply (the words it was given are tested with
+    // `context::replies_message`).
+    assert!(
+        h.text(&root).contains("received 1 reply"),
+        "{}",
+        h.text(&root)
+    );
+
+    // A true answer goes straight up, with the record under it.
+    let h = harness().await;
+    let (_, root) = h
+        .start("codex", "Fix it {{handoff:claude-code|Look at the parser}}")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.only_child(&root);
+    assert!(!h
+        .types(&child.id)
+        .contains(&"liaison.answer_sent_back".to_owned()));
+    let reply = h.liaison.task_handoffs(&root).unwrap().sent[0]
+        .reply
+        .clone()
+        .unwrap();
+    assert!(reply.mismatches.is_empty() && !reply.sent_back);
+    let recorded = h
+        .messages(&root)
+        .into_iter()
+        .find(|m| m.kind == MessageKind::Reply)
+        .unwrap();
+    assert_eq!(recorded.envelope["result"]["record"]["programs"], 0);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn invalid_blocks_are_explained_to_the_requester() {
     let h = harness().await;

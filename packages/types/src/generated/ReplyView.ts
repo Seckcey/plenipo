@@ -13,4 +13,13 @@ text: string | null, error: string | null,
 /**
  * Who answered: a worker session, or `liaison` for a refusal.
  */
-source: string, createdAt: number, };
+source: string, createdAt: number, 
+/**
+ * How the answer doesn't match Plenipo's record ("says tests passed, but no test ran";
+ * Phase 25, item 4.7). Empty when it matches.
+ */
+mismatches?: Array<string>, 
+/**
+ * It was sent back to its worker to check once before it came.
+ */
+sentBack?: boolean, };

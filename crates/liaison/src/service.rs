@@ -31,11 +31,13 @@ use tokio::sync::Notify;
 use crate::address::Address;
 use crate::context::{
     self, ContextPacket, DeliveredReply, Destination, Given, Had, PacketArtifact,
-    PacketCapabilities, PacketFrom, PacketReference, PacketTask, PromptLimits, CONTEXT_FORMAT,
+    PacketCapabilities, PacketFrom, PacketReference, PacketTask, PromptLimits, ReplyCheck,
+    CONTEXT_FORMAT,
 };
 use crate::directory::{is_full_time, Directory, Placement, Team};
 use crate::dto::*;
 use crate::error::{LiaisonError, Result};
+use crate::facts;
 use crate::protocol::{self, cap_chars, Block, ContextRequest, Directive, PROTOCOL};
 use crate::store::result_event;
 
@@ -237,6 +239,8 @@ struct Snapshot {
     deliveries: Vec<String>,
     stale: Vec<String>,
     retire: Vec<String>,
+    /// Answers sent back to their worker to check, not yet given back (4.7).
+    sent_back: Vec<String>,
 }
 
 impl Snapshot {
@@ -254,6 +258,7 @@ impl Snapshot {
             deliveries: l.liaison_ready_deliveries()?,
             stale: l.liaison_stale_replies()?,
             retire,
+            sent_back: l.liaison_sent_back_waiting()?,
         })
     }
 }
@@ -795,7 +800,8 @@ impl Liaison {
         };
         let extracted = protocol::extract(text);
         if extracted.blocks.is_empty() {
-            return TurnDisposition::Finish;
+            // A final answer: checked against Plenipo's record before it goes up (4.7).
+            return self.check_answer(end, text);
         }
         let _planning = lock(&self.inner.planning);
         match self.record_requests(end, &extracted.answer, &extracted.blocks) {
@@ -807,6 +813,74 @@ impl Liaison {
             Err(e) => {
                 self.notice(format!(
                     "Liaison could not record the handoff requests of task {}: {e}",
+                    end.task_id
+                ));
+                TurnDisposition::Finish
+            }
+        }
+    }
+
+    /// A handoff's final answer, compared with Plenipo's record before it goes back up the chain
+    /// (Phase 25, item 4.7; ADR-256). When it doesn't match, it goes back to its worker with
+    /// the reasons, once: the task waits, and the next pass gives it back.
+    fn check_answer(&self, end: &TurnEnd, answer: &str) -> TurnDisposition {
+        let l = &self.inner.ledger;
+        let sent_back = (|| -> Result<Option<String>> {
+            if l.liaison_request_for_child(&end.task_id)?.is_none()
+                || l.count_task_events(&end.task_id, facts::SENT_BACK)? > 0
+            {
+                return Ok(None);
+            }
+            let Some(task) = l.task(&end.task_id)? else {
+                return Ok(None);
+            };
+            if task.metadata["sessionId"].as_str() != Some(end.session.id.as_str())
+                || task.state != TaskState::Running
+            {
+                return Ok(None);
+            }
+            let correlation = task_info(&task.metadata).correlation_id;
+            let record = facts::gather(l, &task, correlation.as_deref())?;
+            let mismatches = facts::check(answer, &record, wants_verdict(&task));
+            if mismatches.is_empty() {
+                return Ok(None);
+            }
+            let reason = "its answer doesn't match Plenipo's record, so it was sent back to check";
+            let actor = format!("agent:{}", end.session.runtime_id);
+            let step_result = result_event(
+                &TurnRef {
+                    session_id: &end.session.id,
+                    task_id: &task.id,
+                    execution_id: end.execution_id.as_deref(),
+                    step: Some(end.step),
+                    actor: &actor,
+                },
+                &end.result,
+            )
+            .map_err(LiaisonError::Internal)?;
+            l.send_back_answer(
+                &task.id,
+                step_result,
+                json!({
+                    "correlationId": correlation,
+                    "step": end.step,
+                    "mismatches": mismatches,
+                    "record": record,
+                }),
+                reason,
+                ACTOR,
+            )?;
+            Ok(Some(reason.to_owned()))
+        })();
+        match sent_back {
+            Ok(Some(reason)) => {
+                self.inner.wake.notify_one();
+                TurnDisposition::Suspended { reason }
+            }
+            Ok(None) => TurnDisposition::Finish,
+            Err(e) => {
+                self.notice(format!(
+                    "Liaison could not check the answer of task {}: {e}",
                     end.task_id
                 ));
                 TurnDisposition::Finish
@@ -1448,6 +1522,9 @@ impl Liaison {
         for session_id in snapshot.retire {
             self.spawn_retire(session_id);
         }
+        for task_id in snapshot.sent_back {
+            self.spawn_give_back(task_id);
+        }
         Ok(())
     }
 
@@ -1829,6 +1906,14 @@ impl Liaison {
                     summary: str_of(&result["summary"]).unwrap_or_default(),
                     text: str_of(&result["text"]),
                     error: str_of(&result["error"]),
+                    // Recorded with every reply since Phase 25, item 4.7.
+                    check: result["record"].is_object().then(|| ReplyCheck {
+                        record: serde_json::from_value(result["record"].clone())
+                            .unwrap_or_default(),
+                        mismatches: serde_json::from_value(result["mismatches"].clone())
+                            .unwrap_or_default(),
+                        sent_back: result["sentBack"].as_bool().unwrap_or(false),
+                    }),
                 }
             })
             .collect();
@@ -1911,6 +1996,97 @@ impl Liaison {
                         &tid,
                         "liaison.delivery_failed",
                         json!({ "correlationId": correlation, "reason": why }),
+                    ))?;
+                    Ok(())
+                })
+                .await
+            }
+        }
+    }
+
+    fn spawn_give_back(&self, task_id: String) {
+        let key = format!("give-back:{task_id}");
+        if !self.claim(&key) {
+            return;
+        }
+        let this = self.clone();
+        tokio::spawn(async move {
+            if let Err(e) = this.give_back(&task_id).await {
+                this.notice(format!(
+                    "Liaison could not give task {task_id} its answer back to check: {e}"
+                ));
+            }
+            this.release_after(&key, &task_id);
+        });
+    }
+
+    /// Give a sent-back answer to its worker, in its own conversation, with the reasons and
+    /// Plenipo's record (Phase 25, item 4.7).
+    async fn give_back(&self, task_id: &str) -> Result<()> {
+        let tid = task_id.to_owned();
+        let (task, sent) = self
+            .blocking(move |l| {
+                let task = l
+                    .task(&tid)?
+                    .ok_or_else(|| LedgerError::NotFound(format!("task {tid}")))?;
+                Ok((task, l.last_task_event(&tid, facts::SENT_BACK)?))
+            })
+            .await?;
+        let Some(sent) = sent.filter(|_| task.state == TaskState::Blocked) else {
+            return Ok(());
+        };
+        let Some(session_id) = task.metadata["sessionId"].as_str() else {
+            return Err(LiaisonError::Internal(format!(
+                "task {} has no worker session",
+                task.id
+            )));
+        };
+        let mismatches: Vec<String> =
+            serde_json::from_value(sent.payload["mismatches"].clone()).unwrap_or_default();
+        let record: facts::Facts =
+            serde_json::from_value(sent.payload["record"].clone()).unwrap_or_default();
+        let message = context::sent_back_message(&mismatches, &record);
+        let note = StepNote {
+            reason: "its answer was given back to check".into(),
+            data: json!({ "sentBack": true }),
+            passed_bytes: message.passed_bytes,
+        };
+        let admission = match self.entitlements().admit_worker(Some(&task.id)) {
+            Ok(a) => a,
+            Err(blocked) => return self.note_waiting_for_a_place(&task.id, &blocked).await,
+        };
+        let continued = self
+            .inner
+            .runtime
+            .continue_turn(session_id, &task.id, &message.text, note)
+            .await;
+        self.entitlements().release(admission);
+        match continued {
+            Ok(_) | Err(RuntimeError::Busy(_) | RuntimeError::ShuttingDown) => Ok(()),
+            Err(RuntimeError::NotWaiting(why)) => {
+                // Nothing holds this task's conversation any more: end it rather than leave it
+                // waiting forever. Its answer goes up as it was, marked by the check.
+                let tid = task.id.clone();
+                self.blocking(move |l| {
+                    l.complete_task(
+                        &tid,
+                        TaskState::Failed,
+                        ACTOR,
+                        Some("its answer could not be given back to check"),
+                        task_event(&tid, "liaison.give_back_failed", json!({ "reason": why })),
+                    )?;
+                    Ok(())
+                })
+                .await
+            }
+            Err(e) => {
+                // The runtime ended the turn with the reason; record why it stopped.
+                let (tid, why) = (task.id.clone(), e.to_string());
+                self.blocking(move |l| {
+                    l.append_event(task_event(
+                        &tid,
+                        "liaison.give_back_failed",
+                        json!({ "reason": why }),
                     ))?;
                     Ok(())
                 })
@@ -2149,6 +2325,13 @@ fn recorded_label(request: &LiaisonMessage) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Whether a task's worker was asked to end its answer with a review verdict (a reviewer, QA,
+/// a security auditor, or a worker serving a team through oversight; its `workforce` record
+/// says so).
+fn wants_verdict(task: &Task) -> bool {
+    task.metadata["workforce"]["verdict"] == true
+}
+
 fn outcome_of(reply: &LiaisonMessage) -> HandoffOutcome {
     serde_json::from_value(reply.envelope["result"]["outcome"].clone())
         .unwrap_or(HandoffOutcome::Failed)
@@ -2169,6 +2352,8 @@ fn reply_view(reply: &LiaisonMessage) -> ReplyView {
         error: result["error"].as_str().map(str::to_owned),
         source: reply.source.clone(),
         created_at: reply.created_at,
+        mismatches: serde_json::from_value(result["mismatches"].clone()).unwrap_or_default(),
+        sent_back: result["sentBack"].as_bool().unwrap_or(false),
     }
 }
 
@@ -2210,6 +2395,14 @@ fn build_reply(
                 None,
             )
         };
+    // Plenipo's record under the answer, and the plain checks (Phase 25, item 4.7).
+    let correlation = task_info(&child.metadata).correlation_id;
+    let record = facts::gather(l, child, correlation.as_deref())?;
+    let mismatches = match (outcome, text.as_deref()) {
+        (HandoffOutcome::Completed, Some(t)) => facts::check(t, &record, wants_verdict(child)),
+        _ => Vec::new(),
+    };
+    let sent_back = l.count_task_events(&child.id, facts::SENT_BACK)? > 0;
     let text = text.map(|t| cap_bytes(&t, text_limit));
     let source = child.metadata["sessionId"].as_str().map_or_else(
         || ACTOR.to_owned(),
@@ -2234,9 +2427,16 @@ fn build_reply(
                 "text": text,
                 "error": error,
                 "runtimeId": child.metadata["runtimeId"],
+                "record": record,
+                "mismatches": mismatches,
+                "sentBack": sent_back,
             },
         }),
-        summary: json!({ "outcome": outcome, "summary": first_line(&summary, 200) }),
+        summary: json!({
+            "outcome": outcome,
+            "summary": first_line(&summary, 200),
+            "mismatches": mismatches,
+        }),
         message_id,
         correlation_id: request.correlation_id.clone(),
         in_reply_to: request.id.clone(),
