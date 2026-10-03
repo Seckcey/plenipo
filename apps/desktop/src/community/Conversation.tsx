@@ -12,9 +12,12 @@ import {
   reactInCommunity,
   sendCommunityMessage,
   toCommandError,
+  unblockInCommunity,
 } from "../api/commands";
 import { ConfirmDialog } from "../components/org/Modal";
 import type { Go } from "../components/views";
+import { BlockDialog } from "./BlockDialog";
+import { blockedWords } from "./blockReportWords";
 import { Composer, type SendProblem } from "./Composer";
 import { GiveToWorkerDialog } from "./GiveToWorker";
 import { MessageItem } from "./MessageItem";
@@ -30,6 +33,7 @@ import {
   stateOf,
   whoWords,
 } from "./messageWords";
+import { ReportDialog, type ReportAbout } from "./ReportDialog";
 import { oneLine } from "./safeText";
 
 /** Who a conversation is with, when it is opened: it may not exist on this PC yet. */
@@ -184,6 +188,9 @@ type Dialog =
   | { kind: "delete"; message: MessageView }
   | { kind: "give"; message: MessageView }
   | { kind: "leave" }
+  | { kind: "block" }
+  /** `then`: where to go when the report window closes (back to the question that offered it). */
+  | { kind: "report"; about: ReportAbout[]; ticked: string[]; then?: "leave" }
   | { kind: "link"; address: string };
 
 /** Where the other person stands, as far as this PC knows, before it has heard of them. */
@@ -204,9 +211,11 @@ function unknownPerson(target: Target): ConversationSummary {
  * first, as safe text), what you can do with each, and the box to write in. It is read when it
  * opens, which marks its messages seen.
  *
- * What it offers depends on where it stands: a **request** from someone new has **Accept** and
- * **Leave this conversation**; your own request waits for them; after a leave the box is off or on
- * as the sentences below say.
+ * What it offers depends on where it stands: a **request** from someone new has **Accept**,
+ * **Block**, **Report**, and **Leave this conversation**; your own request waits for them; after a
+ * leave the box is off or on as the sentences below say. Every other conversation has **Report**
+ * and **Block** in its header (ADR-167), and every message of theirs has its own **Report**.
+ * After a **Block**, the conversation says so, with **Unblock**, for as long as `blocked` says.
  */
 export function Conversation({
   target,
@@ -215,6 +224,8 @@ export function Conversation({
   listAt,
   changes,
   go,
+  blocked,
+  onBlocked,
   onBack,
   onChanged,
 }: {
@@ -227,6 +238,10 @@ export function Conversation({
   listAt: number;
   changes: number;
   go: Go;
+  /** You blocked this person in this window (the list's state is "You left" once you do). */
+  blocked: boolean;
+  /** Blocking, or unblocking, this person was done here: `blocked` is what is so now. */
+  onBlocked: (memberId: string, blocked: boolean) => void;
   /** Back to the list (on a narrow window the list is hidden while a conversation is open). */
   onBack: () => void;
   /** Something changed that the list should read again. */
@@ -285,6 +300,8 @@ export function Conversation({
   };
 
   const byId = useMemo(() => new Map(c.messages.map((m) => [m.itemId, m])), [c.messages]);
+  // What can be reported in this conversation: their messages, with their proof.
+  const reportable = useMemo(() => c.messages.filter((m) => m.reportable), [c.messages]);
   const quote = (m: MessageView): string | null | undefined => {
     if (m.replyTo === null) return undefined;
     const answered = byId.get(m.replyTo);
@@ -299,6 +316,7 @@ export function Conversation({
   }, [newest]);
 
   const code = c.view?.safetyCode ?? null;
+  const reportPerson = () => setDialog({ kind: "report", about: ["person"], ticked: [] });
   const leave = (
     <Button variant="quiet" onClick={() => setDialog({ kind: "leave" })}>
       Leave this conversation
@@ -329,6 +347,10 @@ export function Conversation({
           >
             Check the safety code
           </Button>
+          {(!request || blocked) && <Button onClick={reportPerson}>Report</Button>}
+          {!request && !blocked && (
+            <Button onClick={() => setDialog({ kind: "block" })}>Block</Button>
+          )}
           {(state === "accepted" || state === "requestedByMe" || state === "leftByThem") && leave}
         </div>
       </header>
@@ -427,11 +449,14 @@ export function Conversation({
                 message={m}
                 who={who}
                 quote={quote(m)}
-                canWrite={canWrite}
+                canWrite={canWrite && !blocked}
                 onReact={(message, emoji) => act(() => reactInCommunity(message.itemId, emoji))}
                 onReply={(message) => setReplyTo(message)}
                 onDelete={(message) => setDialog({ kind: "delete", message })}
                 onGive={(message) => setDialog({ kind: "give", message })}
+                onReport={(message) =>
+                  setDialog({ kind: "report", about: ["messages"], ticked: [message.itemId] })
+                }
                 onOpenLink={(address) => setDialog({ kind: "link", address })}
               />
             ))}
@@ -440,7 +465,22 @@ export function Conversation({
         <div ref={end} />
       </div>
 
-      {request && (
+      {blocked && (
+        <div className="conversation__blocked">
+          <p role="status">{blockedWords(person.name)}</p>
+          <Button
+            onClick={() =>
+              act(
+                () => unblockInCommunity(person.memberId),
+                () => onBlocked(person.memberId, false),
+              )
+            }
+          >
+            Unblock
+          </Button>
+        </div>
+      )}
+      {request && !blocked && (
         <div className="conversation__request">
           <Button
             variant="primary"
@@ -448,6 +488,8 @@ export function Conversation({
           >
             Accept
           </Button>
+          <Button onClick={() => setDialog({ kind: "block" })}>Block</Button>
+          <Button onClick={reportPerson}>Report</Button>
           {leave}
         </div>
       )}
@@ -456,7 +498,7 @@ export function Conversation({
           Waiting for {at} to accept your first message.
         </p>
       )}
-      {state === "leftByMe" && (
+      {state === "leftByMe" && !blocked && (
         <p className="conversation__state" role="status">
           You left this conversation. Writing again opens it on your side.
         </p>
@@ -466,12 +508,12 @@ export function Conversation({
           {at} left this conversation. Your messages won't be delivered.
         </p>
       )}
-      {known && state === "none" && c.messages.length === 0 && (
+      {known && state === "none" && !blocked && c.messages.length === 0 && (
         <p className="muted">
           Your first message is a request. {who} can answer once they accept it.
         </p>
       )}
-      {canWrite && (
+      {canWrite && !blocked && (
         <Composer
           who={person}
           reply={replyTo}
@@ -509,6 +551,20 @@ export function Conversation({
           message={<p>{leaveWords(who)}</p>}
           confirmLabel="Leave this conversation"
           danger
+          extra={
+            <Button
+              onClick={() =>
+                setDialog({
+                  kind: "report",
+                  about: reportable.length > 0 ? ["messages"] : ["person"],
+                  ticked: [],
+                  then: "leave",
+                })
+              }
+            >
+              Report first
+            </Button>
+          }
           onCancel={() => setDialog(null)}
           onConfirm={async () => {
             try {
@@ -522,6 +578,35 @@ export function Conversation({
             after();
             return null;
           }}
+        />
+      )}
+      {dialog?.kind === "block" && (
+        <BlockDialog
+          memberId={person.memberId}
+          name={person.name}
+          onCancel={() => setDialog(null)}
+          onBlocked={() => {
+            setReplyTo(null);
+            setDialog(null);
+            onBlocked(person.memberId, true);
+            after();
+          }}
+        />
+      )}
+      {dialog?.kind === "report" && (
+        <ReportDialog
+          memberId={person.memberId}
+          name={person.name}
+          about={dialog.about}
+          messages={reportable}
+          ticked={dialog.ticked}
+          onSent={(alsoBlocked) => {
+            if (!alsoBlocked) return;
+            setReplyTo(null);
+            onBlocked(person.memberId, true);
+            after();
+          }}
+          onClose={() => setDialog(dialog.then === "leave" ? { kind: "leave" } : null)}
         />
       )}
       {dialog?.kind === "link" && (

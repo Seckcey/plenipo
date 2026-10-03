@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-unblock-in-community"
+description = "Enables the unblock_in_community command without any pre-configured scope."
+commands.allow = ["unblock_in_community"]
+
+[[permission]]
+identifier = "deny-unblock-in-community"
+description = "Denies the unblock_in_community command without any pre-configured scope."
+commands.deny = ["unblock_in_community"]

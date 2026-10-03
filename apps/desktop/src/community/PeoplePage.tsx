@@ -21,10 +21,13 @@ import {
 import type { Go } from "../components/views";
 import { PictureCode } from "../remote/DevicesSettings";
 import { systemWords } from "../system/words";
-import { CommunityCard } from "./CommunityCard";
+import { BlockDialog } from "./BlockDialog";
+import { UNBLOCK_IN_SETTINGS, blockedWords } from "./blockReportWords";
+import { CommunityCard, type CardActions } from "./CommunityCard";
 import type { Target } from "./Conversation";
 import { Messages } from "./Messages";
 import { BUSINESS_KINDS, regionOptions } from "./profileWords";
+import { ReportDialog } from "./ReportDialog";
 import { oneLine } from "./safeText";
 import { useCommunity } from "./useCommunity";
 import { unseenCount, useMessages } from "./useMessages";
@@ -45,13 +48,14 @@ function requestOnlyWords(name: string): string {
 export const NO_ONE = "No one in Community has that name.";
 
 /**
- * How the People tab opens a conversation (the Messages tab with a box for that person), and who
- * you are, so your own card has no **Message** button. Without it (a card on its own), no button.
+ * What the People tab does with a card: opens a conversation (the Messages tab with a box for that
+ * person), reports or blocks the person. It knows who you are, so your own card has none of those
+ * buttons. Without it (a card on its own), no buttons.
  */
 const Messaging = createContext<{
   open: (memberId: string, name: string) => void;
-  /** Gives the opener for a card with this Community name, or none for your own. */
-  to: (name: string) => ((memberId: string, name: string) => void) | undefined;
+  /** The buttons for a card with this Community name: none for your own. */
+  actions: (name: string) => CardActions;
 } | null>(null);
 
 /** A page of cards at a time: what is shown, where the next page starts, and what is going on. */
@@ -139,7 +143,7 @@ function PeopleList({ pages, label, empty }: { pages: PagesState; label: string;
         <ul className="people-grid" aria-label={label}>
           {pages.cards.map((card) => (
             <li key={card.memberId}>
-              <CommunityCard card={card} onMessage={messaging?.to(card.name)} />
+              <CommunityCard card={card} {...messaging?.actions(card.name)} />
             </li>
           ))}
         </ul>
@@ -240,7 +244,7 @@ function FindSomeone() {
       {found?.kind === "card" && (
         <ul className="people-grid people-grid--one" aria-label="Who was found">
           <li>
-            <CommunityCard card={found.card} onMessage={messaging?.to(found.card.name)} />
+            <CommunityCard card={found.card} {...messaging?.actions(found.card.name)} />
           </li>
         </ul>
       )}
@@ -501,6 +505,13 @@ function People() {
 function SignedIn({ go, member }: { go: Go; member: MemberView | null }) {
   const [tab, setTab] = useState<CommunityTab>("people");
   const [target, setTarget] = useState<Target | null>(null);
+  // A card's Report or Block that is being asked about, and what was said after a Block.
+  const [asking, setAsking] = useState<{
+    kind: "report" | "block";
+    memberId: string;
+    name: string;
+  } | null>(null);
+  const [blockedNote, setBlockedNote] = useState<string | null>(null);
   const messages = useMessages();
   const unseen = unseenCount(messages.list);
   const own = member?.name ?? "";
@@ -510,7 +521,23 @@ function SignedIn({ go, member }: { go: Go; member: MemberView | null }) {
     setTarget({ memberId, name });
     setTab("messages");
   };
-  const messaging = { open, to: (name: string) => (name === own ? undefined : open) };
+  const messaging = {
+    open,
+    actions: (name: string): CardActions =>
+      name === own
+        ? {}
+        : {
+            onMessage: open,
+            onReport: (memberId, who) => {
+              setBlockedNote(null);
+              setAsking({ kind: "report", memberId, name: who });
+            },
+            onBlock: (memberId, who) => {
+              setBlockedNote(null);
+              setAsking({ kind: "block", memberId, name: who });
+            },
+          },
+  };
   return (
     <>
       <Tabs<CommunityTab>
@@ -527,6 +554,11 @@ function SignedIn({ go, member }: { go: Go; member: MemberView | null }) {
           },
         ]}
       />
+      {blockedNote && (
+        <p role="status" className="muted">
+          {blockedNote}
+        </p>
+      )}
       <div
         role="tabpanel"
         id="community-panel-people"
@@ -547,6 +579,28 @@ function SignedIn({ go, member }: { go: Go; member: MemberView | null }) {
             go={go}
           />
         </div>
+      )}
+      {asking?.kind === "report" && (
+        <ReportDialog
+          memberId={asking.memberId}
+          name={asking.name}
+          about={["person", "profile"]}
+          onSent={(alsoBlocked) => {
+            if (alsoBlocked) setBlockedNote(`${blockedWords(asking.name)} ${UNBLOCK_IN_SETTINGS}`);
+          }}
+          onClose={() => setAsking(null)}
+        />
+      )}
+      {asking?.kind === "block" && (
+        <BlockDialog
+          memberId={asking.memberId}
+          name={asking.name}
+          onCancel={() => setAsking(null)}
+          onBlocked={() => {
+            setBlockedNote(`${blockedWords(asking.name)} ${UNBLOCK_IN_SETTINGS}`);
+            setAsking(null);
+          }}
+        />
       )}
     </>
   );

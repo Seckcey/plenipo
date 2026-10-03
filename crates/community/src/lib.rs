@@ -19,6 +19,7 @@
 //! Plenipo is made by 8 West Ventures, LLC.
 
 pub mod b64;
+pub mod block_report;
 pub mod client;
 pub mod ids;
 pub mod item;

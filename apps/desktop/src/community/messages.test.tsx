@@ -420,9 +420,12 @@ describe("The open conversation", () => {
     expect(await screen.findByText("Hello")).toBeVisible();
   });
 
-  it("has no Report or Block yet", async () => {
+  it("has Report and Block in its header, and Report on a message of theirs", async () => {
     await inPat();
-    expect(screen.queryByRole("button", { name: /Report|Block/ })).not.toBeInTheDocument();
+    const header = screen.getByRole("heading", { level: 2, name: "Pat Lee" }).closest("header");
+    expect(within(header as HTMLElement).getByRole("button", { name: "Report" })).toBeVisible();
+    expect(within(header as HTMLElement).getByRole("button", { name: "Block" })).toBeVisible();
+    expect(within(items()[0] as HTMLElement).getByRole("button", { name: "Report" })).toBeVisible();
   });
 });
 
