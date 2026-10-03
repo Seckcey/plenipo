@@ -1,4 +1,4 @@
-//! Side chats (Phase 25, item 3.5; ADR-201): the owner asks a full-time agent a question while
+//! Side chats (Phase 25, item 3.5; ADR-251): the owner asks a full-time agent a question while
 //! it works or waits for its team. The side chat is a new conversation on the agent's AI tool
 //! and model, told who it is, what it is doing now, and its recent conversation (from Plenipo's
 //! own record of it), with the owner's question. Answer only: no tools and no hand-offs. The

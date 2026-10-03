@@ -375,7 +375,7 @@ pub fn effort_words(
 }
 
 /// The same model on the same company's key, for a model whose subscription AI tool reached its
-/// usage limit (Phase 25, item 4.4; ADR-204): the company's paid AI tool, its name for the model,
+/// usage limit (Phase 25, item 4.4; ADR-254): the company's paid AI tool, its name for the model,
 /// and the model's label there ("Claude Sonnet 5.5 (Anthropic)"), when the two are linked
 /// (`KnownModel.same`; an alias through the exact model it points to). `None` without a link or
 /// such a key.
@@ -417,7 +417,7 @@ fn key_twin<'a>(
 
 /// Why the same company's key cannot take the model now, if it cannot: every check a paid route
 /// the owner listed gets (ADR-085 §6), but "wait instead of moving to another AI company", since
-/// it is the same company (ADR-204).
+/// it is the same company (ADR-254).
 fn key_blocked(
     input: &RouteInput<'_>,
     layers: &[Layer<'_>],
@@ -569,7 +569,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
     // The company whose usage limit work is waiting for (LimitBehavior::Wait).
     let mut waiting: Option<(&str, String)> = None;
     // The subscription whose usage limit moved the work to the same company's key, and its
-    // limit in words (Phase 25, item 4.4; ADR-204).
+    // limit in words (Phase 25, item 4.4; ADR-254).
     let mut on_key: Option<(String, String)> = None;
     for c in &candidates {
         let Some(m) = c.model else {
@@ -693,7 +693,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
             None
         };
         // Your subscription first, then the same model on the same company's key (Phase 25, item
-        // 4.4; ADR-204), only while its key can take it.
+        // 4.4; ADR-254), only while its key can take it.
         let twin = (limited_here && !t.paid)
             .then(|| key_twin(input.tools, t, m.name.as_deref()))
             .flatten()
@@ -1937,7 +1937,7 @@ mod tests {
         })
     }
 
-    /// Phase 25, item 4.4 (ADR-204): your subscription first, then the same model on the same
+    /// Phase 25, item 4.4 (ADR-254): your subscription first, then the same model on the same
     /// company's key, only while the key can take it, and never silently.
     #[test]
     fn a_subscription_limit_moves_the_same_model_to_the_same_companys_key() {

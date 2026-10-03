@@ -1,11 +1,11 @@
-# ADR-202: Prompt caching for Anthropic models on your key and through OpenRouter
+# ADR-252: Prompt caching for Anthropic models on your key and through OpenRouter
 
 - **Status:** Accepted (the owner, first list, kept in Phase 25: "Make sure we are using prompt
   caching for all Anthropic models."; item 4.1 of
   [ADR-190 (Phase 25 starts)](ADR-190-phase-25-starts.md), accepted 2026-10-03).
 - **Date:** 2026-10-03
 - **Phase:** 25, Wave 4 (item 4.1)
-- **Number:** after Phase 25's block (ADR-190 to ADR-199), like ADR-200.
+- **Number:** after Phase 25's block (ADR-190 to ADR-199), like ADR-250.
 - **Amends:** [ADR-085 (paid AI keys with spending caps)](ADR-085-paid-ai-keys-with-spending-caps.md)
   §3.5: "Plenipo's helpers never ask a service to store a conversation for reuse."
 

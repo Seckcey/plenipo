@@ -2036,7 +2036,7 @@ impl Workforce {
         Ok(detail)
     }
 
-    /// A side chat with a full-time agent (Phase 25, item 3.5; ADR-201): a new conversation on
+    /// A side chat with a full-time agent (Phase 25, item 3.5; ADR-251): a new conversation on
     /// the agent's AI tool and model, told who it is, what it is doing now, and its recent
     /// conversation, with the owner's question. Answer only: no tools and no hand-offs. It works
     /// while the agent is busy or waiting, and never touches its work. Listed in Workers as "Side

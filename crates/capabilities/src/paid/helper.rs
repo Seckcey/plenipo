@@ -537,7 +537,7 @@ fn models_from(service: PaidService, body: &str) -> Vec<Value> {
                 Some(json!({
                     "input": per_million(p, "prompt")?,
                     "cachedInput": per_million(p, "input_cache_read"),
-                    // Storing input for reuse, where it costs more (Anthropic's models, ADR-202).
+                    // Storing input for reuse, where it costs more (Anthropic's models, ADR-252).
                     "cacheWrite": per_million(p, "input_cache_write"),
                     "output": output,
                 }))
@@ -828,7 +828,7 @@ async fn chat(client: &Client, args: &[String], input: &mut dyn Read, out: &mut 
     0
 }
 
-/// Phase 25, item 4.1 (ADR-202): `content` marked for Anthropic's prompt cache: a text becomes a
+/// Phase 25, item 4.1 (ADR-252): `content` marked for Anthropic's prompt cache: a text becomes a
 /// block with the mark, or the last of its blocks gets it. Everything up to a mark is stored for
 /// reuse, so the next task reads its instructions and the conversation so far from the cache.
 fn cache_marked(content: &Value) -> Value {
@@ -879,7 +879,7 @@ fn request_body(
 ) -> (&'static str, Value) {
     match service.protocol() {
         plenipo_guard::PaidProtocol::OpenAiChat => {
-            // Anthropic's models through OpenRouter are cached the same way (ADR-202).
+            // Anthropic's models through OpenRouter are cached the same way (ADR-252).
             let mut messages = messages.to_vec();
             if service == PaidService::OpenRouter && anthropic_through_openrouter(model) {
                 mark_for_cache(&mut messages);
@@ -933,7 +933,7 @@ fn request_body(
                 .filter(|m| m.get("role").and_then(Value::as_str) != Some("system"))
                 .cloned()
                 .collect();
-            // Its instructions and the conversation so far are cached (ADR-202).
+            // Its instructions and the conversation so far are cached (ADR-252).
             mark_for_cache(&mut turns);
             let mut body = json!({
                 "model": model,
@@ -1489,7 +1489,7 @@ mod tests {
         assert!(haiku.get("inference_geo").is_none());
     }
 
-    /// Phase 25, item 4.1 (ADR-202): an Anthropic model's instructions and latest message carry
+    /// Phase 25, item 4.1 (ADR-252): an Anthropic model's instructions and latest message carry
     /// the cache mark, on the key and through OpenRouter; other companies' requests don't.
     #[test]
     fn anthropic_requests_carry_the_cache_marks() {

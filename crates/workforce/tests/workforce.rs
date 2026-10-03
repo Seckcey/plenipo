@@ -1529,7 +1529,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     assert_eq!(h.briefing(&o.coordinator), (identity, members));
 }
 
-/// When a plan runs out (Phase 25, item 4.2; ADR-203): the work a usage limit stopped waits with
+/// When a plan runs out (Phase 25, item 4.2; ADR-253): the work a usage limit stopped waits with
 /// the owner's choices, is picked back up once the limit is over (never before, and never while
 /// Stop all work holds it), and stays stopped when the owner says so.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

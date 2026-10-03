@@ -1,4 +1,4 @@
-//! Objectives a plan's usage limit stopped (Phase 25, item 4.2; ADR-203). An objective the owner
+//! Objectives a plan's usage limit stopped (Phase 25, item 4.2; ADR-253). An objective the owner
 //! gave whose last step ended at an AI tool's usage limit failed; Plenipo picks it back up once
 //! the limit is over, unless the owner left it stopped. Each one is picked up, left stopped, or
 //! run again by the owner at most once: the record says which.

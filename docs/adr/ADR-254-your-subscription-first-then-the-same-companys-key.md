@@ -1,11 +1,11 @@
-# ADR-204: Your subscription first, then the same model on the same company's key
+# ADR-254: Your subscription first, then the same model on the same company's key
 
 - **Status:** Accepted (the owner, second list, kept in Phase 25: "Plenipo is not using
   subscription tokens before API tokens like it's supposed to."; item 4.4 of
   [ADR-190 (Phase 25 starts)](ADR-190-phase-25-starts.md), accepted 2026-10-03).
 - **Date:** 2026-10-03
 - **Phase:** 25, Wave 4 (item 4.4)
-- **Number:** after Phase 25's block (ADR-190 to ADR-199), like ADR-200.
+- **Number:** after Phase 25's block (ADR-190 to ADR-199), like ADR-250.
 - **Amends:** [ADR-085 (paid AI keys with spending caps)](ADR-085-paid-ai-keys-with-spending-caps.md)
   §6 ("A paid route is used only where the owner listed it") and §8 ("Nothing turns subscription
   use into paid use silently"), as ADR-190's table planned.
@@ -45,7 +45,7 @@ Anthropic key saved. Plenipo already knew the two were the same model, but never
   Anthropic's). OpenRouter is not used for this: it is another company.
 - **When.** Only when the subscription's limit is what stops the model, at the moment the work is
   placed. A full-time agent keeps its conversation on its AI tool; its new objectives wait for the
-  reset (ADR-203, when a plan runs out).
+  reset (ADR-253, when a plan runs out).
 - **Every check a listed paid route gets** still applies to the key: the switch, the key, a price,
   the room under the caps, the project's allowed AI tools, and "never use" companies. "Wait for
   the reset instead of moving to another AI company" does not stop it: it is the same company.

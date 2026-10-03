@@ -1168,7 +1168,7 @@ pub async fn end_oversight(
     with_workforce(&workforce, move |w| w.end_oversight(&oversight_id)).await
 }
 
-/// A side chat with a full-time agent (Phase 25, item 3.5; ADR-201): the owner's question, in a
+/// A side chat with a full-time agent (Phase 25, item 3.5; ADR-251): the owner's question, in a
 /// new conversation that knows what the agent knows, answer only. It works while the agent is
 /// busy or waiting; its work is never touched.
 #[tauri::command]
@@ -1370,7 +1370,7 @@ pub async fn clear_usage_limit(
     with_router(&router, move |r| r.clear_limit(&runtime_id)).await
 }
 
-// ---- When a plan runs out (Phase 25, item 4.2; ADR-203) --------------------------------------
+// ---- When a plan runs out (Phase 25, item 4.2; ADR-253) --------------------------------------
 
 /// How a company's own page is opened (tests use a stand-in browser).
 pub struct CompanyPages(pub Arc<dyn plenipo_capabilities::connections::Opener>);

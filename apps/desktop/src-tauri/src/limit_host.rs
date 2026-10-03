@@ -1,4 +1,4 @@
-//! When a plan runs out (Phase 25, item 4.2; ADR-203): once a minute, each organization gives
+//! When a plan runs out (Phase 25, item 4.2; ADR-253): once a minute, each organization gives
 //! the work a usage limit stopped back to its workers when the limit is over, unless the owner
 //! left it stopped. Nothing is picked up while Stop all work holds the work.
 

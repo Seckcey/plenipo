@@ -108,7 +108,7 @@ const LOW_TO_HIGH: &[Effort] = &[Effort::Low, Effort::Medium, Effort::High];
 const LOW_HIGH_MAX: &[Effort] = &[Effort::Low, Effort::High, Effort::Max];
 
 /// Anthropic's models. Plenipo marks their requests for the prompt cache (Phase 25, item 4.1;
-/// ADR-202): input stored for reuse costs 1.25 times the input price (Anthropic's five-minute
+/// ADR-252): input stored for reuse costs 1.25 times the input price (Anthropic's five-minute
 /// cache), and input read back from it the cached price.
 const ANTHROPIC_MODELS: &[Sold] = &[
     sold(
@@ -642,7 +642,7 @@ impl RuntimeAdapter for Direct {
 mod tests {
     use super::*;
 
-    /// Phase 25, item 4.1 (ADR-202): with the prompt cache, an Anthropic task's bill counts the
+    /// Phase 25, item 4.1 (ADR-252): with the prompt cache, an Anthropic task's bill counts the
     /// input stored for reuse at 1.25 times the input price and the input read back at the cached
     /// price; the most it could cost counts all of its input as stored.
     #[test]

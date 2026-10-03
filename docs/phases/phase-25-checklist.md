@@ -10,7 +10,9 @@ Source: the owner's two lists of 2026-10-03, and
 
 **Numbers:** ADR-190 to ADR-199. Phase 24 is already using numbers in the 170s, so Phase 25
 starts at 190 to keep clear of it. Waves 1 and 2 and the first Wave 3 items used the whole block (ADR-199 is Stop all work), so
-any later Phase 25 decision continues at ADR-200 (no other phase uses the 200s). Dates are Pacific
+any later Phase 25 decision continues at ADR-250. (It first used ADR-200 to ADR-204; on
+2026-10-03 another session put ADR-200 to ADR-202 on `main`, so Phase 25 moved to the 250s,
+which no one else uses.) Dates are Pacific
 time. Screen words follow
 [`docs/design/vocabulary.md`](../design/vocabulary.md).
 
@@ -572,8 +574,8 @@ About 5 to 7 build sessions.
   - [x] After each command or git step, compare the working copy before and after. Show what
         changed as "made by a command". Files Guard keeps private are skipped (never read), and so
         are `.git`, `node_modules`, and build output.
-  - [x] **Change ADR-055 (Watch):** [ADR-200 (Watch shows changes made by
-        commands)](../adr/ADR-200-watch-shows-changes-made-by-commands.md).
+  - [x] **Change ADR-055 (Watch):** [ADR-250 (Watch shows changes made by
+        commands)](../adr/ADR-250-watch-shows-changes-made-by-commands.md).
 - **Tests:** a file made by a command shows in Watch. A private file never does.
   - [x] capabilities `files_a_command_makes_show_in_watch_and_a_private_one_never_does` (a real
         command through the broker; its record keeps the file and counts, never the text) and
@@ -637,12 +639,12 @@ About 5 to 7 build sessions.
   conversation.
 - **Do:**
   - [x] **Ask a question** on the Inspector and the Worker page. It works while the agent is busy
-        or waiting. [ADR-201 (side chats)](../adr/ADR-201-side-chats.md).
+        or waiting. [ADR-251 (side chats)](../adr/ADR-251-side-chats.md).
   - [x] The side chat knows what's going on: a briefing with who it is, "status now", and its last
         four objectives and answers, from Plenipo's own saved record of its conversation. Its real
         work is never touched.
     - [ ] Claude Code: `--fork-session`. **Not yet:** every side chat starts fresh with the
-          briefing (ADR-201 says why).
+          briefing (ADR-251 says why).
     - [x] Paid keys and Ollama: Plenipo's own saved record (the briefing).
     - [ ] Codex, Grok, and Kimi: their fork, once checked. **Not yet** (the briefing for now).
     - [x] Otherwise: a fresh conversation with a short briefing.
@@ -676,7 +678,7 @@ About 6 to 8 build sessions.
 - **Do:**
   - [x] **Change ADR-085 §3.5:** caching is allowed for Anthropic models, on the direct key and
         through OpenRouter.
-        [ADR-202 (prompt caching for Anthropic models)](../adr/ADR-202-prompt-caching-for-anthropic-models.md).
+        [ADR-252 (prompt caching for Anthropic models)](../adr/ADR-252-prompt-caching-for-anthropic-models.md).
   - [x] Mark the reusable start of each request (instructions and earlier turns) for caching.
   - [x] Count the cost right: writing to the cache costs a little more, and reading from it costs
         much less. The Anthropic price rows get a cache-write price (1.25 times input), and the
@@ -703,7 +705,7 @@ About 6 to 8 build sessions.
     - use your Anthropic key or another AI tool"
 
     It is on every page, one for each AI tool at its limit, and names the work that waits
-    ([ADR-203 (when a plan runs out)](../adr/ADR-203-when-a-plan-runs-out.md)).
+    ([ADR-253 (when a plan runs out)](../adr/ADR-253-when-a-plan-runs-out.md)).
 
   - [x] Each choice is a button: **Wait**, **Use a reset** (and **Pick it up now** after it),
         **Use another AI tool**, **Leave stopped**. "Use a reset" opens the company's own page in
@@ -712,7 +714,7 @@ About 6 to 8 build sessions.
   - [x] Check whether Claude Code or Codex reports a waiting reset. **Neither does, in what their
         makers document:** Claude Code's `rate_limit_event` has no such field, and OpenAI's own
         Codex documentation describes none (a third-party note says newer versions have one, not
-        confirmed). So Plenipo only reminds, and never guesses (ADR-203).
+        confirmed). So Plenipo only reminds, and never guesses (ADR-253).
   - [x] Work stopped by a limit **restarts by itself** after the reset, unless you said Leave
         stopped: each organization looks once a minute (`limit_host.rs`), and each objective is
         picked up once, recorded in the Ledger. Never while Stop all work holds the work.
@@ -742,7 +744,7 @@ About 6 to 8 build sessions.
         at once after a limit (not up to five minutes later), and the Router waits for the reset
         of the window that is full. One plan book is shared by every organization, as the plan is
         the owner's account. With nothing reported, an hour, as before
-        ([ADR-203 (when a plan runs out)](../adr/ADR-203-when-a-plan-runs-out.md)).
+        ([ADR-253 (when a plan runs out)](../adr/ADR-253-when-a-plan-runs-out.md)).
   - [x] Show OpenRouter's key limit and balance: "Key limit: $10.00 · $3.20 spent · $6.80 left"
         (or "No limit on this key"), from the key check Plenipo already makes. OpenRouter's key
         answer has no account balance, so "left" is what the key may still spend.
@@ -770,7 +772,7 @@ About 6 to 8 build sessions.
         Haiku; an alias through the exact model it points to), and across Codex and the OpenAI key
         (GPT-6.1 Sol, GPT-6 Astra, GPT-6 Luna, the three on both).
   - [x] **Change ADR-085 §6**:
-        [ADR-204 (your subscription first, then the same company's key)](../adr/ADR-204-your-subscription-first-then-the-same-companys-key.md).
+        [ADR-254 (your subscription first, then the same company's key)](../adr/ADR-254-your-subscription-first-then-the-same-companys-key.md).
   - [x] Every switch is shown on the worker (its Why) and the card ("Its work moves to your
         Anthropic key while it waits"), and written in the Ledger with the worker (`onKeyFor`).
         Plan rule §3.2, "no silent provider switching", still holds.

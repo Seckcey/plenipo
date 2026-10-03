@@ -413,7 +413,7 @@ pub struct RouteDecision {
     #[serde(default)]
     pub effort_from: Option<RuleSource>,
     /// The subscription AI tool whose usage limit moved this work to the same model on the same
-    /// company's key ("Claude Code"; Phase 25, item 4.4; ADR-204). `None` otherwise.
+    /// company's key ("Claude Code"; Phase 25, item 4.4; ADR-254). `None` otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub on_key_for: Option<String>,

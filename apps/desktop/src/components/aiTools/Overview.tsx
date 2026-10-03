@@ -477,7 +477,7 @@ function nothingToUpdate(label: string, install: InstallState): string {
 /**
  * The usage limit and when it resets, from the Router, with Try again now (ADR-060 §2), and
  * where its work goes meanwhile: the same models on its company's key, when the key can take them
- * (Phase 25, item 4.4; ADR-204).
+ * (Phase 25, item 4.4; ADR-254).
  */
 function UsageLimit({
   route,

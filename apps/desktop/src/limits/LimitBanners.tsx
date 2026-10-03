@@ -1,5 +1,5 @@
 /**
- * When a plan runs out (Phase 25, item 4.2; ADR-203): a notice for each AI tool at its usage
+ * When a plan runs out (Phase 25, item 4.2; ADR-253): a notice for each AI tool at its usage
  * limit, with the work that waits for it and your choices, each a button. Waiting is the
  * default: Plenipo picks the work back up by itself once the limit is over. **Use a reset**
  * opens the company's own page; Plenipo never uses a reset or buys anything for you.

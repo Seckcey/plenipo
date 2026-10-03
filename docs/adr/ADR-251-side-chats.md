@@ -1,4 +1,4 @@
-# ADR-201: Side chats with a manager or supervisor
+# ADR-251: Side chats with a manager or supervisor
 
 - **Status:** Accepted (the owner, 2026-10-03: "We need a way to open side chats to ask each agent
   a question if I don't want to go through the chain of command. Mainly with managers and
@@ -6,7 +6,7 @@
   [ADR-190 (Phase 25 starts)](ADR-190-phase-25-starts.md), with the owner's answer 4: answer only).
 - **Date:** 2026-10-03
 - **Phase:** 25, Wave 3 (item 3.5)
-- **Number:** after Phase 25's block (ADR-190 to ADR-199), like ADR-200.
+- **Number:** after Phase 25's block (ADR-190 to ADR-199), like ADR-250.
 
 > **On screen** (ADR-010, plain words and rank names): **Ask a question** in the details panel
 > ("A side chat: it answers from what it knows, and its work goes on.") and on the Worker page. The

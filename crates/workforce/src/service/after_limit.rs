@@ -1,4 +1,4 @@
-//! When a plan runs out (Phase 25, item 4.2; ADR-203). An objective the owner gave whose AI tool
+//! When a plan runs out (Phase 25, item 4.2; ADR-253). An objective the owner gave whose AI tool
 //! reached its usage limit failed. It waits, and Plenipo gives it to the same worker again once
 //! the limit is over (the reset time the AI tool reported, an hour when it reported none, or the
 //! owner's **Try again now**), unless the owner left it stopped. Plenipo never uses a usage reset

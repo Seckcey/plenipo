@@ -1,5 +1,5 @@
 /**
- * Side chats (Phase 25, item 3.5; ADR-201): **Ask a question** asks a full-time agent something
+ * Side chats (Phase 25, item 3.5; ADR-251): **Ask a question** asks a full-time agent something
  * while it works or waits for its team. The answer comes in a new conversation (in Workers, "Side
  * chat with Alex") that knows what the agent knows. It answers only: no tools, no hand-offs, and
  * its work is never touched.

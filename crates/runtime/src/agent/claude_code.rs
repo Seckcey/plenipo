@@ -81,7 +81,7 @@ impl RuntimeAdapter for ClaudeCode {
                 KnownModel::new("opus", "Opus", FRONTIER_EFFORT).now("claude-opus-5-5"),
                 KnownModel::new("sonnet", "Sonnet", FRONTIER_EFFORT).now("claude-sonnet-5-5"),
                 KnownModel::new("haiku", "Haiku", &[]).now("claude-haiku-4-5-20251001"),
-                // The same models on your Anthropic key (Phase 25, item 4.4; ADR-204): an alias
+                // The same models on your Anthropic key (Phase 25, item 4.4; ADR-254): an alias
                 // is linked through the exact model it points to.
                 KnownModel::new("claude-fable-5-1", "Fable 5.1", FRONTIER_EFFORT)
                     .same("claude-fable-5-1"),

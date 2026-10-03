@@ -812,7 +812,7 @@ pub struct DevelopmentInput {
     pub hire_new: Option<Vec<String>>,
 }
 
-/// Work an AI tool's usage limit stopped, for one AI tool (Phase 25, item 4.2; ADR-203): the
+/// Work an AI tool's usage limit stopped, for one AI tool (Phase 25, item 4.2; ADR-253): the
 /// notice that says when Plenipo picks it back up, and the owner's choices.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

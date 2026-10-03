@@ -1,4 +1,4 @@
-# ADR-203: When a plan runs out, say what you can do, and pick the work back up
+# ADR-253: When a plan runs out, say what you can do, and pick the work back up
 
 - **Status:** Accepted (the owner, first list, kept in Phase 25: "Suggest using a subscription
   reset when model usage limit is reached", and answer 5 of
@@ -6,7 +6,7 @@
   2026-10-03; item 4.2).
 - **Date:** 2026-10-03
 - **Phase:** 25, Wave 4 (item 4.2)
-- **Number:** after Phase 25's block (ADR-190 to ADR-199), like ADR-200.
+- **Number:** after Phase 25's block (ADR-190 to ADR-199), like ADR-250.
 - **Amends:** [ADR-037 (background work, and recovery after Plenipo stops unexpectedly)](ADR-037-background-work.md):
   "Nothing runs again by itself" still holds after a crash; work a **usage limit** stopped is now
   picked back up once the limit is over, unless you leave it stopped.

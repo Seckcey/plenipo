@@ -34,6 +34,6 @@ modelFrom: RuleSource | null,
 effortFrom: RuleSource | null, 
 /**
  * The subscription AI tool whose usage limit moved this work to the same model on the same
- * company's key ("Claude Code"; Phase 25, item 4.4; ADR-204). `None` otherwise.
+ * company's key ("Claude Code"; Phase 25, item 4.4; ADR-254). `None` otherwise.
  */
 onKeyFor?: string, };

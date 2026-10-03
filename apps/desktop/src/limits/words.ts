@@ -1,5 +1,5 @@
 /**
- * The words of the notice when a plan runs out (Phase 25, item 4.2; ADR-203). Plain words
+ * The words of the notice when a plan runs out (Phase 25, item 4.2; ADR-253). Plain words
  * (ADR-010): what happened, when the work picks back up, and what you can do.
  */
 import type { LimitWait } from "@plenipo/types";

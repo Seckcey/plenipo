@@ -542,7 +542,7 @@ impl Liaison {
         self.admitted(admission, started)
     }
 
-    /// A side chat (Phase 25, item 3.5; ADR-201): the owner's own conversation with a copy of
+    /// A side chat (Phase 25, item 3.5; ADR-251): the owner's own conversation with a copy of
     /// what an agent knows, answer only. It gets no Plenipo tools (its AI tool has none of its
     /// own either) and its hand-off blocks are not read, since hand-offs are on only for
     /// sessions that ask for them. It counts like any other worker (Free's three at once).

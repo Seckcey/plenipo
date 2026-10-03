@@ -97,7 +97,7 @@ impl RuntimeAdapter for Codex {
             // Every Codex model is OpenAI's. Older models (GPT-5.4 and before) are refused on a
             // ChatGPT sign-in, so none is listed (ADR-081 §9).
             // GPT-6.1 Sol, GPT-6 Astra, and GPT-6 Luna are the same models on your OpenAI key
-            // (Phase 25, item 4.4; ADR-204).
+            // (Phase 25, item 4.4; ADR-254).
             known_models: vec![
                 KnownModel::new("gpt-6.1-sol", "GPT-6.1-Sol", ULTRA).same("gpt-6.1-sol"),
                 KnownModel::new("gpt-6-astra", "GPT-6-Astra", ULTRA).same("gpt-6-astra"),

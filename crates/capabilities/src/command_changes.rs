@@ -1,4 +1,4 @@
-//! Watch shows changes made by commands too (Phase 25, item 3.2; ADR-200). Before a command or a
+//! Watch shows changes made by commands too (Phase 25, item 3.2; ADR-250). Before a command or a
 //! git step runs in a working copy, Plenipo notes its files (their size and time, and the text of
 //! the small ones); after, it compares. Each file the command made or changed shows in Watch as
 //! "made by a command", with its lines marked when its text before was noted. Files Guard keeps

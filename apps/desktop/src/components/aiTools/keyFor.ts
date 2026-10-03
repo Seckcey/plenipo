@@ -32,7 +32,7 @@ export function foldedInto(paidId: string): string | null {
 
 /**
  * Subscription AI tools whose models are linked to the same models on their company's key, so
- * that while the plan is out the work runs on the key (Phase 25, item 4.4; ADR-204).
+ * that while the plan is out the work runs on the key (Phase 25, item 4.4; ADR-254).
  */
 const MOVES_TO_KEY: ReadonlySet<string> = new Set(["claude-code", "codex"]);
 

@@ -1,12 +1,13 @@
-# ADR-200: Watch shows changes made by commands too
+# ADR-250: Watch shows changes made by commands too
 
 - **Status:** Accepted (the owner, 2026-10-03: "The watch doesn't seem to let the user watch the
   agent code."; item 3.2 of [ADR-190 (Phase 25 starts)](ADR-190-phase-25-starts.md), accepted the
   same day).
 - **Date:** 2026-10-03
 - **Phase:** 25, Wave 3 (item 3.2)
-- **Number:** the first after Phase 25's block (ADR-190 to ADR-199, all used); no other phase uses
-  the 200s.
+- **Number:** the first after Phase 25's block (ADR-190 to ADR-199, all used). First written as
+  ADR-200; renumbered on 2026-10-03, when another session put ADR-200 to ADR-202 on `main`. Phase
+  25 continues in the 250s.
 - **Amends:** [ADR-055 (Watch a worker write code)](ADR-055-watch-a-worker-write-code.md): Watch
   showed only the files a worker wrote with Plenipo's own file tools.
 
