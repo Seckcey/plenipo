@@ -302,6 +302,10 @@ pub struct ToolInfo {
     /// (ADR-081 §6).
     #[serde(default)]
     pub runs_other_makers: bool,
+    /// A paid AI tool, paid per use with your key (ADR-085): listed after the subscriptions in
+    /// model menus (Phase 25, item 2.5).
+    #[serde(default)]
+    pub paid: bool,
 }
 
 impl ToolInfo {

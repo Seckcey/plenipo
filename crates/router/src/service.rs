@@ -197,7 +197,7 @@ impl Planner {
         );
         let label = match model {
             Some(m) => format!("{m} ({runtime_label})"),
-            None => format!("{runtime_label} (default model)"),
+            None => crate::config::own_choice_label(&runtime_label),
         };
         let listed = self
             .config
@@ -429,6 +429,18 @@ impl Router {
             .map(|t| (t.id, t.label))
             .collect();
         let config = self.config()?;
+        // An install from before Phase 25 names them "Claude Code: its own choice": renamed once.
+        if config.models.iter().any(|m| {
+            m.built_in
+                && tools.iter().any(|(id, label)| {
+                    &m.runtime_id == id && m.label == format!("{label}: its own choice")
+                })
+        }) {
+            self.update("router.models_renamed", PLENIPO, |c| {
+                let renamed = c.rename_old_builtins(&tools);
+                Ok((!renamed.is_empty()).then(|| json!({ "models": renamed })))
+            })?;
+        }
         let missing = tools.iter().any(|(id, _)| {
             !config
                 .models
@@ -529,6 +541,7 @@ impl Router {
                     new_models: ToolInfo::reported(&t.info).0,
                     unlisted_models: ToolInfo::reported(&t.info).1,
                     runs_other_makers: t.info.capabilities.runs_other_makers,
+                    paid: t.paid,
                 }
             })
             .collect();
@@ -893,7 +906,7 @@ mod tests {
         let labels: Vec<&str> = s.models.iter().map(|m| m.label.as_str()).collect();
         assert_eq!(
             labels,
-            ["Alpha Code (default model)", "Beta CLI (default model)"]
+            ["Alpha Code: its own choice", "Beta CLI: its own choice"]
         );
         assert!(s.models.iter().all(|m| m.built_in && m.name.is_none()));
         // Each AI tool's own models are offered as choices; none is added to the list.
@@ -922,7 +935,7 @@ mod tests {
         );
         let s = router.snapshot().unwrap();
         let labels: Vec<&str> = s.models.iter().map(|m| m.label.as_str()).collect();
-        assert_eq!(labels, ["Alpha Code (default model)"]);
+        assert_eq!(labels, ["Alpha Code: its own choice"]);
     }
 
     #[test]

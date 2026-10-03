@@ -143,6 +143,30 @@ impl RoutingConfig {
         self.policies.get(role_id).cloned().unwrap_or_default()
     }
 
+    /// Rename built-in entries still called by the old name ("Claude Code (default model)") to
+    /// the new one ("Claude Code: its own choice", Phase 25, item 2.5). A name the owner gave is
+    /// kept. Returns the new names.
+    pub fn rename_old_builtins(&mut self, tools: &[(String, String)]) -> Vec<String> {
+        let mut renamed = Vec::new();
+        for (runtime_id, label) in tools {
+            let old = format!("{label} (default model)");
+            let Some(id) = self
+                .models
+                .iter()
+                .find(|m| m.built_in && &m.runtime_id == runtime_id && m.label == old)
+                .map(|m| m.id.clone())
+            else {
+                continue;
+            };
+            let new = unique_label(self, &own_choice_label(label), Some(&id));
+            if let Some(m) = self.models.iter_mut().find(|m| m.id == id) {
+                m.label.clone_from(&new);
+                renamed.push(new);
+            }
+        }
+        renamed
+    }
+
     /// Add built-in entries — each AI tool's default model — that are missing. Returns them.
     pub fn add_builtins(&mut self, tools: &[(String, String)]) -> Vec<ModelInfo> {
         let mut added = Vec::new();
@@ -156,7 +180,7 @@ impl RoutingConfig {
                     id: uuid::Uuid::new_v4().to_string(),
                     runtime_id: runtime_id.clone(),
                     name: None,
-                    label: unique_label(self, &format!("{label} (default model)"), None),
+                    label: unique_label(self, &own_choice_label(label), None),
                     features: Vec::new(),
                     context_tokens: None,
                     cost: CostClass::Standard,
@@ -432,6 +456,12 @@ fn check_companies(list: &[String], companies: &[String]) -> Result<Vec<String>>
 }
 
 /// `label`, or `label 2`, `label 3`, … when taken by another model.
+/// How an AI tool's own-choice entry in Your models is named (Phase 25, item 2.5): the AI tool
+/// picks the model itself. "Claude Code: its own choice".
+pub fn own_choice_label(tool: &str) -> String {
+    format!("{tool}: its own choice")
+}
+
 fn unique_label(config: &RoutingConfig, label: &str, except: Option<&str>) -> String {
     let taken = |l: &str| {
         config
@@ -480,13 +510,34 @@ mod tests {
         }
     }
 
+    /// An install from before Phase 25 called them "Alpha Code (default model)": renamed once,
+    /// and a name the owner gave is kept (Phase 25, item 2.5).
+    #[test]
+    fn old_builtin_names_become_its_own_choice() {
+        let mut c = RoutingConfig::default();
+        let builtins = [
+            ("alpha".to_owned(), "Alpha Code".to_owned()),
+            ("beta".to_owned(), "Beta CLI".to_owned()),
+        ];
+        c.add_builtins(&builtins);
+        c.models[0].label = "Alpha Code (default model)".into();
+        c.models[1].label = "My Beta".into();
+        assert_eq!(
+            c.rename_old_builtins(&builtins),
+            ["Alpha Code: its own choice"]
+        );
+        assert_eq!(c.models[0].label, "Alpha Code: its own choice");
+        assert_eq!(c.models[1].label, "My Beta");
+        assert!(c.rename_old_builtins(&builtins).is_empty());
+    }
+
     #[test]
     fn builtins_are_added_once_and_stay() {
         let mut c = RoutingConfig::default();
         let builtins = [("alpha".to_owned(), "Alpha Code".to_owned())];
         let added = c.add_builtins(&builtins);
         assert_eq!(added.len(), 1);
-        assert_eq!(added[0].label, "Alpha Code (default model)");
+        assert_eq!(added[0].label, "Alpha Code: its own choice");
         assert!(added[0].built_in && added[0].name.is_none());
         assert!(c.add_builtins(&builtins).is_empty());
         // It can be relabelled and described, not repointed or removed.

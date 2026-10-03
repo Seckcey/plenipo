@@ -229,10 +229,10 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     await waitForText(browser, ROLES, "Senior Developer");
     const models = await textOf(browser, '[aria-labelledby="models-title"]');
     for (const m of [
-      "Claude Code (default model)",
-      "Codex (default model)",
-      "Grok (default model)",
-      "Kimi (default model)",
+      "Claude Code: its own choice",
+      "Codex: its own choice",
+      "Grok: its own choice",
+      "Kimi: its own choice",
     ]) {
       assert.ok(models.includes(m), `${m} listed`);
     }
@@ -248,7 +248,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
       return row.includes("Designer") && !row.includes("None right now");
     }, "the Designer to have a model");
     assert.doesNotMatch(await roleRow(browser, "Designer"), /None right now|not marked as able/);
-    await scrollTo(browser, "#role-choices-title");
+    await scrollTo(browser, "#who-uses-what-title");
     await screenshot(browser, "models-settings");
 
     // Adding a model: the AI tool's own models are a menu (Fable first), not typing.
@@ -393,10 +393,10 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
       ["Anthropic", "Moonshot AI", "OpenAI", "xAI", "Not known"],
     );
     const openai = byMaker.find(([label]) => label === "OpenAI")[1];
-    assert.deepEqual(openai, ["Codex (default model)", "Ollama (default model)"]);
+    assert.deepEqual(openai, ["Codex: its own choice", "Ollama: its own choice"]);
     assert.deepEqual(byMaker.at(-1)[1].toSorted(), [
-      "Antigravity (default model)",
-      "GitHub Copilot (default model)",
+      "Antigravity: its own choice",
+      "GitHub Copilot: its own choice",
     ]);
     // The same models, both ways.
     const names = (g) => g.flatMap(([, models]) => models).sort();
@@ -434,8 +434,8 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
 
   it("acceptance: a role's model choice in Settings decides its next worker, with the reason", async () => {
     const { browser } = app;
-    await preferForSeniorDeveloper(browser, ["Codex (default model)"]);
-    await scrollTo(browser, "#role-choices-title");
+    await preferForSeniorDeveloper(browser, ["Codex: its own choice"]);
+    await scrollTo(browser, "#who-uses-what-title");
     await screenshot(browser, "models-role-choices");
 
     const first = await delegate(
@@ -448,7 +448,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     await waitForText(
       browser,
       DETAILS,
-      "Codex (default model) is Senior Developer's first choice and is ready.",
+      "Codex: its own choice is Senior Developer's first choice and is ready.",
     );
     await screenshot(browser, "routing-why");
     await closeDetails(browser);
@@ -465,8 +465,8 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     // next worker follows it. The supervisor is untouched.
     await preferForSeniorDeveloper(
       browser,
-      ["Claude Code (default model)", "Codex (default model)"],
-      { "Claude Code (default model)": "High effort" },
+      ["Claude Code: its own choice", "Codex: its own choice"],
+      { "Claude Code: its own choice": "High effort" },
     );
     assert.match(
       await roleRow(browser, "Senior Developer"),
@@ -505,7 +505,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     await waitForText(
       browser,
       trail,
-      "Worker brought in for Senior Developer — Claude Code (default model) is Senior Developer's first choice and is ready. It runs at high effort, from Senior Developer's rule.",
+      "Worker brought in for Senior Developer — Claude Code: its own choice is Senior Developer's first choice and is ready. It runs at high effort, from Senior Developer's rule.",
     );
     await screenshot(browser, "routing-trail");
   });
@@ -515,8 +515,8 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     // The supervisor works on Claude Code; the Senior Developer's worker goes to Codex, which
     // reports a usage limit.
     await preferForSeniorDeveloper(browser, [
-      "Codex (default model)",
-      "Claude Code (default model)",
+      "Codex: its own choice",
+      "Claude Code: its own choice",
     ]);
     await nav(browser, "Organization");
     await select(browser, "Website Supervisor");
@@ -536,7 +536,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
       await roleRow(browser, "Senior Developer"),
       /Codex reached its usage limit, and Senior Developer waits for it/,
     );
-    await scrollTo(browser, "#role-choices-title");
+    await scrollTo(browser, "#who-uses-what-title");
     await screenshot(browser, "models-usage-limit");
     // The usage limit and Try again now are on Codex's card (Phase 19, ADR-060).
     await nav(browser, "AI tools");
@@ -557,7 +557,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     await waitUntil(
       async () =>
         (await roleRow(browser, "Senior Developer")).includes(
-          "Codex (default model) is Senior Developer's first choice",
+          "Codex: its own choice is Senior Developer's first choice",
         ),
       "Codex to be back",
     );

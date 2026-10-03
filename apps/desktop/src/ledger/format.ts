@@ -332,7 +332,9 @@ function describeRouterEvent(type: string, p: Record<string, unknown>): string |
     case "router.model_removed":
       return `Model removed: ${str(model.label) ?? "a model"}`;
     case "router.models_added":
-      return "Each AI tool's default model was added to your models";
+      return "Each AI tool's own choice was added to your models";
+    case "router.models_renamed":
+      return "Each AI tool's default model is now called its own choice";
     case "router.policy_changed":
       return `Model choices changed for ${str(p.role) ?? "a role"}`;
     case "router.policies_added":

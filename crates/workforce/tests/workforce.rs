@@ -1344,7 +1344,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     );
 
     // Senior Developer: Codex's default model first.
-    h.prefer("Senior Developer", &["Codex (default model)"]);
+    h.prefer("Senior Developer", &["Codex: its own choice"]);
     let p = h.position(&backend);
     assert!(p.automatic);
     assert_eq!(
@@ -1354,7 +1354,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     );
     assert_eq!(
         p.route.as_ref().unwrap().reason,
-        "Codex (default model) is Senior Developer's first choice and is ready."
+        "Codex: its own choice is Senior Developer's first choice and is ready."
     );
     let first = h
         .objective(&o.coordinator, "Build it [handoff:role:Backend Developer]")
@@ -1364,7 +1364,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     assert_eq!(child.assigned_to.as_deref(), Some("codex"));
     assert_eq!(
         reason(&child),
-        "Codex (default model) is Senior Developer's first choice and is ready."
+        "Codex: its own choice is Senior Developer's first choice and is ready."
     );
     let spawned = h
         .ledger
@@ -1382,7 +1382,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     );
 
     // The owner changes the preference in Settings: the next worker uses the new first choice.
-    h.prefer("Senior Developer", &["Fast", "Codex (default model)"]);
+    h.prefer("Senior Developer", &["Fast", "Codex: its own choice"]);
     let second = h
         .objective(
             &o.coordinator,
@@ -1425,7 +1425,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     assert_eq!(child.assigned_to.as_deref(), Some("codex"));
     assert_eq!(
         reason(&child),
-        "You set Senior Developer to always use Codex (default model)."
+        "You set Senior Developer to always use Codex: its own choice."
     );
 
     // Nothing about the coordinator changed: same position, same conversation, and the same
@@ -1451,7 +1451,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
         backend_member.1,
         "Senior Developer, a new worker for each request"
     );
-    h.prefer("Senior Developer", &["Codex (default model)"]);
+    h.prefer("Senior Developer", &["Codex: its own choice"]);
     assert_eq!(h.briefing(&o.coordinator), (identity, members));
 }
 
@@ -1462,7 +1462,7 @@ async fn a_usage_limit_holds_work_back_or_moves_it_on_as_the_owner_chose() {
     let backend = h.hire_auto("Senior Developer", "Backend Developer", &o.coordinator);
     h.prefer(
         "Senior Developer",
-        &["Codex (default model)", "Claude Code (default model)"],
+        &["Codex: its own choice", "Claude Code: its own choice"],
     );
     // The worker on Codex reports a usage limit.
     let root = h
@@ -1515,8 +1515,8 @@ async fn a_usage_limit_holds_work_back_or_moves_it_on_as_the_owner_chose() {
     assert_eq!(child.assigned_to.as_deref(), Some("claude-code"));
     assert!(
         reason(&child).starts_with(
-            "Claude Code (default model) is Senior Developer's second choice: Codex (default \
-             model) was skipped because Codex reached its usage limit"
+            "Claude Code: its own choice is Senior Developer's second choice: Codex: its own \
+             choice was skipped because Codex reached its usage limit"
         ),
         "{}",
         reason(&child)
@@ -1552,12 +1552,12 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     assert!(p.automatic);
     assert_eq!(p.agent.as_ref().unwrap().runtime_id, None, "not routed yet");
     assert_eq!(p.status, PositionStatus::Idle);
-    h.prefer("Manager", &["Codex (default model)"]);
+    h.prefer("Manager", &["Codex: its own choice"]);
     // The Manager runs Codex's default model at low effort.
     let mut policy = h.policy("Manager");
     policy
         .efforts
-        .insert(h.model("Codex (default model)"), Effort::Low);
+        .insert(h.model("Codex: its own choice"), Effort::Low);
     h.router.set_policy(&h.role("Manager"), &policy).unwrap();
 
     let first = h.objective(&head, "Plan the quarter").await;
@@ -1566,7 +1566,7 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     assert_eq!(turn.assigned_to.as_deref(), Some("codex"));
     assert_eq!(
         reason(&turn),
-        "Codex (default model) is Manager's first choice and is ready. It runs at low \
+        "Codex: its own choice is Manager's first choice and is ready. It runs at low \
          effort, from Manager's rule."
     );
     let conversation = turn.metadata["sessionId"].as_str().unwrap().to_owned();
@@ -1588,7 +1588,7 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     let session = agent.session_id.unwrap();
 
     // A new preference does not move an ongoing conversation; a new agent follows it.
-    h.prefer("Manager", &["Claude Code (default model)"]);
+    h.prefer("Manager", &["Claude Code: its own choice"]);
     let p = h.position(&head);
     assert_eq!(
         p.runtime_id.as_deref(),
@@ -1642,7 +1642,7 @@ async fn reviewers_come_from_another_ai_company_and_unfit_roles_are_explained() 
     let reviewer = h.hire_auto("Code Reviewer", "Reviewer", &o.coordinator);
     h.prefer(
         "Code Reviewer",
-        &["Claude Code (default model)", "Codex (default model)"],
+        &["Claude Code: its own choice", "Codex: its own choice"],
     );
     let policy = h
         .router

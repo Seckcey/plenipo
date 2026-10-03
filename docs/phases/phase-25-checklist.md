@@ -389,12 +389,15 @@ simpler screens.
   `RoleChoices.tsx`). Today you'd have to add Fable under "Your models" first, then add it to
   Senior Developer, and nothing tells you that.
 - **Do:**
-  - [ ] Wherever you pick a model for a role, department, or organization, show **every model of
-        every AI tool**, grouped by AI tool, subscriptions first. Picking one adds it to Your models
-        by itself.
-  - [ ] Rename the "(default model)" entries to "Claude Code: its own choice".
-- **Tests:** choose Fable for Senior Developer and Sonnet for Documentation Writer in one screen.
-  Each role then uses its model.
+  - [x] Wherever you pick a model for a role, department, or organization (and one agent), show
+        **every model of every AI tool**, grouped by AI tool, subscriptions first. Picking one adds
+        it to Your models by itself. Recorded in
+        [ADR-195 (who uses what)](../adr/ADR-195-who-uses-what.md).
+  - [x] Rename the "(default model)" entries to "Claude Code: its own choice". An install from
+        before is renamed once; a name you gave is kept.
+- **Tests:** [x] choose Fable for Senior Developer and Sonnet for the Designer in one screen
+  (`ModelSettings.test.tsx`); the rename (`old_builtin_names_become_its_own_choice`). Routing
+  each role to its model is the router's, unchanged.
 
 ### 2.6 One "who uses what" screen — M
 
@@ -403,15 +406,16 @@ simpler screens.
   levels, and "never use" lists add up across four of them on three screens. Some settings (cost
   class, context size, image boxes) do nothing until filled in.
 - **Do:**
-  - [ ] Settings → AI models becomes one table: **each role, its model, its backup, its effort**,
-        plus one row each for "the whole organization" and each department. Advanced rules stay
-        under **More**.
-  - [ ] "Never use" lists move to the organization level only. Existing lists at other levels are
+  - [x] Settings → AI models becomes one table, **Who uses what**: each role, its model, its backup,
+        its effort, plus one row each for "the whole organization" and each department. The agents'
+        own rules are under **More**.
+  - [x] "Never use" lists move to the organization level only. Existing lists at other levels are
         kept and shown under More, each with a Remove button.
-  - [ ] Cost class moves under More.
-  - [ ] Every place that shows a model choice says where it came from ("from Senior Developer's
-        choice", "from the organization").
-- **Tests:** router tests unchanged (rules still apply); screen tests for the table.
+  - [x] Cost class moves under More (with a role's "When no models are listed" and "Reviews").
+  - [x] The role table says where each next worker's model came from ("from Senior Developer's
+        choices", "from the whole organization"); the agent's panel already said who picked it.
+- **Tests:** [x] router tests unchanged (rules still apply); screen tests for the table, the
+  organization's never-use list, and an old list under More.
 
 ### 2.7 Use the team you hired before bringing in new workers — L
 

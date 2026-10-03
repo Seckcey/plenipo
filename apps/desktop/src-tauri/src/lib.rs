@@ -2104,7 +2104,7 @@ mod ipc_boundary_tests {
         let defaults: Vec<String> = plenipo_runtime::agent::builtin_adapters()
             .iter()
             .filter(|a| !a.paid())
-            .map(|a| format!("{} (default model)", a.label()))
+            .map(|a| format!("{}: its own choice", a.label()))
             .collect();
         assert_eq!(labels, defaults);
         assert!(s.tools.iter().all(|t| !t.available));
@@ -2126,7 +2126,7 @@ mod ipc_boundary_tests {
             }}),
         ));
         let opus = model_id(&s, "Opus");
-        let codex = model_id(&s, "Codex (default model)");
+        let codex = model_id(&s, "Codex: its own choice");
         let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
         let dev = role_id(&org, "Senior Developer");
         let s: plenipo_router::RoutingSnapshot = body(invoke_json(

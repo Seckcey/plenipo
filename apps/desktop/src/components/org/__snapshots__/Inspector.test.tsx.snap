@@ -42,10 +42,8 @@ an on-call agent › AI model (its own rule) › Effort for Opus (Claude Code) �
 an on-call agent › AI model (its own rule) › Move Opus (Claude Code) up — The first model that is ready gets the work; the backups are tried in order. Each model's effort is how hard it thinks. Remove takes a model off this list.
 an on-call agent › AI model (its own rule) › Move Opus (Claude Code) down — The first model that is ready gets the work; the backups are tried in order. Each model's effort is how hard it thinks. Remove takes a model off this list.
 an on-call agent › AI model (its own rule) › Take Opus (Claude Code) off the list — The first model that is ready gets the work; the backups are tried in order. Each model's effort is how hard it thinks. Remove takes a model off this list.
-an on-call agent › AI model (its own rule) › Add a model to the list — Adds a model from your list (Settings → AI models) at the end.
+an on-call agent › AI model (its own rule) › Add a model to the list — Adds it at the end. Every AI tool's models are here, your subscriptions first; one not in Your models yet is added there too.
 an on-call agent › AI model (its own rule) › Effort for any other model — How hard a model thinks when this rule does not name it above. A model that does not take this level keeps its own.
-an on-call agent › AI model (its own rule) › Anthropic — Never used for this work, even when another rule lists them: these add up.
-an on-call agent › AI model (its own rule) › OpenAI — Never used for this work, even when another rule lists them: these add up.
 an on-call agent › AI model (its own rule) › Save rule — Save keeps this rule; Remove rule lets the rules around it decide. A new effort reaches open conversations with their next task, and never hires a new agent.
 an on-call agent › AI model (its own rule) › Cancel — Save keeps this rule; Remove rule lets the rules around it decide. A new effort reaches open conversations with their next task, and never hires a new agent.
 an on-call agent › Work › Change permissions — Settings → Permissions: what each role may do, and each project's limit.

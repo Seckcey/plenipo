@@ -173,7 +173,7 @@ describe("v1.10 The owner's control over workers (real app, fake CLIs)", () => {
   it("rules in layers: the organization's effort, then one agent's own (no new agent)", async () => {
     const { browser } = app;
     await openSettings(browser, "AI models");
-    await waitUntil(() => exists(browser, "#rules-title"), "Model and effort rules");
+    await waitUntil(() => exists(browser, "#who-uses-what-title"), "Who uses what");
     await clickButton(browser, "Change the rule for The whole organization");
     const form = "Rule for The whole organization";
     await (
@@ -184,9 +184,9 @@ describe("v1.10 The owner's control over workers (real app, fake CLIs)", () => {
     await (
       await browser.$(`//form[@aria-label="${form}"]//button[normalize-space()="Save rule"]`)
     ).click();
-    await waitForText(browser, ".models__rules", "high effort");
+    await waitForText(browser, ".models__rules", "High effort");
     await browser.execute(() =>
-      document.querySelector("#rules-title")?.scrollIntoView({ block: "start" }),
+      document.querySelector("#who-uses-what-title")?.scrollIntoView({ block: "start" }),
     );
     await screenshot(browser, "rules-settings");
 

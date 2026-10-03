@@ -4,17 +4,22 @@
  * one agent; a role's choices (RoleChoices) share the model list and the companies.
  */
 import { useId, useState, type FormEvent } from "react";
-import type { Effort, ModelRule, RoutingSnapshot } from "@plenipo/types";
+import type { Effort, ModelInfo, ModelRule, RoutingSnapshot } from "@plenipo/types";
 import { Button } from "@plenipo/ui";
 
+import { saveModel, toCommandError } from "../../api/commands";
 import {
   EFFORT_LABEL,
   anyEffortLevels,
   companies,
   effortLevels,
+  everyModel,
+  freeModelLabel,
   isEmptyRule,
   modelLabel,
+  readAddValue,
 } from "../../routing/format";
+import type { Apply } from "../../routing/useChange";
 
 /** A model's effort in a list: the model's own setting, or a level its AI tool accepts. */
 export function EffortPicker({
@@ -62,6 +67,7 @@ export function ModelOrder({
   onModels,
   onEfforts,
   empty,
+  onApply,
 }: {
   snapshot: RoutingSnapshot;
   models: string[];
@@ -70,15 +76,67 @@ export function ModelOrder({
   onEfforts: (efforts: Partial<Record<string, Effort>>) => void;
   /** What happens when no model is listed. */
   empty: string;
+  /** Takes the model settings after a model is added to Your models from this list. */
+  onApply?: Apply | undefined;
 }) {
   const hint = useId();
   const addId = useId();
-  const byId = new Map(snapshot.models.map((m) => [m.id, m]));
+  // Models this list just added to Your models, named here until the settings catch up.
+  const [added, setAdded] = useState<ModelInfo[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const known = [
+    ...snapshot.models,
+    ...added.filter((a) => !snapshot.models.some((m) => m.id === a.id)),
+  ];
+  const byId = new Map(known.map((m) => [m.id, m]));
   const label = (id: string) => {
     const m = byId.get(id);
     return m ? modelLabel(snapshot, m) : "A removed model";
   };
-  const addable = snapshot.models.filter((m) => !models.includes(m.id));
+  // Every model of every AI tool, subscriptions first (Phase 25, item 2.5).
+  const groups = everyModel({ ...snapshot, models: known }, models);
+  const choose = async (value: string) => {
+    const picked = readAddValue(value);
+    if (!picked) return;
+    if ("id" in picked) {
+      onModels([...models, picked.id]);
+      return;
+    }
+    // Not in Your models yet: added there first, by itself.
+    const tool = snapshot.tools.find((t) => t.runtimeId === picked.runtimeId);
+    const k = [...(tool?.knownModels ?? []), ...(tool?.newModels ?? [])].find(
+      (x) => x.name === picked.name,
+    );
+    setAdding(true);
+    setRefusal(null);
+    try {
+      const next = await saveModel({
+        runtimeId: picked.runtimeId,
+        name: picked.name,
+        label: freeModelLabel(
+          { ...snapshot, models: known },
+          k?.label ?? picked.name,
+          tool?.label ?? picked.runtimeId,
+        ),
+        features: [],
+        cost: "standard",
+      });
+      const model = next.models.find(
+        (m) => m.runtimeId === picked.runtimeId && m.name === picked.name,
+      );
+      onApply?.(next);
+      if (model) {
+        setAdded((a) => [...a, model]);
+        onModels([...models, model.id]);
+      }
+    } catch (reason) {
+      setRefusal(toCommandError(reason).message);
+    } finally {
+      setAdding(false);
+    }
+  };
+  const addable = groups.some((g) => g.options.length > 0);
   const move = (i: number, by: number) => {
     const next = [...models];
     const [item] = next.splice(i, 1);
@@ -161,22 +219,32 @@ export function ModelOrder({
           key={models.join()}
           aria-describedby={`${addId}-hint`}
           value=""
-          disabled={addable.length === 0}
-          onChange={(e) => e.target.value && onModels([...models, e.target.value])}
+          disabled={!addable || adding}
+          onChange={(e) => void choose(e.target.value)}
         >
           <option value="">
-            {addable.length === 0 ? "Every model is listed" : "Choose a model…"}
+            {adding ? "Adding…" : addable ? "Choose a model…" : "Every model is listed"}
           </option>
-          {addable.map((m) => (
-            <option key={m.id} value={m.id}>
-              {modelLabel(snapshot, m)}
-            </option>
+          {groups.map((g) => (
+            <optgroup key={g.label} label={g.label}>
+              {g.options.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
       </label>
       <small id={`${addId}-hint`} className="field__hint field__hint--after">
-        Adds a model from your list (Settings → AI models) at the end.
+        Adds it at the end. Every AI tool&apos;s models are here, your subscriptions first; one not
+        in Your models yet is added there too.
       </small>
+      {refusal && (
+        <p className="form-error" role="alert">
+          {refusal}
+        </p>
+      )}
     </fieldset>
   );
 }
@@ -214,6 +282,48 @@ export function NeverCompanies({
       ))}
       <p id={hint} className="field__hint">
         Never used for this work, even when another rule lists them: these add up.
+      </p>
+    </fieldset>
+  );
+}
+
+/**
+ * AI companies never to use, set at this level before Phase 25 (item 2.6): "never use" is now set
+ * for the whole organization only. A list kept from before still counts, and each company can be
+ * taken off it. Nothing shows when there is none.
+ */
+export function NeverFromBefore({
+  snapshot,
+  value,
+  onChange,
+}: {
+  snapshot: RoutingSnapshot;
+  value: string[];
+  onChange: (companies: string[]) => void;
+}) {
+  if (value.length === 0) return null;
+  const label = (id: string) => companies(snapshot).find((c) => c.id === id)?.label ?? id;
+  return (
+    <fieldset className="fieldset">
+      <legend>Never used here (set before)</legend>
+      <ul className="models__never">
+        {value.map((id) => (
+          <li key={id}>
+            {label(id)}{" "}
+            <Button
+              variant="quiet"
+              size="sm"
+              aria-label={`Remove ${label(id)} from this list`}
+              onClick={() => onChange(value.filter((x) => x !== id))}
+            >
+              Remove
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <p className="field__hint">
+        AI companies never to use are now set for the whole organization. This list from before
+        still counts until you remove it.
       </p>
     </fieldset>
   );
@@ -266,6 +376,8 @@ export function RuleEditor({
   onSave,
   onRemove,
   onCancel,
+  onApply,
+  neverHere = false,
 }: {
   snapshot: RoutingSnapshot;
   rule: ModelRule;
@@ -277,6 +389,10 @@ export function RuleEditor({
   onSave: (rule: ModelRule) => void;
   onRemove?: (() => void) | undefined;
   onCancel?: (() => void) | undefined;
+  /** Takes the model settings after a model is added to Your models from the list. */
+  onApply?: Apply | undefined;
+  /** The whole organization's rule: AI companies never to use are set here (Phase 25, 2.6). */
+  neverHere?: boolean;
 }) {
   const [models, setModels] = useState(rule.models);
   const [efforts, setEfforts] = useState<Partial<Record<string, Effort>>>(rule.efforts);
@@ -297,9 +413,14 @@ export function RuleEditor({
         onModels={setModels}
         onEfforts={setEfforts}
         empty={empty}
+        onApply={onApply}
       />
       <AnyEffort snapshot={snapshot} value={effort} onChange={setEffort} />
-      <NeverCompanies snapshot={snapshot} value={never} onChange={setNever} />
+      {neverHere ? (
+        <NeverCompanies snapshot={snapshot} value={never} onChange={setNever} />
+      ) : (
+        <NeverFromBefore snapshot={snapshot} value={never} onChange={setNever} />
+      )}
       <div className="actions">
         <Button
           type="submit"

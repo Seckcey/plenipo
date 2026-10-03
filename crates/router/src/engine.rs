@@ -1261,8 +1261,8 @@ mod tests {
     #[test]
     fn labels_do_not_repeat_the_tool() {
         let w = world();
-        let mut m = model("x", "alpha", "Alpha Code (default model)");
-        assert_eq!(model_label(&m, &w.tools), "Alpha Code (default model)");
+        let mut m = model("x", "alpha", "Alpha Code: its own choice");
+        assert_eq!(model_label(&m, &w.tools), "Alpha Code: its own choice");
         m.label = "Fast".into();
         assert_eq!(model_label(&m, &w.tools), "Fast (Alpha Code)");
     }

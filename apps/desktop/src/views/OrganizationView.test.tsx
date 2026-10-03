@@ -223,10 +223,10 @@ describe("Organization view", () => {
           runtimeLabel: "Codex",
           company: "openai",
           model: null,
-          label: "Codex (default model)",
+          label: "Codex: its own choice",
         },
         reason:
-          "Codex (default model) is Senior Developer's second choice: Opus (Claude Code) was skipped because Claude Code is not signed in.",
+          "Codex: its own choice is Senior Developer's second choice: Opus (Claude Code) was skipped because Claude Code is not signed in.",
         rank: 2,
         candidates: [
           {
@@ -235,7 +235,7 @@ describe("Organization view", () => {
             verdict: "skipped",
             note: "Claude Code is not signed in",
           },
-          { modelId: "m-codex", label: "Codex (default model)", verdict: "chosen", note: "" },
+          { modelId: "m-codex", label: "Codex: its own choice", verdict: "chosen", note: "" },
         ],
         fixed: false,
       },

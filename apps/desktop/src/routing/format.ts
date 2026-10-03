@@ -153,6 +153,89 @@ export function modelLabel(snapshot: RoutingSnapshot, model: ModelInfo): string 
     : `${model.label} (${tool})`;
 }
 
+/** One model a model list can add: one in Your models (`id:…`), or one to add to it (`add:…`). */
+export interface AddableModel {
+  value: string;
+  label: string;
+}
+
+export interface AddableGroup {
+  label: string;
+  options: AddableModel[];
+}
+
+/** The menu value for a model of `runtimeId`'s that is not in Your models yet. */
+export function addValue(runtimeId: string, name: string): string {
+  return `add:${runtimeId}:${name}`;
+}
+
+/** What a menu value stands for. */
+export function readAddValue(
+  value: string,
+): { id: string } | { runtimeId: string; name: string } | null {
+  if (value.startsWith("id:")) return { id: value.slice(3) };
+  const m = /^add:([^:]+):(.+)$/.exec(value);
+  return m ? { runtimeId: m[1] as string, name: m[2] as string } : null;
+}
+
+/**
+ * Every model of every AI tool, for a list of models (Phase 25, item 2.5): one group per AI
+ * tool, the subscriptions first, then each paid AI tool whose key works. In each group: its
+ * models already in Your models (its own choice first), then the models it offers that aren't
+ * yet, which picking adds to Your models. `listed`: model IDs already on the list, left out.
+ */
+export function everyModel(snapshot: RoutingSnapshot, listed: readonly string[]): AddableGroup[] {
+  const tools = [
+    ...snapshot.tools.filter((t) => !t.paid),
+    ...snapshot.tools.filter((t) => t.paid && t.ready),
+  ];
+  const groups: AddableGroup[] = [];
+  for (const t of tools) {
+    const yours = snapshot.models
+      .filter((m) => m.runtimeId === t.runtimeId)
+      .sort((a, b) => Number(b.builtIn) - Number(a.builtIn));
+    const options: AddableModel[] = yours
+      .filter((m) => !listed.includes(m.id))
+      .map((m) => ({ value: `id:${m.id}`, label: modelLabel(snapshot, m) }));
+    const have = new Set(yours.map((m) => m.name ?? ""));
+    for (const k of [...t.knownModels, ...t.newModels]) {
+      if (have.has(k.name)) continue;
+      have.add(k.name);
+      const same = k.label.toLowerCase() === k.name.toLowerCase();
+      options.push({
+        value: addValue(t.runtimeId, k.name),
+        label: same ? k.label : `${k.label} (${k.name})`,
+      });
+    }
+    if (options.length > 0) {
+      groups.push({ label: t.paid ? `${t.label} (paid per use)` : t.label, options });
+    }
+  }
+  // Your models whose AI tool isn't offered here (a paid AI tool whose key doesn't work now).
+  const shown = new Set(tools.map((t) => t.runtimeId));
+  const rest = snapshot.models.filter((m) => !shown.has(m.runtimeId) && !listed.includes(m.id));
+  if (rest.length > 0) {
+    groups.push({
+      label: "Your other models",
+      options: rest.map((m) => ({ value: `id:${m.id}`, label: modelLabel(snapshot, m) })),
+    });
+  }
+  return groups;
+}
+
+/**
+ * A name for a model being added to Your models that no model there has yet: its own ("Sonnet"),
+ * then with its AI tool ("Sonnet (Claude Code)"), then numbered.
+ */
+export function freeModelLabel(snapshot: RoutingSnapshot, base: string, tool: string): string {
+  const taken = (l: string) =>
+    snapshot.models.some((m) => m.label.toLowerCase() === l.toLowerCase());
+  if (!taken(base)) return base;
+  const withTool = `${base} (${tool})`;
+  if (!taken(withTool)) return withTool;
+  for (let n = 2; ; n++) if (!taken(`${withTool} ${n}`)) return `${withTool} ${n}`;
+}
+
 /** "1.2M", "200K", "8,000". */
 export function tokens(n: number): string {
   if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(1)}M`;
@@ -279,7 +362,7 @@ export const RULE_LAYER_LABEL: Record<RuleLayer, string> = {
   model: "the model's own setting",
 };
 
-/** "Opus (Claude Code), then Codex (default model) · high effort · never OpenAI". */
+/** "Opus (Claude Code), then Codex: its own choice · high effort · never OpenAI". */
 export function ruleSummary(snapshot: RoutingSnapshot, rule: ModelRule): string {
   const byId = new Map(snapshot.models.map((m) => [m.id, m]));
   const name = (id: string) => {
@@ -309,6 +392,24 @@ export function sourceWords(source: RuleSource): string {
       return "the model's own setting";
     default:
       return `${source.name}'s rule`;
+  }
+}
+
+/** Where a role's next worker's model came from, in plain words (Phase 25, item 2.6). */
+export function modelFromWords(route: RouteDecision): string | null {
+  const from = route.modelFrom;
+  if (route.fixed) return "fixed on the position";
+  switch (from?.layer) {
+    case "agent":
+      return "from its own rule";
+    case "role":
+      return `from ${from.name}'s choices`;
+    case "department":
+      return `from the ${from.name} department`;
+    case "organization":
+      return "from the whole organization";
+    default:
+      return route.choice ? "from Your models (nothing is listed for it)" : null;
   }
 }
 
