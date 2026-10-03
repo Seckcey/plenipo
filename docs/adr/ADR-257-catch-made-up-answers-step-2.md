@@ -37,19 +37,26 @@ Step 1 (ADR-256) checks an answer against Plenipo's own record. Step 2 adds thre
 
 ### Links
 
+- **Only where the worker could have looked itself** (the security review of #156). The worker
+  wrote the link, so a look never reaches further than that worker could without asking you. A
+  website is looked at only when the worker's permissions allow "Visit websites" or "Use
+  websites" without asking, and a pull request only when they allow "Read GitHub" without asking,
+  and only in the one repository its GitHub tools act on (its project's).
 - **Only where the answer can be trusted.** A pull request on GitHub is asked of GitHub's own
   `gh`, signed in as you, the way Plenipo's GitHub tools reach GitHub (ADR-016). Any other link is
   visited only when its website is on **your allowed websites** (Settings → Websites), through
-  Guard: one request, over https (plain http only for an address on this computer or your local
-  network that the list names), never with a user name or password, no redirect followed, and
-  nothing read from the answer but its status.
+  Guard, while Plenipo's browser is on: one request, over https only, never with a user name or
+  password, never with a query (the part after "?", which could carry what the worker read), no
+  redirect followed, and nothing read from the answer but its status.
+- **Never a long wait.** An answer's links are looked at all at once, and its check waits six
+  seconds at most for all of them together; a look not finished by then is "not checked".
 - **"Doesn't exist" is only "not found".** A 404 or 410. Any other answer means it exists, or that
   Plenipo can't tell. GitHub's and GitLab's pages are never visited this way: they say "not found"
   for a private page, which would look like a made-up link.
-- **Not checked is not a mismatch.** A website not on your list, no `gh`, or no answer: the link
-  is left alone. A link a step on the record already shows (a pull request Plenipo opened, a page
-  a worker opened) is not looked at again, and a link looked at in the last ten minutes is not
-  looked at twice.
+- **Not checked is not a mismatch.** A website not on your list, a worker that couldn't have
+  looked, no `gh`, or no answer: the link is left alone. A link a step on the record already shows
+  (a pull request Plenipo opened, a page a worker opened) is not looked at again, and a link
+  looked at for the same task in the last ten minutes is not looked at twice.
 
 ### Sending work back
 

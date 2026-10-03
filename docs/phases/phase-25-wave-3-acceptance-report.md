@@ -51,3 +51,10 @@ checklist).
   goal).
 - A side chat continuing a copy of the AI tool's own conversation (`--fork-session` and the
   others'): every side chat starts fresh with a briefing, for now (ADR-251).
+
+## 5. Fixed after the security review of #156
+
+- **Stop all lasts across a restart.** Before, its hold on the AI work was kept only in memory, so
+  work could start again after Plenipo restarted. Now the first organization's record turns the
+  stop back on as Plenipo starts, until you press **Allow again**
+  ([ADR-199 (Stop all work)](../adr/ADR-199-stop-all-work.md)).

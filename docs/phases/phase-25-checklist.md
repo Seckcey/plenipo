@@ -488,7 +488,8 @@ simpler screens.
         parked.
 - **Tests:** [x] each template applies cleanly, and on Free the Pro templates are locked
   (`templates_add_departments_with_their_teams_and_free_keeps_one`, the app's organization test,
-  `templates.test.tsx`).
+  `templates.test.tsx`). The three template commands are the main window's alone (IPC
+  `template_commands_are_the_main_windows_alone`, added after the review of #156).
 
 ### 2.9 A real setup tour, with Driver.js — M–L
 
@@ -634,12 +635,18 @@ About 5 to 7 build sessions.
         again**.
   - [x] The phone's Stop all and the tray's Stop all do the same (the tray now says "Stop all
         work"). [ADR-199 (Stop all work)](../adr/ADR-199-stop-all-work.md).
+  - [x] After the security review of #156: **Stop all lasts across a restart** until Allow
+        again. The first organization's record turns it back on as Plenipo starts, before
+        anything can start a turn; every other organization follows it.
 - **Tests:**
   - [x] after Stop all, nothing runs and nothing new starts (runtime
         `stop_all_work_stops_what_runs_and_holds_new_work_until_allowed_again`; IPC
         `control_and_websites_through_ipc`: new work is refused, both records written)
   - [x] Allow again resumes (the same runtime test; `App.test.tsx` "has Stop all in the top bar
         …")
+  - [x] across a restart: ledger `stop_all_work_is_on_until_allowed_again_by_the_record`, desktop
+        `stop_all_work_lasts_across_a_restart_until_allow_again` (and another organization's older
+        record doesn't hold it), Liaison `after_a_restart_stop_all_work_still_holds_what_starts`
 
 ### 3.5 Side chats with any manager or supervisor — M–L
 
@@ -734,12 +741,19 @@ About 6 to 8 build sessions.
   - [x] Work stopped by a limit **restarts by itself** after the reset, unless you said Leave
         stopped: each organization looks once a minute (`limit_host.rs`), and each objective is
         picked up once, recorded in the Ledger. Never while Stop all work holds the work.
+  - [x] Work that can't be given back (its worker was archived or deleted) is not given to anyone
+        else and not tried again, and a notice says why in plain words: "Work wasn't picked back
+        up … couldn't give it back: Cloudline Coordinator has been archived" (asked for by the
+        review of #156).
 - **Tests:**
   - [x] the notice's choices (desktop `limits.test.tsx`; IPC `work_a_usage_limit_stopped_through_ipc`)
   - [x] work restarts after the limit is over, never before, and never while Stop all holds it
         (workforce `work_a_usage_limit_stopped_is_picked_back_up_unless_left_stopped`; Ledger
         `objectives_a_limit_stopped_wait_until_picked_up_left_or_given_again`)
   - [x] Leave stopped is respected (the same workforce test)
+  - [x] work whose worker is gone: workforce
+        `work_whose_worker_is_gone_after_a_limit_is_not_picked_up_and_the_owner_hears_why`, and
+        `why_work_was_not_picked_up_is_said_plainly`
 
 ### 4.3 Better plan numbers — S–M
 
@@ -897,6 +911,11 @@ About 6 to 8 build sessions.
         allowed websites (one request, no redirect, "not found" is the only "doesn't exist");
         GitHub's and GitLab's pages never this way (they hide private pages). At most three per
         answer; one not checked is never a mismatch.
+  - [x] After the security review of #156: a link is looked at only where the worker that wrote
+        it could have looked itself without asking (a website only with "Visit websites" or "Use
+        websites" allowed; a pull request only with "Read GitHub" allowed, in its project's
+        repository), over https only, never with a query ("?"), only while the browser is on, and
+        an answer's check waits six seconds at most for all its links.
   - [x] Supervisors can **send work back** (`"sendBack"`: a finished task they handed on, to the
         worker who did it, with what to fix), recorded on both tasks. Workers still never control
         each other.
@@ -910,8 +929,12 @@ About 6 to 8 build sessions.
         the tenth). Repeat failures show on its Experience ("3 answers didn't match the record").
 - **Tests:**
   - [x] a fake link is caught: liaison `a_link_that_doesnt_exist_is_caught`,
-        handoffs `a_fake_link_in_an_answer_is_caught`, capabilities broker
-        `links_in_answers_are_checked_only_on_allowed_websites`
+        handoffs `a_fake_link_in_an_answer_is_caught`
+  - [x] looked at only where its worker could look: capabilities broker
+        `links_in_answers_are_looked_at_only_where_their_worker_could_look` (real permissions)
+        and `a_look_reaches_only_where_the_worker_could_look_without_asking`; Guard
+        `a_link_in_an_answer_is_looked_at_only_over_https_without_a_query`; liaison
+        `links_with_a_query_or_over_plain_http_are_never_looked_at`
   - [x] a supervisor's send-back is recorded: handoffs
         `a_lead_sends_work_back_to_the_worker_who_did_it` (and refused to another worker)
   - [x] the notice fires after repeats: ledger

@@ -71,3 +71,20 @@ the router's `a_simulated_week_keeps_the_pace_and_lasts_to_the_reset` (paced, th
   further back, and the test presses the button like a person would.
 - **Tests whose stand-in reviewers gave no verdict** (`0d44d4d`, `8ba3203`): with 4.7, a review
   without a verdict is sent back, so those reviewers now give one, as real reviewers are told to.
+
+## 6. Fixed after the security review of #156
+
+An independent security review found no blockers and three things to fix. All three are fixed,
+with tests (the checklist names them).
+
+- **Link checks (4.8) reach only where the worker could look.** A worker wrote the link, so Plenipo
+  now looks only where that worker could have looked itself without asking: a website only with
+  "Visit websites" or "Use websites" allowed, and a pull request only with "Read GitHub" allowed,
+  in its project's repository. Only https, never a link with a "?" part, only while the browser
+  is on, and an answer's check waits six seconds at most for all its links
+  ([ADR-257 (catch made-up answers, step 2)](../adr/ADR-257-catch-made-up-answers-step-2.md)).
+- **Stop all lasts across a restart** (Wave 3, item 3.4).
+- **The three template commands** are in the test that refuses other windows and web pages
+  (Wave 2, item 2.8).
+- Also asked for: work a usage limit stopped that can't be given back (its worker was archived or
+  deleted) now makes a notice that says why in plain words (4.2).

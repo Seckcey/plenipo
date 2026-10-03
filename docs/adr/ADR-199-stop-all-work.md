@@ -49,8 +49,13 @@ servers, but the AI work went on, and new work kept being handed out.
   to start waits (it can still be stopped), and every AI tool shows "All work is stopped. A new
   task starts when you press Allow again." It uses the same wait as an AI tool's update
   (ADR-059 §4).
-- The hold is kept in memory, like the browser and screen stop. After Plenipo restarts, nothing
-  that was running resumes anyway (Phase 13).
+- **It lasts across a restart** (the security review of #156). Work handed out but not started,
+  and work a usage limit stopped, would otherwise start again after a restart although you
+  pressed Stop all. Every Stop all and Allow again is recorded in each open organization's
+  Ledger, and the first organization is open whenever Plenipo runs. So when Plenipo starts, the
+  first organization's record decides: if your last press was Stop all, the stop (browser,
+  screen, servers, and every AI tool's hold) is back on before anything can start a turn. Every
+  other organization follows it as it opens, never an older record of its own.
 
 ## Consequences
 
