@@ -1,0 +1,50 @@
+{
+  "pass": "cGxlbmlwby1jb21tdW5pdHktdGVzdC1wYXNzLTAwMDE",
+  "device_id": "cd_01JA2B3C4D5E6F7G8H9J0K1M2P",
+  "me": {
+    "account": {
+      "name": "Frank Gonzalez"
+    },
+    "device_id": "cd_01JA2B3C4D5E6F7G8H9J0K1M2P",
+    "devices": [
+      {
+        "device_id": "cd_01JA2B3C4D5E6F7G8H9J0K1M2P",
+        "name": "FRANKIE-DESKTOP",
+        "added_at": 1787408000,
+        "last_seen_at": 1790000000
+      },
+      {
+        "device_id": "cd_01JA2B3C4D5E6F7G8H9J0K1M2Q",
+        "name": "FRANKIE-LAPTOP",
+        "added_at": 1789827200,
+        "last_seen_at": 1789996400
+      }
+    ],
+    "terms": "2026-10-02",
+    "member": {
+      "member_id": "cm_01JA2B3C4D5E6F7G8H9J0K1M2N",
+      "name": "frank-8west",
+      "joined_at": 1787408000,
+      "age_group": "adult",
+      "standing": "ok",
+      "paused_until": null,
+      "terms_accepted": "2026-10-02",
+      "can_start": true,
+      "appear_offline": false,
+      "profile": {
+        "display_name": "Frank Gonzalez",
+        "status": "available",
+        "mood": "focused",
+        "message": "Building something new!",
+        "company": "8 West IT",
+        "business_kinds": ["it_services", "security"],
+        "business_line": "Managed IT and security for small businesses",
+        "region": "US-CA"
+      },
+      "has_picture": true,
+      "picture_version": "jlRgB1mfpt8TeGYCpQHMKT",
+      "name_change_at": null,
+      "hidden_parts": []
+    }
+  }
+}

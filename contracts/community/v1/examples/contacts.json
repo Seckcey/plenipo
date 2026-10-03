@@ -1,0 +1,11 @@
+{
+  "contacts": [
+    {
+      "member_id": "cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B",
+      "name": "pat-acme",
+      "display_name": "Pat Lee",
+      "state": "accepted",
+      "since": 1789136000
+    }
+  ]
+}

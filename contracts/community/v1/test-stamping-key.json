@@ -1,0 +1,6 @@
+{
+  "id": "test-stamp-1",
+  "note": "TEST ONLY. Published on purpose so both sides can stamp and check the examples. The account service never stamps with it in production.",
+  "publicHex": "9fbc2f0a694695cf97ee577cb2871d4523cf954578d11f9b1d1c6ad57ed4ad47",
+  "seedHex": "706c656e69706f2d636f6d6d756e6974792d746573742d7374616d702d6b3031"
+}

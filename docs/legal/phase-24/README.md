@@ -58,8 +58,11 @@ month of Pro as recommended.
    organization. Does the owner need any statement from the collaborator (for example about
    confidentiality), or is that between them?
 10. **Rewards.** A free month of Pro for the person who invites and the person invited, when the
-    invited person buys Pro and keeps it past 14 days (ADR-169). Does this program need written
-    rules, a tax note, or anything for states with promotion laws?
+    invited person buys Pro within 120 days of making their account and keeps it past 14 days
+    (ADR-169). Does this program need written rules, a tax note, or anything for states with
+    promotion laws? Invitations by email go from 8 West to an address a member gives, naming the
+    member by their Community name, with a link that stops all invitations to that address. Is that
+    enough for the CAN-SPAM Act and state email laws?
 11. **The directory, on by default.** Every adult member is listed and shown when they turn
     Community on, and **Appear offline** takes them out. Plenipo says so plainly at that moment. Is
     that enough under the privacy laws that apply (and, for example, the GDPR for people in the

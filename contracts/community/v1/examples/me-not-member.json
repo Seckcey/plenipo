@@ -1,0 +1,16 @@
+{
+  "account": {
+    "name": "Frank Gonzalez"
+  },
+  "device_id": "cd_01JA2B3C4D5E6F7G8H9J0K1M2P",
+  "devices": [
+    {
+      "device_id": "cd_01JA2B3C4D5E6F7G8H9J0K1M2P",
+      "name": "FRANKIE-DESKTOP",
+      "added_at": 1787408000,
+      "last_seen_at": 1790000000
+    }
+  ],
+  "terms": "2026-10-02",
+  "member": null
+}

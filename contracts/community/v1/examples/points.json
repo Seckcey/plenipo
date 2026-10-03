@@ -1,0 +1,25 @@
+{
+  "total": 145,
+  "week": 23,
+  "week_started_at": 1789740800,
+  "place_week": 4,
+  "place_all": 12,
+  "badges": ["founding_member", "connector"],
+  "thanked_by": 7,
+  "recent": [
+    {
+      "points": 3,
+      "reason": "thanks",
+      "at": 1789992800
+    },
+    {
+      "points": 10,
+      "reason": "link_7_days",
+      "at": 1789913600
+    }
+  ],
+  "free_months": {
+    "this_year": 2,
+    "max": 12
+  }
+}

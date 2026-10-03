@@ -1,0 +1,22 @@
+{
+  "cards": [
+    {
+      "member_id": "cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B",
+      "name": "pat-acme",
+      "display_name": "Pat Lee",
+      "status": "busy",
+      "mood": null,
+      "message": "Heads down on the Ventura job",
+      "company": "Acme Builders",
+      "business_kinds": ["construction"],
+      "business_line": "Homes and remodels in Ventura County",
+      "region": "US-CA",
+      "has_picture": false,
+      "picture_version": null,
+      "badges": ["founding_member", "connector"],
+      "points": 145,
+      "thanked_by": 7
+    }
+  ],
+  "next": "MTQ1fDE3ODkwMDAwMDB8Y21fMDFKQjdROFI5UzBUMVYyVzNYNFk1WjZBN0I"
+}
