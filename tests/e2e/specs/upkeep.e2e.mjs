@@ -27,6 +27,7 @@ import {
   screenshot as save,
   waitForShell,
   waitUntil,
+  WORDS,
 } from "../lib/app.mjs";
 
 const root = resolve(import.meta.dirname, "../../..");
@@ -110,29 +111,30 @@ describe("Phase 13 keeping Plenipo dependable (real app)", () => {
     await waitForText(browser, '[aria-label="Application version"]', `v${VERSION}`);
 
     await openSettings(browser, "Start and close");
-    await waitForText(browser, ".settings-start", "Start Plenipo with Windows");
+    await waitForText(browser, ".settings-start", WORDS.startAtSignIn);
     const toggle = await browser.$('.settings-start [role="switch"]');
     assert.equal(await toggle.getAttribute("aria-checked"), "false", "off until you turn it on");
     assert.equal(
-      await (await radio(browser, "Keep Plenipo in the tray while work")).isSelected(),
+      await (await radio(browser, `Keep Plenipo in ${WORDS.waitsIn} while work`)).isSelected(),
       true,
     );
 
-    await (await radio(browser, "Always keep Plenipo in the tray")).click();
+    await (await radio(browser, `Always keep Plenipo in ${WORDS.waitsIn}`)).click();
     await waitUntil(
-      async () => (await radio(browser, "Always keep Plenipo in the tray")).isSelected(),
+      async () => (await radio(browser, `Always keep Plenipo in ${WORDS.waitsIn}`)).isSelected(),
       "Always keep to be chosen",
     );
     // Kept: another section and back.
     await openSettings(browser, "Updates");
     await openSettings(browser, "Start and close");
     assert.equal(
-      await (await radio(browser, "Always keep Plenipo in the tray")).isSelected(),
+      await (await radio(browser, `Always keep Plenipo in ${WORDS.waitsIn}`)).isSelected(),
       true,
     );
-    await (await radio(browser, "Keep Plenipo in the tray while work")).click();
+    await (await radio(browser, `Keep Plenipo in ${WORDS.waitsIn} while work`)).click();
     await waitUntil(
-      async () => (await radio(browser, "Keep Plenipo in the tray while work")).isSelected(),
+      async () =>
+        (await radio(browser, `Keep Plenipo in ${WORDS.waitsIn} while work`)).isSelected(),
       "the starting choice again",
     );
     await screenshot(browser, "settings-start-and-close");
@@ -155,7 +157,7 @@ describe("Phase 13 keeping Plenipo dependable (real app)", () => {
     // The choice made before is still there.
     await openSettings(browser, "Start and close");
     assert.equal(
-      await (await radio(browser, "Keep Plenipo in the tray while work")).isSelected(),
+      await (await radio(browser, `Keep Plenipo in ${WORDS.waitsIn} while work`)).isSelected(),
       true,
     );
   });
@@ -165,7 +167,7 @@ describe("Phase 13 keeping Plenipo dependable (real app)", () => {
     // Something typed in the terminal, which must never reach a log or a diagnostics file.
     const typed = "plenipo-typed-secret";
     await clickButton(browser, "Terminal");
-    await clickButton(browser, "Open a terminal on this PC");
+    await clickButton(browser, `Open a terminal on ${WORDS.thisComputer}`);
     await waitUntil(() => exists(browser, `${PANEL} .xterm-rows`), "the terminal to draw");
     await type(browser, `echo ${typed}-$((6 * 7))`);
     await waitForText(browser, `${PANEL} .xterm-rows`, `${typed}-42`, 20_000);
