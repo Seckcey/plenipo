@@ -244,7 +244,10 @@ fn refused(code: &str) -> Problem {
             "8 West's relay asked Plenipo to wait before trying again.",
             Duration::from_secs(300),
         ),
-        _ => Problem::new(format!("8 West's relay did not accept this PC ({code}).")),
+        _ => Problem::new(format!(
+            "8 West's relay did not accept {} ({code}).",
+            plenipo_core::WORDS.this_computer
+        )),
     }
 }
 

@@ -107,16 +107,29 @@ pub fn start_with_windows<R: Runtime>(app: &AppHandle<R>) -> Option<bool> {
     }
 }
 
+/// "Starting with Windows is not available on this computer." in the system's own words
+/// ("Opening Plenipo when you log in" on a Mac, ADR-155).
+pub fn not_available() -> String {
+    format!(
+        "{} is not available on this computer.",
+        plenipo_core::WORDS.starting_at_sign_in
+    )
+}
+
 /// Turn Start with Windows on or off.
 pub fn set_start_with_windows<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<(), String> {
-    let manager =
-        autostart(app).ok_or("Starting with Windows is not available on this computer.")?;
+    let manager = autostart(app).ok_or_else(not_available)?;
     let done = if on {
         manager.enable()
     } else {
         manager.disable()
     };
-    done.map_err(|e| format!("Windows did not accept the change: {e}"))?;
+    done.map_err(|e| {
+        format!(
+            "{} did not accept the change: {e}",
+            plenipo_core::words::sentence_start(plenipo_core::WORDS.the_system)
+        )
+    })?;
     log::info!(
         "start with Windows turned {}",
         if on { "on" } else { "off" }

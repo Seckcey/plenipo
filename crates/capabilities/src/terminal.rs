@@ -260,8 +260,9 @@ pub fn shell_program(shell: TerminalShell) -> Result<ShellProgram, String> {
     let shell = effective_shell(shell);
     let program = find_shell(shell).ok_or_else(|| {
         format!(
-            "{} is not installed on this PC; pick another shell in Settings → Terminal",
-            shell_label(shell)
+            "{} is not installed on {}; pick another shell in Settings → Terminal",
+            shell_label(shell),
+            plenipo_core::WORDS.this_computer
         )
     })?;
     let name = file_name(&program);

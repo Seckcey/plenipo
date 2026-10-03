@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Button } from "@plenipo/ui";
 
 import { useWorkspaceIfAny } from "../workspace/context";
+import { shortcut } from "../system/words";
 
 export const FILES_BUTTON_ID = "files-button";
 
@@ -34,7 +35,7 @@ export function FilesButton() {
       icon="projects"
       aria-pressed={shown}
       aria-keyshortcuts="Control+Shift+E"
-      title={shown ? "Hide Files (Ctrl+Shift+E)" : "Show Files (Ctrl+Shift+E)"}
+      title={`${shown ? "Hide" : "Show"} Files (${shortcut(["ctrl", "shift"], "E")})`}
       onClick={() => ws.toggle("files")}
     >
       Files

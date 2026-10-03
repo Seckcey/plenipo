@@ -3345,7 +3345,10 @@ mod ipc_boundary_tests {
             "open_terminal",
             open(serde_json::json!({ "kind": "thisPc" })),
         ));
-        assert_eq!(info.title, "This PC");
+        assert_eq!(
+            info.title,
+            plenipo_core::words::sentence_start(plenipo_core::WORDS.this_computer)
+        );
         let id = info.id.clone();
         let typed = serde_json::json!({ "terminalId": id, "data": "echo hi\r" });
         let size = serde_json::json!({ "terminalId": id, "cols": 100, "rows": 30 });
@@ -4850,7 +4853,7 @@ mod ipc_boundary_tests {
             (
                 "update_ai_tool",
                 serde_json::json!({ "runtimeId": "codex", "command": "npm install" }),
-                "Codex is not installed on this PC, so there is nothing to update",
+                "so there is nothing to update",
             ),
             (
                 "set_ai_tool_payment",

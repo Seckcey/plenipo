@@ -32,6 +32,7 @@ import { useLive } from "../pages/useLive";
 import { count, when } from "../pages/words";
 import { isActive } from "../runtime/store";
 import { useRuntime } from "../runtime/useRuntime";
+import { systemWords } from "../system/words";
 import { DiagnosticsFileButton } from "../upkeep/BackupsPanel";
 
 const TONE: Record<ReturnType<typeof runtimeStatus>["tone"], Status> = {
@@ -354,6 +355,7 @@ export function DiagnosticsSummary({ go, info }: { go: Go; info: AppInfo | null 
 
 /** Settings → About Plenipo: the logo, Pip, the version, and how Plenipo keeps you in charge. */
 export function AboutPlenipo({ info }: { info: AppInfo | null }) {
+  const words = systemWords();
   return (
     <div className="settings-about">
       <div className="settings-about__brand">
@@ -374,14 +376,16 @@ export function AboutPlenipo({ info }: { info: AppInfo | null }) {
       <h3>Window behavior</h3>
       <ul className="settings">
         <li>
-          Plenipo lives in the tray. Closing the window while work is going keeps the work running;
-          use the tray icon to reopen Plenipo or stop the work. Settings → Start and close changes
-          this.
+          Plenipo lives in {words.waitsIn}. Closing the window while work is going keeps the work
+          running; use {words.waitsInIcon} to reopen Plenipo or stop the work. Settings → Start and
+          close changes this.
         </li>
-        <li>Quitting from the tray stops everything that is running and records how it ended.</li>
         <li>
-          If Plenipo, or Windows, stops unexpectedly, Plenipo tells you what stopped when it starts
-          again, and nothing runs again until you choose Run again.
+          Quitting from {words.waitsIn} stops everything that is running and records how it ended.
+        </li>
+        <li>
+          If Plenipo, or {words.theSystem}, stops unexpectedly, Plenipo tells you what stopped when
+          it starts again, and nothing runs again until you choose Run again.
         </li>
       </ul>
     </div>

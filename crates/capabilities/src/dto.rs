@@ -395,7 +395,7 @@ impl<'de> Deserialize<'de> for TerminalPlace {
 #[ts(export)]
 pub struct TerminalInfo {
     pub id: String,
-    /// "This PC" or the server's name.
+    /// "This PC" ("This Mac", "This computer") or the server's name.
     pub title: String,
     pub place: TerminalPlace,
     /// The shell on this PC ("Windows PowerShell"), or who Plenipo signed in as on a server

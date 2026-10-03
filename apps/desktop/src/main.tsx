@@ -2,9 +2,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { applyTheme, readTheme, THEME_KEY } from "@plenipo/ui";
 
-import { getOrganizations } from "./api/commands";
+import { getAppInfo, getOrganizations } from "./api/commands";
 import { App } from "./App";
 import { rememberFor } from "./orgs/storage";
+import { setSystemWords } from "./system/words";
 import { IndicatorView } from "./views/IndicatorView";
 // The design system first (tokens and components, ADR-030), then the app's page layouts.
 import "@plenipo/ui/styles.css";
@@ -39,6 +40,19 @@ async function learnOrganization(): Promise<void> {
   }
 }
 
-void learnOrganization().then(() => {
+/**
+ * Which system this is, in its own words (Phase 23, ADR-155): "this Mac", not "this PC". The
+ * Rust side decides, before the first render. The sign window shows none.
+ */
+async function learnWords(): Promise<void> {
+  if (indicator) return;
+  try {
+    setSystemWords((await getAppInfo()).words);
+  } catch {
+    // Not answered: Windows' words, as before.
+  }
+}
+
+void Promise.all([learnOrganization(), learnWords()]).then(() => {
   createRoot(container).render(<StrictMode>{indicator ? <IndicatorView /> : <App />}</StrictMode>);
 });

@@ -1,3 +1,4 @@
+import { sentenceStart, systemWords } from "../system/words";
 /** "9 minutes", "1 minute", "less than a minute". */
 export function minutesLeft(endsAt: number, now: number): string {
   const ms = endsAt - now;
@@ -12,11 +13,15 @@ const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? 
 const REFUSED_WORDS: Record<string, string> = {
   switchedOff: "using Plenipo from another device is switched off",
   notPro: "using Plenipo from your phone is part of Pro",
-  unknownPhone: "this PC doesn't know that phone",
+  get unknownPhone() {
+    return `${systemWords().thisComputer} doesn't know that phone`;
+  },
   paused: "the phone is paused",
   notSignedIn: "the phone was not signed in",
   notFromANotice: "that needs Plenipo open on the phone",
-  keptOnPc: "you keep that kind of approval on this PC",
+  get keptOnPc() {
+    return `you keep that kind of approval on ${systemWords().thisComputer}`;
+  },
   notAnApproval: "it was not an approval waiting for you",
   copied: "it was a copy of a request already made",
 };
@@ -69,13 +74,13 @@ export function describeRemoteEvent(type: string, p: Record<string, unknown>): s
     case "remote.switched_off":
       return "You turned off using Plenipo from another device";
     case "remote.kept_on_pc_changed":
-      return "You changed which approvals are kept on this PC";
+      return `You changed which approvals are kept on ${systemWords().thisComputer}`;
     case "remote.relay_connected":
-      return "This PC connected to 8 West’s relay, so your phones can reach it";
+      return `${sentenceStart(systemWords().thisComputer)} connected to 8 West’s relay, so your phones can reach it`;
     case "remote.relay_disconnected":
-      return "This PC disconnected from 8 West’s relay";
+      return `${sentenceStart(systemWords().thisComputer)} disconnected from 8 West’s relay`;
     case "remote.meetings_stopped":
-      return "Someone kept trying to reach this PC as a phone: new phones are stopped for a while";
+      return `Someone kept trying to reach ${systemWords().thisComputer} as a phone: new phones are stopped for a while`;
     case "remote.pairing_refused":
       return pairingRefused(p);
     case "remote.device_added":

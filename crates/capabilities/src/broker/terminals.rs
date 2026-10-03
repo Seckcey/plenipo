@@ -128,8 +128,9 @@ impl Broker {
             .any(|o| o.shell == shell && o.installed);
         if !installed {
             return Err(BrokerError::Invalid(format!(
-                "{} is not installed on this PC",
-                terminal::shell_label(shell)
+                "{} is not installed on {}",
+                terminal::shell_label(shell),
+                plenipo_core::WORDS.this_computer
             )));
         }
         self.ledger()
@@ -340,7 +341,8 @@ impl Broker {
         let program = terminal::shell_program(choice).map_err(BrokerError::Invalid)?;
         let info = TerminalInfo {
             id,
-            title: "This PC".into(),
+            // "This PC", "This Mac", "This computer" (ADR-155).
+            title: plenipo_core::words::sentence_start(plenipo_core::WORDS.this_computer),
             place: TerminalPlace::ThisPc,
             detail: program.label.clone(),
             environment: None,

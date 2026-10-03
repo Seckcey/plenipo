@@ -22,6 +22,7 @@ import { TERMINAL_BUTTON_ID, type TerminalTab } from "./panel";
 import { useTerminal } from "./useTerminal";
 import { watchTitle } from "./watch";
 import { WatchView } from "./WatchView";
+import { sentenceStart, shortcut, systemWords } from "../system/words";
 
 const HERE = "this-pc";
 /** "Watch a worker" choices in the New menu (ADR-055 §1): `watch:<positionId>`. */
@@ -130,7 +131,7 @@ function closeLabel(tab: TerminalTab, name: string): string {
   if (tab.kind === "code") return `Close Watch for ${name}`;
   if (tab.kind === "owner" && tab.place.kind === "aiTool") return `Close ${tab.title}`;
   return tab.kind === "owner"
-    ? `Close the terminal on ${tab.place.kind === "thisPc" ? "this PC" : tab.title}`
+    ? `Close the terminal on ${tab.place.kind === "thisPc" ? systemWords().thisComputer : tab.title}`
     : `Close ${watchTitle(tab.watch)}`;
 }
 
@@ -281,7 +282,7 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
   const items: MenuItem[] = [
     {
       id: HERE,
-      label: "This PC",
+      label: sentenceStart(systemWords().thisComputer),
       icon: "terminal",
       hint: settings ? shellLabel(settings) : undefined,
     },
@@ -388,12 +389,12 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
                       t.openHere();
                     }}
                   >
-                    Open a terminal on this PC
+                    Open a terminal on {systemWords().thisComputer}
                   </Button>
                 }
               >
-                Type freely on this PC, or on one of your servers (New terminal). When a worker uses
-                a server, its commands show here as they run.
+                Type freely on {systemWords().thisComputer}, or on one of your servers (New
+                terminal). When a worker uses a server, its commands show here as they run.
               </EmptyState>
             </div>
           ) : (
@@ -450,7 +451,7 @@ export function TerminalButton() {
       icon="terminal"
       aria-pressed={t.open}
       aria-keyshortcuts="Control+`"
-      title={t.open ? "Hide the terminal (Ctrl+`)" : "Show the terminal (Ctrl+`)"}
+      title={`${t.open ? "Hide" : "Show"} the terminal (${shortcut(["ctrl"], "`")})`}
       onClick={t.toggle}
     >
       Terminal

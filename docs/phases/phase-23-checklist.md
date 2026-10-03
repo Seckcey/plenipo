@@ -239,9 +239,14 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       because Linux test runs start several copies; give tests their own switch instead).
 - [ ] **Updates know which system they are on** (today the update check always asks for
       `windows-x86_64`). Installing an update on each system comes in Waves 2 and 3.
-- [ ] **Screen words** come from the new vocabulary table: the system's own name for the password
+- [x] **Screen words** come from the new vocabulary table: the system's own name for the password
       store, "Start Plenipo when you sign in", Cmd and Option on a Mac, no "Windows" where it does not
-      apply.
+      apply. Done: one list of each system's words in Rust (`crates/core/src/words.rs`), sent to the
+      screens with the app's information before the first paint; Plenipo's own messages use the same
+      list. "this PC" becomes "this Mac" or "this computer", the tray becomes the menu bar on a Mac,
+      "Windows closed Plenipo" becomes "Your Mac closed Plenipo", and shortcut labels read ⌘S and ⌃⇧E
+      on a Mac. `pnpm bindings` writes every system's words for the screens' tests, which check the Mac
+      and Linux words too. Names in the code and the Ledger (`windowsRestart`) stay.
 - [ ] **Done when:** every test suite passes on Windows, Linux, and Mac in CI, and a Guard safety
       review of Wave 1 finds nothing open.
 

@@ -346,7 +346,9 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 
 Plenipo runs on Windows, on a Mac, and on Linux (Phase 23). Where the words differ, each system
 uses its own (ADR-155). The rows above that name Windows are the Windows column of this table.
-The Rust side picks the words for the system it runs on; the screens never guess. Names in the
+The Rust side picks the words for the system it runs on (`crates/core/src/words.rs`); the
+screens get them with the app's information before the first paint (`apps/desktop/src/system/words.ts`)
+and never guess. Keyboard labels come from one helper there, `shortcut`. Names in the
 code and in the Ledger (such as \`windowsRestart\`) stay as they are.
 
 | What it is                                        | Windows                                                               | Mac                                                                                         | Linux                                                                 |
@@ -365,7 +367,7 @@ code and in the Ledger (such as \`windowsRestart\`) stay as they are.
 | Keys in labels                                    | Ctrl, Alt, Shift                                                      | Cmd (⌘), Option (⌥), Control (⌃), Shift (⇧)                                                 | Ctrl, Alt, Shift                                                      |
 | Removing Plenipo                                  | Settings → Apps → Plenipo → Uninstall ("Also delete my Plenipo data") | Delete my Plenipo data, then drag Plenipo to the Trash                                      | Delete my Plenipo data, then remove it with your software manager     |
 | Letting a worker see the screen and use the mouse | —                                                                     | Allow Plenipo in System Settings → Privacy & Security → Accessibility, and Screen Recording | Your desktop asks to share the screen and allow control (Wayland)     |
-| The SSH agent                                     | Windows' OpenSSH Authentication Agent, or Pageant                     | the SSH agent                                                                               | the SSH agent                                                         |
+| The SSH agent                                     | Windows' OpenSSH Authentication Agent, or Pageant                     | ssh-agent                                                                                   | ssh-agent                                                             |
 
 ## Where technical words may stay
 
