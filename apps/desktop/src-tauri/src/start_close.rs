@@ -260,15 +260,24 @@ pub fn autostart_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
 
 /// Show the main window (creating it again if it was closed for good).
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
-    let window = match app.get_webview_window("main") {
-        Some(w) => Some(w),
-        None => recreate_main_window(app),
-    };
-    if let Some(window) = window {
+    let shown = |window: tauri::WebviewWindow<R>, app: &AppHandle<R>| {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
         crate::workspace_windows::show_popouts(app, window.label());
+    };
+    match app.get_webview_window("main") {
+        Some(window) => shown(window, app),
+        // Called from the tray's and a second launch's handlers: building a window there locks
+        // up on Windows (WebView2), so it is built off this thread (Phase 25, item 1.1).
+        None => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(window) = recreate_main_window(&app) {
+                    shown(window, &app);
+                }
+            });
+        }
     }
 }
 

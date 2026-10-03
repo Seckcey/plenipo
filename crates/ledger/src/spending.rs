@@ -470,6 +470,29 @@ pub fn pacific_month(ms: u64) -> (i64, u32) {
     (year, month)
 }
 
+/// The hour of the day (0 to 23), Pacific time, at `ms` (UTC). Phase 25, item 4.6: night hours
+/// count for less when a plan's use is paced.
+pub fn pacific_hour(ms: u64) -> u32 {
+    let offset = if pacific_daylight(ms) { 7 } else { 8 } * HOUR_MS;
+    u32::try_from(ms.saturating_sub(offset) % DAY_MS / HOUR_MS).unwrap_or(0)
+}
+
+/// Midnight at the start of Monday, Pacific time, of the week `ms` (UTC) falls in, in ms (UTC).
+/// Phase 25, item 4.6: an estimated weekly budget starts over then.
+pub fn pacific_week_start(ms: u64) -> u64 {
+    let offset = if pacific_daylight(ms) { 7 } else { 8 } * HOUR_MS;
+    let days = i64::try_from(ms.saturating_sub(offset) / DAY_MS).unwrap_or(0);
+    let monday = days - (weekday(days) + 6).rem_euclid(7);
+    let local = u64::try_from(monday).unwrap_or(0) * DAY_MS;
+    // Daylight saving time changes on a Sunday at 2:00, never at Monday's midnight.
+    local
+        + if pacific_daylight(local + 8 * HOUR_MS) {
+            7
+        } else {
+            8
+        } * HOUR_MS
+}
+
 /// "2026-10".
 pub fn month_key(year: i64, month: u32) -> String {
     format!("{year:04}-{month:02}")
@@ -1545,6 +1568,22 @@ mod tests {
         assert_eq!(dollars(50 * D), "$50.00");
         assert_eq!(dollars(1_234_567 * D), "$1,234,567.00");
         assert_eq!(dollars(u64::MAX), "$18,446,744,073,709.55");
+    }
+
+    #[test]
+    fn the_pacific_hour_and_week_start_for_pacing() {
+        // Thursday 2026-10-15, 12:00 Pacific (daylight saving time).
+        assert_eq!(pacific_hour(OCT_15), 12);
+        assert_eq!(pacific_hour(OCT_15 + 13 * HOUR_MS), 1);
+        // Its week started Monday 2026-10-12 at midnight, Pacific.
+        let monday = OCT_15 - (3 * 24 + 12) * HOUR_MS;
+        assert_eq!(pacific_week_start(OCT_15), monday);
+        assert_eq!(pacific_week_start(monday), monday);
+        assert_eq!(pacific_week_start(monday - 1), monday - 7 * DAY_MS);
+        // A winter Monday: standard time (8 hours behind UTC).
+        let dec_14 = monday + 63 * DAY_MS + HOUR_MS;
+        assert_eq!(pacific_week_start(dec_14 + 5 * HOUR_MS), dec_14);
+        assert_eq!(pacific_hour(dec_14), 0);
     }
 
     #[test]

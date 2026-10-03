@@ -1,7 +1,9 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`The properties panel > has six tabs, and every option on every tab says what it does 1`] = `
-"a full-time agent › Overview › Objective for VP — Say what it should get done. It can hand parts of it to its team.
+"a full-time agent › Overview › Ask a question — A side chat: it answers from what it knows, and its work goes on.
+a full-time agent › Overview › Stop VP — Stops its task now, after a question. Its conversation stays.
+a full-time agent › Overview › Objective for VP — Say what it should get done. It can hand parts of it to its team.
 a full-time agent › Overview › Give objective — Its agent starts on it now, in its first conversation.
 a full-time agent › Overview › Open its page — Its work, history, and permissions on a page of its own.
 a full-time agent › Job › Add your own specialty — Write a specialty of your own for the VP role.
@@ -22,6 +24,7 @@ a full-time agent › Manage › Rename — Keeps the new title. Its agent and c
 a full-time agent › Manage › Hire into team — Add a position to its team: a new agent, or one from your Workforce.
 a full-time agent › Manage › Let agent go — Its agent retires and its conversation ends; the position stays, vacant.
 a full-time agent › Manage › Archive — Takes it off the chart; you can bring it back, save it to your Workforce, or delete it for good.
+an on-call agent › Overview › Stop Senior Developer — Stops its workers' tasks now, after a question.
 an on-call agent › Overview › Open its page — Its work, history, and permissions on a page of its own.
 an on-call agent › Job › Specialty — Adds lines for one area of work to its instructions. Changing it never hires a new agent.
 an on-call agent › Job › Add your own specialty — Write a specialty of your own for the Senior Developer role.
@@ -42,10 +45,8 @@ an on-call agent › AI model (its own rule) › Effort for Opus (Claude Code) �
 an on-call agent › AI model (its own rule) › Move Opus (Claude Code) up — The first model that is ready gets the work; the backups are tried in order. Each model's effort is how hard it thinks. Remove takes a model off this list.
 an on-call agent › AI model (its own rule) › Move Opus (Claude Code) down — The first model that is ready gets the work; the backups are tried in order. Each model's effort is how hard it thinks. Remove takes a model off this list.
 an on-call agent › AI model (its own rule) › Take Opus (Claude Code) off the list — The first model that is ready gets the work; the backups are tried in order. Each model's effort is how hard it thinks. Remove takes a model off this list.
-an on-call agent › AI model (its own rule) › Add a model to the list — Adds a model from your list (Settings → AI models) at the end.
+an on-call agent › AI model (its own rule) › Add a model to the list — Adds it at the end. Every AI tool's models are here, your subscriptions first; one not in Your models yet is added there too.
 an on-call agent › AI model (its own rule) › Effort for any other model — How hard a model thinks when this rule does not name it above. A model that does not take this level keeps its own.
-an on-call agent › AI model (its own rule) › Anthropic — Never used for this work, even when another rule lists them: these add up.
-an on-call agent › AI model (its own rule) › OpenAI — Never used for this work, even when another rule lists them: these add up.
 an on-call agent › AI model (its own rule) › Save rule — Save keeps this rule; Remove rule lets the rules around it decide. A new effort reaches open conversations with their next task, and never hires a new agent.
 an on-call agent › AI model (its own rule) › Cancel — Save keeps this rule; Remove rule lets the rules around it decide. A new effort reaches open conversations with their next task, and never hires a new agent.
 an on-call agent › Work › Change permissions — Settings → Permissions: what each role may do, and each project's limit.
@@ -60,6 +61,7 @@ an on-call agent › Team › Assign — It stays where it is and joins that tea
 an on-call agent › Manage › Title — Unique within its team; teammates hand work to each other by title.
 an on-call agent › Manage › Rename — Keeps the new title. Its agent and conversation stay.
 an on-call agent › Manage › Archive — Takes it off the chart; you can bring it back, save it to your Workforce, or delete it for good.
+a manager › Overview › Ask a question — A side chat: it answers from what it knows, and its work goes on.
 a manager › Overview › Objective for Engineering Manager — Say what it should get done. It can hand parts of it to its team.
 a manager › Overview › Give objective — Its agent starts on it now, in its first conversation.
 a manager › Overview › Open its page — Its work, history, and permissions on a page of its own.
@@ -84,6 +86,7 @@ a manager › Manage › Title — Unique within its team; teammates hand work t
 a manager › Manage › Rename — Keeps the new title. Its agent and conversation stay.
 a manager › Manage › Hire into team — Add a position to its team: a new agent, or one from your Workforce.
 a manager › Manage › Let agent go — Its agent retires and its conversation ends; the position stays, vacant.
+a supervisor › Overview › Ask a question — A side chat: it answers from what it knows, and its work goes on.
 a supervisor › Overview › Objective for Website Supervisor — Say what it should get done. It can hand parts of it to its team.
 a supervisor › Overview › Give objective — Its agent starts on it now, in its first conversation.
 a supervisor › Overview › Open its page — Its work, history, and permissions on a page of its own.

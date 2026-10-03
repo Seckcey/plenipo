@@ -19,6 +19,11 @@ import {
   type Status,
 } from "@plenipo/ui";
 
+import { AskQuestionButton } from "../components/sideChat/AskQuestion";
+import { LiveConversation } from "../live/LiveConversation";
+import { liveWork } from "../live/words";
+import { StopButton } from "../components/stop/StopWork";
+import { workToStop } from "../components/stop/whatToStop";
 import { getAgentSession, getPermissions, getScopeEvents, getWork } from "../api/commands";
 import type { Go } from "../components/views";
 import { OUTCOME_LABEL, outcomeTone } from "../agents/format";
@@ -27,6 +32,7 @@ import { STAFFING_LABEL, STATUS_LABEL, ago, positionToolLabel } from "../org/for
 import { rankName, titlesOf } from "../org/titles";
 import { useOrganization } from "../org/useOrganization";
 import { useNow } from "../runtime/useNow";
+import { useOpenWatch } from "../terminal/useTerminal";
 import { EventHistory, HISTORY_PAGE } from "./EventHistory";
 import { PageMissing } from "./parts";
 import { taskRows } from "./rows";
@@ -106,6 +112,7 @@ export function WorkerPage({
   const organization = useOrganization();
   const org = organization.snapshot;
   const p = org?.positions.find((x) => x.id === id) ?? null;
+  const openWatch = useOpenWatch();
   const work = useLive<WorkView>(p ? id : null, (k) => getWork(k), changesWork, 800);
   const permissions = useLive<PermissionsSnapshot>(
     p ? "permissions" : null,
@@ -160,6 +167,7 @@ export function WorkerPage({
   const team = work.value?.team ?? [];
   const turns = [...(session.value?.turns ?? [])].sort((a, b) => b.number - a.number).slice(0, 6);
   const route = p.route;
+  const live = liveWork(p);
 
   return (
     <div className="page">
@@ -188,6 +196,12 @@ export function WorkerPage({
                 Open the conversation
               </Button>
             )}
+            {/* Watch from its own page too (Phase 25, item 1.8). */}
+            {openWatch && p.active && (p.agent || p.staffing !== "persistent") && (
+              <Button size="sm" onClick={() => openWatch(p.id, p.title)}>
+                Watch
+              </Button>
+            )}
             <Button
               size="sm"
               icon="organization"
@@ -195,11 +209,32 @@ export function WorkerPage({
             >
               Show on the map
             </Button>
+            {/* A side chat while it works (Phase 25, item 3.5). */}
+            <AskQuestionButton p={p} onAsked={onOpenSession} />
+            {/* Phase 25, item 3.3. */}
+            <StopButton who={p.title} work={workToStop(p)} fullTime={p.staffing === "persistent"} />
           </>
         }
       />
 
       <div className="page__grid">
+        {/* What it says and does now, live (Phase 25, item 3.1). */}
+        {live.length > 0 && (
+          <Panel id="worker-live" title="Live conversation" wide>
+            {live.map((w) => (
+              <div key={w.taskId} className="worker-live">
+                {live.length > 1 && <h3 className="worker-live__task">{w.objective}</h3>}
+                <LiveConversation
+                  taskId={w.taskId}
+                  sessionId={w.sessionId}
+                  startedAt={w.startedAt}
+                  running
+                  who={p.title}
+                />
+              </div>
+            ))}
+          </Panel>
+        )}
         <Panel id="worker-about" title="About">
           <PropertyList
             items={[

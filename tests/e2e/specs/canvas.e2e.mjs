@@ -345,7 +345,9 @@ describe("v1.11 The organization canvas (real app, fake CLIs)", () => {
     await select(browser, "Campaign Supervisor");
     await (
       await objectiveBox(browser)
-    ).setValue("Check the campaign pages [handoff:role:Security Auditor+delay:8000]");
+    ).setValue(
+      "Check the campaign pages [handoff:role:Security Auditor+delay:8000+verdict:approve]",
+    );
     await clickButton(browser, "Give objective");
     await waitForNode(browser, "Security Auditor, Working", 60_000);
     await waitUntil(

@@ -407,6 +407,7 @@ pub async fn get_agent_session(
 #[tauri::command]
 pub async fn start_agent_session(
     liaison: Org<'_, Liaison>,
+    agents: Org<'_, AgentRuntime>,
     runtime_id: String,
     objective: String,
     model: Option<String>,
@@ -414,6 +415,7 @@ pub async fn start_agent_session(
 ) -> Result<AgentSessionDetail, CommandError> {
     validate_runtime_id(&runtime_id)?;
     validate_objective(&objective)?;
+    refuse_while_stopped(&agents)?;
     liaison
         .start_session(
             &runtime_id,
@@ -430,11 +432,13 @@ pub async fn start_agent_session(
 #[tauri::command]
 pub async fn resume_agent_session(
     liaison: Org<'_, Liaison>,
+    agents: Org<'_, AgentRuntime>,
     session_id: String,
     objective: String,
 ) -> Result<AgentSessionDetail, CommandError> {
     validate_session_id(&session_id)?;
     validate_objective(&objective)?;
+    refuse_while_stopped(&agents)?;
     liaison
         .resume_session(&session_id, &objective)
         .await
@@ -965,6 +969,41 @@ pub async fn set_up_development(
     with_workforce(&workforce, move |w| w.set_up_development(&input)).await
 }
 
+/// A template's ID: a short name of letters, digits, and dashes.
+fn template_id(id: &str) -> Result<(), CommandError> {
+    if id.is_empty()
+        || id.len() > 64
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(CommandError::invalid_input("that is not a template's name"));
+    }
+    Ok(())
+}
+
+/// Add a department from a template (Phase 25, item 2.8): the department, its manager, and its
+/// on-call team.
+#[tauri::command]
+pub async fn add_department_from_template(
+    workforce: Org<'_, Workforce>,
+    id: String,
+) -> Result<OrgSnapshot, CommandError> {
+    template_id(&id)?;
+    with_workforce(&workforce, move |w| w.add_department_from_template(&id)).await
+}
+
+/// Apply an organization template to this organization (Phase 25, item 2.8): each of its
+/// departments the organization doesn't have yet.
+#[tauri::command]
+pub async fn apply_organization_template(
+    workforce: Org<'_, Workforce>,
+    id: String,
+) -> Result<OrgSnapshot, CommandError> {
+    template_id(&id)?;
+    with_workforce(&workforce, move |w| w.apply_organization_template(&id)).await
+}
+
 /// Plenipo's record of the objective a task belongs to (Phase 8): tasks, workers and AI models,
 /// files, tests, branches, pull requests, findings, and approvals.
 #[tauri::command]
@@ -1129,6 +1168,25 @@ pub async fn end_oversight(
     with_workforce(&workforce, move |w| w.end_oversight(&oversight_id)).await
 }
 
+/// A side chat with a full-time agent (Phase 25, item 3.5; ADR-251): the owner's question, in a
+/// new conversation that knows what the agent knows, answer only. It works while the agent is
+/// busy or waiting; its work is never touched.
+#[tauri::command]
+pub async fn ask_side_question(
+    workforce: Org<'_, Workforce>,
+    agents: Org<'_, AgentRuntime>,
+    position_id: String,
+    question: String,
+) -> Result<AgentSessionDetail, CommandError> {
+    validate_id("position", &position_id)?;
+    validate_objective(&question)?;
+    refuse_while_stopped(&agents)?;
+    workforce
+        .ask_side_question(&position_id, &question)
+        .await
+        .map_err(workforce_error)
+}
+
 /// A position's chain of command (ADR-202): the owner's orders it was given, that went through
 /// it, or that went past it, newest first, with where each stands and what came back up to it.
 #[tauri::command]
@@ -1149,6 +1207,7 @@ pub async fn give_objective<R: Runtime>(
     window: tauri::WebviewWindow<R>,
     workforce: Org<'_, Workforce>,
     broker: Org<'_, Broker>,
+    agents: Org<'_, AgentRuntime>,
     drops: State<'_, crate::files_commands::Drops>,
     position_id: String,
     objective: String,
@@ -1159,6 +1218,7 @@ pub async fn give_objective<R: Runtime>(
     validate_id("position", &position_id)?;
     validate_optional_id("project", project_id.as_deref())?;
     validate_objective(&objective)?;
+    refuse_while_stopped(&agents)?;
     // The files the owner put on it (Phase 21, ADR-093 §19–§22): named or copied first, so its
     // first worker finds them.
     let files = files.unwrap_or_default();
@@ -1311,6 +1371,25 @@ pub async fn set_routing_options(
     with_router(&router, move |r| r.set_options(options)).await
 }
 
+/// Every subscription AI tool's plan and its pace, for the Plans view (Phase 25, item 4.6).
+#[tauri::command]
+pub async fn get_plan_paces(
+    router: Org<'_, Router>,
+) -> Result<Vec<plenipo_router::ToolPaces>, CommandError> {
+    with_router(&router, |r| r.plan_paces()).await
+}
+
+/// The owner's weekly budget of tokens for an AI tool that reports nothing of its plan (Phase
+/// 25, item 4.6); none removes it.
+#[tauri::command]
+pub async fn set_plan_budget(
+    router: Org<'_, Router>,
+    runtime_id: String,
+    tokens: Option<u64>,
+) -> Result<RoutingSnapshot, CommandError> {
+    with_router(&router, move |r| r.set_budget(&runtime_id, tokens)).await
+}
+
 /// Try an AI tool again now, although it reported a usage limit.
 #[tauri::command]
 pub async fn clear_usage_limit(
@@ -1319,6 +1398,70 @@ pub async fn clear_usage_limit(
 ) -> Result<RoutingSnapshot, CommandError> {
     validate_runtime_id(&runtime_id)?;
     with_router(&router, move |r| r.clear_limit(&runtime_id)).await
+}
+
+// ---- When a plan runs out (Phase 25, item 4.2; ADR-253) --------------------------------------
+
+/// How a company's own page is opened (tests use a stand-in browser).
+pub struct CompanyPages(pub Arc<dyn plenipo_capabilities::connections::Opener>);
+
+/// The work usage limits stopped, for each AI tool: when Plenipo picks it back up, and the
+/// owner's choices.
+#[tauri::command]
+pub async fn get_limit_waits(
+    workforce: Org<'_, Workforce>,
+) -> Result<Vec<plenipo_workforce::LimitWait>, CommandError> {
+    with_workforce(&workforce, Workforce::limit_waits).await
+}
+
+/// The owner used a usage reset, or wants to try now: `runtime_id`'s limit is cleared (like
+/// **Try again now**) and its waiting work is given back to its workers. Refused while Stop all
+/// work holds the work.
+#[tauri::command]
+pub async fn pick_up_work_now(
+    workforce: Org<'_, Workforce>,
+    agents: Org<'_, AgentRuntime>,
+    runtime_id: String,
+) -> Result<Vec<plenipo_workforce::LimitWait>, CommandError> {
+    validate_runtime_id(&runtime_id)?;
+    refuse_while_stopped(&agents)?;
+    workforce
+        .pick_up_now(&runtime_id)
+        .await
+        .map_err(workforce_error)?;
+    with_workforce(&workforce, Workforce::limit_waits).await
+}
+
+/// Leave work a usage limit stopped as it is: it is never picked up by itself.
+#[tauri::command]
+pub async fn leave_work_stopped(
+    workforce: Org<'_, Workforce>,
+    task_ids: Vec<String>,
+) -> Result<Vec<plenipo_workforce::LimitWait>, CommandError> {
+    if task_ids.is_empty() || task_ids.len() > 50 {
+        return Err(CommandError::invalid_input("name 1 to 50 tasks"));
+    }
+    for id in &task_ids {
+        validate_task_id(id)?;
+    }
+    with_workforce(&workforce, move |w| w.leave_stopped(&task_ids)).await
+}
+
+/// **Use a reset**: open the company's own usage page in the owner's browser, where the owner
+/// can use a usage reset the company gave them. Only the pages built into Plenipo, for Claude
+/// Code and Codex; Plenipo never uses a reset or buys anything itself.
+#[tauri::command]
+pub async fn open_reset_page(
+    pages: State<'_, CompanyPages>,
+    runtime_id: String,
+) -> Result<(), CommandError> {
+    validate_runtime_id(&runtime_id)?;
+    let (_, page) = plenipo_workforce::reset_page(&runtime_id).ok_or_else(|| {
+        CommandError::invalid_input("This AI tool's company gives no usage resets to open")
+    })?;
+    pages.0.open(page.to_owned()).await.map_err(|why| {
+        CommandError::invalid_input(format!("Plenipo couldn't open your web browser: {why}"))
+    })
 }
 
 // ---- Permissions, approvals, and the Vault (Phase 7) ------------------------------------------
@@ -1661,25 +1804,93 @@ pub async fn stop_all_control<R: Runtime>(
         .map_err(broker_error)
 }
 
-/// The emergency stop, from a window or the tray: every organization's browser, desktop, and
-/// server work halts at once (Phase 21, ADR-094 §7). The PC's one record stops them all, and
-/// each organization's Ledger records its own part.
+/// Stop all work, from a window, the tray, or a phone (Phase 25, item 3.4; ADR-199): in every
+/// organization, browser, desktop, and server work halts at once (Phase 21, ADR-094 §7), every
+/// task running now stops, and nothing new starts until Allow again. The PC's one record stops
+/// them all, and each organization's Ledger records its own part.
 pub async fn stop_control_everywhere<R: Runtime>(
     app: &AppHandle<R>,
     broker: Broker,
 ) -> Result<ControlStatus, plenipo_capabilities::BrokerError> {
-    let brokers: Vec<Broker> = crate::orgs::all_stacks(app)
-        .iter()
-        .map(|s| s.broker.clone())
-        .collect();
-    if brokers.len() <= 1 {
-        return broker.stop_all_control(OWNER).await;
+    let stacks = crate::orgs::all_stacks(app);
+    if stacks.len() <= 1 {
+        broker.stop_all_control(OWNER).await?;
+    } else {
+        let stopped = broker.control_center().stop_all();
+        for s in &stacks {
+            s.broker.stopped_all(&stopped, OWNER).await?;
+        }
     }
-    let stopped = broker.control_center().stop_all();
-    for b in &brokers {
-        b.stopped_all(&stopped, OWNER).await?;
+    // The AI work: held first, so nothing a stopped task leaves starts, then stopped.
+    for (agents, ledger) in work_everywhere(app, &stacks) {
+        stop_all_work(&agents, &ledger).await;
     }
     Ok(broker.control_status())
+}
+
+/// Every organization's AI tools and Ledger (the first's alone before any is open).
+fn work_everywhere<R: Runtime>(
+    app: &AppHandle<R>,
+    stacks: &[Arc<crate::orgs::OrgStack>],
+) -> Vec<(AgentRuntime, Arc<Ledger>)> {
+    if !stacks.is_empty() {
+        return stacks
+            .iter()
+            .map(|s| (s.agents.clone(), s.ledger.clone()))
+            .collect();
+    }
+    match (
+        tauri::Manager::try_state::<AgentRuntime>(app),
+        tauri::Manager::try_state::<Arc<Ledger>>(app),
+    ) {
+        (Some(agents), Some(ledger)) => vec![(agents.inner().clone(), ledger.inner().clone())],
+        _ => Vec::new(),
+    }
+}
+
+/// One organization's part of Stop all work: hold its work, stop each task running or waiting
+/// now, and record it. Returns how many tasks stopped.
+pub async fn stop_all_work(agents: &AgentRuntime, ledger: &Ledger) -> usize {
+    agents.hold_all_work();
+    let stopped = agents.stop_all_turns().await;
+    if let Err(e) = ledger.append_event(plenipo_ledger::NewEvent {
+        source: OWNER.into(),
+        event_type: "work.stopped_all".into(),
+        payload: serde_json::json!({ "stopped": stopped }),
+        ..plenipo_ledger::NewEvent::default()
+    }) {
+        log::warn!("could not record Stop all work: {e}");
+    }
+    stopped
+}
+
+/// One organization's part of Allow again: the work it held starts, and it is recorded.
+pub fn allow_work_again(agents: &AgentRuntime, ledger: &Ledger) {
+    let was_held = agents.work_held();
+    agents.allow_work();
+    if was_held {
+        if let Err(e) = ledger.append_event(plenipo_ledger::NewEvent {
+            source: OWNER.into(),
+            event_type: "work.allowed_again".into(),
+            payload: serde_json::json!({}),
+            ..plenipo_ledger::NewEvent::default()
+        }) {
+            log::warn!("could not record Allow again: {e}");
+        }
+    }
+}
+
+/// What the owner is told when new work is given while Stop all work holds it.
+pub const STOPPED_ALL: &str =
+    "All work is stopped (you pressed Stop all). Press Allow again to start work.";
+
+/// While Stop all work holds the work, the owner's new work is refused at once, with what to
+/// do, instead of waiting (Phase 25, item 3.4). Work already handed out waits.
+pub fn refuse_while_stopped(agents: &AgentRuntime) -> Result<(), CommandError> {
+    if agents.work_held() {
+        return Err(CommandError::invalid_input(STOPPED_ALL));
+    }
+    Ok(())
 }
 
 /// Every organization's supervisor (the first's alone before any is open).
@@ -1728,8 +1939,12 @@ pub async fn allow_control<R: Runtime>(
     app: AppHandle<R>,
     broker: State<'_, Broker>,
 ) -> Result<ControlStatus, CommandError> {
-    // Allowed again in every organization, each recording it (Phase 21).
+    // Allowed again in every organization, each recording it (Phase 21), and the work Stop all
+    // held starts (Phase 25, item 3.4).
     let stacks = crate::orgs::all_stacks(&app);
+    for (agents, ledger) in work_everywhere(&app, &stacks) {
+        allow_work_again(&agents, &ledger);
+    }
     if stacks.len() <= 1 {
         return with_broker(&broker, |b| b.allow_control(OWNER)).await;
     }

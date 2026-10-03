@@ -8,7 +8,8 @@ import { useRun } from "../guard/useRun";
 import { when } from "../pages/words";
 import { useRouting } from "../routing/useRouting";
 import { AiToolCard, type KeyCard } from "./aiTools/AiToolCard";
-import { keyToolFor } from "./aiTools/keyFor";
+import { PlansView } from "./aiTools/PlansView";
+import { foldedInto, keyToolFor } from "./aiTools/keyFor";
 import { useAiTools } from "./aiTools/useAiTools";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_LABEL } from "./aiTools/words";
 import { Toggle } from "./SwitchSettings";
@@ -23,12 +24,15 @@ import { systemWords } from "../system/words";
  * (another page asked for it).
  */
 export function AgentRuntimeCards({
-  focusId = null,
+  focusId: asked = null,
   go,
 }: {
   focusId?: string | null;
   go?: Go | undefined;
 }) {
+  // A company's key card is folded into its subscription AI tool's card (Phase 25, item 2.1): a
+  // link to it shows that card.
+  const focusId = asked === null ? null : (foldedInto(asked) ?? asked);
   const { state, refresh } = useAgents();
   const ai = useAiTools();
   const routing = useRouting();
@@ -77,6 +81,9 @@ export function AgentRuntimeCards({
   const isPaid = (id: string) => toolOf(id)?.payment === "paidKey";
   const signedIn = state.runtimes.filter((r) => !isPaid(r.id));
   const paid = state.runtimes.filter((r) => isPaid(r.id));
+  // The paid AI tools with a card of their own: OpenRouter, and the AI companies with no
+  // subscription AI tool here. The others' keys are on their subscription AI tool's card.
+  const ownCard = paid.filter((r) => foldedInto(r.id) === null);
   // The paid AI tool whose key a card's key box saves: the same key as on that tool's own card.
   const keyCardFor = (r: AgentRuntimeInfo): KeyCard | undefined => {
     if (isPaid(r.id)) return undefined;
@@ -96,12 +103,14 @@ export function AgentRuntimeCards({
         onRouting={routing.apply}
         go={go}
         keyCard={keyCardFor(r)}
+        focused={focusId === r.id}
       />
     </li>
   );
 
   return (
     <>
+      <PlansView />
       <div className="section-header">
         <h2>Your AI tools</h2>
       </div>
@@ -136,7 +145,7 @@ export function AgentRuntimeCards({
         card: it is typed only here and kept in {systemWords().keyStore}. Plenipo never updates an
         AI tool while a task is using it.
       </p>
-      {paid.length > 0 && (
+      {ownCard.length > 0 && (
         <div className="ai-tool__buttons">
           <Button
             size="sm"
@@ -161,7 +170,7 @@ export function AgentRuntimeCards({
           Could not load the AI tools&apos; updates and usage: {ai.error}
         </p>
       )}
-      <ul className="ai-tools" aria-label="AI tools">
+      <ul className="ai-tools" aria-label="AI tools" data-tour="ai-tools">
         {signedIn.map(item)}
         {state.runtimes.length === 0 && (
           <li>
@@ -169,7 +178,7 @@ export function AgentRuntimeCards({
           </li>
         )}
       </ul>
-      {paid.length > 0 && (
+      {ownCard.length > 0 && (
         <>
           <div className="section-header">
             <h2 id="paid-ai-tools" tabIndex={-1}>
@@ -178,12 +187,14 @@ export function AgentRuntimeCards({
           </div>
           <p className="muted">
             These come with Plenipo: OpenRouter, which reaches hundreds of models from many AI
-            companies, and each AI company&apos;s own service. Each takes your key from that
-            company, paid per use. A spending limit is up to you (Settings → Spending caps); every
-            paid task is priced and listed there either way.
+            companies, and the services of AI companies you have no subscription AI tool for. Each
+            takes your key from that company, paid per use. A key for Anthropic, OpenAI, xAI,
+            Moonshot AI, or Google goes on Claude Code&apos;s, Codex&apos;s, Grok&apos;s,
+            Kimi&apos;s, or Antigravity&apos;s card. A spending limit is up to you (Settings →
+            Spending caps); every paid task is priced and listed there either way.
           </p>
           <ul className="ai-tools" aria-label="AI tools paid per use">
-            {paid.map(item)}
+            {ownCard.map(item)}
           </ul>
         </>
       )}

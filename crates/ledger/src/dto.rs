@@ -847,6 +847,8 @@ pub struct SavedAgent {
 pub struct ExperienceCounts {
     pub kept_lessons: u32,
     pub tasks_done: u32,
+    /// Its answers sent back because they didn't match Plenipo's record (Phase 25, item 4.8).
+    pub answers_sent_back: u32,
     pub first_task_at: Option<u64>,
     pub last_task_at: Option<u64>,
 }

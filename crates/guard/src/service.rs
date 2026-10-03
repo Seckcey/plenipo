@@ -143,6 +143,45 @@ impl Guard {
             })
     }
 
+    /// A link named in a worker's answer that Plenipo may visit to see whether it exists (Phase
+    /// 25, item 4.8): only a website on the owner's allowed list, over https, while Plenipo's
+    /// browser is on, never one with a user name or password in it, and never one with a query
+    /// (the part after "?"): the worker wrote the link, and a query could carry what it read
+    /// (the security review of #156). GitHub's and GitLab's pages are never visited this way:
+    /// they answer "not found" for a private page, which would look like a made-up link. The
+    /// broker also looks only for a worker that could have opened the website itself.
+    pub fn link_to_check(
+        &self,
+        address: &str,
+    ) -> std::result::Result<crate::websites::Site, String> {
+        use crate::websites::{check, Site, SiteVerdict};
+        const HIDE_PRIVATE_PAGES: [&str; 2] = ["github.com", "gitlab.com"];
+        let site = Site::parse(address)?;
+        if site.scheme == "about" {
+            return Err("it is not a website".into());
+        }
+        if site.scheme != "https" {
+            return Err("only https links are checked".into());
+        }
+        if site.url.contains('?') {
+            return Err("a link with a \"?\" part is never checked".into());
+        }
+        if HIDE_PRIVATE_PAGES
+            .iter()
+            .any(|h| site.host == *h || site.host.ends_with(&format!(".{h}")))
+        {
+            return Err(format!("{} hides private pages", site.host));
+        }
+        let config = self.config().map_err(|e| e.to_string())?;
+        if !config.switches.browser {
+            return Err("Plenipo's browser is off".into());
+        }
+        if !matches!(check(&config.websites, &site), SiteVerdict::Allowed(_)) {
+            return Err(format!("{} is not on your allowed websites", site.shown()));
+        }
+        Ok(site)
+    }
+
     /// The stored configuration.
     pub fn config(&self) -> Result<GuardConfig> {
         let value = self.ledger().setting(SETTING)?.unwrap_or(Value::Null);
@@ -1148,6 +1187,49 @@ mod tests {
             .roles
             .iter()
             .any(|r| r.role_name == "Code Reviewer"));
+    }
+
+    /// Phase 25, item 4.8, after the security review of #156: a link named in a worker's answer
+    /// is looked at only over https, never with a query (the part after "?", which could carry
+    /// what the worker read), and only while Plenipo's browser is on.
+    #[test]
+    fn a_link_in_an_answer_is_looked_at_only_over_https_without_a_query() {
+        let g = Guard::new(ledger());
+        g.set_websites(&crate::websites::WebsiteRules {
+            allowed: vec!["example.com".into(), "127.0.0.1:8080".into()],
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(
+            g.link_to_check("https://example.com/docs/guide")
+                .unwrap()
+                .host,
+            "example.com"
+        );
+        // Plain http, even to an address on this computer that the allowed list names.
+        let refused = g.link_to_check("http://127.0.0.1:8080/here").unwrap_err();
+        assert!(refused.contains("only https links"), "{refused}");
+        // A query, however short.
+        for link in [
+            "https://example.com/docs?key=abc123",
+            "https://example.com/docs?",
+            "https://example.com/?q=1#top",
+        ] {
+            let refused = g.link_to_check(link).unwrap_err();
+            assert!(refused.contains("\"?\""), "{link}: {refused}");
+        }
+        // A part after "#" is never sent, so it is fine.
+        assert!(g.link_to_check("https://example.com/docs#install").is_ok());
+        // With the browser off, no worker opens any website, so none is looked at either.
+        g.set_switches(&Switches {
+            browser: false,
+            ..g.config().unwrap().switches
+        })
+        .unwrap();
+        let refused = g
+            .link_to_check("https://example.com/docs/guide")
+            .unwrap_err();
+        assert!(refused.contains("browser is off"), "{refused}");
     }
 
     #[test]

@@ -677,6 +677,26 @@ body.popout {
   flex-direction: column;
 }
 
+/* The live conversation beside the file changes (Phase 25, item 3.1). */
+.code-watch__live {
+  flex: 0 0 300px;
+  min-height: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-left: 1px solid var(--ui-border);
+}
+
+.code-watch__live:empty {
+  display: none;
+}
+
+.terminal-panel--right .code-watch__live,
+.code-watch__empty .code-watch__live {
+  flex: none;
+  border-top: 1px solid var(--ui-border);
+  border-left: 0;
+}
+
 .code-watch__files {
   flex: 0 0 260px;
   min-height: 0;
@@ -1510,6 +1530,50 @@ body.popout {
   outline-offset: 2px;
 }
 
+/* Your plans (Phase 25, item 4.6): every plan, its pace, and paid spending. */
+.plans {
+  margin-bottom: 20px;
+}
+
+.plans__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.plans__tool h3 {
+  margin: 0 0 6px;
+  font-size: var(--ui-font-md, 1rem);
+}
+
+.plans__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ui-font-sm);
+}
+
+.plans__table th,
+.plans__table td {
+  text-align: left;
+  padding: 4px 8px 4px 0;
+  vertical-align: top;
+}
+
+.plans__budget {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.plans__spending {
+  margin-top: 10px;
+  font-size: var(--ui-font-sm);
+}
+
 .ai-tools__bar {
   display: flex;
   flex-wrap: wrap;
@@ -1793,6 +1857,12 @@ body.popout {
 
 .handoff__refusal {
   margin: 6px 0 0;
+  color: var(--ui-warn-text);
+  font-size: var(--ui-font-sm);
+}
+
+.handoff__mismatch {
+  margin: 6px 0;
   color: var(--ui-warn-text);
   font-size: var(--ui-font-sm);
 }
@@ -2769,6 +2839,45 @@ body.popout {
   transform: translate(-100%, -50%);
 }
 
+/* Stop in the details panel, with what it does (Phase 25, item 3.3). */
+.inspector__stop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: var(--ui-font-sm);
+}
+
+/* Stop on a working tile, in the middle of its bottom edge, between Chat and Watch (Phase 25,
+   item 3.3). */
+.topo-stop {
+  position: absolute;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid var(--ui-error);
+  border-radius: 999px;
+  background: var(--ui-map-chip);
+  color: var(--ui-error-text);
+  cursor: pointer;
+  font-size: var(--ui-font-xs);
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
+
+.topo-stop:hover,
+.topo-stop:focus-visible {
+  background: var(--ui-error-soft);
+  outline: none;
+}
+
+/* Watch on a tile that isn't working: there, but quiet (Phase 25, item 1.8). */
+.topo-watch--quiet {
+  opacity: 0.55;
+}
+
 /* Chat (ADR-200): under the tile's left corner, where Watch is under its right. */
 .topo-chat {
   transform: translate(0, -50%);
@@ -3133,6 +3242,103 @@ body.popout {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* The setup tour (Phase 25, item 2.9; ADR-198): Driver.js's spotlight and words in Plenipo's
+   theme. The page stays clickable and scrolls around the spotlight, so you can do each step. */
+.setup-tour-on .driver-overlay,
+.setup-tour-on .driver-overlay path {
+  pointer-events: none !important;
+}
+
+.setup-tour-on .driver-active-element-parent-no-scroll {
+  overflow: auto !important;
+}
+
+.driver-popover.setup-tour {
+  max-width: 360px;
+  padding: 16px;
+  border: 1px solid var(--ui-accent);
+  border-radius: 14px;
+  background: var(--ui-surface);
+  box-shadow: 0 18px 40px -16px var(--ui-shadow);
+  color: var(--ui-text-primary);
+  font-family: var(--ui-font-sans);
+}
+
+.setup-tour .driver-popover-title {
+  padding-right: 24px;
+  font-size: var(--ui-font-md);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.setup-tour .driver-popover-description {
+  color: var(--ui-text-primary);
+  font-size: var(--ui-font-sm);
+  line-height: 1.45;
+}
+
+.setup-tour .driver-popover-progress-text {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+}
+
+.setup-tour .driver-popover-close-btn {
+  color: var(--ui-text-secondary);
+}
+
+.setup-tour .driver-popover-close-btn:hover,
+.setup-tour .driver-popover-close-btn:focus-visible {
+  color: var(--ui-text-primary);
+}
+
+.setup-tour .driver-popover-footer-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--ui-control-border, var(--ui-border-strong));
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-surface-raised);
+  color: var(--ui-text-primary);
+  font: inherit;
+  font-size: var(--ui-font-sm);
+  text-shadow: none;
+}
+
+.setup-tour .driver-popover-footer-btn:hover,
+.setup-tour .driver-popover-footer-btn:focus-visible {
+  border-color: var(--ui-accent);
+  background: var(--ui-surface-raised);
+}
+
+.setup-tour .driver-popover-footer-btn:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
+.setup-tour .driver-popover-next-btn {
+  border-color: var(--ui-accent-fill);
+  background: var(--ui-accent-fill);
+  color: var(--ui-on-accent);
+}
+
+.setup-tour .driver-popover-next-btn:hover,
+.setup-tour .driver-popover-next-btn:focus-visible {
+  background: var(--ui-accent-strong);
+}
+
+.setup-tour .driver-popover-arrow-side-left {
+  border-left-color: var(--ui-surface);
+}
+
+.setup-tour .driver-popover-arrow-side-right {
+  border-right-color: var(--ui-surface);
+}
+
+.setup-tour .driver-popover-arrow-side-top {
+  border-top-color: var(--ui-surface);
+}
+
+.setup-tour .driver-popover-arrow-side-bottom {
+  border-bottom-color: var(--ui-surface);
 }
 
 .topology__minimap {
@@ -4640,6 +4846,26 @@ body.popout {
   gap: var(--ui-space-2);
 }
 
+/* When a plan runs out (Phase 25, item 4.2): the work waiting, then each choice with its button. */
+.limit__lead {
+  margin: var(--ui-space-3) 0 var(--ui-space-1);
+}
+
+.limit__choices {
+  display: grid;
+  gap: var(--ui-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.limit__choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-2);
+}
+
 .settings-updates,
 .settings-start {
   display: grid;
@@ -4731,6 +4957,18 @@ body.popout {
 
 .connection--later {
   opacity: 0.8;
+}
+
+/* A card that opens and closes (Phase 25, item 2.2): the list item draws the frame and its
+   colored edge; the open/close part inside draws none of its own. */
+.connection--opens {
+  padding: 0;
+}
+
+.connection--opens > .ui-disclosure {
+  border: 0;
+  border-radius: inherit;
+  background: none;
 }
 
 .connection__header {
@@ -7452,4 +7690,129 @@ button.chat-plan__task:focus-visible {
   .message {
     max-width: 100%;
   }
+}
+
+/* The live conversation (Phase 25, item 3.1): a worker's words as it types, its steps in plain
+   words, and how far along it is. */
+.live {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The progress line, with Open in Chat at its end (ADR-200). */
+.live__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-space-2);
+}
+
+.live__progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+}
+
+.live__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ui-ok);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.live__lines {
+  display: grid;
+  gap: 4px;
+  max-height: 360px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.live--short .live__lines {
+  max-height: none;
+  overflow: hidden;
+}
+
+.live__line {
+  min-width: 0;
+  font-size: var(--ui-font-sm);
+  overflow-wrap: anywhere;
+}
+
+.live__line--step,
+.live__line--note {
+  color: var(--ui-text-secondary);
+}
+
+.live__line--step::before {
+  content: "› ";
+  color: var(--ui-accent);
+}
+
+.live__line--problem {
+  color: var(--ui-warn-text);
+}
+
+.live__words {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-raised);
+  white-space: pre-wrap;
+}
+
+.live--short .live__words {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.live__caret {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--ui-accent);
+  animation: live-pulse 1s steps(2) infinite;
+}
+
+.live__empty {
+  margin: 0;
+  font-size: var(--ui-font-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live__dot,
+  .live__caret {
+    animation: none;
+  }
+}
+
+/* A tile's "now: …" line while it works (Phase 25, item 3.1). */
+.topo-node__now {
+  color: var(--ui-ok-text);
+}
+
+/* Watch and Stop in a table row (Phase 25, items 3.1 and 3.3). */
+.table__actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
 }

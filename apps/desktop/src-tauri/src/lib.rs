@@ -23,6 +23,8 @@ pub mod indicator;
 pub mod ledger_host;
 pub mod license_commands;
 pub mod license_host;
+pub mod limit_host;
+pub mod link_host;
 pub mod logs;
 pub mod notices;
 pub mod org_commands;
@@ -385,10 +387,17 @@ pub fn configure<R: Runtime>(
             app.manage(files_commands::Outside(Arc::new(
                 files_commands::SystemFileOpener,
             )));
+            // A company's own usage page, for **Use a reset** (Phase 25, item 4.2).
+            app.manage(commands::CompanyPages(Arc::new(
+                plenipo_capabilities::connections::SystemOpener::new(first.supervisor.clone()),
+            )));
             // The AI tools page (Phase 19): sign-in tabs, updates, usage, and models; the PC's,
             // kept with the first organization (ADR-094 §4).
             let ai_tools = ai_tools_host::create(&agents, &broker);
             ai_tools_host::listen(&ledger, &ai_tools);
+            // Usage counts every organization's tasks, and each one's tasks ending asks for the
+            // plan left (Phase 25, item 1.2).
+            ai_tools_host::count_every_organization(&orgs, &ai_tools);
             if options.persistence == Persistence::AppData {
                 ai_tools_host::start_daily(ai_tools.clone());
             }
@@ -667,12 +676,19 @@ pub fn configure<R: Runtime>(
             commands::assign_oversight,
             commands::end_oversight,
             commands::give_objective,
+            commands::ask_side_question,
             commands::get_routing,
             commands::save_model,
             commands::remove_model,
             commands::set_role_policy,
             commands::set_routing_options,
+            commands::get_plan_paces,
+            commands::set_plan_budget,
             commands::clear_usage_limit,
+            commands::get_limit_waits,
+            commands::pick_up_work_now,
+            commands::leave_work_stopped,
+            commands::open_reset_page,
             commands::get_permissions,
             commands::save_permission_set,
             commands::remove_permission_set,
@@ -687,6 +703,8 @@ pub fn configure<R: Runtime>(
             commands::resolve_approval,
             commands::revoke_grant,
             commands::set_up_development,
+            commands::add_department_from_template,
+            commands::apply_organization_template,
             commands::get_objective_report,
             commands::get_project_work,
             commands::remove_workspace,
@@ -751,6 +769,7 @@ pub fn configure<R: Runtime>(
             workspace_commands::close_pop_out,
             org_commands::get_organizations,
             org_commands::create_organization,
+            org_commands::save_organization_template,
             org_commands::switch_organization,
             org_commands::open_organization_window,
             org_commands::archive_organization,
@@ -1167,6 +1186,7 @@ mod ipc_boundary_tests {
         app.manage(workspace_windows::PopOuts::new(None));
         app.manage(files_commands::Drops::default());
         app.manage(files_commands::Outside(Arc::new(NoOpener)));
+        app.manage(commands::CompanyPages(Arc::new(NoBrowser)));
         app.manage(first.guard.clone());
         app.manage(first.broker.clone());
         app.manage(first.supervisor.clone());
@@ -2118,6 +2138,69 @@ mod ipc_boundary_tests {
         assert!(org.positions.is_empty());
     }
 
+    /// When a plan runs out (Phase 25, item 4.2): the waiting work, Pick it up now, Leave
+    /// stopped, and Use a reset, with their checks.
+    #[test]
+    fn work_a_usage_limit_stopped_through_ipc() {
+        let app = app();
+        let main = window(&app, "main");
+        let waits: Vec<plenipo_workforce::LimitWait> = body(invoke(&main, "get_limit_waits"));
+        assert!(waits.is_empty());
+        let waits: Vec<plenipo_workforce::LimitWait> = body(invoke_json(
+            &main,
+            "pick_up_work_now",
+            serde_json::json!({ "runtimeId": "codex" }),
+        ));
+        assert!(waits.is_empty());
+        // Use a reset opens only the company pages built into Plenipo.
+        assert!(invoke_json(
+            &main,
+            "open_reset_page",
+            serde_json::json!({ "runtimeId": "claude-code" }),
+        )
+        .is_ok());
+        for (cmd, args) in [
+            (
+                "open_reset_page",
+                serde_json::json!({ "runtimeId": "grok" }),
+            ),
+            (
+                "open_reset_page",
+                serde_json::json!({ "runtimeId": "../x" }),
+            ),
+            ("leave_work_stopped", serde_json::json!({ "taskIds": [] })),
+            (
+                "leave_work_stopped",
+                serde_json::json!({ "taskIds": ["../x"] }),
+            ),
+            (
+                "leave_work_stopped",
+                serde_json::json!({ "taskIds": [SESSION] }),
+            ),
+            (
+                "pick_up_work_now",
+                serde_json::json!({ "runtimeId": "Claude Code" }),
+            ),
+        ] {
+            let err = invoke_json(&main, cmd, args.clone()).expect_err(cmd);
+            assert!(
+                err["kind"] == "invalidInput" || err.is_string(),
+                "{cmd} {args}: {err}"
+            );
+        }
+        // Stop all work: nothing is picked up until Allow again.
+        let _: plenipo_capabilities::control::ControlStatus =
+            body(invoke(&main, "stop_all_control"));
+        let refused = invoke_json(
+            &main,
+            "pick_up_work_now",
+            serde_json::json!({ "runtimeId": "codex" }),
+        )
+        .unwrap_err();
+        assert_eq!(refused["message"], crate::commands::STOPPED_ALL);
+        let _: plenipo_capabilities::control::ControlStatus = body(invoke(&main, "allow_control"));
+    }
+
     #[test]
     fn objectives_to_an_uninstalled_runtime_are_refused_and_record_nothing() {
         let app = app();
@@ -2161,12 +2244,22 @@ mod ipc_boundary_tests {
             "move_position",
             "assign_oversight",
             "give_objective",
+            "ask_side_question",
             "get_routing",
             "save_model",
             "remove_model",
             "set_role_policy",
             "set_routing_options",
+            "get_plan_paces",
+            "set_plan_budget",
             "clear_usage_limit",
+            "get_limit_waits",
+            "pick_up_work_now",
+            "leave_work_stopped",
+            "open_reset_page",
+            "add_department_from_template",
+            "apply_organization_template",
+            "save_organization_template",
         ] {
             let args = serde_json::json!({ "positionId": SESSION, "objective": "x" });
             assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
@@ -2174,6 +2267,60 @@ mod ipc_boundary_tests {
                 invoke_with(&main, cmd, args, "https://example.com").is_err(),
                 "{cmd}"
             );
+        }
+    }
+
+    /// The templates' commands (Phase 25, item 2.8) are for Plenipo's own windows only (the main
+    /// window and each organization's window): another window, the sign, and a web page are
+    /// refused by the permissions themselves, with arguments the command would take; Plenipo's
+    /// own windows reach each one.
+    #[test]
+    fn template_commands_are_for_plenipos_own_windows_only() {
+        let app = app();
+        let main = window(&app, "main");
+        let org = window(&app, "org-client");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for (cmd, args) in [
+            (
+                "add_department_from_template",
+                serde_json::json!({ "id": "marketing" }),
+            ),
+            (
+                "apply_organization_template",
+                serde_json::json!({ "id": "agency" }),
+            ),
+            (
+                "save_organization_template",
+                serde_json::json!({ "name": "Ours" }),
+            ),
+        ] {
+            let refused = |answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
+                           from: &str| {
+                let err = answer.expect_err(from);
+                assert!(
+                    err.to_string().contains("not allowed"),
+                    "{cmd} from {from}: {err}"
+                );
+            };
+            refused(invoke_json(&other, cmd, args.clone()), "another window");
+            refused(invoke_json(&sign, cmd, args.clone()), "the sign");
+            refused(
+                invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                "a web page",
+            );
+            // Plenipo's own windows reach it: any answer is the command's own.
+            for (window, from) in [
+                (&main, "the main window"),
+                (&org, "an organization's window"),
+            ] {
+                if let Err(err) = invoke_json(window, cmd, args.clone()) {
+                    assert!(
+                        !err.to_string().contains("not allowed"),
+                        "{cmd} from {from}: {err}"
+                    );
+                }
+            }
         }
     }
 
@@ -2199,15 +2346,16 @@ mod ipc_boundary_tests {
         let defaults: Vec<String> = plenipo_runtime::agent::builtin_adapters()
             .iter()
             .filter(|a| !a.paid())
-            .map(|a| format!("{} (default model)", a.label()))
+            .map(|a| format!("{}: its own choice", a.label()))
             .collect();
         assert_eq!(labels, defaults);
         assert!(s.tools.iter().all(|t| !t.available));
         assert!(!s.api_billing);
+        // The Designer asks for nothing special (Phase 25, item 2.4); nothing is signed in, so
+        // nothing is chosen yet.
         let designer = s.roles.iter().find(|r| r.role_name == "Designer").unwrap();
-        assert_eq!(
-            designer.policy.needs.len(),
-            2,
+        assert!(
+            designer.policy.needs.is_empty(),
             "the template's starting policy"
         );
         assert!(designer.next.choice.is_none());
@@ -2220,7 +2368,7 @@ mod ipc_boundary_tests {
             }}),
         ));
         let opus = model_id(&s, "Opus");
-        let codex = model_id(&s, "Codex (default model)");
+        let codex = model_id(&s, "Codex: its own choice");
         let org: plenipo_workforce::OrgSnapshot = body(invoke(&main, "get_organization"));
         let dev = role_id(&org, "Senior Developer");
         let s: plenipo_router::RoutingSnapshot = body(invoke_json(
@@ -3025,6 +3173,100 @@ mod ipc_boundary_tests {
         }
     }
 
+    /// Stop all work lasts across a restart until Allow again (Phase 25, item 3.4; the security
+    /// review of #156): the first organization opens again on the same Ledger with the PC's record
+    /// of control new, as after a restart, and its work is held before anything can start a turn.
+    /// Another organization opened then follows the PC, never an older stop of its own.
+    #[test]
+    fn stop_all_work_lasts_across_a_restart_until_allow_again() {
+        use plenipo_capabilities::control::{ControlCenter, ControlStatus};
+        use plenipo_runtime::agent::HoldFor;
+        let app = app();
+        let main = window(&app, "main");
+        let license = app
+            .state::<Arc<license_host::LicenseHost>>()
+            .inner()
+            .clone();
+        let place = |id: &str| orgs::OrgPlace {
+            id: id.into(),
+            folder: None,
+            data: None,
+            vault: orgs::vault_name("test", id),
+        };
+        let open = |id: &str,
+                    ledger: Arc<plenipo_ledger::Ledger>,
+                    control: &ControlCenter,
+                    first: Option<&orgs::OrgStack>| {
+            org_host::build(
+                app.handle(),
+                place(id),
+                ledger,
+                &org_host::Opening {
+                    persistence: Persistence::InMemory,
+                    notices: notices::Output::Kept,
+                    gather: Duration::from_millis(100),
+                    version: "1.9.0",
+                    previous: &recovery::PreviousEnd::Clean,
+                    run: false,
+                    control: control.clone(),
+                    first,
+                    entitlements: license.entitlements(),
+                },
+            )
+        };
+        let ledger = app.state::<Arc<plenipo_ledger::Ledger>>().inner().clone();
+        let status: ControlStatus = body(invoke(&main, "stop_all_control"));
+        assert!(status.stopped);
+
+        // Plenipo restarts: the stop is back on, and every AI tool waits.
+        let control = ControlCenter::default();
+        let first = open(orgs::FIRST, ledger.clone(), &control, None);
+        assert!(control.status().stopped, "the PC's stop is on again");
+        assert!(first.agents.work_held());
+        assert!(first
+            .agents
+            .runtimes()
+            .iter()
+            .all(|r| r.held == Some(HoldFor::StopAll)));
+        crate::commands::refuse_while_stopped(&first.agents).unwrap_err();
+
+        // Allow again (recorded): the next start is not held.
+        crate::commands::allow_work_again(&first.agents, &first.ledger);
+        assert!(!first.agents.work_held());
+        let control = ControlCenter::default();
+        let first = open(orgs::FIRST, ledger, &control, None);
+        assert!(!control.status().stopped && !first.agents.work_held());
+
+        // An organization whose own record ends on an older Stop all (it was closed when the
+        // owner pressed Allow again) follows the PC: not held.
+        let client = ledger_host::open(app.handle(), &place("client"), Persistence::InMemory);
+        client
+            .append_event(plenipo_ledger::NewEvent {
+                source: "owner".into(),
+                event_type: "work.stopped_all".into(),
+                payload: serde_json::json!({ "stopped": 0 }),
+                ..plenipo_ledger::NewEvent::default()
+            })
+            .unwrap();
+        let other = open("client", client, &control, Some(&first));
+        assert!(!other.agents.work_held());
+
+        // A record that can't be read counts as Stop all (it fails closed): work waits until the
+        // owner presses Allow again.
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("ledger.db");
+        let unreadable = Arc::new(plenipo_ledger::Ledger::open(&file).unwrap());
+        rusqlite::Connection::open(&file)
+            .unwrap()
+            .execute_batch("ALTER TABLE events RENAME TO events_gone")
+            .unwrap();
+        assert!(unreadable.work_stopped_on_record().is_err());
+        let control = ControlCenter::default();
+        let first = open(orgs::FIRST, unreadable, &control, None);
+        assert!(control.status().stopped, "the PC's stop is on");
+        assert!(first.agents.work_held());
+    }
+
     #[test]
     fn control_and_websites_through_ipc() {
         use plenipo_capabilities::control::ControlStatus;
@@ -3033,11 +3275,36 @@ mod ipc_boundary_tests {
         // Nobody uses the browser or the desktop yet.
         let status: ControlStatus = body(invoke(&main, "get_control_status"));
         assert!(!status.stopped && status.sessions.is_empty());
-        // The emergency stop holds until allowed again.
+        // The emergency stop holds until allowed again: Stop all work (Phase 25, item 3.4) holds
+        // the AI work too, refuses new work at once, and both are recorded.
         let status: ControlStatus = body(invoke(&main, "stop_all_control"));
         assert!(status.stopped);
+        assert!(app.state::<AgentRuntime>().work_held());
+        let refused = invoke_json(
+            &main,
+            "start_agent_session",
+            serde_json::json!({ "runtimeId": "claude-code", "objective": "Write it" }),
+        )
+        .unwrap_err();
+        assert_eq!(
+            refused["message"],
+            crate::commands::STOPPED_ALL,
+            "{refused}"
+        );
         let status: ControlStatus = body(invoke(&main, "allow_control"));
         assert!(!status.stopped);
+        assert!(!app.state::<AgentRuntime>().work_held());
+        let types: Vec<String> = app
+            .state::<std::sync::Arc<plenipo_ledger::Ledger>>()
+            .recent_events(50)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.event_type)
+            .collect();
+        for want in ["work.stopped_all", "work.allowed_again"] {
+            assert!(types.iter().any(|t| t == want), "{want}: {types:?}");
+        }
+
         // Take over: session IDs are checked; nobody to take over is refused.
         for bad in [
             "x",
@@ -6545,13 +6812,17 @@ mod ipc_boundary_tests {
     }
 
     #[test]
-    fn a_new_organization_starts_from_scratch_a_copy_or_not_yet_a_template() {
+    fn a_new_organization_starts_from_scratch_a_copy_or_a_template() {
         let app = app();
         let main = window(&app, "main");
         for (start, why) in [
             (
-                serde_json::json!({ "kind": "template", "template": "agency" }),
-                "later",
+                serde_json::json!({ "kind": "template", "template": "nope" }),
+                "no such template",
+            ),
+            (
+                serde_json::json!({ "kind": "template", "template": "saved-../../x" }),
+                "not a saved one",
             ),
             (
                 serde_json::json!({ "kind": "copy", "from": "../../x" }),
@@ -6578,6 +6849,24 @@ mod ipc_boundary_tests {
             "create_organization",
             serde_json::json!({ "name": "Copy Co", "start": { "kind": "copy", "from": orgs::FIRST } }),
         ));
+        // A template (Phase 25, item 2.8): its departments, each with its manager and team.
+        let agency: plenipo_core::OrgSummary = body(invoke_json(
+            &main,
+            "create_organization",
+            serde_json::json!({ "name": "Agency Co", "start": { "kind": "template", "template": "agency" } }),
+        ));
+        let made = app.state::<Arc<orgs::Orgs>>().stack(&agency.id).unwrap();
+        let mut names: Vec<String> = made
+            .ledger
+            .list_departments()
+            .unwrap()
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        names.sort();
+        assert_eq!(names, ["Design", "Development", "Marketing"]);
+        let listing: plenipo_core::OrgListing = body(invoke(&main, "get_organizations"));
+        assert!(listing.templates.iter().any(|t| t.id == "agency"));
         let stack = app.state::<Arc<orgs::Orgs>>().stack(&copy.id).unwrap();
         let first = app.state::<Arc<orgs::Orgs>>().first().unwrap();
         assert_eq!(

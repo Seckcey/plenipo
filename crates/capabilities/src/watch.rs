@@ -94,6 +94,10 @@ pub struct WatchChange {
     /// Shown instead of the lines: a large or non-text file, or lines no longer kept.
     #[ts(optional)]
     pub summary: Option<String>,
+    /// Made by a command or a git step the worker ran, not by Plenipo's file tools (Phase 25,
+    /// item 3.2).
+    #[ts(optional)]
+    pub by_command: Option<bool>,
     #[ts(type = "number")]
     pub at: u64,
 }
@@ -135,6 +139,15 @@ pub struct WatchView {
     pub changes: Vec<WatchChange>,
     /// Some changes are from before Plenipo started again: their lines are not kept.
     pub from_the_record: bool,
+    /// The tasks whose changes it shows: the agent's own in the objective, and those it handed
+    /// on to its team (Phase 25, item 1.8). A change heard later from another of the
+    /// objective's tasks may be a new hand-off: the view is read again.
+    #[serde(default)]
+    pub team_task_ids: Vec<String>,
+    /// Why there is nothing to show, when Plenipo knows (Phase 25, item 1.8).
+    #[serde(default)]
+    #[ts(optional)]
+    pub quiet: Option<String>,
 }
 
 /// What the main window hears as it happens.
@@ -435,6 +448,7 @@ impl WatchHub {
             removed: 0,
             reason: None,
             summary: None,
+            by_command: None,
             at: plenipo_ledger::now_ms(),
         }
     }
@@ -547,6 +561,26 @@ impl WatchHub {
     /// marked only when they will be shown; the counts are `None` when they are not known (a
     /// file Watch did not read before, or too different to compare in time).
     pub fn saved(&self, who: &Who, path: &str, written: &Written) -> (WatchChange, Option<Counts>) {
+        self.saved_as(who, path, written, false)
+    }
+
+    /// A change a command made (Phase 25, item 3.2): shown as made by a command.
+    pub fn saved_by_command(
+        &self,
+        who: &Who,
+        path: &str,
+        written: &Written,
+    ) -> (WatchChange, Option<Counts>) {
+        self.saved_as(who, path, written, true)
+    }
+
+    fn saved_as(
+        &self,
+        who: &Who,
+        path: &str,
+        written: &Written,
+        by_command: bool,
+    ) -> (WatchChange, Option<Counts>) {
         let shown_before = match &written.before {
             Before::Missing => Some(""),
             Before::Text(t) => Some(t.as_str()),
@@ -572,6 +606,7 @@ impl WatchHub {
             k.change.removed = counts.map_or(0, |c| c.removed);
             k.change.reason = None;
             k.change.summary = summary.clone();
+            k.change.by_command = by_command.then_some(true);
             k.marked = match (summary.is_none(), marked) {
                 (true, Some((_, m))) => Some(m),
                 _ => None,
@@ -773,6 +808,38 @@ impl WatchHub {
         }
     }
 
+    /// Every change in `objective` made by `position_id` or in one of `tasks` (its own and its
+    /// team's; Phase 25, item 1.8), each file's latest, newest first; `None` when there is none
+    /// in memory.
+    pub fn view_of(
+        &self,
+        position_id: &str,
+        objective: &str,
+        tasks: &std::collections::HashSet<String>,
+    ) -> Option<WatchView> {
+        let state = self.state();
+        let mut seen = std::collections::HashSet::new();
+        let changes: Vec<WatchChange> = state
+            .order
+            .iter()
+            .rev()
+            .filter_map(|id| state.changes.get(id))
+            .filter(|k| {
+                k.change.objective_task_id == objective
+                    && (tasks.contains(&k.change.task_id)
+                        || k.change.position_id.as_deref() == Some(position_id))
+            })
+            .filter(|k| seen.insert(k.change.path.clone()))
+            .map(|k| k.change.clone())
+            .collect();
+        (!changes.is_empty()).then(|| WatchView {
+            position_id: position_id.to_owned(),
+            objective_task_id: Some(objective.to_owned()),
+            changes,
+            ..WatchView::default()
+        })
+    }
+
     /// Every change of `position_id`'s latest objective (each file's latest change), newest
     /// first; `None` when there is none in memory.
     pub fn view(&self, position_id: &str) -> Option<WatchView> {
@@ -802,6 +869,7 @@ impl WatchHub {
             objective_task_id: Some(objective),
             changes,
             from_the_record: false,
+            ..WatchView::default()
         })
     }
 

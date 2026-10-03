@@ -47,7 +47,35 @@ pub(crate) fn counts(c: &Connection) -> Result<HashMap<String, ExperienceCounts>
         e.first_task_at = first;
         e.last_task_at = last;
     }
+    let mut stmt = c.prepare(&format!(
+        "SELECT json_extract(t.metadata, '$.workforce.positionId') AS position, COUNT(*)
+         FROM events e JOIN tasks t ON t.id = e.task_id
+         WHERE e.event_type = '{SENT_BACK}'
+           AND json_extract(t.metadata, '$.workforce.positionId') IS NOT NULL
+         GROUP BY position"
+    ))?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u32>(1)?)))?;
+    for row in rows {
+        let (id, n) = row?;
+        out.entry(id).or_default().answers_sent_back = n;
+    }
     Ok(out)
+}
+
+/// An answer sent back because it didn't match Plenipo's record (Phase 25, item 4.7).
+const SENT_BACK: &str = "liaison.answer_sent_back";
+
+/// How many of `position_id`'s answers were sent back since `since` (milliseconds since 1970).
+pub(crate) fn sent_back_since(c: &Connection, position_id: &str, since: u64) -> Result<u32> {
+    Ok(c.query_row(
+        &format!(
+            "SELECT COUNT(*) FROM events e JOIN tasks t ON t.id = e.task_id
+             WHERE e.event_type = '{SENT_BACK}' AND e.created_at >= ?2
+               AND json_extract(t.metadata, '$.workforce.positionId') = ?1"
+        ),
+        params![position_id, i64::try_from(since).unwrap_or(i64::MAX)],
+        |r| r.get(0),
+    )?)
 }
 
 /// One position's counts.
@@ -63,9 +91,19 @@ pub(crate) fn counts_for(c: &Connection, position_id: &str) -> Result<Experience
         [position_id],
         |r| Ok((r.get::<_, u32>(0)?, opt_u64(r.get(1)?), opt_u64(r.get(2)?))),
     )?;
+    let answers_sent_back: u32 = c.query_row(
+        &format!(
+            "SELECT COUNT(*) FROM events e JOIN tasks t ON t.id = e.task_id
+             WHERE e.event_type = '{SENT_BACK}'
+               AND json_extract(t.metadata, '$.workforce.positionId') = ?1"
+        ),
+        [position_id],
+        |r| r.get(0),
+    )?;
     Ok(ExperienceCounts {
         kept_lessons,
         tasks_done,
+        answers_sent_back,
         first_task_at,
         last_task_at,
     })
@@ -88,5 +126,10 @@ impl Ledger {
     /// Each position's counts (ADR-045), from the records.
     pub fn experience_counts(&self) -> Result<HashMap<String, ExperienceCounts>> {
         self.read(counts)
+    }
+
+    /// How many of a position's answers were sent back since `since` (Phase 25, item 4.8).
+    pub fn answers_sent_back_since(&self, position_id: &str, since: u64) -> Result<u32> {
+        self.read(|c| sent_back_since(c, position_id, since))
     }
 }

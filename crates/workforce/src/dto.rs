@@ -164,6 +164,15 @@ pub struct ExperienceInfo {
     pub tasks_done: u32,
     /// Above the organization's average.
     pub experienced: bool,
+    /// Its answers sent back because they didn't match Plenipo's record (Phase 25, item 4.8).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[ts(as = "Option<u32>", optional)]
+    pub answers_sent_back: u32,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's `skip_serializing_if` passes a reference
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// Whether an agent learns, and which setting decided (ADR-041).
@@ -458,6 +467,9 @@ pub struct RuntimeBrief {
     /// The AI company behind it ("Anthropic"), whose cloud its models run in (Phase 18: the
     /// canvas's "where" and its AI company filter; each model's own maker comes with Phase 16).
     pub company: String,
+    /// Paid per use with the owner's key (ADR-085), not a subscription: the pickers list these
+    /// after the subscriptions, and only once a key is saved (Phase 25, item 1.5).
+    pub paid: bool,
 }
 
 /// The whole organization for the canvas and directory.
@@ -485,8 +497,34 @@ pub struct OrgSnapshot {
     /// The tiles the owner placed by hand on the canvas (ADR-053); the rest follow the automatic
     /// layout.
     pub places: Vec<TilePlace>,
+    /// The templates to start from (Phase 25, item 2.8).
+    pub templates: Templates,
     #[ts(type = "number")]
     pub generated_at: u64,
+}
+
+/// A ready-made setup to start from (Phase 25, item 2.8).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TemplateInfo {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    /// What it adds, one line each: "Development: Development Manager, with a Senior Developer,
+    /// a Code Reviewer, …".
+    pub adds: Vec<String>,
+    /// More than one department: part of Pro (Free keeps one department).
+    pub pro: bool,
+}
+
+/// The templates an organization and a department can start from (Phase 25, item 2.8).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Templates {
+    pub organizations: Vec<TemplateInfo>,
+    pub departments: Vec<TemplateInfo>,
 }
 
 /// The work a position owns: its own tasks, and its team's unfinished tasks.
@@ -825,4 +863,51 @@ pub struct DevelopmentInput {
     /// automatic (each role's model choices pick).
     #[ts(optional)]
     pub runtime_id: Option<String>,
+    /// The department the project joins (Phase 25, item 2.7); absent: the template's own,
+    /// made with its VP when there is none.
+    #[serde(default)]
+    #[ts(optional)]
+    pub department_id: Option<String>,
+    /// Jobs (by title) to hire a new worker for even when the department has one for them.
+    /// Every other job uses a matching worker the department already has (Phase 25, item 2.7).
+    #[serde(default)]
+    #[ts(optional)]
+    pub hire_new: Option<Vec<String>>,
+}
+
+/// Work an AI tool's usage limit stopped, for one AI tool (Phase 25, item 4.2; ADR-253): the
+/// notice that says when Plenipo picks it back up, and the owner's choices.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LimitWait {
+    pub runtime_id: String,
+    /// Its name on screen ("Claude Code").
+    pub label: String,
+    /// The company whose plan ran out, when it gives usage resets ("Anthropic", "OpenAI"):
+    /// **Use a reset** opens its own page. Plenipo never uses one for the owner.
+    pub reset_company: Option<String>,
+    /// When the limit was reached.
+    #[ts(type = "number")]
+    pub since: u64,
+    /// When Plenipo picks the work back up: the reset time the AI tool reported, or an hour
+    /// after the limit when it reported none. `null`: the limit is over; it is picked up now.
+    #[ts(type = "number | null")]
+    pub until: Option<u64>,
+    /// `until` is the reset time the AI tool reported (not Plenipo's hour).
+    pub reported: bool,
+    /// The work waiting, oldest first.
+    pub work: Vec<LimitWaitWork>,
+}
+
+/// One objective a usage limit stopped (Phase 25, item 4.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LimitWaitWork {
+    pub task_id: String,
+    /// The objective, as the owner gave it.
+    pub objective: String,
+    /// Who was doing it (a position's title), when it was a member of the organization.
+    pub who: Option<String>,
 }

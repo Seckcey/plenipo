@@ -1080,6 +1080,80 @@ async fn plan_orphan_prevention() {
     );
 }
 
+// ---- Side chats (Phase 25, item 3.5) -------------------------------------------------------
+
+/// A side chat with a busy supervisor: a new conversation, briefed on what it is doing, that
+/// leaves its work alone; an on-call position has none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_side_chat_with_a_busy_supervisor_knows_what_it_is_doing_and_leaves_it_alone() {
+    let h = harness().await;
+    let o = h.development();
+    let busy = h
+        .objective(&o.coordinator, "Ship the pricing page [delay:3000]")
+        .await;
+    h.until("the coordinator to work", |s| {
+        s.positions
+            .iter()
+            .any(|p| p.id == o.coordinator && p.status == PositionStatus::Working)
+    })
+    .await;
+    let side = h
+        .workforce
+        .ask_side_question(&o.coordinator, "How far along are you?")
+        .await
+        .unwrap();
+    let coordinator_title = h
+        .workforce
+        .snapshot()
+        .unwrap()
+        .positions
+        .into_iter()
+        .find(|p| p.id == o.coordinator)
+        .unwrap()
+        .title;
+    assert_eq!(
+        side.session.title,
+        format!("Side chat with {coordinator_title}")
+    );
+    assert_eq!(
+        side.session.metadata["sideChat"]["positionId"],
+        o.coordinator.as_str()
+    );
+    assert!(side.session.metadata.get("workforce").is_none(), "no tools");
+    let asked = &side.turns[0];
+    assert!(
+        asked.objective.contains("This is a side chat"),
+        "{}",
+        asked.objective
+    );
+    assert!(
+        asked
+            .objective
+            .contains("Status now: working on: Ship the pricing page"),
+        "{}",
+        asked.objective
+    );
+    assert!(asked
+        .objective
+        .trim_end()
+        .ends_with("How far along are you?"));
+    // Its own conversation is another one, and its work goes on.
+    assert_ne!(
+        Some(&side.session.id),
+        h.task(&busy).metadata["sessionId"]
+            .as_str()
+            .map(str::to_owned)
+            .as_ref()
+    );
+    assert!(!h.task(&busy).state.is_terminal());
+    assert_eq!(h.finished(&busy).await.state, TaskState::Succeeded);
+    // An empty question, and an on-call position, are refused.
+    assert!(
+        refusal(h.workforce.ask_side_question(&o.coordinator, "  ").await).contains("question")
+    );
+    assert!(refusal(h.workforce.ask_side_question(&o.developer, "Hi").await).contains("on-call"));
+}
+
 // ---- Routing -------------------------------------------------------------------------------
 
 /// A member lent to another team (ADR-054) is named as the reason only when nobody on the team
@@ -1368,7 +1442,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     );
 
     // Senior Developer: Codex's default model first.
-    h.prefer("Senior Developer", &["Codex (default model)"]);
+    h.prefer("Senior Developer", &["Codex: its own choice"]);
     let p = h.position(&backend);
     assert!(p.automatic);
     assert_eq!(
@@ -1378,7 +1452,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     );
     assert_eq!(
         p.route.as_ref().unwrap().reason,
-        "Codex (default model) is Senior Developer's first choice and is ready."
+        "Codex: its own choice is Senior Developer's first choice and is ready."
     );
     let first = h
         .objective(&o.coordinator, "Build it [handoff:role:Backend Developer]")
@@ -1388,7 +1462,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     assert_eq!(child.assigned_to.as_deref(), Some("codex"));
     assert_eq!(
         reason(&child),
-        "Codex (default model) is Senior Developer's first choice and is ready."
+        "Codex: its own choice is Senior Developer's first choice and is ready."
     );
     let spawned = h
         .ledger
@@ -1406,7 +1480,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     );
 
     // The owner changes the preference in Settings: the next worker uses the new first choice.
-    h.prefer("Senior Developer", &["Fast", "Codex (default model)"]);
+    h.prefer("Senior Developer", &["Fast", "Codex: its own choice"]);
     let second = h
         .objective(
             &o.coordinator,
@@ -1449,7 +1523,7 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     assert_eq!(child.assigned_to.as_deref(), Some("codex"));
     assert_eq!(
         reason(&child),
-        "You set Senior Developer to always use Codex (default model)."
+        "You set Senior Developer to always use Codex: its own choice."
     );
 
     // Nothing about the coordinator changed: same position, same conversation, and the same
@@ -1475,8 +1549,167 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
         backend_member.1,
         "Senior Developer, a new worker for each request"
     );
-    h.prefer("Senior Developer", &["Codex (default model)"]);
+    h.prefer("Senior Developer", &["Codex: its own choice"]);
     assert_eq!(h.briefing(&o.coordinator), (identity, members));
+}
+
+/// When a plan runs out (Phase 25, item 4.2; ADR-253): the work a usage limit stopped waits with
+/// the owner's choices, is picked back up once the limit is over (never before, and never while
+/// Stop all work holds it), and stays stopped when the owner says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn work_a_usage_limit_stopped_is_picked_back_up_unless_left_stopped() {
+    use plenipo_ledger::limit_stops::{LEFT_STOPPED, PICKED_UP};
+    let h = harness().await;
+    let o = h.development();
+    let script = serde_json::json!({
+        "Development Manager": [ { "usageLimit": true } ],
+        "Cloudline Coordinator": [ { "usageLimit": true }, { "say": "Picked up and done." } ],
+    });
+    std::fs::write(
+        h.dir
+            .path()
+            .join("home")
+            .join(".plenipo-fake-agent")
+            .join("script.json"),
+        script.to_string(),
+    )
+    .unwrap();
+    // Claude Code's plan runs out on the manager's objective, then (after the owner's Try again
+    // now) on the supervisor's.
+    let quarter = h.objective(&o.head, "Plan the quarter.").await;
+    assert_eq!(h.finished(&quarter).await.state, TaskState::Failed);
+    h.router.clear_limit("claude-code").unwrap();
+    let release = h.objective(&o.coordinator, "Plan the release.").await;
+    assert_eq!(h.finished(&release).await.state, TaskState::Failed);
+
+    // The notice: when, what waits, and whose reset it would be.
+    let waits = h.workforce.limit_waits().unwrap();
+    assert_eq!(waits.len(), 1, "{waits:?}");
+    let w = &waits[0];
+    assert_eq!(
+        (w.runtime_id.as_str(), w.label.as_str()),
+        ("claude-code", "Claude Code")
+    );
+    assert_eq!(w.reset_company.as_deref(), Some("Anthropic"));
+    // Claude Code's reset time here is long past, so Plenipo tries again in an hour.
+    assert!(!w.reported);
+    assert_eq!(w.until, Some(w.since + plenipo_router::limits::HOLD_MS));
+    let work: Vec<(&str, Option<&str>)> = w
+        .work
+        .iter()
+        .map(|x| (x.objective.as_str(), x.who.as_deref()))
+        .collect();
+    assert_eq!(
+        work,
+        [
+            ("Plan the quarter.", Some("Development Manager")),
+            ("Plan the release.", Some("Cloudline Coordinator")),
+        ]
+    );
+
+    // Not before the limit is over.
+    assert_eq!(h.workforce.pick_up_after_limits().await.unwrap(), 0);
+    assert!(h
+        .ledger
+        .last_task_event(&release, PICKED_UP)
+        .unwrap()
+        .is_none());
+
+    // The owner leaves the manager's objective stopped; only waiting work can be.
+    let left = h
+        .workforce
+        .leave_stopped(std::slice::from_ref(&quarter))
+        .unwrap();
+    assert_eq!(left[0].work.len(), 1);
+    assert!(h.workforce.leave_stopped(&["t-none".to_owned()]).is_err());
+    assert!(h
+        .ledger
+        .last_task_event(&quarter, LEFT_STOPPED)
+        .unwrap()
+        .is_some());
+
+    // Stop all work holds it even when the limit is over.
+    h.rt.hold_all_work();
+    assert_eq!(h.workforce.pick_up_now("claude-code").await.unwrap(), 0);
+    h.rt.allow_work();
+
+    // The limit is over: the supervisor's objective goes back to it, once, and is recorded.
+    assert_eq!(h.workforce.pick_up_after_limits().await.unwrap(), 1);
+    assert_eq!(h.workforce.pick_up_after_limits().await.unwrap(), 0);
+    let picked = h
+        .ledger
+        .last_task_event(&release, PICKED_UP)
+        .unwrap()
+        .unwrap();
+    assert_eq!(picked.payload["runtimeId"], "claude-code");
+    let again = picked.payload["runAgainAs"].as_str().unwrap().to_owned();
+    assert_ne!(again, release);
+    assert_eq!(h.finished(&again).await.state, TaskState::Succeeded);
+    assert!(
+        h.text(&again).contains("Picked up and done."),
+        "{}",
+        h.text(&again)
+    );
+    // The manager's stays stopped, and nothing waits any more.
+    assert!(h
+        .ledger
+        .last_task_event(&quarter, PICKED_UP)
+        .unwrap()
+        .is_none());
+    assert!(h.workforce.limit_waits().unwrap().is_empty());
+}
+
+/// Work a usage limit stopped whose worker is gone by the time the limit is over (Phase 25,
+/// item 4.2; asked for by the review of #156): it is not given to anyone else, it is not tried
+/// again, and the owner hears why in plain words, in Activity and as a notice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn work_whose_worker_is_gone_after_a_limit_is_not_picked_up_and_the_owner_hears_why() {
+    use plenipo_ledger::limit_stops::NOT_PICKED_UP;
+    let h = harness().await;
+    let o = h.development();
+    std::fs::write(
+        h.dir
+            .path()
+            .join("home")
+            .join(".plenipo-fake-agent")
+            .join("script.json"),
+        serde_json::json!({ "Cloudline Coordinator": [ { "usageLimit": true } ] }).to_string(),
+    )
+    .unwrap();
+    let checks = h.objective(&o.coordinator, "Check the release.").await;
+    assert_eq!(h.finished(&checks).await.state, TaskState::Failed);
+    // The owner archives the project, and its coordinator with it; then the limit is over.
+    h.workforce.archive_project(&o.project).unwrap();
+    h.router.clear_limit("claude-code").unwrap();
+    assert_eq!(h.workforce.pick_up_after_limits().await.unwrap(), 0);
+    let event = h
+        .ledger
+        .last_task_event(&checks, NOT_PICKED_UP)
+        .unwrap()
+        .expect("recorded");
+    assert_eq!(
+        event.payload["reason"],
+        "Cloudline Coordinator has been archived"
+    );
+    // Not tried again.
+    assert_eq!(h.workforce.pick_up_after_limits().await.unwrap(), 0);
+    assert_eq!(
+        h.ledger.count_task_events(&checks, NOT_PICKED_UP).unwrap(),
+        1
+    );
+    // The notice says what, after which limit, and why.
+    let notice = h
+        .ledger
+        .notice_for(&event, &|_| "Claude Code".to_owned())
+        .unwrap()
+        .expect("a notice");
+    assert_eq!(notice.title, "Work wasn't picked back up");
+    assert_eq!(
+        notice.body,
+        "Check the release.\nAfter Claude Code's usage limit, Plenipo couldn't give it back: \
+         Cloudline Coordinator has been archived. Give it again to someone else if it still \
+         needs doing."
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1486,7 +1719,7 @@ async fn a_usage_limit_holds_work_back_or_moves_it_on_as_the_owner_chose() {
     let backend = h.hire_auto("Senior Developer", "Backend Developer", &o.coordinator);
     h.prefer(
         "Senior Developer",
-        &["Codex (default model)", "Claude Code (default model)"],
+        &["Codex: its own choice", "Claude Code: its own choice"],
     );
     // The worker on Codex reports a usage limit.
     let root = h
@@ -1529,6 +1762,7 @@ async fn a_usage_limit_holds_work_back_or_moves_it_on_as_the_owner_chose() {
     h.router
         .set_options(RoutingOptions {
             on_usage_limit: LimitBehavior::NextChoice,
+            ..RoutingOptions::default()
         })
         .unwrap();
     let moved = h
@@ -1539,8 +1773,8 @@ async fn a_usage_limit_holds_work_back_or_moves_it_on_as_the_owner_chose() {
     assert_eq!(child.assigned_to.as_deref(), Some("claude-code"));
     assert!(
         reason(&child).starts_with(
-            "Claude Code (default model) is Senior Developer's second choice: Codex (default \
-             model) was skipped because Codex reached its usage limit"
+            "Claude Code: its own choice is Senior Developer's second choice: Codex: its own \
+             choice was skipped because Codex reached its usage limit"
         ),
         "{}",
         reason(&child)
@@ -1576,12 +1810,12 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     assert!(p.automatic);
     assert_eq!(p.agent.as_ref().unwrap().runtime_id, None, "not routed yet");
     assert_eq!(p.status, PositionStatus::Idle);
-    h.prefer("Manager", &["Codex (default model)"]);
+    h.prefer("Manager", &["Codex: its own choice"]);
     // The Manager runs Codex's default model at low effort.
     let mut policy = h.policy("Manager");
     policy
         .efforts
-        .insert(h.model("Codex (default model)"), Effort::Low);
+        .insert(h.model("Codex: its own choice"), Effort::Low);
     h.router.set_policy(&h.role("Manager"), &policy).unwrap();
 
     let first = h.objective(&head, "Plan the quarter").await;
@@ -1590,7 +1824,7 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     assert_eq!(turn.assigned_to.as_deref(), Some("codex"));
     assert_eq!(
         reason(&turn),
-        "Codex (default model) is Manager's first choice and is ready. It runs at low \
+        "Codex: its own choice is Manager's first choice and is ready. It runs at low \
          effort, from Manager's rule."
     );
     let conversation = turn.metadata["sessionId"].as_str().unwrap().to_owned();
@@ -1612,7 +1846,7 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     let session = agent.session_id.unwrap();
 
     // A new preference does not move an ongoing conversation; a new agent follows it.
-    h.prefer("Manager", &["Claude Code (default model)"]);
+    h.prefer("Manager", &["Claude Code: its own choice"]);
     let p = h.position(&head);
     assert_eq!(
         p.runtime_id.as_deref(),
@@ -1634,10 +1868,18 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     assert_eq!(h.task(&third).assigned_to.as_deref(), Some("claude-code"));
     assert_ne!(h.task(&third).metadata["sessionId"], session.as_str());
 
-    // No model can take the work: the objective is refused with the reason.
+    // No model can take the work: the objective is refused with the reason. (A role's every AI
+    // company is one it never uses; what a model can do no longer rules one out, Phase 25.)
     h.prefer("Manager", &[]);
     let mut policy = h.policy("Manager");
-    policy.needs = vec![plenipo_router::ModelFeature::ComputerUse];
+    policy.never_companies = h
+        .router
+        .snapshot()
+        .unwrap()
+        .tools
+        .into_iter()
+        .map(|t| t.company)
+        .collect();
     h.router.set_policy(&h.role("Manager"), &policy).unwrap();
     h.workforce.vacate(&head).unwrap();
     h.workforce.fill(&head).unwrap();
@@ -1646,10 +1888,7 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
         why.starts_with("Research Manager cannot start: No model can take Manager's work now"),
         "{why}"
     );
-    assert!(
-        why.contains("not marked as able to use a computer"),
-        "{why}"
-    );
+    assert!(why.contains("never uses"), "{why}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1661,7 +1900,7 @@ async fn reviewers_come_from_another_ai_company_and_unfit_roles_are_explained() 
     let reviewer = h.hire_auto("Code Reviewer", "Reviewer", &o.coordinator);
     h.prefer(
         "Code Reviewer",
-        &["Claude Code (default model)", "Codex (default model)"],
+        &["Claude Code: its own choice", "Codex: its own choice"],
     );
     let policy = h
         .router
@@ -1696,22 +1935,28 @@ async fn reviewers_come_from_another_ai_company_and_unfit_roles_are_explained() 
         reason(&child)
     );
 
-    // The Designer template needs a model that sees and makes images; none is marked so.
+    // The Designer gets a model out of the box (Phase 25, item 2.4): its role no longer asks
+    // for a model that sees and makes images.
     h.hire_auto("Designer", "Designer", &o.coordinator);
+    assert!(h.policy("Designer").needs.is_empty());
     let root = h
         .objective(&o.coordinator, "A logo [handoff:role:Designer]")
         .await;
     assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
-    assert!(h.ledger.child_tasks(&root).unwrap().is_empty());
-    let why = h.rejections(&root);
-    assert!(
-        why[0].starts_with("Designer cannot take work now: No model can take Designer's work now"),
-        "{why:?}"
-    );
-    assert!(
-        why[0].contains("not marked as able to see images"),
-        "{why:?}"
-    );
+    assert!(h.last_child(&root).assigned_to.is_some());
+    // An install from before keeps what its Designer asked for, and it still gets a model.
+    let mut old = h.policy("Designer");
+    old.needs = vec![
+        plenipo_router::ModelFeature::Vision,
+        plenipo_router::ModelFeature::ImageGeneration,
+    ];
+    h.router.set_policy(&h.role("Designer"), &old).unwrap();
+    let root = h
+        .objective(&o.coordinator, "Another logo [handoff:role:Designer]")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert!(h.last_child(&root).assigned_to.is_some());
+    assert!(h.rejections(&root).is_empty(), "{:?}", h.rejections(&root));
 }
 
 // ---- Phase 8: leads hand work to full-time members (ADR-016) -------------------------------
@@ -1964,6 +2209,8 @@ async fn the_development_template_sets_up_a_department_project_and_team() {
             ..project_input(name, &["claude-code", "codex"])
         },
         runtime_id: Some("claude-code".into()),
+        department_id: None,
+        hire_new: None,
     };
     let s = h.workforce.set_up_development(&input("Website")).unwrap();
     assert_eq!(s.departments.len(), 1);
@@ -2012,6 +2259,130 @@ async fn the_development_template_sets_up_a_department_project_and_team() {
     let mut bad = input("Waypoint");
     bad.project.allowed_runtimes = vec!["codex".into()];
     assert!(refusal(h.workforce.set_up_development(&bad)).contains("allowed AI tools"));
+}
+
+/// Use the team you hired first (Phase 25, item 2.7): a second project in the department hires
+/// no copies, its supervisor's hand-off reaches the department's worker (the work stays the
+/// asking project's), a job asked for new is hired, and a job nobody in the department does says
+/// to ask the owner.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_project_uses_the_departments_workers_before_hiring() {
+    let h = harness().await;
+    let website = h
+        .workforce
+        .set_up_development(&dev_input("Website"))
+        .unwrap();
+    let developer = H::id_of(&website, "Senior Developer");
+    let count =
+        |s: &OrgSnapshot, title: &str| s.positions.iter().filter(|p| p.title == title).count();
+    // No copies: Cloudline's team is the department's.
+    let s = h
+        .workforce
+        .set_up_development(&dev_input("Cloudline"))
+        .unwrap();
+    for title in [
+        "Senior Developer",
+        "Code Reviewer",
+        "QA Engineer",
+        "Documentation Writer",
+    ] {
+        assert_eq!(count(&s, title), 1, "{title}");
+    }
+    let cloudline = s.projects.iter().find(|p| p.name == "Cloudline").unwrap();
+    let supervisor = cloudline.coordinator_position_id.clone().unwrap();
+    assert!(!s
+        .positions
+        .iter()
+        .any(|p| p.reports_to.as_deref() == Some(supervisor.as_str())));
+    // Its supervisor knows them, after its own team.
+    let (_, briefing) = h.briefing(&supervisor);
+    assert!(
+        briefing
+            .iter()
+            .any(|(address, label, _)| address == "role:Senior Developer"
+                && label.contains("from your department")),
+        "{briefing:?}"
+    );
+    // A hand-off reaches the Website's developer; the work is Cloudline's.
+    let root = h
+        .objective(
+            &supervisor,
+            "Build the login [handoff:role:Senior Developer]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.last_child(&root);
+    assert_eq!(
+        child.metadata["workforce"]["positionId"],
+        developer.as_str()
+    );
+    assert_eq!(
+        child.metadata["workforce"]["projectId"],
+        cloudline.id.as_str()
+    );
+    // A job nobody in the department does: Plenipo asks the owner, once, on Home.
+    for _ in 0..2 {
+        let root = h
+            .objective(
+                &supervisor,
+                "Check the payments [handoff:role:Security Auditor]",
+            )
+            .await;
+        assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+        let why = h.rejections(&root);
+        assert!(
+            why.iter()
+                .any(|w| w.contains("Plenipo asked the owner whether to hire one")),
+            "{why:?}"
+        );
+    }
+    let asked = h.ledger.events_of_types(&["org.hire_needed"], 10).unwrap();
+    assert_eq!(asked.len(), 1, "asked once");
+    assert_eq!(asked[0].payload["role"], "Security Auditor");
+    assert_eq!(asked[0].payload["lead"], "Cloudline Supervisor");
+    let home = h.workforce.home().unwrap();
+    assert!(home
+        .stuck
+        .iter()
+        .any(|i| i.event.event_type == "org.hire_needed"));
+    // The owner lets leads hire on their own: the next hand-off hires one onto the team.
+    let mut guard = h
+        .ledger
+        .setting("guard")
+        .unwrap()
+        .unwrap_or(serde_json::json!({}));
+    guard["switches"]["hireOnItsOwn"] = serde_json::json!(true);
+    h.ledger.put_setting("guard", &guard, "test").unwrap();
+    let root = h
+        .objective(&supervisor, "Check again [handoff:role:Security Auditor]")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.last_child(&root);
+    let auditor = h
+        .snapshot()
+        .positions
+        .into_iter()
+        .find(|p| p.title == "Security Auditor")
+        .expect("hired");
+    assert_eq!(auditor.reports_to.as_deref(), Some(supervisor.as_str()));
+    assert_eq!(
+        child.metadata["workforce"]["positionId"],
+        auditor.id.as_str()
+    );
+    // Home no longer asks.
+    assert!(!h
+        .workforce
+        .home()
+        .unwrap()
+        .stuck
+        .iter()
+        .any(|i| i.event.event_type == "org.hire_needed"));
+    // A job asked for new is hired; the rest are still shared.
+    let mut waypoint = dev_input("Waypoint");
+    waypoint.hire_new = Some(vec!["QA Engineer".into()]);
+    let s = h.workforce.set_up_development(&waypoint).unwrap();
+    assert_eq!(count(&s, "QA Engineer"), 2);
+    assert_eq!(count(&s, "Senior Developer"), 1);
 }
 
 // ---- Free and Pro (Phase 11A) -----------------------------------------------------------------
@@ -2107,6 +2478,8 @@ fn dev_input(name: &str) -> plenipo_workforce::DevelopmentInput {
             ..project_input(name, &["claude-code", "codex"])
         },
         runtime_id: Some("claude-code".into()),
+        department_id: None,
+        hire_new: None,
     }
 }
 
@@ -2127,6 +2500,84 @@ async fn free_allows_one_department_and_one_project_and_refuses_the_second() {
     let s = h.snapshot();
     assert_eq!(s.departments.len(), 1);
     assert_eq!(s.projects.len(), 1);
+}
+
+/// Templates (Phase 25, item 2.8): an organization template adds each department it lacks, with
+/// its manager and on-call team; on Free, a template that would add more than one department is
+/// refused before anything is made, and one department is added like any other.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn templates_add_departments_with_their_teams_and_free_keeps_one() {
+    use plenipo_licensing::{Edition, Limit};
+    let h = harness().await;
+    let templates = h.snapshot().templates;
+    assert_eq!(
+        templates
+            .organizations
+            .iter()
+            .map(|t| (t.id.as_str(), t.pro))
+            .collect::<Vec<_>>(),
+        [
+            ("software", false),
+            ("small-business", true),
+            ("agency", true),
+            ("it-services", true),
+            ("enterprise", true),
+        ]
+    );
+    // Free: a template with two departments is refused, and nothing is made.
+    h.edition(Edition::Free);
+    assert_eq!(
+        part_of_pro(h.workforce.apply_organization_template("small-business")),
+        Limit::Departments
+    );
+    assert!(h.snapshot().departments.is_empty());
+    // One department is fine, and only once.
+    let s = h.workforce.apply_organization_template("software").unwrap();
+    assert_eq!(s.departments.len(), 1);
+    let head = s.departments[0].head_position_id.clone().unwrap();
+    let team: Vec<&str> = s
+        .positions
+        .iter()
+        .filter(|p| p.reports_to.as_deref() == Some(head.as_str()))
+        .map(|p| p.title.as_str())
+        .collect();
+    assert_eq!(
+        team,
+        [
+            "Senior Developer",
+            "Code Reviewer",
+            "QA Engineer",
+            "Documentation Writer"
+        ]
+    );
+    assert_eq!(
+        h.workforce
+            .apply_organization_template("software")
+            .unwrap()
+            .departments
+            .len(),
+        1
+    );
+    assert_eq!(
+        part_of_pro(h.workforce.add_department_from_template("operations")),
+        Limit::Departments
+    );
+    // Pro: the rest of an agency's departments are added, the one it has is kept.
+    h.edition(Edition::Pro);
+    let s = h.workforce.apply_organization_template("agency").unwrap();
+    let mut names: Vec<&str> = s.departments.iter().map(|d| d.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["Design", "Development", "Marketing"]);
+    // A department template, and its name only once.
+    h.workforce
+        .add_department_from_template("operations")
+        .unwrap();
+    assert!(
+        refusal(h.workforce.add_department_from_template("operations"))
+            .contains("already have the Operations department")
+    );
+    assert!(refusal(h.workforce.apply_organization_template("nope"))
+        .contains("no organization template"));
 }
 
 /// Review finding: the Free check and the Ledger write were apart, so projects made at the same

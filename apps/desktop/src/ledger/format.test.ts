@@ -90,6 +90,38 @@ describe("describeEvent (Phase 4 Liaison events)", () => {
     );
   });
 
+  // Phase 25, item 4.7: answers checked against Plenipo's record.
+  it("says when an answer doesn't match Plenipo's record", () => {
+    const mismatches = ["says tests passed, but no test ran"];
+    expect(describeEvent(event("liaison.answer_sent_back", { mismatches }))).toBe(
+      "Answer sent back to check: it says tests passed, but no test ran",
+    );
+    expect(describeEvent(event("liaison.sent_back_delivered", {}))).toBe(
+      "Checking its answer again",
+    );
+    expect(
+      describeEvent(
+        event("liaison.reply_sent", { outcome: "completed", summary: "Done", mismatches }),
+      ),
+    ).toBe(
+      "Reply sent: Completed — Done · doesn't match the record: says tests passed, but no test ran",
+    );
+    expect(describeEvent(event("liaison.give_back_failed", { reason: "the session closed" }))).toBe(
+      "Its answer could not be sent back: the session closed",
+    );
+    // Phase 25, item 4.8: a lead sends the work back to the worker who did it.
+    expect(
+      describeEvent(
+        event("liaison.work_sent_back", { by: "Website Supervisor", reason: "Run the tests" }),
+      ),
+    ).toBe("Sent back by Website Supervisor: Run the tests");
+    expect(
+      describeEvent(
+        event("liaison.handoff_received", { depth: 1, objective: "Run the tests", sentBack: "t1" }),
+      ),
+    ).toBe("Received as a handoff (depth 1), work sent back to fix: Run the tests");
+  });
+
   it("explains refusals, cancellations, and failures with their reason", () => {
     expect(
       describeEvent(
@@ -357,6 +389,45 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
     );
     expect(describeEvent(event("control.allowed", {}))).toBe(
       "You allowed browser, desktop, and server work again",
+    );
+    expect(describeEvent(event("work.stopped_all", { stopped: 3 }))).toBe(
+      "You pressed Stop all: 3 tasks stopped, and nothing new starts until you allow work again",
+    );
+    expect(describeEvent(event("work.allowed_again", {}))).toBe(
+      "You pressed Allow again: work can start again",
+    );
+    expect(
+      describeEvent(
+        event("router.options_changed", {
+          options: { onUsageLimit: "wait", stepDown: true, stepDownAt: 90 },
+        }),
+      ),
+    ).toBe("Usage-limit setting changed · Step down from 90% used");
+    expect(describeEvent(event("router.options_changed", { options: { stepDown: false } }))).toBe(
+      "Usage-limit setting changed · Step down is off",
+    );
+    // Phase 25, item 4.6: pacing.
+    expect(
+      describeEvent(
+        event("router.options_changed", {
+          options: { stepDown: true, stepDownAt: 80, nightWeight: 25 },
+        }),
+      ),
+    ).toBe("Usage-limit setting changed · Step down from 80% used · a night hour counts 25%");
+    expect(
+      describeEvent(event("router.budget_changed", { label: "Kimi Code", tokens: 2000000 })),
+    ).toBe("Weekly budget for Kimi Code: 2,000,000 tokens");
+    expect(
+      describeEvent(event("router.budget_changed", { label: "Kimi Code", tokens: null })),
+    ).toBe("Weekly budget for Kimi Code removed");
+    expect(describeEvent(event("work.picked_up", { label: "Claude Code" }))).toBe(
+      "Plenipo picked this work back up after Claude Code's usage limit",
+    );
+    expect(describeEvent(event("work.left_stopped", {}))).toBe(
+      "You left this work stopped after a usage limit",
+    );
+    expect(describeEvent(event("work.not_picked_up", { reason: "the position is gone" }))).toBe(
+      "Plenipo couldn't pick this work back up: the position is gone",
     );
     expect(describeEvent(event("guard.websites_changed", {}))).toBe("Website lists changed");
     expect(describeEvent(event("guard.switches_changed", {}))).toBe(

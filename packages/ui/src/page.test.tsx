@@ -62,6 +62,31 @@ describe("page parts", () => {
     expect(open).toHaveBeenCalled();
     expect(within(list).getByText("Working")).toBeInTheDocument();
     expect(within(list).queryAllByRole("button")).toHaveLength(1);
+    // Buttons at the end of a row sit beside the part that opens it, not inside it.
+    const stop = vi.fn();
+    rerender(
+      <RowList
+        label="Objectives"
+        items={[
+          {
+            id: "1",
+            title: "Order stock",
+            onOpen: open,
+            actions: (
+              <button type="button" onClick={stop}>
+                Stop
+              </button>
+            ),
+          },
+        ]}
+      />,
+    );
+    const row = within(list).getByRole("button", { name: /Order stock/ });
+    const action = within(list).getByRole("button", { name: "Stop" });
+    expect(row).not.toContainElement(action);
+    await user.click(action);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledTimes(1);
     rerender(<RowList label="Objectives" items={[]} empty={<EmptyState title="None yet" />} />);
     expect(screen.getByRole("status")).toHaveTextContent("None yet");
     rerender(

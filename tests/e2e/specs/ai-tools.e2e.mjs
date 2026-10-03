@@ -107,12 +107,29 @@ const showCard = (browser, label) =>
     card(label),
   );
 
+/**
+ * AI tool cards start closed (Phase 25, item 2.1): open every card shown. An opened card is
+ * remembered, so it stays open while the test works in it.
+ */
+async function openCards(browser) {
+  await browser.execute(() => {
+    for (const toggle of document.querySelectorAll(
+      'li[aria-label$=" AI tool"] .ui-disclosure__toggle[aria-expanded="false"]',
+    )) {
+      toggle.click();
+    }
+  });
+}
+
 async function openAiTools(browser) {
   await nav(browser, "AI tools");
   await waitUntil(
-    async () => (await textOf(browser, PAGE)).match(/Ready/g)?.length >= 4,
+    // Each card says which works: its subscription, its key, or both (Phase 25, item 1.3).
+    async () =>
+      (await textOf(browser, PAGE)).match(/(?:Subscription|API key) connected/g)?.length >= 4,
     "every AI tool ready",
   );
+  await openCards(browser);
 }
 
 async function startTask(browser, runtimeLabel, objective) {
@@ -340,7 +357,7 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
     await waitForText(browser, '[aria-label="Tasks"]', "Turn 1:");
     await openAiTools(browser);
     // Claude Code reports how much of the plan is used in its own task messages.
-    await waitForText(browser, card("Claude Code"), "91% of your plan left");
+    await waitForText(browser, card("Claude Code"), "5-hour: 9% used, resets");
     await waitForText(browser, card("Claude Code"), "Reported by Claude Code");
     // Grok does not report it, and its card says so.
     await waitForText(browser, card("Grok"), "Grok doesn't report how much of your plan is left");

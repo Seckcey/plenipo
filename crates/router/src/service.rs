@@ -23,10 +23,13 @@ const OWNER: &str = "owner";
 const PLENIPO: &str = "plenipo";
 
 type Tools = Arc<dyn Fn() -> Vec<AgentRuntimeInfo> + Send + Sync>;
+/// The latest plan an AI tool reported on this PC (Phase 25, item 4.3).
+type Plans = Arc<dyn Fn(&str) -> Option<plenipo_runtime::agent::PlanReport> + Send + Sync>;
 
 struct Inner {
     ledger: Arc<Ledger>,
     tools: Tools,
+    plans: Plans,
     notices: Mutex<Vec<String>>,
 }
 
@@ -48,6 +51,9 @@ pub struct RouteRequest<'a> {
     pub project: Option<(&'a str, &'a [String])>,
     /// The work the worker reviews: each AI tool and the model it ran (cross-company review).
     pub reviewed: &'a [plenipo_runtime::agent::WorkDoneBy],
+    /// Low-priority work (priority 3 or 4): it goes to the listed plan with the most room left
+    /// (Phase 25, item 4.6).
+    pub low_priority: bool,
 }
 
 /// The configuration, AI tool state, and roles, read once for several decisions.
@@ -58,6 +64,9 @@ pub struct Planner {
     pub now: u64,
     /// The spending caps, for paid routes (ADR-085).
     ledger: Option<Arc<plenipo_ledger::Ledger>>,
+    /// Each AI tool's plan windows and their pace (Phase 25, items 4.5 and 4.6): as it last
+    /// reported them, a limited plan as full, or estimated against the owner's weekly budget.
+    pub plans: HashMap<String, Vec<crate::pace::WindowPace>>,
 }
 
 impl Planner {
@@ -89,6 +98,12 @@ impl Planner {
             project: request.project,
             reviewed: request.reviewed,
             on_limit: self.config.options.on_usage_limit,
+            // Reviewers never step down (Phase 25, item 4.5): their model is chosen for the
+            // review.
+            step_down_at: (self.config.options.step_down && request.reviewed.is_empty())
+                .then_some(self.config.options.step_down_at),
+            plans: &self.plans,
+            low_priority: request.low_priority,
             now: self.now,
             spending_room: self.ledger.as_ref().and_then(|l| {
                 l.spending_room(
@@ -150,6 +165,31 @@ impl Planner {
         })
     }
 
+    /// The AI companies never to use, other than `company`, by name, as a sentence's list ("DeepSeek
+    /// and xAI"): every layer's, in order, once each.
+    fn never_labels(&self, layers: &[crate::engine::Layer<'_>], company: &str) -> String {
+        let infos: Vec<AgentRuntimeInfo> = self.tools.iter().map(|t| t.info.clone()).collect();
+        let known = crate::makers::companies(&infos);
+        let mut names: Vec<String> = Vec::new();
+        for id in layers.iter().flat_map(|l| l.never.iter()) {
+            if id == company {
+                continue;
+            }
+            let name = known
+                .iter()
+                .find(|m| &m.id == id)
+                .map_or_else(|| id.clone(), |m| m.label.clone());
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        match names.as_slice() {
+            [] => String::new(),
+            [one] => one.clone(),
+            [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        }
+    }
+
     /// A decision the owner made on the position: its fixed AI tool and model. Its effort still
     /// comes from the layers (its own setting first), and a layer that never uses its AI company
     /// keeps it from starting (ADR-041 §3–§4).
@@ -172,7 +212,7 @@ impl Planner {
         );
         let label = match model {
             Some(m) => format!("{m} ({runtime_label})"),
-            None => format!("{runtime_label} (default model)"),
+            None => crate::config::own_choice_label(&runtime_label),
         };
         let listed = self
             .config
@@ -202,27 +242,15 @@ impl Planner {
                         never_by(&layers, &made.id).map(|who| (who, made.label.clone()))
                     })
             });
-        // Who made it is not known: it could be a company on such a list (ADR-081 §7).
+        // Who made it is not known: it could be a company on such a list (ADR-081 §7). A model the
+        // owner chose by name is their informed choice: it is kept, with a warning that names the
+        // companies it cannot rule out (Phase 25, item 1.6). Automatic choices still play it safe.
         let unknown = if never.is_none() && made_by.is_none() {
             never_other_than(&layers, &company)
+                .map(|who| (who, self.never_labels(&layers, &company)))
         } else {
             None
         };
-        if let Some(who) = unknown {
-            return RouteDecision {
-                reason: format!(
-                    "You set {title} to always use {label}, but {who} has AI companies never to \
-                     use, and who made {label} is not known. Change one of them (Settings → AI \
-                     models)."
-                ),
-                choice: None,
-                rank: None,
-                candidates: Vec::new(),
-                fixed: true,
-                model_from: Some(fixed_by),
-                effort_from: None,
-            };
-        }
         if let Some((who, never_label)) = never {
             return RouteDecision {
                 reason: format!(
@@ -235,6 +263,8 @@ impl Planner {
                 fixed: true,
                 model_from: Some(fixed_by),
                 effort_from: None,
+                on_key_for: None,
+                stepped_down: None,
             };
         }
         let levels: Vec<plenipo_runtime::agent::Effort> = self
@@ -248,6 +278,12 @@ impl Planner {
             &levels,
         );
         let mut reason = format!("You set {title} to always use {label}.");
+        if let Some((who, companies)) = &unknown {
+            reason.push_str(&format!(
+                " Plenipo can't tell who made {label}, so it can't rule out {companies}, which \
+                 {who} never uses. It keeps your choice."
+            ));
+        }
         reason.push_str(&effort_words(
             effort,
             effort_from.as_ref(),
@@ -286,6 +322,8 @@ impl Planner {
             fixed: true,
             model_from: Some(fixed_by),
             effort_from,
+            on_key_for: None,
+            stepped_down: None,
         }
     }
 }
@@ -300,16 +338,27 @@ fn to_ledger(e: RouterError) -> LedgerError {
 impl Router {
     /// The router for the desktop app: AI tool state comes from the agent runtime.
     pub fn new(ledger: Arc<Ledger>, runtime: AgentRuntime) -> Self {
-        Self::with_tools(ledger, Arc::new(move || runtime.runtimes()))
+        let plans = runtime.clone();
+        Self::with_sources(
+            ledger,
+            Arc::new(move || runtime.runtimes()),
+            Arc::new(move |id| plans.plans().latest(id)),
+        )
     }
 
     /// A router with its own source of AI tool state (tests). Adds each AI tool's built-in
     /// "default model" entry when it is missing.
     pub fn with_tools(ledger: Arc<Ledger>, tools: Tools) -> Self {
+        Self::with_sources(ledger, tools, Arc::new(|_| None))
+    }
+
+    /// A router with its own sources of AI tool state and of the plans they reported (tests).
+    pub fn with_sources(ledger: Arc<Ledger>, tools: Tools, plans: Plans) -> Self {
         let this = Self {
             inner: Arc::new(Inner {
                 ledger,
                 tools,
+                plans,
                 notices: Mutex::new(Vec::new()),
             }),
         };
@@ -410,6 +459,18 @@ impl Router {
             .map(|t| (t.id, t.label))
             .collect();
         let config = self.config()?;
+        // An install from before Phase 25 names them "Claude Code: its own choice": renamed once.
+        if config.models.iter().any(|m| {
+            m.built_in
+                && tools.iter().any(|(id, label)| {
+                    &m.runtime_id == id && m.label == format!("{label}: its own choice")
+                })
+        }) {
+            self.update("router.models_renamed", PLENIPO, |c| {
+                let renamed = c.rename_old_builtins(&tools);
+                Ok((!renamed.is_empty()).then(|| json!({ "models": renamed })))
+            })?;
+        }
         let missing = tools.iter().any(|(id, _)| {
             !config
                 .models
@@ -454,9 +515,13 @@ impl Router {
         let outcomes = self
             .ledger()
             .recent_turn_outcomes(now.saturating_sub(limits::LOOKBACK_MS))?;
-        let mut active = limits::active(&outcomes, &config.cleared_limits, now);
+        // A limit whose message gave no reset time waits for the one its plan report gives
+        // (Phase 25, item 4.3).
+        let plans = Arc::clone(&self.inner.plans);
+        let reported = move |runtime: &str, at: u64| plans(runtime).and_then(|p| p.reset_after(at));
+        let mut active = limits::active(&outcomes, &config.cleared_limits, now, &reported);
         let paid = crate::engine::paid_tool_ids();
-        let tools = self
+        let tools: Vec<ToolState> = self
             .tools()
             .into_iter()
             .map(|info| ToolState {
@@ -471,13 +536,98 @@ impl Router {
             .into_iter()
             .map(|r| (r.id, r.name))
             .collect();
+        let plans = self.paces(&tools, &config, now);
         Ok(Planner {
             config,
             tools,
             roles,
             now,
             ledger: Some(Arc::clone(&self.inner.ledger)),
+            plans,
         })
+    }
+
+    /// Each AI tool's plan windows with their pace (Phase 25, items 4.5 and 4.6): as it reported
+    /// them, or, for an AI tool that reports nothing, this week's tokens against the owner's
+    /// weekly budget for it, marked estimated. Night hours count by the owner's night weight.
+    fn paces(
+        &self,
+        tools: &[ToolState],
+        config: &RoutingConfig,
+        now: u64,
+    ) -> HashMap<String, Vec<crate::pace::WindowPace>> {
+        let hour = |at: u64| plenipo_ledger::spending::pacific_hour(at);
+        let night = config.options.night_weight;
+        let mut out = HashMap::new();
+        for t in tools.iter().filter(|t| !t.paid) {
+            let reported = (self.inner.plans)(&t.info.id)
+                .map(|p| crate::pace::plan_paces(&p, now, night, &hour))
+                .unwrap_or_default();
+            let windows = match (reported.is_empty(), config.budgets.get(&t.info.id)) {
+                (true, Some(&budget)) => {
+                    let start = plenipo_ledger::spending::pacific_week_start(now);
+                    let tokens: u64 = self
+                        .ledger()
+                        .token_steps(&t.info.id, start, now.saturating_add(1))
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|s| s.read.unwrap_or(0).saturating_add(s.written.unwrap_or(0)))
+                        .sum();
+                    let w = crate::pace::estimated_window(tokens, budget, start);
+                    crate::pace::window_pace(&w, now, night, &hour, true)
+                        .into_iter()
+                        .collect()
+                }
+                _ => reported,
+            };
+            if !windows.is_empty() {
+                out.insert(t.info.id.clone(), windows);
+            }
+        }
+        out
+    }
+
+    /// Every subscription AI tool's plan and its pace, for the Plans view (Phase 25, item 4.6).
+    pub fn plan_paces(&self) -> Result<Vec<ToolPaces>> {
+        let planner = self.planner()?;
+        Ok(planner
+            .tools
+            .iter()
+            .filter(|t| !t.paid && not_ready(&t.info).is_none())
+            .map(|t| ToolPaces {
+                runtime_id: t.info.id.clone(),
+                label: t.info.label.clone(),
+                windows: planner.plans.get(&t.info.id).cloned().unwrap_or_default(),
+                weekly_budget: planner.config.budgets.get(&t.info.id).copied(),
+            })
+            .collect())
+    }
+
+    /// The owner's weekly budget of tokens for an AI tool that reports nothing of its plan
+    /// (Phase 25, item 4.6); `None` removes it.
+    pub fn set_budget(&self, runtime_id: &str, tokens: Option<u64>) -> Result<RoutingSnapshot> {
+        let tool = self
+            .tools()
+            .into_iter()
+            .find(|t| t.id == runtime_id)
+            .ok_or_else(|| {
+                RouterError::Invalid(format!("there is no AI tool named {runtime_id:?}"))
+            })?;
+        if tokens.is_some_and(|t| t == 0 || t > MAX_WEEKLY_BUDGET) {
+            return Err(RouterError::Invalid(
+                "a weekly budget is from 1 to 1,000,000,000,000 tokens".into(),
+            ));
+        }
+        self.update("router.budget_changed", OWNER, |c| {
+            match tokens {
+                Some(n) => c.budgets.insert(tool.id.clone(), n),
+                None => c.budgets.remove(&tool.id),
+            };
+            Ok(Some(
+                json!({ "runtimeId": tool.id, "label": tool.label, "tokens": tokens }),
+            ))
+        })?;
+        self.snapshot()
     }
 
     /// Everything the Settings page shows.
@@ -510,6 +660,7 @@ impl Router {
                     new_models: ToolInfo::reported(&t.info).0,
                     unlisted_models: ToolInfo::reported(&t.info).1,
                     runs_other_makers: t.info.capabilities.runs_other_makers,
+                    paid: t.paid,
                 }
             })
             .collect();
@@ -614,6 +765,7 @@ impl Router {
             seen,
             companies,
             options: planner.config.options,
+            budgets: planner.config.budgets.clone(),
             api_billing: false,
             notices,
             generated_at: planner.now,
@@ -742,6 +894,16 @@ impl Router {
     }
 
     pub fn set_options(&self, options: RoutingOptions) -> Result<RoutingSnapshot> {
+        if !(50..=99).contains(&options.step_down_at) {
+            return Err(RouterError::Invalid(
+                "work steps down from 50% to 99% of a plan used".into(),
+            ));
+        }
+        if options.night_weight > 100 {
+            return Err(RouterError::Invalid(
+                "a night hour counts for 0% to 100% of a day hour".into(),
+            ));
+        }
         self.update("router.options_changed", OWNER, |c| {
             c.options = options;
             Ok(Some(json!({ "options": options })))
@@ -868,6 +1030,54 @@ mod tests {
             .map(|c| c.model_id.clone())
     }
 
+    /// Phase 25, item 4.6: an AI tool that reports nothing is paced against the owner's weekly
+    /// budget of tokens, marked estimated; the budget and the night weight are checked and
+    /// recorded.
+    #[test]
+    fn a_weekly_budget_paces_an_ai_tool_that_reports_nothing() {
+        let (ledger, router, _) = setup();
+        let paces = router.plan_paces().unwrap();
+        assert_eq!(paces.len(), 2);
+        assert!(paces
+            .iter()
+            .all(|t| t.windows.is_empty() && t.weekly_budget.is_none()));
+        let s = router.set_budget("alpha", Some(2_000_000)).unwrap();
+        assert_eq!(s.budgets.get("alpha"), Some(&2_000_000));
+        let changed = ledger.recent_events(1).unwrap().remove(0);
+        assert_eq!(changed.event_type, "router.budget_changed");
+        assert_eq!(changed.payload["tokens"], 2_000_000);
+        let alpha = router
+            .plan_paces()
+            .unwrap()
+            .into_iter()
+            .find(|t| t.runtime_id == "alpha")
+            .unwrap();
+        assert_eq!(alpha.weekly_budget, Some(2_000_000));
+        let week = &alpha.windows[0];
+        assert!(week.estimated);
+        assert_eq!((week.used_percent, week.minutes), (0, Some(7 * 24 * 60)));
+        // Refused: no budget of nothing, nor for an AI tool that isn't there.
+        assert!(router.set_budget("alpha", Some(0)).is_err());
+        assert!(router.set_budget("gamma", Some(5)).is_err());
+        // Removed.
+        let s = router.set_budget("alpha", None).unwrap();
+        assert!(s.budgets.is_empty());
+        // A night hour counts for 0% to 100% of a day hour.
+        let options = RoutingOptions {
+            night_weight: 101,
+            ..RoutingOptions::default()
+        };
+        assert!(router.set_options(options).is_err());
+        let options = RoutingOptions {
+            night_weight: 25,
+            ..RoutingOptions::default()
+        };
+        assert_eq!(
+            router.set_options(options).unwrap().options.night_weight,
+            25
+        );
+    }
+
     #[test]
     fn each_tool_gets_its_default_model_once() {
         let (ledger, router, _) = setup();
@@ -875,7 +1085,7 @@ mod tests {
         let labels: Vec<&str> = s.models.iter().map(|m| m.label.as_str()).collect();
         assert_eq!(
             labels,
-            ["Alpha Code (default model)", "Beta CLI (default model)"]
+            ["Alpha Code: its own choice", "Beta CLI: its own choice"]
         );
         assert!(s.models.iter().all(|m| m.built_in && m.name.is_none()));
         // Each AI tool's own models are offered as choices; none is added to the list.
@@ -904,7 +1114,7 @@ mod tests {
         );
         let s = router.snapshot().unwrap();
         let labels: Vec<&str> = s.models.iter().map(|m| m.label.as_str()).collect();
-        assert_eq!(labels, ["Alpha Code (default model)"]);
+        assert_eq!(labels, ["Alpha Code: its own choice"]);
     }
 
     #[test]
@@ -1056,6 +1266,7 @@ mod tests {
         let s = router
             .set_options(RoutingOptions {
                 on_usage_limit: LimitBehavior::NextChoice,
+                ..RoutingOptions::default()
             })
             .unwrap();
         assert_eq!(next(&s, &dev), Some(gpt.clone()));
@@ -1125,7 +1336,8 @@ mod tests {
     }
 
     /// ADR-081 §5, §7: a position fixed to a model is refused when its maker is a company never
-    /// to use, or when who made it is not known and there are companies never to use.
+    /// to use. When who made it is not known and there are companies never to use, the owner's
+    /// choice by name is kept, with a warning that names them (Phase 25, item 1.6).
     #[test]
     fn a_fixed_model_is_refused_by_who_made_it() {
         use plenipo_runtime::agent::makers;
@@ -1167,12 +1379,18 @@ mod tests {
         assert!(d.choice.is_none());
         assert!(d.reason.contains("never uses DeepSeek"), "{}", d.reason);
         let d = fixed("mystery");
-        assert!(d.choice.is_none());
+        assert!(d.choice.is_some(), "{}", d.reason);
         assert!(
-            d.reason.contains("who made mystery (Hub) is not known"),
+            d.reason.contains(
+                "Plenipo can't tell who made mystery (Hub), so it can't rule out DeepSeek, which \
+                 the organization never uses. It keeps your choice."
+            ),
             "{}",
             d.reason
         );
+        // Unticking the company clears the warning.
+        never(&[]);
+        assert!(!fixed("mystery").reason.contains("can't tell who made"));
     }
 
     /// ADR-041: the organization's, a department's, and an agent's rules are saved, checked, and

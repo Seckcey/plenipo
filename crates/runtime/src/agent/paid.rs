@@ -27,8 +27,8 @@ use crate::agent::adapter::{
 };
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
-    makers, AgentEvent, AuthState, AuthStatus, Effort, KnownModel, Maker, NoticeLevel,
-    RuntimeCapabilities, TurnOutcome, TurnResult,
+    makers, AgentEvent, AuthState, AuthStatus, Effort, KeyLimit, KnownModel, Maker, NoticeLevel,
+    PlanReport, RuntimeCapabilities, TurnOutcome, TurnResult,
 };
 use crate::dto::TokenUsage;
 use crate::pricing::{dollars_to_micros, Price};
@@ -558,6 +558,40 @@ impl RuntimeAdapter for OpenRouter {
         })
     }
 
+    /// The key's own limit, from the check's answer (OpenRouter's `/key`, in US dollars): what
+    /// the key may spend and has spent (Phase 25, item 4.3). OpenRouter says nothing about a plan
+    /// window, so there is none.
+    fn parse_plan(&self, out: &ProbeOutput) -> Option<PlanReport> {
+        let answer = last_json(out)?;
+        let limit = answer.get("limit").filter(|l| l.is_object())?;
+        let cents = |v: &Value| {
+            v.as_f64()
+                .filter(|d| d.is_finite() && *d >= 0.0 && *d < 1e9)
+                .map(|d| (d * 100.0).round() as u64)
+        };
+        let used_cents = limit.get("usage").and_then(cents)?;
+        let limit_cents = limit.get("limit").and_then(cents);
+        Some(PlanReport {
+            windows: Vec::new(),
+            limited: limit_cents.is_some_and(|l| used_cents >= l),
+            warning: false,
+            plan: None,
+            reported_at: crate::now_ms(),
+            key_limit: Some(KeyLimit {
+                limit_cents,
+                used_cents,
+                free_tier: limit
+                    .get("freeTier")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            }),
+        })
+    }
+
+    fn reports_plan_left(&self) -> bool {
+        true
+    }
+
     /// The models, from the check's answer (OpenRouter's own list, with prices).
     fn parse_models(&self, out: &ProbeOutput) -> Option<Vec<KnownModel>> {
         let answer = last_json(out)?;
@@ -679,7 +713,8 @@ fn price_of(v: &Value) -> Option<Price> {
         input: v.get("input")?.as_u64()?,
         cached_input: v.get("cachedInput").and_then(Value::as_u64),
         output: v.get("output")?.as_u64()?,
-        cache_write: None,
+        // Storing input for reuse, where it costs more: Anthropic's models (Phase 25, ADR-252).
+        cache_write: v.get("cacheWrite").and_then(Value::as_u64),
     })
 }
 
@@ -955,6 +990,37 @@ mod tests {
             AuthState::Unknown
         );
         assert_eq!(parse_check(&probe("")).state, AuthState::Unknown);
+    }
+
+    /// Phase 25, item 4.3: OpenRouter's key limit is shown, not thrown away.
+    #[test]
+    fn the_check_reads_the_keys_own_limit() {
+        let out = probe(
+            &json!({ "signedIn": true, "models": [],
+                     "limit": { "limit": 10.0, "usage": 3.204, "freeTier": false } })
+            .to_string(),
+        );
+        let plan = OpenRouter.parse_plan(&out).unwrap();
+        assert_eq!(
+            plan.key_limit,
+            Some(KeyLimit {
+                limit_cents: Some(1000),
+                used_cents: 320,
+                free_tier: false,
+            })
+        );
+        assert!(plan.windows.is_empty() && !plan.limited);
+        assert!(OpenRouter.reports_plan_left());
+        // No limit on the key, and a key used up.
+        let none = probe(r#"{"signedIn":true,"limit":{"limit":null,"usage":2,"freeTier":true}}"#);
+        let plan = OpenRouter.parse_plan(&none).unwrap();
+        assert_eq!(plan.key_limit.unwrap().limit_cents, None);
+        let spent = probe(r#"{"signedIn":true,"limit":{"limit":5,"usage":5}}"#);
+        assert!(OpenRouter.parse_plan(&spent).unwrap().limited);
+        // Nothing said: nothing worked out.
+        assert!(OpenRouter
+            .parse_plan(&probe(r#"{"signedIn":true,"limit":null}"#))
+            .is_none());
     }
 
     #[test]

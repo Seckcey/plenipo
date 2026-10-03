@@ -52,6 +52,7 @@ mod add_on_calls;
 pub mod attachments;
 pub(crate) mod connecting;
 mod git_tools;
+pub mod links;
 pub mod live;
 mod operate;
 pub mod owner_files;
@@ -482,6 +483,9 @@ struct Inner {
     /// (ADR-068). Until the app gives the PC's, always Pro. Nothing else here depends on it:
     /// Guard, approvals, the Vault, and the record are never behind Pro.
     entitlements: RwLock<Arc<plenipo_licensing::Entitlements>>,
+    /// Where paid AI keys are kept: the first organization's broker, for every other
+    /// organization (one set of keys for the whole PC; Phase 25, item 1.4). Unset: its own.
+    paid_keys_from: std::sync::OnceLock<Broker>,
 }
 
 /// Cheap to clone; clones share state.
@@ -778,6 +782,7 @@ impl Broker {
                 connections,
                 config,
                 entitlements: RwLock::new(plenipo_licensing::Entitlements::unlocked()),
+                paid_keys_from: std::sync::OnceLock::new(),
             }),
         };
         // A connection's sign-in changed: hide the new one in text too.
@@ -901,8 +906,26 @@ impl Broker {
     }
 
     /// The paid AI keys (ADR-085), with the names they are hidden under.
+    /// Use `keeper`'s paid AI keys (the first organization's) instead of this organization's own:
+    /// one set of keys for the whole PC (Phase 25, item 1.4). Set once, before it starts.
+    pub fn keep_paid_keys_in(&self, keeper: &Broker) {
+        if !Arc::ptr_eq(&self.inner, &keeper.inner)
+            && self.inner.paid_keys_from.set(keeper.clone()).is_ok()
+        {
+            // The PC's keys are hidden from this organization's record from now on.
+            self.refresh_redactor();
+        }
+    }
+
+    /// The broker whose settings and Vault keep the paid AI keys this organization uses.
+    pub fn paid_key_keeper(&self) -> &Broker {
+        self.inner.paid_keys_from.get().unwrap_or(self)
+    }
+
     fn paid_secrets(&self) -> Vec<(String, String)> {
-        let keys = self
+        // The keys this organization's workers use, wherever they are kept, are hidden here too.
+        let keeper = self.paid_key_keeper();
+        let keys = keeper
             .inner
             .guard
             .config()
@@ -911,7 +934,7 @@ impl Broker {
         keys.iter()
             .flat_map(|k| k.vault_ids().map(move |id| (id, &k.name)))
             .filter_map(|(id, name)| {
-                vault::read(self.inner.store.as_ref(), id)
+                vault::read(keeper.inner.store.as_ref(), id)
                     .ok()
                     .flatten()
                     .map(|v| (v, format!("paid key {name}")))
@@ -1234,6 +1257,12 @@ impl Broker {
             .map(|(c, l)| (c.id().to_owned(), *l))
             .collect();
         let folder = workspace.as_ref().map(|w| w.root().display().to_string());
+        let github = scope
+            .project
+            .as_ref()
+            .and_then(|p| self.ledger().project(&p.id).ok().flatten())
+            .and_then(|p| p.repository_url)
+            .and_then(|url| crate::github::repo_of(&url));
         self.ledger().append_event(NewEvent {
             task_id: Some(step.task_id.into()),
             source: GUARD.into(),
@@ -1246,6 +1275,8 @@ impl Broker {
                 "worker": worker,
                 "role": scope.role_name,
                 "project": scope.project.as_ref().map(|p| &p.name),
+                // The one repository its GitHub tools act on (what a link check may look at).
+                "github": github,
                 "folder": folder,
                 "workspace": place.as_ref().map(|p| json!({
                     "id": p.workspace_id,
@@ -1280,12 +1311,6 @@ impl Broker {
         if !add_ons.note.is_empty() {
             note = format!("{note}\n{}", add_ons.note);
         }
-        let github = scope
-            .project
-            .as_ref()
-            .and_then(|p| self.ledger().project(&p.id).ok().flatten())
-            .and_then(|p| p.repository_url)
-            .and_then(|url| crate::github::repo_of(&url));
         let tool_names = offered
             .iter()
             .map(|t| (*t).to_owned())
@@ -2260,6 +2285,7 @@ impl Broker {
         // What it touches, for the canvas's live view (Phase 18).
         let touches = live::touched_by(&prepared, scope.project.as_ref().map(|p| p.name.as_str()));
         let mut change = Value::Null;
+        let mut by_command: Vec<Value> = Vec::new();
         let (outcome, execution) = match prepared.work {
             // A file change Watch shows (Phase 18, ADR-055): the file before and after.
             // The change and Watch's look at it (secrets hidden, lines compared) are done off the
@@ -2335,14 +2361,40 @@ impl Broker {
                 (done.result, None)
             }
             work => {
-                self.carry_out(
-                    grant_id,
-                    &worker,
-                    workspace.as_ref(),
-                    work,
-                    &prepared.summary,
-                )
-                .await
+                // A command or a git step: Watch shows the files it made or changed (Phase 25,
+                // item 3.2). The working copy is noted before and compared after, off the async
+                // threads; Guard's private files are never read.
+                let noted = match (&work, workspace.as_ref(), self.who(grant_id)) {
+                    (Work::Program { .. } | Work::PullRequest { .. }, Some(ws), Some(who)) => {
+                        let root = ws.root().to_path_buf();
+                        let blocked = config.blocked_files.clone();
+                        let (r, b) = (root.clone(), blocked.clone());
+                        tokio::task::spawn_blocking(move || crate::command_changes::take(&r, &b))
+                            .await
+                            .ok()
+                            .map(|before| (who, root, blocked, before))
+                    }
+                    _ => None,
+                };
+                let done = self
+                    .carry_out(
+                        grant_id,
+                        &worker,
+                        workspace.as_ref(),
+                        work,
+                        &prepared.summary,
+                    )
+                    .await;
+                if let Some((who, root, blocked, before)) = noted {
+                    let broker = self.clone();
+                    by_command = tokio::task::spawn_blocking(move || {
+                        let made = crate::command_changes::since(&before, &root, &blocked);
+                        broker.watch_made_by_command(&who, made)
+                    })
+                    .await
+                    .unwrap_or_default();
+                }
+                done
             }
         };
         let (text, ok) = match outcome {
@@ -2393,6 +2445,8 @@ impl Broker {
                 "fileRequest": file_request,
                 // A saved file change: its file and line counts, never its text (ADR-055).
                 "change": change,
+                // The files a command made or changed, the same way (Phase 25, item 3.2).
+                "madeByCommand": (!by_command.is_empty()).then_some(by_command),
             }),
             ..NewEvent::default()
         });

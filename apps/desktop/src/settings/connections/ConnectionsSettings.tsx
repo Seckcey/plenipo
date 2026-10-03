@@ -10,7 +10,7 @@ import { useOnFree } from "../../license/useLicense";
 import { AddOnTools } from "./AddOnTools";
 import { ConnectionCard } from "./ConnectionCard";
 import { useConnections } from "./useConnections";
-import { LATER } from "./words";
+import { LATER, SEND_LIST_NOTE } from "./words";
 
 /**
  * Settings → Connections (Phase 20, ADR-062 to ADR-065): the business accounts workers may use.
@@ -53,6 +53,14 @@ export function ConnectionsSettings({ go }: { go: Go }) {
         &quot;forward all mail&quot; cannot send anything by itself: a send asks you and shows who
         it goes to, unless everyone it goes to is on that connection&apos;s{" "}
         <em>Send without asking to</em> list and you turned that switch on.
+      </p>
+      <p className="notice-box" role="note" id={SEND_LIST_NOTE} tabIndex={-1}>
+        <strong>
+          An email could trick a worker into writing to anyone on a connection&apos;s{" "}
+          <em>Send without asking to</em> list without asking you.
+        </strong>{" "}
+        Add only addresses, domains, and channels you would be happy to receive anything a worker
+        writes. Everyone else, and every send with someone not on the list, still asks you.
       </p>
       {!page.vaultAvailable && (
         <p className="form-error" role="alert">

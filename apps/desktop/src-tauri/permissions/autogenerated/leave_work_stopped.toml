@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-leave-work-stopped"
+description = "Enables the leave_work_stopped command without any pre-configured scope."
+commands.allow = ["leave_work_stopped"]
+
+[[permission]]
+identifier = "deny-leave-work-stopped"
+description = "Denies the leave_work_stopped command without any pre-configured scope."
+commands.deny = ["leave_work_stopped"]

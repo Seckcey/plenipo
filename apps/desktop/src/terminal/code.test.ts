@@ -8,6 +8,7 @@ import {
   latestChange,
   loadWatchView,
   MAX_FILES,
+  mayBeNewTeamWork,
   pinFile,
   removedWords,
   setFollowing,
@@ -78,6 +79,7 @@ describe("a Watch tab's list of files", () => {
         change({ path: "c.txt", at: 30 }),
       ],
       fromTheRecord: false,
+      teamTaskIds: [],
     };
     s = loadWatchView(s, view);
     expect(paths(s)).toEqual(["a.txt", "b.txt", "c.txt"]);
@@ -173,6 +175,7 @@ describe("a Watch tab's list of files", () => {
       objectiveTaskId: "root",
       changes: [{ ...c, state: "writing" }],
       fromTheRecord: false,
+      teamTaskIds: [],
     };
     expect(loadWatchView(s, view)).toBe(s);
     // Nor does another objective's change read as new as the newest start a fresh list.
@@ -181,8 +184,46 @@ describe("a Watch tab's list of files", () => {
       objectiveTaskId: "root2",
       changes: [change({ path: "b.txt", objectiveTaskId: "root2", at: 50 })],
       fromTheRecord: false,
+      teamTaskIds: [],
     };
     expect(loadWatchView(s, other).objectiveTaskId).toBe("root");
+  });
+
+  it("shows its team's changes, and asks again about a hand-off it doesn't know (Phase 25, item 1.8)", () => {
+    // A Supervisor's Watch: it wrote nothing itself, its developer did.
+    let s = loadWatchView(emptyCodeWatch("p-lead"), {
+      positionId: "p-lead",
+      objectiveTaskId: "root",
+      changes: [change({ path: "a.rs", taskId: "t-dev", positionId: "p-dev" })],
+      fromTheRecord: false,
+      teamTaskIds: ["t-dev", "t-lead"],
+    });
+    expect(paths(s)).toEqual(["a.rs"]);
+    // Its team's next change is heard live.
+    s = apply(s, update(change({ path: "b.rs", taskId: "t-dev", positionId: "p-dev" })));
+    expect(paths(s)).toEqual(["b.rs", "a.rs"]);
+    // Work handed on since: not shown yet, and the tab reads Plenipo's list again.
+    const fresh = update(change({ path: "c.rs", taskId: "t-qa", positionId: "p-qa" }));
+    expect(applyWatchUpdate(s, fresh)).toBe(s);
+    expect(mayBeNewTeamWork(s, fresh)).toBe(true);
+    // Another objective's work is not this tab's to ask about.
+    expect(
+      mayBeNewTeamWork(s, update(change({ objectiveTaskId: "root2", positionId: "p-qa" }))),
+    ).toBe(false);
+  });
+
+  it("says why Watch is empty when Plenipo knows (Phase 25, item 1.8)", () => {
+    const s = loadWatchView(emptyCodeWatch("p-dev"), {
+      positionId: "p-dev",
+      objectiveTaskId: "root",
+      changes: [],
+      fromTheRecord: false,
+      teamTaskIds: ["t1"],
+      quiet: "Senior Developer got no tools: this work belongs to no project.",
+    });
+    expect(s.quiet).toBe("Senior Developer got no tools: this work belongs to no project.");
+    // Its objective is known before any change.
+    expect(s.objectiveTaskId).toBe("root");
   });
 
   it("keeps at most a few hundred files", () => {
@@ -205,6 +246,7 @@ describe("a Watch tab's list of files", () => {
       objectiveTaskId: "root",
       changes: [change({ summary: "The lines are shown only while Plenipo runs" })],
       fromTheRecord: true,
+      teamTaskIds: [],
     });
     expect(s.fromTheRecord).toBe(true);
     // Another agent's view is not this tab's.
@@ -212,6 +254,7 @@ describe("a Watch tab's list of files", () => {
       positionId: "p-other",
       changes: [change({ positionId: "p-other" })],
       fromTheRecord: true,
+      teamTaskIds: [],
     });
     expect(other.changes).toEqual([]);
   });

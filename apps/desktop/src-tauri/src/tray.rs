@@ -66,13 +66,9 @@ const NO_CONTROL: &str = "No worker is using the browser, the mouse and keyboard
 pub fn create<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show Plenipo", true, None::<&str>)?;
     let control = MenuItem::with_id(app, "control", NO_CONTROL, false, None::<&str>)?;
-    let stop_control = MenuItem::with_id(
-        app,
-        "stop_control",
-        "Stop all browser, desktop, and server work",
-        true,
-        None::<&str>,
-    )?;
+    // Stop all work (Phase 25, item 3.4): the same as the red button in the window and on a
+    // phone.
+    let stop_control = MenuItem::with_id(app, "stop_control", "Stop all work", true, None::<&str>)?;
     let active = MenuItem::with_id(app, "active", "No programs running", false, None::<&str>)?;
     let stop = MenuItem::with_id(app, "stop_all", "Stop all programs", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Plenipo", true, None::<&str>)?;
@@ -134,7 +130,7 @@ fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
             }
         }
         // The emergency stop (Phase 10): all browser, desktop, and server work halts at once, in
-        // every organization.
+        // every organization, and since Phase 25 (item 3.4) all AI work too, until Allow again.
         "stop_control" => {
             if let Some(broker) = app.try_state::<Broker>() {
                 let broker = broker.inner().clone();

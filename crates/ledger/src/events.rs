@@ -140,6 +140,25 @@ impl Ledger {
         })
     }
 
+    /// Whether the owner's Stop all work is still on by this Ledger's record (Phase 25, item 3.4):
+    /// its last "work.stopped_all" came after its last "work.allowed_again". Plenipo holds the
+    /// work again from it when it starts, so Stop all lasts until Allow again across a restart
+    /// (the security review of #156).
+    pub fn work_stopped_on_record(&self) -> Result<bool> {
+        self.read(|c| {
+            let last: Option<String> = c
+                .query_row(
+                    "SELECT event_type FROM events
+                     WHERE event_type IN ('work.stopped_all', 'work.allowed_again')
+                     ORDER BY seq DESC LIMIT 1",
+                    [],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            Ok(last.as_deref() == Some("work.stopped_all"))
+        })
+    }
+
     /// Most recent events across the whole ledger, newest first.
     pub fn recent_events(&self, limit: u32) -> Result<Vec<LedgerEvent>> {
         self.read(|c| {
@@ -208,6 +227,33 @@ mod tests {
         assert_eq!(ticks, [0, 1, 2, 3, 4]);
         let recent = l.recent_events(2).unwrap();
         assert_eq!(recent[0].payload["n"], 4);
+    }
+
+    /// Phase 25, item 3.4, after the security review of #156: the record says whether Stop all
+    /// work is still on, so it lasts across a restart until Allow again.
+    #[test]
+    fn stop_all_work_is_on_until_allowed_again_by_the_record() {
+        let l = ledger();
+        let press = |event_type: &str| {
+            l.append_event(NewEvent {
+                source: "owner".into(),
+                event_type: event_type.into(),
+                payload: json!({}),
+                ..NewEvent::default()
+            })
+            .unwrap();
+        };
+        assert!(!l.work_stopped_on_record().unwrap(), "never pressed");
+        press("work.stopped_all");
+        assert!(l.work_stopped_on_record().unwrap());
+        // Other events after it change nothing.
+        press("synthetic.tick");
+        assert!(l.work_stopped_on_record().unwrap());
+        press("work.allowed_again");
+        assert!(!l.work_stopped_on_record().unwrap());
+        press("work.stopped_all");
+        press("work.stopped_all");
+        assert!(l.work_stopped_on_record().unwrap());
     }
 
     #[test]

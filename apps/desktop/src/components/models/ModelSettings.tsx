@@ -1,20 +1,21 @@
 import type { LimitBehavior, RoutingSnapshot } from "@plenipo/types";
-import { Button } from "@plenipo/ui";
+import { Button, Disclosure } from "@plenipo/ui";
 
 import { setRoutingOptions } from "../../api/commands";
 import { LIMIT_LABEL } from "../../routing/format";
 import { useRouting } from "../../routing/useRouting";
 import type { Go } from "../views";
 import { ModelList } from "./ModelList";
-import { RoleChoices } from "./RoleChoices";
 import { RuleSettings } from "./RuleSettings";
+import { WhoUsesWhat } from "./WhoUsesWhat";
 import { useChange, type Apply } from "../../routing/useChange";
 import { Refusal } from "./shared";
 
 /**
- * Settings → AI models: the model and effort rules (the organization, departments, and agents),
- * which model each role's workers get (and why), the models to choose from, a link to the AI
- * tools page (their sign-in, usage limits, and updates), and what a usage limit does.
+ * Settings → AI models (Phase 25, item 2.6): **Who uses what** (each role's model, backup, and
+ * effort, with a row for the whole organization and each department), the models to choose from,
+ * a link to the AI tools page (their sign-in, usage limits, and updates), what a usage limit
+ * does, and **More** (the agents with a rule of their own).
  */
 export function ModelSettings({ go }: { go: Go }) {
   const routing = useRouting();
@@ -38,11 +39,21 @@ export function ModelSettings({ go }: { go: Go }) {
           ))}
         </ul>
       )}
-      <RuleSettings snapshot={s} onApply={routing.apply} />
-      <RoleChoices snapshot={s} onApply={routing.apply} />
+      <WhoUsesWhat snapshot={s} onApply={routing.apply} />
       <ModelList snapshot={s} onApply={routing.apply} />
       <ToolsLink go={go} />
       <LimitChoice snapshot={s} onApply={routing.apply} />
+      <Disclosure
+        title="More"
+        summary={
+          s.agents.length === 0
+            ? "No agent has a rule of its own"
+            : `${s.agents.length === 1 ? "1 agent has" : `${s.agents.length} agents have`} a rule of its own`
+        }
+        rememberAs="models:more"
+      >
+        <RuleSettings snapshot={s} onApply={routing.apply} />
+      </Disclosure>
     </div>
   );
 }
@@ -84,7 +95,9 @@ function LimitChoice({ snapshot, onApply }: { snapshot: RoutingSnapshot; onApply
               type="radio"
               name="on-usage-limit"
               checked={current === b}
-              onChange={() => void run(() => setRoutingOptions({ onUsageLimit: b }))}
+              onChange={() =>
+                void run(() => setRoutingOptions({ ...snapshot.options, onUsageLimit: b }))
+              }
             />
             <span>{LIMIT_LABEL[b]}</span>
           </label>

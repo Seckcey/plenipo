@@ -45,7 +45,11 @@
 //!   objective (tool markers inside it are the worker's, not the requester's);
 //!   `[handoff-pass:DEST]` — once the first replies come, one request to DEST that passes the
 //!   first reply's result on by its task ID (`{"kind": "task", "taskId": …}`, ADR-044 §4.12);
-//!   once per conversation.
+//!   once per conversation. `[handoff-sendback:DEST]` — likewise, sends the first reply's work
+//!   back to DEST with what to fix (`"sendBack": …`, Phase 25, item 4.8).
+//!
+//! `[verdict:V]` (a worker given a handoff request) ends its answer with a `plenipo-review` block
+//! whose verdict is V, as a reviewer's instructions ask (Phase 25, item 4.7).
 //!
 //! Markers inside a `{{handoff:DEST|OBJECTIVE}}` belong to that request's worker, never to the
 //! requester (so `{{handoff:role:Supervisor|Build it [handoff:role:Developer]}}` makes the
@@ -152,7 +156,7 @@ const PERSONAS: &[(&str, Answer)] = &[
 /// Other programs Plenipo's tools run that this double stands in for (Phase 8): GitHub's `gh`,
 /// and `verify FILE WORD`, a project's test (it passes when FILE, in the folder it runs in,
 /// contains WORD). Listed by `--helpers`, never among the AI tools.
-const HELPERS: &[(&str, Answer)] = &[("gh", gh), ("verify", verify)];
+const HELPERS: &[(&str, Answer)] = &[("gh", gh), ("verify", verify), ("scaffold", scaffold)];
 
 pub fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -681,7 +685,17 @@ fn answer(n: usize, mode: &Mode, said: &str, previous: Option<&str>, first: &str
                 context.as_deref().unwrap_or(""),
                 if *granted { "granted" } else { "none granted" }
             ),
-            handoff_blocks(said, n),
+            {
+                let mut blocks = handoff_blocks(said, n);
+                // `[verdict:V]`: a reviewer's verdict, as its instructions ask (Phase 25, 4.7).
+                for verdict in markers(&outside_braces(said), "verdict") {
+                    blocks.push(format!(
+                        "```plenipo-review\n{}\n```",
+                        json!({ "verdict": verdict, "findings": [] })
+                    ));
+                }
+                blocks
+            },
         ),
         Mode::Replies { items, tasks } => {
             let always: String = markers(first, "handoff-always")
@@ -698,6 +712,16 @@ fn answer(n: usize, mode: &Mode, said: &str, previous: Option<&str>, first: &str
                             "to": dest,
                             "objective": "Check this result again",
                             "context": [{ "kind": "task", "taskId": task }],
+                        })));
+                    }
+                }
+                // Send the first reply's work back to the worker who did it (Phase 25, 4.8).
+                for dest in markers(&own, "handoff-sendback") {
+                    if let Some(task) = tasks.first() {
+                        blocks.push(handoff_block(&json!({
+                            "to": dest,
+                            "objective": "Run the tests you said passed, and say what they show",
+                            "sendBack": task,
                         })));
                     }
                 }
@@ -1353,7 +1377,8 @@ fn claude_turn(args: &[String]) -> i32 {
             &json!({ "type": "rate_limit_event", "uuid": "00000000-0000-4000-8000-000000000009",
                      "session_id": id, "rate_limit_info": {
                         "status": if used >= 100 { "rejected" } else if used >= 80 { "allowed_warning" } else { "allowed" },
-                        "resetsAt": resets, "utilization": used as f64 / 100.0 } }),
+                        "resetsAt": resets, "utilization": used as f64 / 100.0,
+                        "rateLimitType": "five_hour" } }),
         );
     }
     if own.contains("[compact]") {
@@ -1475,6 +1500,30 @@ fn verify(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+/// `scaffold FILE TEXT [FILE TEXT …]`: writes each file (its folders made), as a project
+/// generator or a formatter does — files changed by a command, for Watch (Phase 25, item 3.2).
+fn scaffold(args: &[String]) -> i32 {
+    if args.is_empty() || !args.len().is_multiple_of(2) {
+        eprintln!("usage: scaffold FILE TEXT [FILE TEXT …]");
+        return 2;
+    }
+    for pair in args.chunks(2) {
+        let path = PathBuf::from(&pair[0]);
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                eprintln!("cannot make {}: {e}", parent.display());
+                return 1;
+            }
+        }
+        if let Err(e) = std::fs::write(&path, &pair[1]) {
+            eprintln!("cannot write {}: {e}", path.display());
+            return 1;
+        }
+    }
+    println!("made {} file(s)", args.len() / 2);
+    0
 }
 
 // ---- GitHub's gh (Phase 8) ------------------------------------------------------------------

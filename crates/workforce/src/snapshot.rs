@@ -160,6 +160,7 @@ pub(crate) fn experience_info(
         kept_lessons,
         tasks_done,
         experienced: average.exceeded_by(score),
+        answers_sent_back: 0,
     }
 }
 
@@ -425,7 +426,13 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
             }),
             experience: {
                 let (kept, tasks) = experience_counts(records, p);
-                experience_info(kept, tasks, average)
+                ExperienceInfo {
+                    answers_sent_back: records
+                        .experience
+                        .get(&p.id)
+                        .map_or(0, |e| e.answers_sent_back),
+                    ..experience_info(kept, tasks, average)
+                }
             },
             learning: {
                 let (learns, from) = crate::learning::learns(inputs.learning, p);
@@ -626,9 +633,11 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
                 label: t.info.label.clone(),
                 ready: t.info.ready,
                 company: t.info.provider_label.clone(),
+                paid: t.paid,
             })
             .collect(),
         notices: inputs.notices.clone(),
+        templates: crate::templates::templates_info(),
         places: inputs.places.to_vec(),
         generated_at: inputs.now,
     }

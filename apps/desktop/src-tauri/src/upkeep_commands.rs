@@ -125,8 +125,10 @@ pub async fn run_again<R: Runtime>(
     ledger: Org<'_, Arc<Ledger>>,
     workforce: Org<'_, Workforce>,
     liaison: Org<'_, Liaison>,
+    agents: Org<'_, plenipo_runtime::agent::AgentRuntime>,
     task_id: String,
 ) -> Result<RecoveryStatus, CommandError> {
+    crate::commands::refuse_while_stopped(&agents)?;
     run_again_core(ledger.inner(), workforce.inner(), liaison.inner(), &task_id).await?;
     recovery_status_off_thread(&app, Some(window.label().to_owned())).await
 }

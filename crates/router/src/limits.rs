@@ -1,7 +1,7 @@
 //! Usage/capacity state, derived from the Ledger (ADR-011): an AI tool whose latest turn hit a
-//! usage limit gets no new work until the reset time it reported, or for an hour when it did
-//! not report one — unless a later turn on it completed, or the owner asked to try it again.
-//! Nothing is kept in memory, so the state is the same after a restart.
+//! usage limit gets no new work until the reset time it reported — in its message, or in its
+//! plan report (Phase 25, item 4.3) — or for an hour when it reported none, unless a later turn
+//! on it completed, or the owner asked to try it again.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -15,11 +15,13 @@ pub const HOLD_MS: u64 = 60 * 60 * 1000;
 pub const LOOKBACK_MS: u64 = 8 * 24 * 60 * 60 * 1000;
 
 /// Active usage limits by runtime ID. `outcomes` are newest first; `cleared` holds when the
-/// owner last asked to try each runtime again.
+/// owner last asked to try each runtime again; `reported` gives the reset time an AI tool's plan
+/// report gives for a limit reached at a time, when its message gave none.
 pub fn active(
     outcomes: &[TurnOutcomeRecord],
     cleared: &BTreeMap<String, u64>,
     now: u64,
+    reported: &dyn Fn(&str, u64) -> Option<u64>,
 ) -> HashMap<String, UsageLimit> {
     let mut latest: HashMap<&str, &TurnOutcomeRecord> = HashMap::new();
     for o in outcomes {
@@ -36,7 +38,7 @@ pub fn active(
                 .clone()
                 .or_else(|| o.summary.clone())
                 .unwrap_or_default();
-            let resets_at = reset_time(&detail, o.at);
+            let resets_at = reset_time(&detail, o.at).or_else(|| reported(runtime, o.at));
             let until = resets_at.unwrap_or(o.at + HOLD_MS);
             (now < until).then(|| {
                 (
@@ -46,7 +48,7 @@ pub fn active(
                         since: o.at,
                         resets_at,
                         until,
-                        detail: first_line(&detail),
+                        detail: first_line(without_reset(&detail)),
                     },
                 )
             })
@@ -67,6 +69,14 @@ pub fn reset_time(text: &str, at: u64) -> Option<u64> {
         };
         (ms > at && ms <= at + 30 * 24 * 60 * 60 * 1000).then_some(ms)
     })
+}
+
+/// The message without the reset time Plenipo or Claude Code added for itself (`…|<time>`).
+fn without_reset(text: &str) -> &str {
+    match text.split_once('|') {
+        Some((words, rest)) if rest.starts_with(|c: char| c.is_ascii_digit()) => words,
+        _ => text,
+    }
 }
 
 fn first_line(text: &str) -> String {
@@ -142,24 +152,49 @@ mod tests {
             outcome("c", "usageLimited", T - HOLD_MS - 1, None),
             outcome("d", "usageLimited", T - 1000, None),
         ];
-        let limits = active(&outcomes, &cleared, T + 1);
+        let limits = active(&outcomes, &cleared, T + 1, &|_, _| None);
         let a = &limits["a"];
         assert_eq!(
             (a.since, a.resets_at, a.until),
             (T, Some(T + 7_200_000), T + 7_200_000)
         );
-        assert_eq!(a.detail, "usage limit reached|1760007200");
+        // The reset time added for Plenipo is not shown.
+        assert_eq!(a.detail, "usage limit reached");
         // b completed after its limit; c's hour has passed; d rests an hour without a reset.
         assert!(!limits.contains_key("b") && !limits.contains_key("c"));
         assert_eq!(limits["d"].until, T - 1000 + HOLD_MS);
         assert_eq!(limits["d"].detail, "reported a usage limit");
         // After the reset time, a is free again.
-        assert!(!active(&outcomes, &cleared, T + 7_200_000).contains_key("a"));
+        assert!(!active(&outcomes, &cleared, T + 7_200_000, &|_, _| None).contains_key("a"));
         // The owner's "try again" clears limits recorded before it.
         let cleared = BTreeMap::from([("a".to_owned(), T + 5), ("d".to_owned(), T - 2000)]);
-        let limits = active(&outcomes, &cleared, T + 10);
+        let limits = active(&outcomes, &cleared, T + 10, &|_, _| None);
         assert!(!limits.contains_key("a"));
         assert!(limits.contains_key("d"));
+    }
+
+    /// Phase 25, item 4.3: a limit whose message gave no reset time waits for the one the AI
+    /// tool's plan report gives (Codex's check), and only a believable one.
+    #[test]
+    fn a_limit_without_a_reset_time_uses_the_plan_reports() {
+        let cleared = BTreeMap::new();
+        let outcomes = [
+            outcome(
+                "codex",
+                "usageLimited",
+                T,
+                Some("You've hit your usage limit."),
+            ),
+            outcome("copilot", "usageLimited", T, Some("Usage limit reached")),
+        ];
+        let reported = |runtime: &str, at: u64| (runtime == "codex").then_some(at + 3 * HOLD_MS);
+        let limits = active(&outcomes, &cleared, T + 1, &reported);
+        assert_eq!(limits["codex"].resets_at, Some(T + 3 * HOLD_MS));
+        assert_eq!(limits["codex"].until, T + 3 * HOLD_MS);
+        // Nothing reported: an hour.
+        assert_eq!(limits["copilot"].until, T + HOLD_MS);
+        // Still held after the hour, until the reported reset.
+        assert!(active(&outcomes, &cleared, T + 2 * HOLD_MS, &reported).contains_key("codex"));
     }
 
     #[test]

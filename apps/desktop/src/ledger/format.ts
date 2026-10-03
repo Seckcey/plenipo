@@ -337,13 +337,35 @@ function describeRouterEvent(type: string, p: Record<string, unknown>): string |
     case "router.model_removed":
       return `Model removed: ${str(model.label) ?? "a model"}`;
     case "router.models_added":
-      return "Each AI tool's default model was added to your models";
+      return "Each AI tool's own choice was added to your models";
+    case "router.models_renamed":
+      return "Each AI tool's default model is now called its own choice";
     case "router.policy_changed":
       return `Model choices changed for ${str(p.role) ?? "a role"}`;
     case "router.policies_added":
       return "Built-in roles got their starting model choices";
-    case "router.options_changed":
+    case "router.options_changed": {
+      // Phase 25, item 4.5: the step-down setting is kept with the usage-limit one.
+      const o = (p.options ?? {}) as {
+        stepDown?: unknown;
+        stepDownAt?: unknown;
+        nightWeight?: unknown;
+      };
+      // Phase 25, item 4.6: how much a night hour counts when a plan's use is paced.
+      const night =
+        typeof o.nightWeight === "number" ? ` · a night hour counts ${o.nightWeight}%` : "";
+      if (o.stepDown === false) return `Usage-limit setting changed · Step down is off${night}`;
+      if (o.stepDown === true && typeof o.stepDownAt === "number")
+        return `Usage-limit setting changed · Step down from ${o.stepDownAt}% used${night}`;
       return "Usage-limit setting changed";
+    }
+    // Phase 25, item 4.6: a weekly budget of tokens for an AI tool that reports nothing.
+    case "router.budget_changed": {
+      const who = str(p.label) ?? "an AI tool";
+      return typeof p.tokens === "number"
+        ? `Weekly budget for ${who}: ${p.tokens.toLocaleString("en-US")} tokens`
+        : `Weekly budget for ${who} removed`;
+    }
     case "router.limit_cleared":
       return `You asked to try ${str(p.label) ?? "an AI tool"} again after its usage limit`;
     case "router.rule_changed":
@@ -569,6 +591,22 @@ function describeControlEvent(type: string, p: Record<string, unknown>): string 
     }
     case "control.allowed":
       return "You allowed browser, desktop, and server work again";
+    // Stop all work (Phase 25, item 3.4).
+    case "work.stopped_all": {
+      const n = typeof p.stopped === "number" ? p.stopped : 0;
+      return n === 0
+        ? "You pressed Stop all: nothing new starts until you allow work again"
+        : `You pressed Stop all: ${n} task${n === 1 ? "" : "s"} stopped, and nothing new starts until you allow work again`;
+    }
+    case "work.allowed_again":
+      return "You pressed Allow again: work can start again";
+    // When a plan runs out (Phase 25, item 4.2).
+    case "work.picked_up":
+      return `Plenipo picked this work back up after ${str(p.label) ?? "its AI tool"}'s usage limit`;
+    case "work.left_stopped":
+      return "You left this work stopped after a usage limit";
+    case "work.not_picked_up":
+      return `Plenipo couldn't pick this work back up${str(p.reason) ? `: ${str(p.reason)}` : ""}`;
     case "control.switched_off": {
       const n = count(p.sessions);
       const off = p.kind === "server" ? "remote computers (SSH)" : what;
@@ -725,6 +763,8 @@ function describeOrgEvent(type: string, p: Record<string, unknown>): string | nu
   const name = str(p.name) ?? "";
   const why = str(p.reason) ? ` (${str(p.reason)})` : "";
   switch (type) {
+    case "org.hire_needed":
+      return `${str(p.lead) ?? "A lead"} needs a ${str(p.role) ?? "worker"}. Hire one?`;
     case "org.position_created":
       return `Position created: ${title}`;
     case "org.position_updated":
@@ -915,6 +955,12 @@ function count(v: unknown): number {
   return Array.isArray(v) ? v.length : 0;
 }
 
+/** " · doesn't match the record: …" for a reply the checks flagged (Phase 25, item 4.7). */
+function mismatch(p: Record<string, unknown>): string {
+  const m = Array.isArray(p.mismatches) ? p.mismatches.filter((x) => typeof x === "string") : [];
+  return m.length > 0 ? ` · doesn't match the record: ${m.join("; ")}` : "";
+}
+
 /** Phase 4: handoffs between workers through Plenipo Liaison. */
 function describeLiaisonEvent(type: string, p: Record<string, unknown>): string | null {
   const why = str(p.reason) ? `: ${brief(p.reason, 200)}` : "";
@@ -924,7 +970,10 @@ function describeLiaisonEvent(type: string, p: Record<string, unknown>): string 
     case "liaison.handoff_received":
       return `Received as a handoff${
         typeof p.depth === "number" ? ` (depth ${p.depth})` : ""
-      }: ${brief(p.objective)}`;
+      }${str(p.sentBack) ? ", work sent back to fix" : ""}: ${brief(p.objective)}`;
+    // Phase 25, item 4.8: a lead sent this work back to the worker who did it.
+    case "liaison.work_sent_back":
+      return `Sent back by ${str(p.by) ?? "its lead"}: ${brief(p.reason)}`;
     case "liaison.handoff_rejected":
       return `Handoff refused${why}`;
     case "liaison.duplicate_ignored":
@@ -934,9 +983,20 @@ function describeLiaisonEvent(type: string, p: Record<string, unknown>): string 
     case "liaison.dispatch_failed":
       return `Handoff worker could not start${why}`;
     case "liaison.reply_sent":
-      return `Reply sent: ${handoffOutcome(p.outcome)} — ${brief(p.summary)}`;
+      return `Reply sent: ${handoffOutcome(p.outcome)} — ${brief(p.summary)}${mismatch(p)}`;
     case "liaison.reply_received":
-      return `Reply received: ${handoffOutcome(p.outcome)} — ${brief(p.summary)}`;
+      return `Reply received: ${handoffOutcome(p.outcome)} — ${brief(p.summary)}${mismatch(p)}`;
+    // Phase 25, item 4.7: an answer checked against Plenipo's record.
+    case "liaison.answer_sent_back": {
+      const why = Array.isArray(p.mismatches)
+        ? p.mismatches.filter((m) => typeof m === "string")
+        : [];
+      return `Answer sent back to check: it ${why.length > 0 ? why.join("; ") : "doesn't match Plenipo's record"}`;
+    }
+    case "liaison.sent_back_delivered":
+      return "Checking its answer again";
+    case "liaison.give_back_failed":
+      return `Its answer could not be sent back${why}`;
     case "liaison.replies_delivered": {
       const n = count(p.messageIds);
       return `Continued with ${n} handoff repl${n === 1 ? "y" : "ies"}`;

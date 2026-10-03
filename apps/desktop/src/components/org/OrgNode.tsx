@@ -15,6 +15,7 @@ import { nodeLabel, workerStatus, type DropState, type NodeContext } from "../..
 import { statusSymbol, type SymbolKey } from "../../org/symbols";
 import { rankName, titlesOf } from "../../org/titles";
 import { OwnerFace, OwnerStatusLine } from "../../owner/OwnerFace";
+import { NowLine } from "../../live/NowLine";
 import { Glyph } from "./Glyph";
 
 interface Props {
@@ -173,11 +174,18 @@ function PositionBody({ p, ctx }: { p: PositionInfo; ctx: NodeContext }) {
       </span>
       <span className="topo-node__body">
         <span className="topo-node__title">{p.title}</span>
-        <span className="topo-node__meta">
-          {p.title === rank ? STAFFING_LABEL[p.staffing] : rank}
-          {role}
-          {p.model ? ` · ${p.model}` : ""}
-        </span>
+        {/* While it works: what it is doing now (Phase 25, item 3.1). */}
+        <NowLine
+          p={p}
+          className="topo-node__meta"
+          otherwise={
+            <>
+              {p.title === rank ? STAFFING_LABEL[p.staffing] : rank}
+              {role}
+              {p.model ? ` · ${p.model}` : ""}
+            </>
+          }
+        />
         <span className="topo-node__foot">
           <StatusPill status={p.status} label={STATUS_LABEL[p.status]} />
           <span className="topo-node__runtime">{positionToolLabel(ctx.snapshot, p)}</span>

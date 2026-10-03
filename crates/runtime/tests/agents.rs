@@ -1302,6 +1302,60 @@ async fn the_owner_can_stop_a_task_that_waits_for_its_ai_tool() {
     drop(hold);
 }
 
+/// Stop all work (Phase 25, item 3.4; ADR-199): every turn running now stops, a new one waits —
+/// and can still be stopped — and Allow again lets the one that waited start.
+#[tokio::test]
+async fn stop_all_work_stops_what_runs_and_holds_new_work_until_allowed_again() {
+    let h = harness();
+    let busy =
+        h.rt.start_session("claude-code", "long [slow]", None)
+            .await
+            .unwrap();
+    let busy_id = busy.session.id.clone();
+    let deadline = Instant::now() + WAIT;
+    while h
+        .rt
+        .session(&busy_id)
+        .await
+        .unwrap()
+        .session
+        .active_task_id
+        .is_none()
+    {
+        assert!(Instant::now() < deadline, "the turn never started");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+
+    h.rt.hold_all_work();
+    assert_eq!(h.rt.stop_all_turns().await, 1);
+    let stopped = settled(&h.rt, &busy_id, 1).await;
+    assert_eq!(outcome(&stopped.turns[0]), TurnOutcome::Cancelled);
+    assert!(h.rt.work_held());
+    assert!(h
+        .rt
+        .runtimes()
+        .iter()
+        .all(|r| r.held == Some(HoldFor::StopAll)));
+
+    // New work waits while it is held.
+    let rt = h.rt.clone();
+    let next = tokio::spawn(async move { rt.start_session("codex", "hello", None).await });
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(!next.is_finished(), "new work waits until Allow again");
+
+    // Allow again: it starts and finishes.
+    h.rt.allow_work();
+    assert!(!h.rt.work_held());
+    let started = tokio::time::timeout(WAIT, next)
+        .await
+        .expect("it starts once allowed")
+        .unwrap()
+        .unwrap();
+    let done = settled(&h.rt, &started.session.id, 1).await;
+    assert_eq!(outcome(&done.turns[0]), TurnOutcome::Completed);
+    assert!(h.rt.runtimes().iter().all(|r| r.held.is_none()));
+}
+
 #[tokio::test]
 async fn a_waiting_turn_continues_as_a_new_step_in_the_same_provider_session() {
     for runtime in RUNTIMES {

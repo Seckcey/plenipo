@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-limit-waits"
+description = "Enables the get_limit_waits command without any pre-configured scope."
+commands.allow = ["get_limit_waits"]
+
+[[permission]]
+identifier = "deny-get-limit-waits"
+description = "Denies the get_limit_waits command without any pre-configured scope."
+commands.deny = ["get_limit_waits"]

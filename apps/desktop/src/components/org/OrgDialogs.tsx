@@ -41,15 +41,12 @@ import {
   useSubmit,
 } from "./dialogHelpers";
 import { Modal } from "./Modal";
+import { RuntimeOptions } from "./RuntimeOptions";
+import { reusableWorkers } from "./teamReuse";
+import { runtimeChoiceLabel, subscriptionInstead } from "./runtimeChoices";
 
 /** Resolves with the refusal to show, or `null` once done. */
 export type Submit<T> = (input: T) => Promise<string | null>;
-
-function runtimeChoiceLabel(snapshot: OrgSnapshot, id: string): string {
-  const r = snapshot.runtimes.find((x) => x.id === id);
-  if (!r) return id;
-  return r.ready ? r.label : `${r.label} (not ready)`;
-}
 
 function projectOf(snapshot: OrgSnapshot, positionId: string | null): ProjectInfo | null {
   if (!positionId) return null;
@@ -129,11 +126,14 @@ function RuntimeField({
   project: ProjectInfo | null;
 }) {
   const refused = value !== "" && project !== null && !project.allowedRuntimes.includes(value);
+  const instead = value === "" ? null : subscriptionInstead(snapshot, value);
   return (
     <Field
       label="AI tool"
       hint={
-        refused ? (
+        instead ? (
+          <span className="field__warn">{instead}</span>
+        ) : refused ? (
           <span className="field__warn">
             {project.name} does not allow this AI tool
             {project.allowedRuntimes.length > 0
@@ -148,11 +148,7 @@ function RuntimeField({
     >
       <select value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Automatic (the role&apos;s model choices)</option>
-        {snapshot.runtimes.map((r) => (
-          <option key={r.id} value={r.id}>
-            {runtimeChoiceLabel(snapshot, r.id)}
-          </option>
-        ))}
+        <RuntimeOptions snapshot={snapshot} current={value} />
       </select>
     </Field>
   );
@@ -282,7 +278,7 @@ export function HireDialog({
   };
 
   return (
-    <Modal title="Hire" onClose={onCancel}>
+    <Modal title="Hire" onClose={onCancel} tour="hire-dialog">
       <form className="modal__body" aria-label="Hire" onSubmit={submit}>
         {onHireSaved && savedAgents.length > 0 && (
           <Field
@@ -597,6 +593,7 @@ export function NewDepartmentDialog({
   fromWorkforce = "",
   onCancel,
   onSubmit,
+  onTemplate,
 }: {
   snapshot: OrgSnapshot;
   reportsTo?: string | null;
@@ -604,7 +601,15 @@ export function NewDepartmentDialog({
   fromWorkforce?: string;
   onCancel: () => void;
   onSubmit: Submit<DepartmentInput>;
+  /** Add a department from a template instead (Phase 25, item 2.8). */
+  onTemplate?: Submit<string> | undefined;
 }) {
+  // The templates for departments this organization doesn't have yet.
+  const templates = snapshot.templates.departments.filter(
+    (d) => !snapshot.departments.some((x) => x.active && x.name === d.name),
+  );
+  const [template, setTemplate] = useState(templates[0]?.id ?? "");
+  const chosen = templates.find((d) => d.id === template);
   const superintendents = snapshot.positions.filter((p) => p.active && p.kind === "superintendent");
   const t = titlesOf(snapshot);
   const manager = rankName(t, "departmentManager");
@@ -629,8 +634,32 @@ export function NewDepartmentDialog({
   };
 
   return (
-    <Modal title="New department" onClose={onCancel} wide>
+    <Modal title="New department" onClose={onCancel} wide tour="new-department">
       <form className="modal__body" aria-label="New department" onSubmit={submit}>
+        {onTemplate && templates.length > 0 && !fromWorkforce && (
+          <fieldset className="choices">
+            <legend>Start from a template</legend>
+            <Field label="Template" hint={chosen ? chosen.adds.join(" · ") : undefined}>
+              <select value={template} onChange={(e) => setTemplate(e.target.value)}>
+                {templates.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}: {d.description}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <div className="actions">
+              <Button
+                size="sm"
+                disabled={pending || !chosen}
+                onClick={() => void run(() => onTemplate(template))}
+              >
+                {chosen ? `Add ${chosen.name}` : "Add it"}
+              </Button>
+              <span className="muted">Or make your own below.</span>
+            </div>
+          </fieldset>
+        )}
         <Field label="Name">
           <input value={name} maxLength={120} required onChange={(e) => setName(e.target.value)} />
         </Field>
@@ -793,7 +822,10 @@ function ProjectSettingsFields({
               checked={value.allowedRuntimes.includes(r.id)}
               onChange={(e) => toggle(r.id, e.target.checked)}
             />
-            <span className="choice__label">{r.label}</span>
+            <span className="choice__label">
+              {r.label}
+              {r.paid ? " · paid per use" : ""}
+            </span>
             {!r.ready && <StatusPill status={PILL_TONE.warn} label="Not ready" />}
           </label>
         ))}
@@ -866,6 +898,7 @@ export function NewProjectDialog({
   fromWorkforce = "",
   onCancel,
   onSubmit,
+  onTemplate,
 }: {
   snapshot: OrgSnapshot;
   departmentId?: string | null;
@@ -873,6 +906,8 @@ export function NewProjectDialog({
   fromWorkforce?: string;
   onCancel: () => void;
   onSubmit: Submit<ProjectInput>;
+  /** Use the Software project template instead (Phase 25, item 2.8). */
+  onTemplate?: (() => void) | undefined;
 }) {
   const departments = snapshot.departments.filter((d) => d.active && d.headPositionId);
   const [departmentId, setDepartmentId] = useState(
@@ -924,8 +959,20 @@ export function NewProjectDialog({
   };
 
   return (
-    <Modal title="New project" onClose={onCancel} wide>
+    <Modal title="New project" onClose={onCancel} wide tour="new-project">
       <form className="modal__body" aria-label="New project" onSubmit={submit}>
+        {onTemplate && !fromWorkforce && (
+          <div className="actions">
+            <Button size="sm" onClick={onTemplate}>
+              Use the Software project template
+            </Button>
+            <span className="muted">
+              A {rankName(titlesOf(snapshot), "projectCoordinator")} and a Development team
+              (developer, reviewer, QA engineer, writer), using your department&apos;s workers
+              first.
+            </span>
+          </div>
+        )}
         {departments.length === 0 ? (
           <p className="hint">
             A project belongs to a department, and its {supervisor} reports to the department&apos;s{" "}
@@ -1046,27 +1093,87 @@ export function SetUpDevelopmentDialog({
   const [runtimeId, setRuntimeId] = useState("");
   const { pending, error, run } = useSubmit();
   const t = titlesOf(snapshot);
-  const hasDepartment = snapshot.departments.some(
+  const development = snapshot.departments.find(
     (d) => d.active && d.name.toLowerCase() === "development",
   );
+  // The department it joins (Phase 25, item 2.7): the Development department, or one you pick.
+  const [departmentId, setDepartmentId] = useState(development?.id ?? "");
+  const hasDepartment = departmentId !== "";
+  const department = snapshot.departments.find((d) => d.id === departmentId);
+  // Each job uses a worker the department already has, unless you ask for a new one.
+  const reuse = reusableWorkers(snapshot, departmentId || null, DEVELOPMENT_TEAM);
+  const [hireNew, setHireNew] = useState<string[]>([]);
   const refused = runtimeId !== "" && !settings.allowedRuntimes.includes(runtimeId);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     void run(() =>
-      onSubmit({ project: settingsInput(settings), ...(runtimeId ? { runtimeId } : {}) }),
+      onSubmit({
+        project: settingsInput(settings),
+        ...(runtimeId ? { runtimeId } : {}),
+        ...(departmentId && departmentId !== development?.id ? { departmentId } : {}),
+        hireNew,
+      }),
     );
   };
   return (
-    <Modal title="Set up a Development project" onClose={onCancel} wide>
+    <Modal title="Set up a Development project" onClose={onCancel} wide tour="software-project">
       <form className="modal__body" aria-label="Set up a Development project" onSubmit={submit}>
         <p className="muted">
           {hasDepartment
-            ? "The project joins the Development department"
+            ? `The project joins the ${department?.name ?? "Development"} department`
             : `Plenipo creates the Development department with its ${rankName(t, "superintendent")}`}
           , then the project with its {rankName(t, "projectCoordinator")} and a team on call:{" "}
           {DEVELOPMENT_TEAM.join(", ")}. Give objectives on the Projects page; each one gets its own
           branch.
         </p>
+        <Field
+          label="Department"
+          hint="The project's team uses the department's workers first, and hires only what's missing."
+        >
+          <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+            {!development && <option value="">A new Development department</option>}
+            {snapshot.departments
+              .filter((d) => d.active)
+              .map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+          </select>
+        </Field>
+        <fieldset className="choices">
+          <legend>The team</legend>
+          {DEVELOPMENT_TEAM.map((job, i) => {
+            const p = reuse[i];
+            if (!p) {
+              return (
+                <p key={job} className="muted">
+                  {job}: hire new (the department has none)
+                </p>
+              );
+            }
+            const model = p.route?.choice?.label ?? runtimeChoiceLabel(snapshot, p.runtimeId ?? "");
+            const fresh = hireNew.includes(job);
+            return (
+              <Field key={job} label={job}>
+                <select
+                  value={fresh ? "new" : "use"}
+                  onChange={(e) =>
+                    setHireNew((h) =>
+                      e.target.value === "new" ? [...h, job] : h.filter((x) => x !== job),
+                    )
+                  }
+                >
+                  <option value="use">
+                    Use {p.title} ({p.roleName}
+                    {model ? `, ${model}` : ""})
+                  </option>
+                  <option value="new">Hire new</option>
+                </select>
+              </Field>
+            );
+          })}
+        </fieldset>
         <ProjectSettingsFields
           snapshot={snapshot}
           value={settings}
@@ -1084,11 +1191,7 @@ export function SetUpDevelopmentDialog({
         >
           <select value={runtimeId} onChange={(e) => setRuntimeId(e.target.value)}>
             <option value="">Automatic (the role&apos;s model choices)</option>
-            {snapshot.runtimes.map((r) => (
-              <option key={r.id} value={r.id}>
-                {runtimeChoiceLabel(snapshot, r.id)}
-              </option>
-            ))}
+            <RuntimeOptions snapshot={snapshot} current={runtimeId} />
           </select>
         </Field>
         <FormError error={error} />

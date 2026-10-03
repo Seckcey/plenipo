@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type {
   AgentRuntimeInfo,
@@ -23,7 +23,14 @@ import { session } from "../../test/agentFixtures";
 import { AI_TOOL_IDS, aiPage, aiRuntime, aiTool, idle, route, T0 } from "../../test/aiToolFixtures";
 import { sampleRouting } from "../../test/routingFixtures";
 import { RuntimesView } from "../../views/RuntimesView";
-import { firstSentence, isNewerVersion, planLeft, planWindowName } from "./words";
+import {
+  firstSentence,
+  isNewerVersion,
+  keyLimitWords,
+  planUsed,
+  planWindowName,
+  resetWhen,
+} from "./words";
 
 // xterm.js draws on a real screen; a stand-in records what it is given.
 const xterm = vi.hoisted(() => {
@@ -181,8 +188,15 @@ function Page({ toolId = null }: { toolId?: string | null }) {
   );
 }
 
-/** One AI tool's card. */
-const card = (label: string) => screen.getByRole("listitem", { name: `${label} AI tool` });
+/** A card, opened: cards start closed (Phase 25, item 2.1). */
+const card = (label: string) => {
+  const item = screen.getByRole("listitem", { name: `${label} AI tool` });
+  const toggle = within(item).queryByRole("button", { name: label, expanded: false });
+  if (toggle) fireEvent.click(toggle);
+  return item;
+};
+/** A card as it is, open or closed. */
+const cardAsIs = (label: string) => screen.getByRole("listitem", { name: `${label} AI tool` });
 
 async function show(toolId: string | null = null) {
   const view = render(<Page toolId={toolId} />);
@@ -838,6 +852,17 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
       "This week: 3,500 read (400 reused) · 350 written · 4 tasks",
       "Last week: 5,000 read (1,000 reused) · 500 written · 3 tasks",
     ]);
+    // What caching saved (Phase 25, item 4.1).
+    const saved = within(codexCard).getByRole("list", { name: "What caching saved on Codex" });
+    expect(
+      within(saved)
+        .getAllByRole("listitem")
+        .map((i) => i.textContent),
+    ).toEqual([
+      "Today: 400 of 1,000 read came from the cache (40%)",
+      "This week: 400 of 3,500 read came from the cache (11%)",
+      "Last week: 1,000 of 5,000 read came from the cache (20%)",
+    ]);
     const byModel = within(codexCard).getByRole("table", { name: "Codex's usage by model" });
     const row = (name: string) =>
       within(byModel).getByRole("rowheader", { name }).closest("tr")!.querySelectorAll("td");
@@ -954,17 +979,14 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     const claudePlan = within(card("Claude Code")).getByRole("list", {
       name: "Left of your plan with Claude Code",
     });
-    expect(claudePlan).toHaveTextContent("5-hour limit: 91% of your plan left · resets at");
+    expect(claudePlan).toHaveTextContent("5-hour: 9% used, resets ");
     expect(card("Claude Code")).toHaveTextContent("Reported by Claude Code at");
     const codexPlan = within(codex).getByRole("list", { name: "Left of your plan with Codex" });
     expect(
       within(codexPlan)
         .getAllByRole("listitem")
         .map((i) => i.textContent),
-    ).toEqual([
-      expect.stringMatching(/^5-hour limit: 75% of your plan left · resets at /),
-      "Weekly limit: 60% of your plan left",
-    ]);
+    ).toEqual([expect.stringMatching(/^5-hour: 25% used, resets /), "Week: 40% used"]);
     expect(codex).toHaveTextContent("your plan: plus");
     expect(card("Grok")).toHaveTextContent("Grok doesn't report how much of your plan is left.");
     // A new report during a task: the page reads it again.
@@ -984,6 +1006,15 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     expect(card("Codex")).toHaveTextContent(
       "Codex hasn't reported it yet. Plenipo asks when it checks Codex.",
     );
+    // Asked now with Check plan (Phase 25, item 1.2); Claude Code tells it only during a task.
+    expect(
+      within(card("Claude Code")).queryByRole("button", { name: "Check Claude Code's plan now" }),
+    ).toBeNull();
+    api.checkAiTool.mockResolvedValue(page());
+    await userEvent
+      .setup()
+      .click(within(card("Codex")).getByRole("button", { name: "Check Codex's plan now" }));
+    expect(api.checkAiTool).toHaveBeenCalledWith("codex");
   });
 
   it("says Limit reached once for a whole report, and keeps each window's share left", async () => {
@@ -1021,11 +1052,11 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
       within(codexPlan)
         .getAllByRole("listitem")
         .map((i) => i.textContent),
-    ).toEqual(["5-hour limit: 80% of your plan left", "Weekly limit: Limit reached"]);
+    ).toEqual(["5-hour: 20% used", "Week: Limit reached"]);
     expect(within(codex).getAllByText(/Limit reached/)).toHaveLength(1);
     const claude = card("Claude Code");
     expect(within(claude).getAllByText(/Limit reached/)).toHaveLength(1);
-    expect(claude).toHaveTextContent("Limit reached5-hour limit: 5% of your plan left");
+    expect(claude).toHaveTextContent("Limit reached5-hour: 95% used");
   });
 
   it("says where each tool's plan left comes from before it has reported any", async () => {
@@ -1297,7 +1328,7 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     createdAt: T0,
     updatedAt: T0,
   };
-  const noKey = "No paid key is saved for this AI tool: add one on its card (Settings → AI tools).";
+  const noKey = "No paid key is saved for this AI tool: add one on its card on the AI tools page.";
 
   /** The seven AI tools and OpenRouter, with its check and page part. */
   function withOpenRouter(info: Partial<AgentRuntimeInfo> = {}, tool: Partial<AiToolState> = {}) {
@@ -1353,6 +1384,25 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
       "You can set a spending limit in Settings → Spending caps if you want; it is not required.",
     );
     expect(a11yProblems(container)).toEqual([]);
+  });
+
+  it("shows the key's own limit, as OpenRouter reports it (Phase 25, item 4.3)", async () => {
+    withOpenRouter(
+      { ready: true, auth: { state: "paidKey", method: "Paid key (pay per use)", detail: null } },
+      {
+        paidKey: SAVED,
+        plan: {
+          windows: [],
+          limited: false,
+          warning: false,
+          plan: null,
+          reportedAt: T0,
+          keyLimit: { limitCents: 1000, usedCents: 320, freeTier: false },
+        },
+      },
+    );
+    await show();
+    expect(card("OpenRouter")).toHaveTextContent("Key limit: $10.00 · $3.20 spent · $6.80 left");
   });
 
   it("Save and check sends the key once, then the card shows its name and never the key", async () => {
@@ -1440,6 +1490,141 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(heading).toHaveFocus();
   });
 
+  it("starts each card closed with its light, one line, and Sign in or Reconnect; one that needs you opens (Phase 25, item 2.1)", async () => {
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: runtimes({
+        grok: { ready: false, auth: { state: "signedOut", method: null, detail: null } },
+      }),
+      sessions: [],
+      notices: [],
+    });
+    await show();
+    const kimi = cardAsIs("Kimi");
+    const toggle = within(kimi).getByRole("button", { name: "Kimi" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(kimi).toHaveTextContent("Subscription connected");
+    expect(kimi).toHaveTextContent("AI company: Moonshot AI · Kimi subscription");
+    expect(within(kimi).queryByRole("tab", { name: "Overview" })).toBeNull();
+    // Closed, it still offers Reconnect; open, the button inside does (only one of them shows).
+    expect(within(kimi).getByRole("button", { name: "Reconnect Kimi" })).toBeVisible();
+    fireEvent.click(toggle);
+    expect(within(kimi).getByRole("tab", { name: "Overview" })).toBeVisible();
+    expect(within(kimi).getAllByRole("button", { name: "Reconnect Kimi" })).toHaveLength(1);
+    // Grok isn't signed in: its card opened by itself, with Sign in.
+    const grok = cardAsIs("Grok");
+    expect(within(grok).getByRole("button", { name: "Grok" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(within(grok).getAllByRole("button", { name: "Sign in to Grok" })).toHaveLength(1);
+    // Antigravity is fine: closed.
+    expect(
+      within(cardAsIs("Antigravity")).getByRole("button", { name: "Antigravity" }),
+    ).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("a link to a card opens it; a link to a company's key opens its subscription card (Phase 25, item 2.1)", async () => {
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [
+        ...runtimes(),
+        aiRuntime("anthropic-key", "1.17.0", {
+          ready: false,
+          auth: { state: "signedOut", method: null, detail: null },
+        }),
+      ],
+      sessions: [],
+      notices: [],
+    });
+    api.getAiTools.mockResolvedValue(aiPage([...page().tools, aiTool("anthropic-key")]));
+    await show("anthropic-key");
+    const claude = cardAsIs("Claude Code");
+    await waitFor(() =>
+      expect(within(claude).getByRole("button", { name: "Claude Code" })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      ),
+    );
+    expect(screen.queryByRole("listitem", { name: "Anthropic AI tool" })).toBeNull();
+    expect(within(cardAsIs("Kimi")).getByRole("button", { name: "Kimi" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("says where the work goes while the plan is out: the same models on the key (Phase 25, item 4.4)", async () => {
+    const resets = T0 + 2 * 3_600_000;
+    const limit = {
+      available: false,
+      usageLimit: { model: null, since: T0, resetsAt: resets, until: resets, detail: "limit" },
+    };
+    api.getRouting.mockResolvedValue(routing({ "claude-code": limit, codex: limit }));
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [
+        ...runtimes(),
+        aiRuntime("anthropic-key", "1.17.0", {
+          ready: true,
+          auth: { state: "paidKey", method: "Your key", detail: null },
+        }),
+      ],
+      sessions: [],
+      notices: [],
+    });
+    api.getAiTools.mockResolvedValue(
+      aiPage([
+        ...page().tools,
+        aiTool("anthropic-key", { paidKey: { ...SAVED, runtimeId: "anthropic-key" } }),
+      ]),
+    );
+    await show();
+    await waitFor(() =>
+      expect(card("Claude Code")).toHaveTextContent(
+        "Its work moves to your Anthropic key while it waits (paid per use, within your spending caps).",
+      ),
+    );
+    // Codex has no key that works: its work waits.
+    expect(card("Codex")).toHaveTextContent("Usage limit reached");
+    expect(card("Codex")).not.toHaveTextContent("Its work moves to your");
+  });
+
+  it("a subscription card is green when its subscription or its key works, and says which (Phase 25, item 1.3)", async () => {
+    const keyReady = aiRuntime("anthropic-key", "1.17.0", {
+      ready: true,
+      auth: { state: "paidKey", method: "Your key", detail: null },
+    });
+    const keyTool = aiTool("anthropic-key", { paidKey: { ...SAVED, runtimeId: "anthropic-key" } });
+    // The subscription ended, the key works: still green.
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [
+        ...runtimes({
+          "claude-code": {
+            ready: false,
+            auth: { state: "signedOut", method: null, detail: null },
+          },
+        }),
+        keyReady,
+      ],
+      sessions: [],
+      notices: [],
+    });
+    api.getAiTools.mockResolvedValue(aiPage([...page().tools, keyTool]));
+    const view = await show();
+    await waitFor(() => expect(card("Claude Code")).toHaveTextContent("API key connected"));
+    view.unmount();
+    // Both work.
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [...runtimes(), keyReady],
+      sessions: [],
+      notices: [],
+    });
+    const both = await show();
+    await waitFor(() =>
+      expect(card("Claude Code")).toHaveTextContent("Subscription and API key connected"),
+    );
+    // Codex has no key here: its subscription alone.
+    expect(card("Codex")).toHaveTextContent("Subscription connected");
+    both.unmount();
+  });
+
   it("a card you sign in to has a key box that saves its AI company's own key", async () => {
     const anthropic = aiRuntime("anthropic-key", "1.17.0", {
       ready: false,
@@ -1462,9 +1647,9 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(claude).toHaveTextContent("Claude Code always uses your subscription.");
     const box = within(claude).getByRole("group", { name: "Pay per use instead" });
     expect(box).toHaveTextContent("Your Anthropic key goes here.");
-    expect(box).toHaveTextContent(
-      "It is the same key as on the Anthropic card under Paid per use with your key.",
-    );
+    // The Anthropic key's own card is folded into Claude Code's (Phase 25, item 2.1).
+    expect(box).not.toHaveTextContent("under Paid per use with your key");
+    expect(screen.queryByRole("listitem", { name: "Anthropic AI tool" })).toBeNull();
     expect(box).toHaveTextContent("Claude Code itself keeps using your subscription.");
     expect(box).toHaveTextContent("it is not required");
     const form = within(box).getByRole("form", {
@@ -1477,7 +1662,8 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(api.savePaidKey).toHaveBeenCalledTimes(1);
     expect(api.savePaidKey).toHaveBeenCalledWith("anthropic-key", "Anthropic key", KEY);
     await waitFor(() => expect(box).toHaveTextContent("Key saved: Anthropic key"));
-    expect(card("Anthropic")).toHaveTextContent("Key saved: Anthropic key");
+    // The closed card's line names the saved key.
+    expect(claude).toHaveTextContent("Your Anthropic key: Anthropic key");
     expect(screen.queryByDisplayValue(KEY)).toBeNull();
     // Codex's AI company has no paid AI tool here: no key box.
     expect(within(card("Codex")).queryByRole("group", { name: "Pay per use instead" })).toBeNull();
@@ -1500,6 +1686,7 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
       ).toBeVisible();
     }
     // Each form has its own name: the three OpenRouter forms are told apart.
+    card("OpenRouter");
     expect(screen.getAllByRole("form", { name: /^Add a key for OpenRouter/ })).toHaveLength(3);
     const box = within(card("Ollama")).getByRole("group", { name: "Pay per use instead" });
     await user.type(within(box).getByLabelText("OpenRouter key"), KEY);
@@ -1647,30 +1834,53 @@ describe("the AI tools page: accessibility smoke", () => {
 });
 
 describe("left of your plan, in words", () => {
-  it("names a window by its length, and says nothing twice when the tool gave none", () => {
-    expect(planWindowName(300)).toBe("5-hour limit");
-    expect(planWindowName(1440)).toBe("Daily limit");
-    expect(planWindowName(10080)).toBe("Weekly limit");
-    expect(planWindowName(4320)).toBe("3-day limit");
-    expect(planWindowName(90)).toBe("90-minute limit");
-    // Claude Code does not say how long its window is: "91% of your plan left", never
-    // "Your plan: 91% of your plan left".
+  it("names a window by its length and its models, and says nothing twice when the tool gave none", () => {
+    expect(planWindowName(300)).toBe("5-hour");
+    expect(planWindowName(1440)).toBe("Day");
+    expect(planWindowName(10080)).toBe("Week");
+    expect(planWindowName(10080, "Opus")).toBe("Week (Opus)");
+    expect(planWindowName(4320)).toBe("3 days");
+    expect(planWindowName(90)).toBe("90 minutes");
+    // A tool that does not say how long its window is: "9% used", never "Your plan: 9% used".
     expect(planWindowName(null)).toBeNull();
     const ok = { limited: false, warning: false };
-    expect(planLeft({ minutes: null, usedPercent: 9, resetsAt: null }, ok)).toBe(
-      "91% of your plan left",
+    expect(planUsed({ minutes: null, usedPercent: 9, resetsAt: null }, ok)).toBe("9% used");
+    expect(
+      planUsed(
+        { minutes: 300, usedPercent: 92, resetsAt: null },
+        { limited: false, warning: true },
+      ),
+    ).toBe("Close to the limit: 92% used");
+  });
+
+  it("says when a window resets, and a paid key's own limit (Phase 25, item 4.3)", () => {
+    const now = new Date(2026, 9, 5, 9, 0).getTime(); // a Monday morning
+    const at = (d: number, h: number) => new Date(2026, 9, d, h, 0).getTime();
+    const time = (ms: number) =>
+      new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    expect(resetWhen(at(5, 15), now)).toBe(time(at(5, 15)));
+    expect(resetWhen(at(6, 1), now)).toBe(`tomorrow ${time(at(6, 1))}`);
+    expect(resetWhen(at(9, 8), now)).toBe(
+      new Date(at(9, 8)).toLocaleDateString([], { weekday: "long" }),
+    );
+    expect(resetWhen(at(20, 8), now)).toBe(
+      new Date(at(20, 8)).toLocaleDateString([], { month: "short", day: "numeric" }),
+    );
+    expect(keyLimitWords({ limitCents: 1000, usedCents: 320, freeTier: false })).toBe(
+      "Key limit: $10.00 · $3.20 spent · $6.80 left",
+    );
+    expect(keyLimitWords({ limitCents: null, usedCents: 200, freeTier: true })).toBe(
+      "No limit on this key · $2.00 spent · free tier",
     );
   });
 
   it("keeps a window's share left when the report says limited; a used-up window says Limit reached", () => {
     const limited = { limited: true, warning: false };
-    expect(planLeft({ minutes: 300, usedPercent: 20, resetsAt: null }, limited)).toBe(
-      "80% of your plan left",
-    );
-    expect(planLeft({ minutes: 10080, usedPercent: 100, resetsAt: null }, limited)).toBe(
+    expect(planUsed({ minutes: 300, usedPercent: 20, resetsAt: null }, limited)).toBe("20% used");
+    expect(planUsed({ minutes: 10080, usedPercent: 100, resetsAt: null }, limited)).toBe(
       "Limit reached",
     );
-    expect(planLeft({ minutes: null, usedPercent: null, resetsAt: null }, limited)).toBe(
+    expect(planUsed({ minutes: null, usedPercent: null, resetsAt: null }, limited)).toBe(
       "Limit reached",
     );
   });

@@ -24,10 +24,10 @@ export function ControlBanner({ control }: { control: Control }) {
       <div className="control__sessions">
         {status.stopped && (
           <div className="control__session">
-            <strong>Browser, desktop, and server work is stopped.</strong>
+            <strong>All work is stopped.</strong>
             <div className="muted">
-              No worker can use the browser, the mouse, the keyboard, or a server until you allow it
-              again.
+              Every task stopped, in every organization. Nothing new starts, and no worker can use
+              the browser, the mouse, the keyboard, or a server, until you press Allow again.
             </div>
           </div>
         )}

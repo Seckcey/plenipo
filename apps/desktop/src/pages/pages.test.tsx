@@ -46,6 +46,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     getObjectiveReport: vi.fn(),
     getPermissions: vi.fn(),
     getAgentSession: vi.fn(),
+    hirePosition: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -154,6 +155,63 @@ describe("Home", () => {
     // A position that cannot work is stuck too.
     await user.click(within(stuck).getByRole("button", { name: /Designer can't work/ }));
     expect(go).toHaveBeenLastCalledWith({ view: "worker", id: "p-design" });
+  });
+
+  it("opens what the Stuck and Objectives going tiles count (Phase 25, item 1.7)", async () => {
+    render(<HomePage go={go} approvals={approvals([])} learning={learning()} />);
+    const tiles = await screen.findByLabelText("How things are");
+    const user = userEvent.setup();
+    // Two things are stuck: the tile shows the list.
+    const stuck = await within(tiles).findByRole("button", { name: /Stuck\s*2/ });
+    expect(stuck).toHaveTextContent("See What's stuck");
+    await user.click(stuck);
+    expect(screen.getByRole("heading", { name: "What's stuck" })).toHaveFocus();
+    // One objective is going: the tile opens it.
+    await user.click(within(tiles).getByRole("button", { name: /Objectives going/ }));
+    expect(go).toHaveBeenLastCalledWith({ view: "task", id: sampleHome().current[0]!.rootTaskId });
+  });
+
+  it("asks whether to hire a worker a lead needs, and hires one when chosen (Phase 25, item 2.7)", async () => {
+    const ask = event("org.hire_needed", {
+      leadId: "p-web",
+      lead: "Website Supervisor",
+      roleId: "r-sec",
+      role: "Security Auditor",
+    });
+    api.getHome.mockResolvedValue(sampleHome({ stuck: [{ event: ask, task: null }] }));
+    api.hirePosition.mockResolvedValue(sampleOrganization());
+    render(<HomePage go={go} approvals={approvals([])} learning={learning()} />);
+    const list = await screen.findByRole("list", { name: "What's stuck" });
+    expect(within(list).getByText("Website Supervisor needs a Security Auditor")).toBeVisible();
+    expect(list).toHaveTextContent("Nobody in its department does this job. Hire one?");
+    await userEvent.setup().click(
+      within(list).getByRole("button", {
+        name: "Hire a Security Auditor for Website Supervisor's team",
+      }),
+    );
+    expect(api.hirePosition).toHaveBeenCalledWith({
+      roleId: "r-sec",
+      title: "Security Auditor",
+      reportsTo: "p-web",
+    });
+  });
+
+  it("opens the one stuck thing straight from the tile", async () => {
+    api.getHome.mockResolvedValue(sampleHome({ current: [], going: 0 }));
+    api.getOrganization.mockResolvedValue({
+      ...sampleOrganization(),
+      positions: sampleOrganization().positions.filter((p) => p.status !== "unavailable"),
+    });
+    render(<HomePage go={go} approvals={approvals([])} learning={learning()} />);
+    const tiles = await screen.findByLabelText("How things are");
+    const stuck = await within(tiles).findByRole("button", { name: /Stuck\s*1/ });
+    expect(stuck).toHaveTextContent("Open it");
+    const user = userEvent.setup();
+    await user.click(stuck);
+    expect(go).toHaveBeenLastCalledWith({ view: "task", id: "task-fail" });
+    // Nothing going: the tile shows the empty list.
+    await user.click(within(tiles).getByRole("button", { name: /Objectives going/ }));
+    expect(screen.getByRole("heading", { name: "Current objectives" })).toHaveFocus();
   });
 
   it("shows each department's health, who's working, the objectives going, and what finished", async () => {

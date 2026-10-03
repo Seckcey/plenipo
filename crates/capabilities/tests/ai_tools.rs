@@ -851,6 +851,51 @@ async fn usage_totals_match_the_saved_turns() {
     assert!(h.tools.usage("nope", &[start, start + 1]).is_err());
 }
 
+/// Usage is the PC's (Phase 25, item 1.2): a second organization's tasks on an AI tool count on
+/// its card too, once each.
+#[tokio::test]
+async fn usage_counts_every_organizations_tasks() {
+    let first = harness("subscription").await;
+    let second = harness("subscription").await;
+    let start = plenipo_ledger::now_ms() - 60_000;
+    second
+        .rt
+        .start_session("codex", "in the second", None)
+        .await
+        .unwrap();
+    until("the task to finish", || {
+        second.rt.tasks_using("codex").is_empty()
+    })
+    .await;
+    until("its step saved", || {
+        second
+            .ledger
+            .token_steps("codex", start, start + 3_600_000)
+            .unwrap()
+            .iter()
+            .any(|s| s.read.is_some())
+    })
+    .await;
+    let read = |tools: &AiTools| -> u64 {
+        tools
+            .usage("codex", &[start, start + 3_600_000])
+            .unwrap()
+            .days[0]
+            .models
+            .iter()
+            .map(|m| m.read)
+            .sum()
+    };
+    // The first organization alone: nothing.
+    assert_eq!(read(&first.tools), 0);
+    // Every organization's: the second's task, and the first's Ledger is never counted twice.
+    let (a, b) = (Arc::clone(&first.ledger), Arc::clone(&second.ledger));
+    first
+        .tools
+        .count_every_organization(Arc::new(move || vec![Arc::clone(&a), Arc::clone(&b)]));
+    assert_eq!(read(&first.tools), 20);
+}
+
 #[tokio::test]
 async fn a_task_that_runs_past_midnight_on_two_models_is_counted_once() {
     let h = harness("subscription").await;
@@ -1021,12 +1066,63 @@ async fn what_plenipo_keeps_but_cannot_read_is_never_written_over() {
             warning: false,
             plan: None,
             reported_at: 1,
+            key_limit: None,
         },
     );
     assert_eq!(h.ledger.setting("ai_tools").unwrap().unwrap(), odd);
     // Nor does the switch write over it; it says it could not.
     assert!(h.tools.set_auto_update(true).is_err());
     assert_eq!(h.ledger.setting("ai_tools").unwrap().unwrap(), odd);
+}
+
+/// One set of paid keys for the whole PC (Phase 25, item 1.4): a key kept with the first
+/// organization works in a second one, is hidden from the second one's record, and never enters
+/// the second one's Vault. Saving it follows the switch of the organization the owner is
+/// looking at.
+#[tokio::test]
+async fn a_paid_key_saved_once_works_in_every_organization() {
+    let first = harness("subscription").await;
+    let second = harness("subscription").await;
+    second.broker.keep_paid_keys_in(&first.broker);
+    let key = "sk-or-v1-test-key-not-real-0f1e2d3c4b5a";
+    let on = |broker: &Broker| {
+        broker
+            .guard()
+            .set_switches(&plenipo_guard::dto::Switches {
+                paid_ai_keys: true,
+                ..plenipo_guard::dto::Switches::default()
+            })
+            .unwrap();
+    };
+    // Off in the second organization, where the owner is: refused.
+    let err = first
+        .tools
+        .save_paid_key_for("openrouter", "Office key", key, &second.broker, &second.rt)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("switched off"), "{err}");
+    // On there (and off in the first): saved, kept with the first organization.
+    on(&second.broker);
+    first
+        .tools
+        .save_paid_key_for("openrouter", "Office key", key, &second.broker, &second.rt)
+        .await
+        .unwrap();
+    assert_eq!(first.broker.guard().config().unwrap().paid_keys.len(), 1);
+    assert!(second.broker.guard().config().unwrap().paid_keys.is_empty());
+    assert_eq!(second.vault.stored(), 0);
+    // The second organization uses it, under its own switch, and hides it.
+    second.broker.refresh_redactor();
+    let (_, info) = second.rt.recheck("openrouter").await.unwrap();
+    assert!(info.ready, "{info:#?}");
+    let filter = second.broker.text_filter();
+    assert!(!filter(&format!("the service said {key}")).contains(key));
+    assert!(plenipo_capabilities::paid::any_key(&second.broker));
+    // Removed: the second organization can no longer use it.
+    first.tools.remove_paid_key("openrouter").await.unwrap();
+    let (_, info) = second.rt.recheck("openrouter").await.unwrap();
+    assert!(!info.ready);
+    assert!(!plenipo_capabilities::paid::any_key(&second.broker));
 }
 
 /// A paid key (ADR-085) is saved only with the switch on and the business's cap set, checked

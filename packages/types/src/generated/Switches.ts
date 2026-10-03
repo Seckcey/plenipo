@@ -51,4 +51,10 @@ servers: boolean,
  * paid route is offered or run. On: workers may use the paid keys the owner saved, within
  * the spending caps the owner set, if any (no cap is needed).
  */
-paidAiKeys: boolean, };
+paidAiKeys: boolean, 
+/**
+ * "Let leads hire missing workers on their own" (Phase 25, item 2.7). Off (the default):
+ * when a lead needs a job nobody in its department does, Plenipo asks the owner first. On:
+ * it hires one on call for the lead's team, within Free's limits.
+ */
+hireOnItsOwn: boolean, };

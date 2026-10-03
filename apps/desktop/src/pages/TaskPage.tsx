@@ -12,6 +12,10 @@ import {
   TopologyMap,
 } from "@plenipo/ui";
 
+import { LiveConversation } from "../live/LiveConversation";
+import { useOpenWatch } from "../terminal/useTerminal";
+import { StopButton } from "../components/stop/StopWork";
+import { isStoppable } from "../components/stop/whatToStop";
 import { getTaskEvents, getTaskRecord, getTaskTimeline, getTaskTree } from "../api/commands";
 import { ObjectiveResult } from "../components/ObjectiveResult";
 import type { Go } from "../components/views";
@@ -43,6 +47,7 @@ export function TaskPage({
   onOpenSession: (sessionId: string) => void;
 }) {
   const now = useNow(30_000);
+  const openWatch = useOpenWatch();
   const org = useOrganization().snapshot;
   // The task and those around it come with its delegation tree (tasks only, no events).
   const tree = useLive<TaskTree>(id, getTaskTree, changesWork, 800);
@@ -119,6 +124,22 @@ export function TaskPage({
             <Button size="sm" icon="activity" onClick={() => go({ view: "activity", id })}>
               Show in Activity
             </Button>
+            {/* Watch its worker's file changes (Phase 25, items 1.8 and 3.1). */}
+            {openWatch && position && position.active && (
+              <Button size="sm" onClick={() => openWatch(position.id, position.title)}>
+                Watch
+              </Button>
+            )}
+            {/* Stop this task (Phase 25, item 3.3): its worker's conversation stays. */}
+            <StopButton
+              who={position?.title ?? "this worker"}
+              work={
+                sessionId && isStoppable(task.state)
+                  ? [{ sessionId, objective: firstLine(task.objective) }]
+                  : []
+              }
+              fullTime={position?.staffing === "persistent"}
+            />
           </>
         }
       />
@@ -189,6 +210,19 @@ export function TaskPage({
             ]}
           />
         </Panel>
+
+        {/* Its worker's words and steps, live (Phase 25, item 3.1). */}
+        {sessionId && isStoppable(task.state) && (
+          <Panel id="task-live" title="Live conversation" wide>
+            <LiveConversation
+              taskId={id}
+              sessionId={sessionId}
+              startedAt={task.startedAt ?? null}
+              running
+              who={position?.title ?? "The worker"}
+            />
+          </Panel>
+        )}
 
         <Panel
           id="task-approvals"

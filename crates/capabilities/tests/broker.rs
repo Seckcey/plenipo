@@ -12,7 +12,8 @@ use plenipo_capabilities::{
     ApprovalStatus, Broker, BrokerConfig, MemorySecretStore, SecretStore as _,
 };
 use plenipo_guard::{
-    Capability, Guard, GuardOptions, PermissionSetInput, Safety, SecretInput, SecretRule,
+    Capability, Guard, GuardOptions, OtherSites, PermissionSetInput, Safety, SecretInput,
+    SecretRule, WebsiteRules,
 };
 use plenipo_ledger::{Ledger, Task, TaskState, DB_FILE_NAME};
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
@@ -1142,13 +1143,16 @@ async fn plan_command_allow_and_deny_behavior() {
     assert!(results[3].contains("without spaces"), "{text}");
     assert!(results[4].contains("did not approve"), "{text}");
     assert!(h.folder.join("src").exists());
-    // A reviewer may only ask to run programs.
+    // A reviewer may only ask to run programs. (It gives its verdict, as reviewers do.)
     let task = h
         .objective(&handoff(
             "Reviewer",
-            &tool(
-                "run_command",
-                serde_json::json!({ "program": "git", "args": ["--version"] }),
+            &format!(
+                "{} [verdict:approve]",
+                tool(
+                    "run_command",
+                    serde_json::json!({ "program": "git", "args": ["--version"] }),
+                )
             ),
         ))
         .await;
@@ -1512,7 +1516,7 @@ async fn project_and_department_limits_narrow_a_role() {
         .objective(&handoff(
             "Reviewer",
             &format!(
-                "[tools-list] {}",
+                "[tools-list] {} [verdict:approve]",
                 tool("read_file", serde_json::json!({ "path": "README.md" }))
             ),
         ))
@@ -2417,8 +2421,19 @@ async fn watch_shows_every_file_change_as_it_lands_with_its_lines() {
     assert_eq!(paths, vec!["big.txt", ".env", "src/app.txt", "src/new.txt"]);
     assert!(!view.from_the_record, "every file is still in memory");
 
+    // Its lead's Watch shows them too: the work it handed on (Phase 25, item 1.8).
+    let lead = h.broker.watch_view(&h.supervisor);
+    let mut lead_paths: Vec<&str> = lead.changes.iter().map(|c| c.path.as_str()).collect();
+    lead_paths.sort_unstable();
+    assert_eq!(
+        lead_paths,
+        vec![".env", "big.txt", "src/app.txt", "src/new.txt"]
+    );
+    assert!(lead.team_task_ids.contains(&child.id));
+    assert!(lead.quiet.is_none());
+
     // After a restart, the record lists the saved files again (the refused one was never
-    // saved), for this agent only: its lead's own list has none of them.
+    // saved), each under the agent that made it; its lead's list shows them as its team's.
     let restarted = Broker::new(
         h.guard.clone(),
         Supervisor::new(
@@ -2442,7 +2457,12 @@ async fn watch_shows_every_file_change_as_it_lands_with_its_lines() {
         .iter()
         .all(|c| c.state == WatchState::Saved
             && c.position_id.as_deref() == Some(h.developer.as_str())));
-    assert!(restarted.watch_view(&h.supervisor).changes.is_empty());
+    let lead = restarted.watch_view(&h.supervisor);
+    assert_eq!(lead.changes.len(), 3);
+    assert!(lead
+        .changes
+        .iter()
+        .all(|c| c.position_id.as_deref() == Some(h.developer.as_str())));
 
     // An ACP write (Kimi) shows the same way.
     h.workforce
@@ -2898,4 +2918,105 @@ async fn without_a_files_folder_work_with_no_project_has_no_file_tools() {
             .contains("belongs to no project, so there is no folder"),
         "{skipped:?}"
     );
+}
+
+/// Phase 25, item 4.8: a link named in an answer is looked at only when its website is on the
+/// owner's allowed list, over https; GitHub's pages never this way (they answer "not found" for a
+/// private page). After the security review of #156, only where the worker that wrote the answer
+/// could have looked itself, without asking: a website only when its permissions let it open
+/// websites, and a pull request only in the repository its GitHub tools act on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn links_in_answers_are_looked_at_only_where_their_worker_could_look() {
+    use plenipo_capabilities::broker::links::LinkVerdict;
+    use plenipo_runtime::agent::ToolProvider;
+    let not_checked = |verdict: LinkVerdict, because: &str| match verdict {
+        LinkVerdict::NotChecked(why) => assert!(why.contains(because), "{why}"),
+        other => panic!("looked at: {other:?}"),
+    };
+    let h = harness().await;
+    // A port nothing listens on: a look that gets as far as the website finds no answer there.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let page = format!("https://127.0.0.1:{port}/guide");
+    h.guard
+        .set_websites(&WebsiteRules {
+            allowed: vec![format!("127.0.0.1:{port}"), "github.com".into()],
+            blocked: vec![],
+            others: OtherSites::Ask,
+        })
+        .unwrap();
+    // No step on record: nowhere.
+    not_checked(
+        h.broker.check_link("no-such-task", &page).await,
+        "can't open websites",
+    );
+
+    // The developer works once. Its permissions (Developer) reach files, git, and GitHub, but
+    // no website.
+    let task = h
+        .objective(&handoff("Backend Developer", "Say hello."))
+        .await;
+    let child = h.child(&task).await;
+    h.finished(&child.id).await;
+    let (task, grant) = h.direct_grant(&h.developer).await;
+    not_checked(
+        h.broker.check_link(&task, &page).await,
+        "can't open websites",
+    );
+    // Its project names no GitHub repository, so no pull request is looked at.
+    not_checked(
+        h.broker
+            .check_link(&task, "https://github.com/acme/website/pull/7")
+            .await,
+        "don't reach that repository",
+    );
+    ToolProvider::close(&h.broker, &grant);
+
+    // Now its role may open websites without asking (Researcher): the look goes ahead.
+    let role = h.ledger.position(&h.developer).unwrap().unwrap().role_id;
+    h.guard.assign_role(&role, Some("researcher")).unwrap();
+    let (task, grant) = h.direct_grant(&h.developer).await;
+    not_checked(h.broker.check_link(&task, &page).await, "did not answer");
+    // Still only through Guard: https, no query, on the allowed list, and never GitHub's pages.
+    not_checked(
+        h.broker
+            .check_link(&task, &format!("http://127.0.0.1:{port}/guide"))
+            .await,
+        "only https",
+    );
+    not_checked(
+        h.broker
+            .check_link(&task, &format!("https://127.0.0.1:{port}/guide?key=abc"))
+            .await,
+        "\"?\"",
+    );
+    not_checked(
+        h.broker
+            .check_link(&task, "https://example.org/guide")
+            .await,
+        "not on your allowed websites",
+    );
+    not_checked(
+        h.broker
+            .check_link(&task, "https://github.com/o/r/issues/1")
+            .await,
+        "hides private pages",
+    );
+    not_checked(
+        h.broker
+            .check_link(&task, "https://user:pw@127.0.0.1/here")
+            .await,
+        "user name or password",
+    );
+    // It has no GitHub permission now.
+    not_checked(
+        h.broker
+            .check_link(&task, "https://github.com/acme/website/pull/7")
+            .await,
+        "don't reach that repository",
+    );
+    ToolProvider::close(&h.broker, &grant);
 }

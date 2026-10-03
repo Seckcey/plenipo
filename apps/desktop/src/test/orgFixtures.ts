@@ -3,6 +3,7 @@ import type {
   DepartmentInfo,
   OrgSnapshot,
   OrgStats,
+  Templates,
   OversightInfo,
   PositionInfo,
   PositionKind,
@@ -187,6 +188,48 @@ function stats(positions: PositionInfo[], departments: number, projects: number)
   };
 }
 
+/** The templates, as the workforce lists them (Phase 25, item 2.8). */
+export const TEMPLATES: Templates = {
+  organizations: [
+    {
+      id: "software",
+      name: "Software project",
+      description: "Development: a developer, a reviewer, a QA engineer, and a writer.",
+      adds: [
+        "Development: Development Manager, with Senior Developer, Code Reviewer, QA Engineer, Documentation Writer",
+      ],
+      pro: false,
+    },
+    {
+      id: "agency",
+      name: "Agency",
+      description: "Development, Design, and Marketing.",
+      adds: [
+        "Development: Development Manager, with Senior Developer, Code Reviewer, QA Engineer, Documentation Writer",
+        "Design: Design Manager, with Designer, Researcher",
+        "Marketing: Marketing Manager, with Designer, Writer, Researcher",
+      ],
+      pro: true,
+    },
+  ],
+  departments: [
+    {
+      id: "operations",
+      name: "Operations",
+      description: "Keeps the servers, computers, and accounts running and safe.",
+      adds: ["Operations: Operations Manager, with Operations Engineer, Security Auditor"],
+      pro: false,
+    },
+    {
+      id: "design",
+      name: "Design",
+      description: "Graphics, layouts, and the brand.",
+      adds: ["Design: Design Manager, with Designer, Researcher"],
+      pro: false,
+    },
+  ],
+};
+
 /** An organization with no positions yet (as on first start). */
 export function emptyOrganization(): OrgSnapshot {
   return {
@@ -201,11 +244,12 @@ export function emptyOrganization(): OrgSnapshot {
     oversight: [],
     stats: stats([], 0, 0),
     runtimes: [
-      { id: "claude-code", label: "Claude Code", ready: true, company: "Anthropic" },
-      { id: "codex", label: "Codex", ready: false, company: "OpenAI" },
+      { id: "claude-code", label: "Claude Code", ready: true, company: "Anthropic", paid: false },
+      { id: "codex", label: "Codex", ready: false, company: "OpenAI", paid: false },
     ],
     notices: [],
     places: [],
+    templates: TEMPLATES,
     generatedAt: T0,
   };
 }
@@ -309,11 +353,12 @@ export function sampleOrganization(): OrgSnapshot {
     oversight,
     stats: stats(positions, 2, 2),
     runtimes: [
-      { id: "claude-code", label: "Claude Code", ready: true, company: "Anthropic" },
-      { id: "codex", label: "Codex", ready: false, company: "OpenAI" },
+      { id: "claude-code", label: "Claude Code", ready: true, company: "Anthropic", paid: false },
+      { id: "codex", label: "Codex", ready: false, company: "OpenAI", paid: false },
     ],
     notices: [],
     places: [],
+    templates: TEMPLATES,
     generatedAt: T0,
   };
 }

@@ -65,6 +65,7 @@ export function IconRail<Id extends string>({
       <button
         type="button"
         className="ui-rail__item"
+        data-tour={`nav-${item.id}`}
         aria-current={current === item.id ? "page" : undefined}
         title={item.tooltip ?? item.label}
         onClick={() => onSelect(item.id)}

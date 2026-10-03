@@ -53,7 +53,7 @@ pub const CAPABILITIES: [&str; 18] = [
     "process.manage",
 ];
 
-const FIELDS: [&str; 7] = [
+const FIELDS: [&str; 8] = [
     "to",
     "objective",
     "acceptanceCriteria",
@@ -61,6 +61,7 @@ const FIELDS: [&str; 7] = [
     "artifacts",
     "capabilities",
     "priority",
+    "sendBack",
 ];
 
 /// Fields a worker might try to set to claim an identity or a place in another workflow.
@@ -90,6 +91,9 @@ pub struct Directive {
     pub artifacts: Vec<String>,
     pub capabilities: Vec<String>,
     pub priority: Option<u8>,
+    /// A finished task of the requester's own, sent back to the worker who did it with what to
+    /// fix (`objective`). Phase 25, item 4.8.
+    pub send_back: Option<String>,
 }
 
 /// A piece of context the requester asks Liaison to pass along.
@@ -378,6 +382,7 @@ pub fn parse_directive(raw: &str) -> Result<Directive, String> {
             _ => return Err("\"priority\" must be a whole number from 0 to 4".into()),
         },
     };
+    let send_back = Some(text_field(obj, "sendBack", 64, false)?).filter(|t| !t.is_empty());
     Ok(Directive {
         to,
         objective,
@@ -386,6 +391,7 @@ pub fn parse_directive(raw: &str) -> Result<Directive, String> {
         artifacts,
         capabilities,
         priority,
+        send_back,
     })
 }
 

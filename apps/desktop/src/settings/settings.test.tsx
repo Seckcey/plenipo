@@ -349,8 +349,13 @@ describe("Settings in one place", () => {
     show("aiTools");
     const user = userEvent.setup();
     const tools = await screen.findByRole("list", { name: "AI tools" });
-    await user.click(within(tools).getByRole("button", { name: /^Codex/ }));
+    // Signed out: the row says where to sign in (Phase 25, item 1.5).
+    const codex = within(tools).getByRole("button", { name: "Sign in to Codex on its card" });
+    expect(codex).toHaveTextContent("Sign in →");
+    await user.click(codex);
     expect(go).toHaveBeenLastCalledWith({ view: "runtimes", id: "codex" });
+    await user.click(within(tools).getByRole("button", { name: /^Claude Code/ }));
+    expect(go).toHaveBeenLastCalledWith({ view: "runtimes", id: "claude-code" });
     await user.click(screen.getByRole("tab", { name: "AI models" }));
     expect(
       await screen.findByText("Usage limits, sign-in, and updates are on the AI tools page."),

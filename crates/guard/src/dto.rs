@@ -246,6 +246,10 @@ pub struct Switches {
     /// paid route is offered or run. On: workers may use the paid keys the owner saved, within
     /// the spending caps the owner set, if any (no cap is needed).
     pub paid_ai_keys: bool,
+    /// "Let leads hire missing workers on their own" (Phase 25, item 2.7). Off (the default):
+    /// when a lead needs a job nobody in its department does, Plenipo asks the owner first. On:
+    /// it hires one on call for the lead's team, within Free's limits.
+    pub hire_on_its_own: bool,
 }
 
 impl Default for Switches {
@@ -260,6 +264,7 @@ impl Default for Switches {
             screenshots: true,
             servers: false,
             paid_ai_keys: false,
+            hire_on_its_own: false,
         }
     }
 }

@@ -96,11 +96,13 @@ impl RuntimeAdapter for Codex {
             // `model/list` on the owner's PC), in its order, with the effort levels each accepts.
             // Every Codex model is OpenAI's. Older models (GPT-5.4 and before) are refused on a
             // ChatGPT sign-in, so none is listed (ADR-081 §9).
+            // GPT-6.1 Sol, GPT-6 Astra, and GPT-6 Luna are the same models on your OpenAI key
+            // (Phase 25, item 4.4; ADR-254).
             known_models: vec![
-                KnownModel::new("gpt-6.1-sol", "GPT-6.1-Sol", ULTRA),
-                KnownModel::new("gpt-6-astra", "GPT-6-Astra", ULTRA),
+                KnownModel::new("gpt-6.1-sol", "GPT-6.1-Sol", ULTRA).same("gpt-6.1-sol"),
+                KnownModel::new("gpt-6-astra", "GPT-6-Astra", ULTRA).same("gpt-6-astra"),
                 KnownModel::new("gpt-6-sol", "GPT-6-Sol", ULTRA),
-                KnownModel::new("gpt-6-luna", "GPT-6-Luna", MAX),
+                KnownModel::new("gpt-6-luna", "GPT-6-Luna", MAX).same("gpt-6-luna"),
                 KnownModel::new("gpt-5.6-sol", "GPT-5.6-Sol", ULTRA),
                 KnownModel::new("gpt-5.6-terra", "GPT-5.6-Terra", ULTRA),
                 KnownModel::new("gpt-5.6-luna", "GPT-5.6-Luna", MAX),
@@ -443,6 +445,7 @@ fn parse_plan(out: &ProbeOutput, now: u64) -> Option<PlanReport> {
                 .filter(|p| p.is_finite() && *p >= 0.0)
                 .map(|p| p.round().min(100.0) as u8),
             resets_at: w.get("resetsAt").and_then(Value::as_f64).and_then(epoch_ms),
+            models: None,
         })
         .collect();
     let plan = talk_answer(out, 2)
@@ -467,6 +470,7 @@ fn parse_plan(out: &ProbeOutput, now: u64) -> Option<PlanReport> {
         warning: false,
         plan,
         reported_at: now,
+        key_limit: None,
     })
 }
 
@@ -526,6 +530,20 @@ fn item_type(item: &Value) -> Option<&str> {
     item.get("type")
         .or_else(|| item.get("item_type"))
         .and_then(Value::as_str)
+}
+
+/// Codex's to-do list is its plan (Phase 25, item 3.1): when it starts, each time a step is
+/// ticked, and when it ends.
+fn todo_plan(item: &Value) -> Parsed {
+    let steps = super::dto::plan_steps(
+        item.get("items").unwrap_or(&Value::Null),
+        &["text", "content"],
+    );
+    if steps.is_empty() {
+        Parsed::none()
+    } else {
+        Parsed::one(AgentEvent::Plan { steps })
+    }
 }
 
 fn str_of<'a>(v: &'a Value, key: &str) -> &'a str {
@@ -593,6 +611,7 @@ impl Parser {
                 ),
                 summary: tool_summary(item.get("arguments").unwrap_or(&Value::Null)),
             }),
+            Some("todo_list") => todo_plan(item),
             _ => Parsed::none(),
         }
     }
@@ -648,16 +667,7 @@ impl Parser {
                 tool: "web search".into(),
                 summary: first_line(str_of(item, "query"), MAX_SUMMARY),
             }),
-            Some("todo_list") => {
-                let n = item
-                    .get("items")
-                    .and_then(Value::as_array)
-                    .map_or(0, Vec::len);
-                Parsed::one(AgentEvent::Notice {
-                    level: NoticeLevel::Info,
-                    text: format!("Codex updated its plan ({n} steps)"),
-                })
-            }
+            Some("todo_list") => todo_plan(item),
             Some("error") => {
                 let message = cap(&readable(str_of(item, "message")), MAX_EVENT_TEXT);
                 self.state.last_warning = Some(message.clone());
@@ -678,7 +688,15 @@ impl TurnParser for Parser {
         };
         let parsed = match v.get("type").and_then(Value::as_str) {
             Some("thread.started") => self.thread_started(&v),
-            Some("turn.started") | Some("item.updated") => Parsed::none(),
+            Some("turn.started") => Parsed::none(),
+            Some("item.updated") => {
+                let item = v.get("item").unwrap_or(&Value::Null);
+                if item_type(item) == Some("todo_list") {
+                    todo_plan(item)
+                } else {
+                    Parsed::none()
+                }
+            }
             Some("item.started") => Self::item_started(v.get("item").unwrap_or(&Value::Null)),
             Some("item.completed") => self.item_completed(v.get("item").unwrap_or(&Value::Null)),
             Some("turn.completed") => {
@@ -985,6 +1003,50 @@ mod tests {
         );
     }
 
+    /// Phase 25, item 3.1: Codex's to-do list becomes its plan as it starts, as steps are ticked,
+    /// and when it ends.
+    #[test]
+    fn its_to_do_list_is_its_plan() {
+        use super::super::dto::{PlanStatus, PlanStep};
+        let mut p = Codex.parser(&new_request());
+        let step = |text: &str, status| PlanStep {
+            text: text.into(),
+            status,
+        };
+        let events = feed(
+            p.as_mut(),
+            &[
+                json!({"type":"item.started","item":{"id":"t1","type":"todo_list","items":[{"text":"Read the code","completed":false},{"text":"Fix the bug","completed":false}]}}),
+                json!({"type":"item.updated","item":{"id":"t1","type":"todo_list","items":[{"text":"Read the code","completed":true},{"text":"Fix the bug","completed":false}]}}),
+                json!({"type":"item.updated","item":{"id":"c1","type":"command_execution","command":"ls"}}),
+                json!({"type":"item.completed","item":{"id":"t1","type":"todo_list","items":[{"text":"Read the code","completed":true},{"text":"Fix the bug","completed":true}]}}),
+            ],
+        );
+        assert_eq!(
+            events,
+            [
+                AgentEvent::Plan {
+                    steps: vec![
+                        step("Read the code", PlanStatus::Pending),
+                        step("Fix the bug", PlanStatus::Pending)
+                    ]
+                },
+                AgentEvent::Plan {
+                    steps: vec![
+                        step("Read the code", PlanStatus::Done),
+                        step("Fix the bug", PlanStatus::Pending)
+                    ]
+                },
+                AgentEvent::Plan {
+                    steps: vec![
+                        step("Read the code", PlanStatus::Done),
+                        step("Fix the bug", PlanStatus::Done)
+                    ]
+                },
+            ]
+        );
+    }
+
     #[test]
     fn successful_stream_is_normalized() {
         let mut p = Codex.parser(&new_request());
@@ -1245,6 +1307,7 @@ mod ai_tools_page_tests {
                 minutes: Some(300),
                 used_percent: Some(25),
                 resets_at: Some(1_730_947_200_000),
+                models: None,
             }]
         );
         assert_eq!(plan.plan.as_deref(), Some("pro"));

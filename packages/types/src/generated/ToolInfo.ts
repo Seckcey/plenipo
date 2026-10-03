@@ -47,4 +47,9 @@ unlistedModels: Array<string>,
  * It runs other companies' models too, so each of its models says who made it on screen
  * (ADR-081 §6).
  */
-runsOtherMakers: boolean, };
+runsOtherMakers: boolean, 
+/**
+ * A paid AI tool, paid per use with your key (ADR-085): listed after the subscriptions in
+ * model menus (Phase 25, item 2.5).
+ */
+paid: boolean, };

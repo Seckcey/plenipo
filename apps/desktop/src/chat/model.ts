@@ -291,6 +291,10 @@ function applyEvent(turn: ChatTurn, event: AgentEvent, at: number): ChatTurn {
       };
     case "status":
       return { ...turn, status: { text: event.text, at } };
+    case "plan":
+      // The worker's plan (Phase 25, item 3.1) is for the live conversation's progress line;
+      // the chat's own plan comes from its to-do list (PlanPanel).
+      return turn;
   }
 }
 
