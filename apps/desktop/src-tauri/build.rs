@@ -237,6 +237,16 @@ const COMMANDS: &[&str] = &[
     "community_picture",
     "invite_to_community",
     "share_my_community_profile",
+    "community_conversations",
+    "community_conversation",
+    "send_community_message",
+    "react_in_community",
+    "accept_community_request",
+    "leave_community_conversation",
+    "delete_community_message",
+    "community_safety_code_checked",
+    "open_community_link",
+    "give_community_message_to_worker",
 ];
 
 fn main() {

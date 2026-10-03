@@ -12,6 +12,7 @@ pub mod canvas_commands;
 pub mod commands;
 pub mod community_commands;
 pub mod community_host;
+pub mod community_messages;
 pub mod connections_commands;
 pub mod diagnostics;
 pub mod files_commands;
@@ -419,7 +420,9 @@ pub fn configure<R: Runtime>(
                 license_host::start(app.handle(), license);
                 // Phone access: the relay link runs while it is on, Pro, and live (ADR-140 §4).
                 remote_host::start(app.handle(), remote);
-                // Community: a PC signed in asks who it is; one that isn't asks nothing.
+                // Community: a PC signed in asks who it is and picks up its messages; one that
+                // isn't asks nothing.
+                community_messages::start_picking_up(app.handle(), community.clone());
                 community_host::start(app.handle(), community);
             }
             if options.window_watch {
@@ -762,6 +765,16 @@ pub fn configure<R: Runtime>(
             community_commands::community_picture,
             community_commands::invite_to_community,
             community_commands::share_my_community_profile,
+            community_messages::community_conversations,
+            community_messages::community_conversation,
+            community_messages::send_community_message,
+            community_messages::react_in_community,
+            community_messages::accept_community_request,
+            community_messages::leave_community_conversation,
+            community_messages::delete_community_message,
+            community_messages::community_safety_code_checked,
+            community_messages::open_community_link,
+            community_messages::give_community_message_to_worker,
         ])
 }
 
@@ -3845,7 +3858,7 @@ mod ipc_boundary_tests {
 
     /// Settings → Community: turning it on and signing in reach 8 West for the owner, so they are
     /// the main window's alone (ADR-162 §8).
-    const COMMUNITY: [&str; 16] = [
+    const COMMUNITY: [&str; 26] = [
         "get_community",
         "set_community_switch",
         "check_community_again",
@@ -3862,6 +3875,16 @@ mod ipc_boundary_tests {
         "community_picture",
         "invite_to_community",
         "share_my_community_profile",
+        "community_conversations",
+        "community_conversation",
+        "send_community_message",
+        "react_in_community",
+        "accept_community_request",
+        "leave_community_conversation",
+        "delete_community_message",
+        "community_safety_code_checked",
+        "open_community_link",
+        "give_community_message_to_worker",
     ];
 
     #[test]
@@ -3874,7 +3897,9 @@ mod ipc_boundary_tests {
             "on": false, "name": "pat-lee", "birthMonth": 3, "birthYear": 1980,
             "terms": "2026-10-01", "page": "terms", "profile": {}, "offline": true,
             "q": "", "kind": "", "region": "", "cursor": "", "memberId": "cm_x",
-            "email": "pat@example.com",
+            "email": "pat@example.com", "before": null, "to": "cm_x", "text": "Hi",
+            "replyTo": null, "itemId": "ci_x", "emoji": null, "link": "https://example.com",
+            "positionId": "p", "note": "",
         });
         for cmd in COMMUNITY {
             let refused = |answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
@@ -3894,6 +3919,54 @@ mod ipc_boundary_tests {
             if let Err(err) = invoke_json(&main, cmd, args.clone()) {
                 assert!(err["kind"].is_string(), "{cmd} from the main window: {err}");
             }
+        }
+    }
+
+    #[test]
+    fn community_messages_refuse_in_plain_words_before_anything_is_sent() {
+        let app = app();
+        let main = window(&app, "main");
+        // No conversations yet: an empty list, read from this PC only.
+        let list: Vec<plenipo_community::messages::ConversationSummary> =
+            body(invoke(&main, "community_conversations"));
+        assert!(list.is_empty());
+        // Not joined: refused in plain words, and nothing reaches 8 West.
+        let err = invoke_json(
+            &main,
+            "send_community_message",
+            serde_json::json!({
+                "to": "cm_01J9Z8Y7X6W5V4T3S2R1Q0P9N8", "name": "pat-lee", "text": "Hi",
+                "replyTo": null,
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(err["message"], "Join Community first.", "{err}");
+        // On Free, starting a conversation is part of Pro (ADR-162 §5).
+        let view: plenipo_licensing::LicenseView = body(invoke(&main, "remove_license_key"));
+        assert_eq!(view.edition, plenipo_licensing::Edition::Free);
+        let err = invoke_json(
+            &main,
+            "send_community_message",
+            serde_json::json!({
+                "to": "cm_01J9Z8Y7X6W5V4T3S2R1Q0P9N8", "name": "pat-lee", "text": "Hi",
+                "replyTo": null,
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(err["kind"], "partOfPro", "{err}");
+        // Only a plain web address opens, and only in the owner's own browser.
+        for link in [
+            "javascript:alert(1)",
+            "file:///C:/Windows/System32/calc.exe",
+            "https://user:pass@example.com",
+        ] {
+            let err = invoke_json(
+                &main,
+                "open_community_link",
+                serde_json::json!({ "link": link }),
+            )
+            .unwrap_err();
+            assert_eq!(err["kind"], "invalidInput", "{link}");
         }
     }
 

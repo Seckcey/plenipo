@@ -26,6 +26,8 @@ hpke = { version = "=0.14.1", default-features = false, features = ["x25519", "a
 rand_core = { version = "0.10", default-features = false }
 # What went wrong, for the log: never a pass, a key, or anyone's words.
 log = "0.4"
+# Messages are kept in the PC's shared record (ADR-164 §10).
+plenipo-ledger = { path = "../ledger" }
 # Checks each picture from 8 West is a real, small PNG before the screen shows it (contract §4).
 png = "0.18"
 # Share my profile's picture code (QR code), as the phone's pairing makes one (ADR-163 §6).

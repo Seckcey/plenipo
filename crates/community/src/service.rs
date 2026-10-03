@@ -311,6 +311,20 @@ impl<T: Transport> Community<T> {
         result
     }
 
+    /// Your member ID, once you joined.
+    pub fn member_id(&self) -> Option<String> {
+        lock(&self.state)
+            .me
+            .as_ref()
+            .and_then(|me| me.member.as_ref())
+            .map(|m| m.member_id.clone())
+    }
+
+    /// Now, by this PC's clock (Unix seconds).
+    pub(crate) fn now(&self) -> i64 {
+        self.clock.now()
+    }
+
     /// The Ledger's shared record, for the app's other Community work.
     pub(crate) fn record(&self, event: &str, payload: serde_json::Value) {
         self.recorder.record(event, payload);

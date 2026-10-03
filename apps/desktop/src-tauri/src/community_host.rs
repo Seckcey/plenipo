@@ -270,6 +270,11 @@ impl CommunityState {
         }
     }
 
+    /// The first organization's Ledger, where Community's messages are kept (ADR-164 §10).
+    pub fn ledger(&self) -> Option<Arc<plenipo_ledger::Ledger>> {
+        (self.sources.ledger)()
+    }
+
     /// Your tile, as it is now.
     pub fn tile(&self) -> Tile {
         tile_of((self.sources.ledger)().as_deref())

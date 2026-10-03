@@ -68,6 +68,7 @@ vi.mock("./api/commands", async (importOriginal) => {
     getUpdateStatus: vi.fn(),
     getOwnerProfile: vi.fn(),
     getCommunity: vi.fn(),
+    communityConversations: vi.fn(),
     getAiTools: vi.fn(),
   };
 });
@@ -84,6 +85,7 @@ vi.mock("./api/events", () => ({
   subscribeOrganizations: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeWatch: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeCommunity: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeCommunityMessages: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 const api = vi.mocked(commands);
@@ -196,6 +198,7 @@ beforeEach(() => {
   });
   api.frontendReady.mockResolvedValue(undefined);
   api.getCommunity.mockResolvedValue(communityView());
+  api.communityConversations.mockResolvedValue([]);
   api.getAiTools.mockResolvedValue({
     tools: [],
     autoUpdate: false,

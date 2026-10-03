@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-community-safety-code-checked"
+description = "Enables the community_safety_code_checked command without any pre-configured scope."
+commands.allow = ["community_safety_code_checked"]
+
+[[permission]]
+identifier = "deny-community-safety-code-checked"
+description = "Denies the community_safety_code_checked command without any pre-configured scope."
+commands.deny = ["community_safety_code_checked"]

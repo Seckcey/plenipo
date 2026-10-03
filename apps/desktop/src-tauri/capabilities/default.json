@@ -230,6 +230,16 @@
     "allow-community-card",
     "allow-community-picture",
     "allow-invite-to-community",
-    "allow-share-my-community-profile"
+    "allow-share-my-community-profile",
+    "allow-community-conversations",
+    "allow-community-conversation",
+    "allow-send-community-message",
+    "allow-react-in-community",
+    "allow-accept-community-request",
+    "allow-leave-community-conversation",
+    "allow-delete-community-message",
+    "allow-community-safety-code-checked",
+    "allow-open-community-link",
+    "allow-give-community-message-to-worker"
   ]
 }

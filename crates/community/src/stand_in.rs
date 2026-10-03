@@ -888,6 +888,8 @@ struct State {
     open: Openness,
     lowest: Option<String>,
     busy: bool,
+    /// Busy once this many more requests are answered.
+    busy_after: Option<u32>,
     terms: String,
     card_limit: u32,
     auto_allow: Option<AccountId>,
@@ -955,6 +957,7 @@ impl State {
             },
             lowest: None,
             busy: false,
+            busy_after: None,
             terms: "2026-10-01".into(),
             card_limit: 200,
             auto_allow: None,
@@ -1437,6 +1440,14 @@ impl State {
         headers: &[(String, String)],
         body: &[u8],
     ) -> Result<Reply, Fail> {
+        match self.busy_after {
+            Some(0) => {
+                self.busy = true;
+                self.busy_after = None;
+            }
+            Some(n) => self.busy_after = Some(n - 1),
+            None => {}
+        }
         if self.busy {
             return Err(Fail::of("unavailable").retry(BUSY_RETRY_SECS));
         }
@@ -3154,7 +3165,15 @@ impl StandIn {
 
     /// While busy, every request answers `unavailable`, with `Retry-After: 30`.
     pub fn set_busy(&self, busy: bool) {
-        self.with(|s| s.busy = busy);
+        self.with(|s| {
+            s.busy = busy;
+            s.busy_after = None;
+        });
+    }
+
+    /// Answer `requests` more requests, then be busy (a service that goes down halfway).
+    pub fn set_busy_after(&self, requests: u32) {
+        self.with(|s| s.busy_after = Some(requests));
     }
 
     /// Set the clock, in Unix seconds. It starts at the real time and never moves by itself.
