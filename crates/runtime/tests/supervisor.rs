@@ -98,6 +98,8 @@ fn harness_with(
         profile("long", Scenario::LongRunning, d, 600),
         profile("short-timeout", Scenario::LongRunning, d, 1),
         profile("tree", Scenario::Tree, d, 600),
+        profile("leaver", Scenario::LeavesItsGroup, d, 600),
+        profile("leaver-ends", Scenario::LeavesItsGroupAndEnds, d, 600),
         profile("burst", Scenario::Burst, d, 60),
     ];
     profiles.extend(extra(d));
@@ -300,11 +302,15 @@ async fn child_environment_is_isolated() {
         .filter_map(|l| l.2.strip_prefix("env:").map(str::to_owned))
         .collect();
     assert!(names.iter().any(|n| n == "PLENIPO_TEST_DECLARED"));
+    // On a Mac and Linux every program carries its run's mark (ADR-158); Windows needs none.
+    let marked = names.iter().any(|n| n == plenipo_runtime::marks::MARK);
+    assert_eq!(marked, cfg!(unix), "{names:?}");
     // Cargo sets CARGO_* in the test process; none may reach the child.
     assert!(std::env::var_os("CARGO_PKG_NAME").is_some());
     assert!(!names.iter().any(|n| n.starts_with("CARGO")), "{names:?}");
     for name in &names {
         let allowed = name == "PLENIPO_TEST_DECLARED"
+            || (cfg!(unix) && name == plenipo_runtime::marks::MARK)
             || plenipo_runtime::policy::BASELINE_ENV
                 .iter()
                 .any(|b| b.eq_ignore_ascii_case(name))
@@ -555,6 +561,69 @@ async fn children_do_not_outlive_a_crashed_owner() {
     host.kill().unwrap(); // TerminateProcess: no graceful shutdown runs.
     host.wait().unwrap();
     wait_pid_gone(hosted).await;
+}
+
+/// The process ID a `detached` copy wrote in `dir` once it had left its group.
+#[cfg(unix)]
+async fn detached_pid(dir: &Path) -> u32 {
+    let file = dir.join(diagnostic::DETACHED_PID_FILE);
+    let deadline = Instant::now() + WAIT;
+    loop {
+        if let Some(pid) = std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|t| t.trim().parse().ok())
+        {
+            return pid;
+        }
+        assert!(Instant::now() < deadline, "no detached copy wrote {file:?}");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+/// ADR-158: a program that left its group (a session of its own, as a daemon starts) still ends
+/// when its run is stopped, as Windows' job object would end it.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_program_that_left_its_group_ends_when_the_run_is_stopped() {
+    let h = harness();
+    let rec = h.sup.start("leaver").await.unwrap();
+    let left = detached_pid(h.dir.path()).await;
+    wait_for_line(&h.sink, &rec.id, "child-pid:").await;
+    assert!(pid_alive(left), "the copy left its group and runs");
+    let done = h.sup.cancel(&rec.id).await.unwrap();
+    assert_eq!(done.state, ExecutionState::Cancelled, "{done:?}");
+    wait_pid_gone(left).await;
+}
+
+/// ADR-158: and when its run ends by itself, as a build tool's server would be left behind.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_program_that_left_its_group_ends_with_its_run() {
+    let h = harness();
+    let rec = h.sup.start("leaver-ends").await.unwrap();
+    let left = detached_pid(h.dir.path()).await;
+    let done = wait_terminal(&h.sup, &rec.id).await;
+    assert_eq!(done.state, ExecutionState::Succeeded, "{done:?}");
+    wait_pid_gone(left).await;
+}
+
+/// ADR-158: and when the program that owns the supervisor dies abruptly, the keeper ends it too.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_program_that_left_its_group_does_not_outlive_a_crashed_owner() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut host = std::process::Command::new(diag_exe())
+        .arg("--host")
+        .arg(dir.path())
+        .arg(Scenario::LeavesItsGroup.name())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let left = detached_pid(dir.path()).await;
+    assert!(pid_alive(left));
+    host.kill().unwrap();
+    host.wait().unwrap();
+    wait_pid_gone(left).await;
 }
 
 // ---- Launch specs (Phase 3: adapter-built launches) --------------------------------------
