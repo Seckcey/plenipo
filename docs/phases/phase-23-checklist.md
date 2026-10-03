@@ -1,6 +1,6 @@
 # Phase 23 — Implementation Checklist
 
-**Status: Wave 0 delivered (2026-10-02); Wave 1 in progress, its first part in v1.20.0** (started 2026-10-02). Builds on v1.19.3. Below, "[x]" is done.
+**Status: Wave 0 delivered (2026-10-02); Wave 1 in v1.20.0 and v1.21.0, its Guard safety review done (2026-10-03)** (started 2026-10-02). Builds on v1.19.3. Below, "[x]" is done.
 Plenipo is made by 8 West Ventures, LLC.
 
 Source: `ROLLOUT_PLAN.md`, Phase 23 — Mac and Linux, and the records written for it:
@@ -228,7 +228,8 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       with npm find `node` to start. Ollama is also looked for in the Mac's `Ollama.app`.
 - [ ] **Sign-in checks.** Record each AI tool's real answers on Mac and Linux (today's samples were
       recorded on Windows) and check that giving a tool its own home folder (Antigravity, Copilot)
-      does not hide the Mac Keychain from it.
+      does not hide the Mac Keychain from it. **Moved by the owner (2026-10-03)** to Wave 2 for Linux
+      and Wave 3 for the Mac: they need each AI tool signed in on a real Linux PC and a real Mac.
 - [x] **Guard's path rules** on the Mac's file system, which ignores upper and lower case, and on
       Linux's, which does not; and on Mac folders that are really links (`/tmp` is `/private/tmp`).
       Checked: the project folder is kept as where it really is (after links), so paths written
@@ -275,7 +276,9 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       review of Wave 1 finds nothing open.
       The review is [its own record](phase-23-wave-1-guard-review.md): it found six things (three
       Medium, three Low), all fixed in the same pull request, with ADR-158 (a program that leaves
-      its group still ends with its work).
+      its group still ends with its work). GitHub's Mac check still only reports: the owner chose
+      (2026-10-03) to make it required once the flaky browser tests are fixed, so it never blocks a
+      merge for a test that fails now and then on every system.
 
 ### Wave 2 — Linux, first look
 
@@ -297,6 +300,8 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
 - [ ] **Delete my data:** `apt remove` never touches a person's home folder, so Plenipo gets a
       "Delete my Plenipo data" button, like the Windows uninstaller's tick box.
 - [ ] **Installer tests** in bash on GitHub's Ubuntu: install, upgrade, update, remove, what is left.
+- [ ] **Sign-in checks on Linux** (moved from Wave 1): record each AI tool's real answers on a
+      Linux PC; today's samples were recorded on Windows.
 - [ ] **The owner's check on a Linux PC:** install, sign in to Claude Code, run a Development objective
       end to end with the same approvals as Windows, restart the PC, and the Vault still has its keys.
 - [ ] **Release** as "Linux (first look)".
@@ -332,6 +337,9 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
 - [ ] **End-to-end tests on a Mac:** Tauri's own test driver does not support Macs. Use WebdriverIO's
       driver built into **test copies only**; a release check proves it is not inside the real app
       (it would let any program on the Mac drive Plenipo). A paid driver (CrabNebula) is the backup.
+- [ ] **Sign-in checks on the Mac** (moved from Wave 1): record each AI tool's real answers on a
+      Mac, and check that giving a tool its own home folder (Antigravity, Copilot) does not hide the
+      Mac's Keychain from it.
 - [ ] **The owner's check on the MacBook Pro** (GitHub's Mac machines test the other kind of chip): download from the website, it opens with no warning, sign
       in to Claude Code, run a Development objective end to end, try computer use and see the
       permission steps.
