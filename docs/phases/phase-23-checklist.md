@@ -366,9 +366,18 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       (the menu bar, the Dock, copy and paste, the browser, the terminal). It is not for daily
       use and not for anyone else. Signing waits for the enrollment.
 - [ ] **One download for every Mac** (Apple's chips and Intel), as a `.dmg`.
-- [ ] **Fit in on a Mac:** a menu bar icon, clicking the Dock icon brings the window back, the system's
+- [x] **Fit in on a Mac:** a menu bar icon, clicking the Dock icon brings the window back, the system's
       Edit menu so Cmd+C and Cmd+V work, Cmd and Option in labels, "Show in Finder" (`open -R`; today
       it would fail on a Mac).
+      Done (Wave 3A), compiled and unit-tested on GitHub's Mac machine, not yet run on a real Mac:
+      the menu bar icon is the app icon's P in the menu bar's own color (a template image,
+      `icons/tray-template.svg`; its PNG is made with
+      `pnpm --filter @plenipo/desktop tauri icon src-tauri/icons/tray-template.svg -o <folder> -p 44`,
+      then `44x44.png` is copied to `icons/tray-template.png`), and a click opens its menu, as Mac
+      menu bar items do. Clicking the Dock icon with no window showing brings the window back.
+      The Edit menu is Tauri's own standard Mac menu (Plenipo sets no menu of its own), so Cmd+C
+      and Cmd+V work. Cmd and Option in labels came in Wave 1 (`shortcut()`), and "Show in Finder"
+      in Wave 2. The About box names 8 West Ventures, LLC.
       **Pop-out windows (unconfirmed, from reading the code):** the page opens a pop-out only after
       waiting for Plenipo, and Apple's web engine may then block it as a window nobody clicked
       for. Linux turns on a setting that allows it; on a Mac that setting can only be reached
@@ -376,7 +385,7 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       out fails there, the fix is on the page's side: it asks Plenipo before the click finishes,
       so it opens the window at once (decided 2026-10-03). An exception to the no-`unsafe` rule
       would need the owner's own decision and is not the plan.
-- [ ] **The right data folder:** `~/Library/Application Support/com.eightwest.plenipo` (the uninstall
+- [x] **The right data folder:** `~/Library/Application Support/com.eightwest.plenipo` (the uninstall
       code looks in the Linux folder on a Mac today). "Delete my Plenipo data" (Wave 2) also
       deletes Plenipo's own web-page folders, `~/Library/WebKit/com.eightwest.plenipo` and
       `~/Library/HTTPStorages/com.eightwest.plenipo` (never `~/Library/WebKit` or
@@ -385,14 +394,15 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       folders named for Plenipo. Add them here.
       Wave 3A, step 1: the uninstall code finds the Mac's data folder in Application Support, and
       `mac_leftovers` / `delete_leftovers` delete those two, only by their exact names in their own
-      `Library` folders; step 2 hooks them into "Delete my Plenipo data".
+      `Library` folders; step 2 hooks them into "Delete my Plenipo data" (done).
 - [ ] **Computer use on a Mac** is new work: there is no screen or mouse code for the Mac today. macOS
       makes the owner allow "Accessibility" and "Screen Recording" in System Settings. Plenipo
       explains why, opens the right page, and never works around it. Each step is still asked
       (ADR-049, computer use asks every step). A Mac's sharp screen has two pixels for each point,
       so clicks must be scaled, and the allowed keys are checked against the Mac's own shortcuts.
-- [ ] **The workers' browser** stays out of the owner's Keychain (Chrome's own switch for that), as it
+- [x] **The workers' browser** stays out of the owner's Keychain (Chrome's own switch for that), as it
       already stays out of the Linux password store.
+      Done (Wave 3A): `--use-mock-keychain` on a Mac, with a test on GitHub's Mac machine.
 - [ ] **Screen permissions stay with computer use.** A Mac counts the app that started a program as
       responsible for it, so once the owner allows Plenipo Accessibility and Screen Recording, the
       programs a worker runs could use them too, without computer use's questions (ADR-049). Start
@@ -402,6 +412,15 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
 - [ ] **Keychain:** the Vault already uses it. A signed Plenipo keeps access after updates, so the
       signing identity must never change.
 - [ ] **Updates:** Plenipo swaps in the new signed app and restarts.
+      Plenipo's side is done (Wave 3A), compiled and tested on GitHub's Mac machine. **Install now**
+      on a Mac finds its own `Plenipo.app`, through any link; a copy still on its disk image, or
+      run from where it was downloaded, is updated by hand and is told to move to Applications.
+      Only a download checked against 8 West's updater key can be prepared (`Checked`), and only
+      a prepared version can be put in place (`Prepared`). The new app is unpacked with macOS's own
+      `tar` into a hidden folder only the owner can open, and must be a real app with Plenipo's own
+      program inside. It is swapped in (the old one put back if that fails) and opened again.
+      Left for 3C: the release's Mac archive (`.app.tar.gz`), its updater signature, and its
+      `darwin-aarch64` and `darwin-x86_64` entries in `latest.json`.
 - [ ] **End-to-end tests on a Mac:** Tauri's own test driver does not support Macs. Use WebdriverIO's
       driver built into **test copies only**; a release check proves it is not inside the real app
       (it would let any program on the Mac drive Plenipo). A paid driver (CrabNebula) is the backup.

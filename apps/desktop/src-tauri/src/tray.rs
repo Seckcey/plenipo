@@ -86,22 +86,33 @@ pub fn create<R: Runtime>(app: &App<R>) -> tauri::Result<()> {
             &quit,
         ],
     )?;
+    // A Mac (Phase 23): the menu bar icon is drawn in the menu bar's own color (a template
+    // image: the app icon's P, from icons/tray-template.svg), and a click opens its menu, as Mac
+    // menu bar items do ("Show Plenipo" is in it). Windows and Linux keep the app's icon, and a
+    // left click there shows the window.
+    let on_a_mac = cfg!(target_os = "macos");
     let mut builder = TrayIconBuilder::with_id("main")
         .tooltip("Plenipo")
         .menu(&menu)
-        .show_menu_on_left_click(false)
+        .show_menu_on_left_click(on_a_mac)
         .on_menu_event(on_menu_event)
-        .on_tray_icon_event(|tray, event| {
+        .on_tray_icon_event(move |tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
                 ..
             } = event
             {
-                show_main_window(tray.app_handle());
+                if !on_a_mac {
+                    show_main_window(tray.app_handle());
+                }
             }
         });
-    if let Some(icon) = app.default_window_icon() {
+    if on_a_mac {
+        builder = builder
+            .icon(tauri::include_image!("./icons/tray-template.png"))
+            .icon_as_template(true);
+    } else if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
     }
     let icon = builder.build(app)?;

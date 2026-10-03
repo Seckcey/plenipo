@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="7.5 10 86 86">
+  <!-- Plenipo's menu bar icon on a Mac (Phase 23): the app icon's three-rail P (source.svg),
+       in black on nothing, so macOS draws it in the menu bar's own color (a template image).
+       tray-template.png is made from this file with `tauri icon` (docs/phases/phase-23-checklist.md). -->
+  <g fill="none" stroke="#000" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M19 15H56A26 26 0 0 1 56 67H43A24 24 0 0 0 19 91"/>
+    <path d="M19 30H54A12 12 0 0 1 54 54H42A10 10 0 0 0 32 64V91"/>
+    <path d="M19 43H44V91"/>
+  </g>
+</svg>

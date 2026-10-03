@@ -598,6 +598,38 @@ pub async fn install_update<R: Runtime>(
     install(&app, stop_work).await
 }
 
+/// What Install now puts the new version in place of.
+#[derive(Clone)]
+enum Target {
+    /// Windows: the installer runs.
+    Installer,
+    /// Linux: this AppImage.
+    AppImage(std::path::PathBuf),
+    /// A Mac (Phase 23): this app.
+    MacApp(std::path::PathBuf),
+}
+
+impl Target {
+    fn place(&self) -> update_host::Place<'_> {
+        match self {
+            Target::Installer => update_host::Place::Installer,
+            Target::AppImage(appimage) => update_host::Place::AppImage(appimage),
+            Target::MacApp(bundle) => update_host::Place::MacApp(bundle),
+        }
+    }
+}
+
+/// Open the new Mac app (only on a Mac, where a Mac app is ever the target).
+fn start_app_again(bundle: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    return update_host::start_app_again(bundle);
+    #[cfg(not(unix))]
+    {
+        let _ = bundle;
+        Err(std::io::Error::other("not a Mac"))
+    }
+}
+
 async fn install<R: Runtime>(
     app: &AppHandle<R>,
     stop_work: bool,
@@ -617,20 +649,27 @@ async fn install<R: Runtime>(
     }
     let how = updates.how();
     if how == InstallWay::ByHand {
-        return Err(CommandError::invalid_input(update_host::BY_HAND));
+        return Err(CommandError::invalid_input(update_host::by_hand()));
     }
-    let appimage = match how {
-        InstallWay::ReplacesItself => match update_host::own_appimage() {
-            Some(path) => Some(path),
-            None => {
-                let message = "Plenipo could not find its own AppImage to replace.".to_owned();
-                updates.install_failed(&ledger, message.clone());
-                return Err(CommandError::invalid_input(message));
+    // What takes the new version's place: Linux's AppImage, or a Mac's app (Phase 23); else the
+    // installer runs.
+    let target = match how {
+        InstallWay::ReplacesItself => {
+            match (update_host::own_appimage(), update_host::own_app_bundle()) {
+                (Some(appimage), _) => Target::AppImage(appimage),
+                (None, Some(bundle)) => Target::MacApp(bundle),
+                (None, None) => {
+                    let message = "Plenipo could not find its own app to replace.".to_owned();
+                    updates.install_failed(&ledger, message.clone());
+                    return Err(CommandError::invalid_input(message));
+                }
             }
-        },
-        _ => None,
+        }
+        _ => Target::Installer,
     };
-    let (release, bytes) = updates
+    // Only a download checked against 8 West's updater key can be prepared, and only a
+    // prepared version can be started or put in place (`update_host::Checked`, `Prepared`).
+    let (release, checked) = updates
         .download(&guard)
         .await
         .map_err(CommandError::invalid_input)?;
@@ -640,15 +679,19 @@ async fn install<R: Runtime>(
         .map_err(|e| CommandError::internal(e.to_string()))?
         .join(update_host::FOLDER);
     let version = app.package_info().version.to_string();
-    let (l, v, r) = (Arc::clone(&ledger), version.clone(), release.clone());
-    let target = appimage.clone();
+    let (l, v, r, t) = (
+        Arc::clone(&ledger),
+        version.clone(),
+        release.clone(),
+        target.clone(),
+    );
     let prepared = tauri::async_runtime::spawn_blocking(move || {
-        update_host::prepare(&l, &dir, &v, &r, &bytes, target.as_deref())
+        update_host::prepare(&l, &dir, &v, &r, &checked, t.place())
     })
     .await
     .map_err(|e| CommandError::internal(e.to_string()))?;
-    let path = match prepared {
-        Ok(path) => path,
+    let new = match prepared {
+        Ok(new) => new,
         Err(message) => {
             updates.install_failed(&ledger, message.clone());
             return Err(CommandError::invalid_input(message));
@@ -657,13 +700,18 @@ async fn install<R: Runtime>(
     log::warn!("installing Plenipo {} (from {version})", release.version);
     crate::stop_work(app).await;
     crate::mark_stopped(app);
-    // `in_place`: the AppImage is already the new version, though it could not start by itself.
-    let (started, in_place) = match &appimage {
-        Some(appimage) => match update_host::replace_itself(&path, appimage) {
+    // `in_place`: the AppImage or app is already the new version, though it could not start by
+    // itself.
+    let (started, in_place) = match &target {
+        Target::AppImage(appimage) => match update_host::replace_itself(&new, appimage) {
             Ok(()) => (update_host::start_again(appimage), true),
             Err(e) => (Err(e), false),
         },
-        None => (update_host::start_installer(&path), false),
+        Target::MacApp(bundle) => match update_host::replace_app(&new, bundle) {
+            Ok(()) => (start_app_again(bundle), true),
+            Err(e) => (Err(e), false),
+        },
+        Target::Installer => (update_host::start_installer(&new), false),
     };
     match started {
         Ok(()) => {
@@ -687,10 +735,11 @@ async fn install<R: Runtime>(
             Err(CommandError::internal(message))
         }
         Err(e) => {
-            let what = if appimage.is_some() {
-                "The new version could not be put in place"
-            } else {
-                "The installer could not be started"
+            let what = match target {
+                Target::Installer => "The installer could not be started",
+                Target::AppImage(_) | Target::MacApp(_) => {
+                    "The new version could not be put in place"
+                }
             };
             let message = format!(
                 "{what} ({e}). Plenipo {version} is still installed; the work that was running \
@@ -742,12 +791,14 @@ pub async fn delete_plenipo_data<R: Runtime>(
     let data = paths
         .app_local_data_dir()
         .map_err(|e| CommandError::internal(e.to_string()))?;
-    // Its data (with the logs), settings, and cache, and on a Mac the web pages' own folders.
-    let mac_library = paths
-        .home_dir()
-        .ok()
-        .filter(|_| cfg!(target_os = "macos"))
-        .map(|home| home.join("Library"));
+    // Its data (with the logs), settings, and cache, and on a Mac the web pages' own folders,
+    // its settings file, and its saved window state.
+    let mac_home = paths.home_dir().ok().filter(|_| cfg!(target_os = "macos"));
+    let mac_files: Vec<std::path::PathBuf> = mac_home
+        .as_ref()
+        .map(|home| crate::uninstall::mac_leftovers(home).to_vec())
+        .unwrap_or_default();
+    let mac_library = mac_home.map(|home| home.join("Library"));
     let mac_web_pages = ["WebKit", "HTTPStorages"].map(|kind| {
         mac_library
             .as_ref()
@@ -792,10 +843,22 @@ pub async fn delete_plenipo_data<R: Runtime>(
     if start_close::start_with_windows(&app) == Some(true) {
         let _ = start_close::set_start_with_windows(&app, false);
     }
-    let deleted =
-        tauri::async_runtime::spawn_blocking(move || crate::uninstall::delete_folders(&folders))
-            .await
-            .map_err(|e| CommandError::internal(e.to_string()))?;
+    let deleted = tauri::async_runtime::spawn_blocking(move || {
+        let problems: Vec<String> = [
+            crate::uninstall::delete_folders(&folders),
+            crate::uninstall::delete_leftovers(&mac_files),
+        ]
+        .into_iter()
+        .filter_map(Result::err)
+        .collect();
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(problems.join("; "))
+        }
+    })
+    .await
+    .map_err(|e| CommandError::internal(e.to_string()))?;
     match deleted {
         Ok(()) => {
             app.exit(0);
