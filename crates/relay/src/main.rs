@@ -248,10 +248,12 @@ async fn run(settings: Settings) -> i32 {
             let s = counting.stats();
             let refused: u64 = s.refused.values().sum();
             log::info!(
-                "{} connections: {} PCs, {} phones; {} refused and {} turned away so far",
+                "{} connections: {} PCs, {} phones, {} addresses; {} refused and {} turned \
+                 away so far",
                 s.connections,
                 s.pcs,
                 s.phones,
+                s.addresses,
                 refused,
                 s.turned_away
             );

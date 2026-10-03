@@ -36,6 +36,8 @@ impl Link {
         let len = m.len();
         let before = self.queued.fetch_add(len, Ordering::SeqCst);
         if before.saturating_add(len) > self.most_queued || self.out.try_send(m).is_err() {
+            // The message is dropped and the count stays as it is: this connection is ending,
+            // and nothing reads the count once it has.
             self.kill.notify_one();
         }
     }
