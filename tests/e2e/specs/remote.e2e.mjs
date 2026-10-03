@@ -161,6 +161,19 @@ async function allEvents(browser) {
   }
 }
 
+/** Find `needle` in Activity → All events, pressing "Show older events" as a person would. */
+async function findInAllEvents(browser, needle) {
+  const all = 'ol[aria-label="All events"]';
+  for (let page = 0; page < 10; page += 1) {
+    if ((await textOf(browser, all)).includes(needle)) return;
+    const older = await browser.$('//button[normalize-space()="Show older events"]');
+    if (!(await older.isExisting())) break;
+    await older.click();
+    await browser.pause(300);
+  }
+  await waitForText(browser, all, needle);
+}
+
 const SWITCH = 'button[role="switch"][aria-label="Use Plenipo from another device"]';
 
 async function setSwitch(browser, on) {
@@ -1222,10 +1235,11 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     await nav(browser, "Activity");
     await (await browser.$('//button[@role="tab" and normalize-space()="All events"]')).click();
     const all = 'ol[aria-label="All events"]';
-    await waitForText(browser, all, `${PHONE_NAME} asked to approve`);
-    await waitForText(browser, all, `Approved: git push origin (from ${PHONE_NAME})`);
-    await waitForText(browser, all, `${PHONE_NAME} asked to stop all`);
     await waitForText(browser, all, `You removed ${PHONE_NAME}`);
+    // The phone's first requests are older than the newest 200 events the list starts with.
+    await findInAllEvents(browser, `${PHONE_NAME} asked to stop all`);
+    await findInAllEvents(browser, `Approved: git push origin (from ${PHONE_NAME})`);
+    await findInAllEvents(browser, `${PHONE_NAME} asked to approve`);
     await screenshot(browser, "phone-pc-activity");
   });
 });

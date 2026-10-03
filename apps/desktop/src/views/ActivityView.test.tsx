@@ -15,6 +15,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     ...actual,
     listTasks: vi.fn(),
     listRecentEvents: vi.fn(),
+    getScopeEvents: vi.fn(),
     getTaskTimeline: vi.fn(),
     advanceSyntheticTask: vi.fn(),
     getLedgerStatus: vi.fn(),
@@ -165,6 +166,26 @@ describe("Activity timeline", () => {
     const all = await screen.findByRole("list", { name: "All events" });
     expect(within(all).getByText("Echo test: succeeded · exit 0")).toBeInTheDocument();
     await waitFor(() => expect(api.listTasks).toHaveBeenCalledTimes(2)); // debounced refresh
+  });
+
+  it("shows older events than the newest 200 when asked, page by page", async () => {
+    const newest = Array.from({ length: 200 }, (_, i) =>
+      ev("execution.succeeded", { label: `Recent ${i}`, exitCode: 0 }, null as never),
+    ).reverse();
+    api.listRecentEvents.mockResolvedValue(newest);
+    const old = { ...ev("execution.succeeded", { label: "The first", exitCode: 0 }), seq: 0 };
+    api.getScopeEvents.mockResolvedValue([old]);
+    render(<Harness />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("tab", { name: "All events" }));
+    const all = await screen.findByRole("list", { name: "All events" });
+    await waitFor(() => expect(within(all).getAllByRole("listitem")).toHaveLength(200));
+    await user.click(screen.getByRole("button", { name: "Show older events" }));
+    expect(api.getScopeEvents).toHaveBeenCalledWith({ kind: "all" }, 200, 1);
+    expect(await within(all).findByText("The first: succeeded · exit 0")).toBeInTheDocument();
+    expect(within(all).getAllByRole("listitem")).toHaveLength(201);
+    // A short page was the last: nothing older is left.
+    expect(screen.queryByRole("button", { name: "Show older events" })).not.toBeInTheDocument();
   });
 });
 
