@@ -1529,6 +1529,112 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
     assert_eq!(h.briefing(&o.coordinator), (identity, members));
 }
 
+/// When a plan runs out (Phase 25, item 4.2; ADR-203): the work a usage limit stopped waits with
+/// the owner's choices, is picked back up once the limit is over (never before, and never while
+/// Stop all work holds it), and stays stopped when the owner says so.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn work_a_usage_limit_stopped_is_picked_back_up_unless_left_stopped() {
+    use plenipo_ledger::limit_stops::{LEFT_STOPPED, PICKED_UP};
+    let h = harness().await;
+    let o = h.development();
+    let script = serde_json::json!({
+        "Development Manager": [ { "usageLimit": true } ],
+        "Cloudline Coordinator": [ { "usageLimit": true }, { "say": "Picked up and done." } ],
+    });
+    std::fs::write(
+        h.dir
+            .path()
+            .join("home")
+            .join(".plenipo-fake-agent")
+            .join("script.json"),
+        script.to_string(),
+    )
+    .unwrap();
+    // Claude Code's plan runs out on the manager's objective, then (after the owner's Try again
+    // now) on the supervisor's.
+    let quarter = h.objective(&o.head, "Plan the quarter.").await;
+    assert_eq!(h.finished(&quarter).await.state, TaskState::Failed);
+    h.router.clear_limit("claude-code").unwrap();
+    let release = h.objective(&o.coordinator, "Plan the release.").await;
+    assert_eq!(h.finished(&release).await.state, TaskState::Failed);
+
+    // The notice: when, what waits, and whose reset it would be.
+    let waits = h.workforce.limit_waits().unwrap();
+    assert_eq!(waits.len(), 1, "{waits:?}");
+    let w = &waits[0];
+    assert_eq!(
+        (w.runtime_id.as_str(), w.label.as_str()),
+        ("claude-code", "Claude Code")
+    );
+    assert_eq!(w.reset_company.as_deref(), Some("Anthropic"));
+    // Claude Code's reset time here is long past, so Plenipo tries again in an hour.
+    assert!(!w.reported);
+    assert_eq!(w.until, Some(w.since + plenipo_router::limits::HOLD_MS));
+    let work: Vec<(&str, Option<&str>)> = w
+        .work
+        .iter()
+        .map(|x| (x.objective.as_str(), x.who.as_deref()))
+        .collect();
+    assert_eq!(
+        work,
+        [
+            ("Plan the quarter.", Some("Development Manager")),
+            ("Plan the release.", Some("Cloudline Coordinator")),
+        ]
+    );
+
+    // Not before the limit is over.
+    assert_eq!(h.workforce.pick_up_after_limits().await.unwrap(), 0);
+    assert!(h
+        .ledger
+        .last_task_event(&release, PICKED_UP)
+        .unwrap()
+        .is_none());
+
+    // The owner leaves the manager's objective stopped; only waiting work can be.
+    let left = h
+        .workforce
+        .leave_stopped(std::slice::from_ref(&quarter))
+        .unwrap();
+    assert_eq!(left[0].work.len(), 1);
+    assert!(h.workforce.leave_stopped(&["t-none".to_owned()]).is_err());
+    assert!(h
+        .ledger
+        .last_task_event(&quarter, LEFT_STOPPED)
+        .unwrap()
+        .is_some());
+
+    // Stop all work holds it even when the limit is over.
+    h.rt.hold_all_work();
+    assert_eq!(h.workforce.pick_up_now("claude-code").await.unwrap(), 0);
+    h.rt.allow_work();
+
+    // The limit is over: the supervisor's objective goes back to it, once, and is recorded.
+    assert_eq!(h.workforce.pick_up_after_limits().await.unwrap(), 1);
+    assert_eq!(h.workforce.pick_up_after_limits().await.unwrap(), 0);
+    let picked = h
+        .ledger
+        .last_task_event(&release, PICKED_UP)
+        .unwrap()
+        .unwrap();
+    assert_eq!(picked.payload["runtimeId"], "claude-code");
+    let again = picked.payload["runAgainAs"].as_str().unwrap().to_owned();
+    assert_ne!(again, release);
+    assert_eq!(h.finished(&again).await.state, TaskState::Succeeded);
+    assert!(
+        h.text(&again).contains("Picked up and done."),
+        "{}",
+        h.text(&again)
+    );
+    // The manager's stays stopped, and nothing waits any more.
+    assert!(h
+        .ledger
+        .last_task_event(&quarter, PICKED_UP)
+        .unwrap()
+        .is_none());
+    assert!(h.workforce.limit_waits().unwrap().is_empty());
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_usage_limit_holds_work_back_or_moves_it_on_as_the_owner_chose() {
     let h = harness().await;

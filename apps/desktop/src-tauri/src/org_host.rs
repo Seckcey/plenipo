@@ -211,7 +211,7 @@ pub fn build<R: Runtime>(
         let busy = supervisor.clone();
         backup_host::start_daily(&ledger, stopped.clone(), move || busy.active_count() > 0);
     }
-    Arc::new(OrgStack {
+    let stack = Arc::new(OrgStack {
         stopped,
         place,
         ledger,
@@ -224,7 +224,12 @@ pub fn build<R: Runtime>(
         workforce,
         notices,
         watchers,
-    })
+    });
+    // Work a usage limit stopped is picked back up once the limit is over (Phase 25, item 4.2).
+    if how.run {
+        crate::limit_host::start(&stack);
+    }
+    stack
 }
 
 /// Copy your choices for the PC from the first organization's Ledger to `to` (no event: they

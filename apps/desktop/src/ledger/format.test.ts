@@ -364,6 +364,15 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
     expect(describeEvent(event("work.allowed_again", {}))).toBe(
       "You pressed Allow again: work can start again",
     );
+    expect(describeEvent(event("work.picked_up", { label: "Claude Code" }))).toBe(
+      "Plenipo picked this work back up after Claude Code's usage limit",
+    );
+    expect(describeEvent(event("work.left_stopped", {}))).toBe(
+      "You left this work stopped after a usage limit",
+    );
+    expect(describeEvent(event("work.not_picked_up", { reason: "the position is gone" }))).toBe(
+      "Plenipo couldn't pick this work back up: the position is gone",
+    );
     expect(describeEvent(event("guard.websites_changed", {}))).toBe("Website lists changed");
     expect(describeEvent(event("guard.switches_changed", {}))).toBe(
       "Switches changed (Settings → Switches)",

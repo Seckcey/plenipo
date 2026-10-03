@@ -23,6 +23,7 @@ pub mod indicator;
 pub mod ledger_host;
 pub mod license_commands;
 pub mod license_host;
+pub mod limit_host;
 pub mod logs;
 pub mod notices;
 pub mod org_commands;
@@ -385,6 +386,10 @@ pub fn configure<R: Runtime>(
             app.manage(files_commands::Outside(Arc::new(
                 files_commands::SystemFileOpener,
             )));
+            // A company's own usage page, for **Use a reset** (Phase 25, item 4.2).
+            app.manage(commands::CompanyPages(Arc::new(
+                plenipo_capabilities::connections::SystemOpener::new(first.supervisor.clone()),
+            )));
             // The AI tools page (Phase 19): sign-in tabs, updates, usage, and models; the PC's,
             // kept with the first organization (ADR-094 §4).
             let ai_tools = ai_tools_host::create(&agents, &broker);
@@ -661,6 +666,10 @@ pub fn configure<R: Runtime>(
             commands::set_role_policy,
             commands::set_routing_options,
             commands::clear_usage_limit,
+            commands::get_limit_waits,
+            commands::pick_up_work_now,
+            commands::leave_work_stopped,
+            commands::open_reset_page,
             commands::get_permissions,
             commands::save_permission_set,
             commands::remove_permission_set,
@@ -1153,6 +1162,7 @@ mod ipc_boundary_tests {
         app.manage(workspace_windows::PopOuts::new(None));
         app.manage(files_commands::Drops::default());
         app.manage(files_commands::Outside(Arc::new(NoOpener)));
+        app.manage(commands::CompanyPages(Arc::new(NoBrowser)));
         app.manage(first.guard.clone());
         app.manage(first.broker.clone());
         app.manage(first.supervisor.clone());
@@ -2104,6 +2114,69 @@ mod ipc_boundary_tests {
         assert!(org.positions.is_empty());
     }
 
+    /// When a plan runs out (Phase 25, item 4.2): the waiting work, Pick it up now, Leave
+    /// stopped, and Use a reset, with their checks.
+    #[test]
+    fn work_a_usage_limit_stopped_through_ipc() {
+        let app = app();
+        let main = window(&app, "main");
+        let waits: Vec<plenipo_workforce::LimitWait> = body(invoke(&main, "get_limit_waits"));
+        assert!(waits.is_empty());
+        let waits: Vec<plenipo_workforce::LimitWait> = body(invoke_json(
+            &main,
+            "pick_up_work_now",
+            serde_json::json!({ "runtimeId": "codex" }),
+        ));
+        assert!(waits.is_empty());
+        // Use a reset opens only the company pages built into Plenipo.
+        assert!(invoke_json(
+            &main,
+            "open_reset_page",
+            serde_json::json!({ "runtimeId": "claude-code" }),
+        )
+        .is_ok());
+        for (cmd, args) in [
+            (
+                "open_reset_page",
+                serde_json::json!({ "runtimeId": "grok" }),
+            ),
+            (
+                "open_reset_page",
+                serde_json::json!({ "runtimeId": "../x" }),
+            ),
+            ("leave_work_stopped", serde_json::json!({ "taskIds": [] })),
+            (
+                "leave_work_stopped",
+                serde_json::json!({ "taskIds": ["../x"] }),
+            ),
+            (
+                "leave_work_stopped",
+                serde_json::json!({ "taskIds": [SESSION] }),
+            ),
+            (
+                "pick_up_work_now",
+                serde_json::json!({ "runtimeId": "Claude Code" }),
+            ),
+        ] {
+            let err = invoke_json(&main, cmd, args.clone()).expect_err(cmd);
+            assert!(
+                err["kind"] == "invalidInput" || err.is_string(),
+                "{cmd} {args}: {err}"
+            );
+        }
+        // Stop all work: nothing is picked up until Allow again.
+        let _: plenipo_capabilities::control::ControlStatus =
+            body(invoke(&main, "stop_all_control"));
+        let refused = invoke_json(
+            &main,
+            "pick_up_work_now",
+            serde_json::json!({ "runtimeId": "codex" }),
+        )
+        .unwrap_err();
+        assert_eq!(refused["message"], crate::commands::STOPPED_ALL);
+        let _: plenipo_capabilities::control::ControlStatus = body(invoke(&main, "allow_control"));
+    }
+
     #[test]
     fn objectives_to_an_uninstalled_runtime_are_refused_and_record_nothing() {
         let app = app();
@@ -2154,6 +2227,10 @@ mod ipc_boundary_tests {
             "set_role_policy",
             "set_routing_options",
             "clear_usage_limit",
+            "get_limit_waits",
+            "pick_up_work_now",
+            "leave_work_stopped",
+            "open_reset_page",
         ] {
             let args = serde_json::json!({ "positionId": SESSION, "objective": "x" });
             assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");

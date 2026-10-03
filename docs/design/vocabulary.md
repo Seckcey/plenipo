@@ -401,6 +401,7 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Stop all (all work) / Allow again / All work is stopped.                       | kill switch, global halt, resume dispatch                                                  |
 | Live conversation / now: Running `npm test` / Step 3 of 7 · 4 min              | token stream, agent log, telemetry, trace                                                  |
 | Ask a question / Side chat with Alex / made by a command                       | fork session, sub-agent, side channel, shell side effects                                  |
+| Claude Code is out until 3:00 PM / Wait / Use a reset / Pick it up now         | rate limited, quota exhausted, 429, redeem credit, retry                                   |
 
 ## Words that change with the system
 

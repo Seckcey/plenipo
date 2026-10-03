@@ -811,3 +811,40 @@ pub struct DevelopmentInput {
     #[ts(optional)]
     pub hire_new: Option<Vec<String>>,
 }
+
+/// Work an AI tool's usage limit stopped, for one AI tool (Phase 25, item 4.2; ADR-203): the
+/// notice that says when Plenipo picks it back up, and the owner's choices.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LimitWait {
+    pub runtime_id: String,
+    /// Its name on screen ("Claude Code").
+    pub label: String,
+    /// The company whose plan ran out, when it gives usage resets ("Anthropic", "OpenAI"):
+    /// **Use a reset** opens its own page. Plenipo never uses one for the owner.
+    pub reset_company: Option<String>,
+    /// When the limit was reached.
+    #[ts(type = "number")]
+    pub since: u64,
+    /// When Plenipo picks the work back up: the reset time the AI tool reported, or an hour
+    /// after the limit when it reported none. `null`: the limit is over; it is picked up now.
+    #[ts(type = "number | null")]
+    pub until: Option<u64>,
+    /// `until` is the reset time the AI tool reported (not Plenipo's hour).
+    pub reported: bool,
+    /// The work waiting, oldest first.
+    pub work: Vec<LimitWaitWork>,
+}
+
+/// One objective a usage limit stopped (Phase 25, item 4.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LimitWaitWork {
+    pub task_id: String,
+    /// The objective, as the owner gave it.
+    pub objective: String,
+    /// Who was doing it (a position's title), when it was a member of the organization.
+    pub who: Option<String>,
+}

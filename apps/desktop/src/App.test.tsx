@@ -62,6 +62,7 @@ vi.mock("./api/commands", async (importOriginal) => {
     getObjectiveReport: vi.fn(),
     getLearning: vi.fn(),
     getRecoveryStatus: vi.fn(),
+    getLimitWaits: vi.fn(),
     runAgain: vi.fn(),
     dismissRecovery: vi.fn(),
     windowAlive: vi.fn(),
@@ -153,6 +154,7 @@ beforeEach(() => {
   localStorage.clear();
   delete document.documentElement.dataset.theme;
   api.getRecoveryStatus.mockResolvedValue(NO_RECOVERY);
+  api.getLimitWaits.mockResolvedValue([]);
   api.windowAlive.mockResolvedValue(undefined);
   api.getUpdateStatus.mockResolvedValue(upToDate());
   api.getOwnerProfile.mockResolvedValue({

@@ -350,8 +350,8 @@ impl Ledger {
                     Some("usageLimited") => Some(Notice::new(
                         NoticeKind::Problems,
                         format!("{name} reached its usage limit"),
-                        "Its work waits or moves to a backup, as you chose in Settings → AI \
-                         models.",
+                        "Plenipo picks its work back up when the limit is over. Open Plenipo \
+                         to use a reset, use another AI tool, or leave the work stopped.",
                     )),
                     _ => None,
                 }

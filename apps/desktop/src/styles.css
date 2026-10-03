@@ -4767,6 +4767,26 @@ body.popout {
   gap: var(--ui-space-2);
 }
 
+/* When a plan runs out (Phase 25, item 4.2): the work waiting, then each choice with its button. */
+.limit__lead {
+  margin: var(--ui-space-3) 0 var(--ui-space-1);
+}
+
+.limit__choices {
+  display: grid;
+  gap: var(--ui-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.limit__choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-2);
+}
+
 .settings-updates,
 .settings-start {
   display: grid;

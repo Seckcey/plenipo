@@ -1370,6 +1370,70 @@ pub async fn clear_usage_limit(
     with_router(&router, move |r| r.clear_limit(&runtime_id)).await
 }
 
+// ---- When a plan runs out (Phase 25, item 4.2; ADR-203) --------------------------------------
+
+/// How a company's own page is opened (tests use a stand-in browser).
+pub struct CompanyPages(pub Arc<dyn plenipo_capabilities::connections::Opener>);
+
+/// The work usage limits stopped, for each AI tool: when Plenipo picks it back up, and the
+/// owner's choices.
+#[tauri::command]
+pub async fn get_limit_waits(
+    workforce: Org<'_, Workforce>,
+) -> Result<Vec<plenipo_workforce::LimitWait>, CommandError> {
+    with_workforce(&workforce, Workforce::limit_waits).await
+}
+
+/// The owner used a usage reset, or wants to try now: `runtime_id`'s limit is cleared (like
+/// **Try again now**) and its waiting work is given back to its workers. Refused while Stop all
+/// work holds the work.
+#[tauri::command]
+pub async fn pick_up_work_now(
+    workforce: Org<'_, Workforce>,
+    agents: Org<'_, AgentRuntime>,
+    runtime_id: String,
+) -> Result<Vec<plenipo_workforce::LimitWait>, CommandError> {
+    validate_runtime_id(&runtime_id)?;
+    refuse_while_stopped(&agents)?;
+    workforce
+        .pick_up_now(&runtime_id)
+        .await
+        .map_err(workforce_error)?;
+    with_workforce(&workforce, Workforce::limit_waits).await
+}
+
+/// Leave work a usage limit stopped as it is: it is never picked up by itself.
+#[tauri::command]
+pub async fn leave_work_stopped(
+    workforce: Org<'_, Workforce>,
+    task_ids: Vec<String>,
+) -> Result<Vec<plenipo_workforce::LimitWait>, CommandError> {
+    if task_ids.is_empty() || task_ids.len() > 50 {
+        return Err(CommandError::invalid_input("name 1 to 50 tasks"));
+    }
+    for id in &task_ids {
+        validate_task_id(id)?;
+    }
+    with_workforce(&workforce, move |w| w.leave_stopped(&task_ids)).await
+}
+
+/// **Use a reset**: open the company's own usage page in the owner's browser, where the owner
+/// can use a usage reset the company gave them. Only the pages built into Plenipo, for Claude
+/// Code and Codex; Plenipo never uses a reset or buys anything itself.
+#[tauri::command]
+pub async fn open_reset_page(
+    pages: State<'_, CompanyPages>,
+    runtime_id: String,
+) -> Result<(), CommandError> {
+    validate_runtime_id(&runtime_id)?;
+    let (_, page) = plenipo_workforce::reset_page(&runtime_id).ok_or_else(|| {
+        CommandError::invalid_input("This AI tool's company gives no usage resets to open")
+    })?;
+    pages.0.open(page.to_owned()).await.map_err(|why| {
+        CommandError::invalid_input(format!("Plenipo couldn't open your web browser: {why}"))
+    })
+}
+
 // ---- Permissions, approvals, and the Vault (Phase 7) ------------------------------------------
 
 /// Longest secret value accepted at the boundary (bytes); the Vault enforces 10,000

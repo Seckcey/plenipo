@@ -138,6 +138,8 @@ export type { CostClass } from "./generated/CostClass";
 export type { CostPreference } from "./generated/CostPreference";
 export type { CrossCompany } from "./generated/CrossCompany";
 export type { LimitBehavior } from "./generated/LimitBehavior";
+export type { LimitWait } from "./generated/LimitWait";
+export type { LimitWaitWork } from "./generated/LimitWaitWork";
 export type { ModelFeature } from "./generated/ModelFeature";
 export type { Effort } from "./generated/Effort";
 export type { KnownModel } from "./generated/KnownModel";

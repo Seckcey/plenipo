@@ -697,20 +697,31 @@ About 6 to 8 build sessions.
 - **Why:** when a limit hits, the task **fails**. You get a general notice and **Try again now**.
   Nothing restarts the work after the reset.
 - **Do:**
-  - [ ] The notice says: "Claude Code is out until 3:00 PM. You can:
+  - [x] The notice says: "Claude Code is out until 3:00 PM. You can:
     - wait (Plenipo picks the work back up at 3:00)
     - use a usage reset, if Anthropic gave you one
     - use your Anthropic key or another AI tool"
-  - [ ] Each choice is a button. "Use a reset" opens the company's own page in your browser.
-        **Plenipo never uses a reset or buys anything for you.**
-  - [ ] Check whether Claude Code or Codex reports a waiting reset. If one does, show "You have a
-        reset waiting" on its card. If not, only remind, and never guess.
-  - [ ] Work stopped by a limit **restarts by itself** after the reset, unless you said Leave
-        stopped.
+
+    It is on every page, one for each AI tool at its limit, and names the work that waits
+    ([ADR-203 (when a plan runs out)](../adr/ADR-203-when-a-plan-runs-out.md)).
+
+  - [x] Each choice is a button: **Wait**, **Use a reset** (and **Pick it up now** after it),
+        **Use another AI tool**, **Leave stopped**. "Use a reset" opens the company's own page in
+        your browser (Claude's or ChatGPT's usage page). **Plenipo never uses a reset or buys
+        anything for you.**
+  - [x] Check whether Claude Code or Codex reports a waiting reset. **Neither does, in what their
+        makers document:** Claude Code's `rate_limit_event` has no such field, and OpenAI's own
+        Codex documentation describes none (a third-party note says newer versions have one, not
+        confirmed). So Plenipo only reminds, and never guesses (ADR-203).
+  - [x] Work stopped by a limit **restarts by itself** after the reset, unless you said Leave
+        stopped: each organization looks once a minute (`limit_host.rs`), and each objective is
+        picked up once, recorded in the Ledger. Never while Stop all work holds the work.
 - **Tests:**
-  - [ ] the notice's choices
-  - [ ] work restarts after the reset time
-  - [ ] Leave stopped is respected
+  - [x] the notice's choices (desktop `limits.test.tsx`; IPC `work_a_usage_limit_stopped_through_ipc`)
+  - [x] work restarts after the limit is over, never before, and never while Stop all holds it
+        (workforce `work_a_usage_limit_stopped_is_picked_back_up_unless_left_stopped`; Ledger
+        `objectives_a_limit_stopped_wait_until_picked_up_left_or_given_again`)
+  - [x] Leave stopped is respected (the same workforce test)
 
 ### 4.3 Better plan numbers — S–M
 

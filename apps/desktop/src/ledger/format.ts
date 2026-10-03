@@ -552,6 +552,13 @@ function describeControlEvent(type: string, p: Record<string, unknown>): string 
     }
     case "work.allowed_again":
       return "You pressed Allow again: work can start again";
+    // When a plan runs out (Phase 25, item 4.2).
+    case "work.picked_up":
+      return `Plenipo picked this work back up after ${str(p.label) ?? "its AI tool"}'s usage limit`;
+    case "work.left_stopped":
+      return "You left this work stopped after a usage limit";
+    case "work.not_picked_up":
+      return `Plenipo couldn't pick this work back up${str(p.reason) ? `: ${str(p.reason)}` : ""}`;
     case "control.switched_off": {
       const n = count(p.sessions);
       const off = p.kind === "server" ? "remote computers (SSH)" : what;

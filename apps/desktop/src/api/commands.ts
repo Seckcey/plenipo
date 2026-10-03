@@ -74,6 +74,7 @@ import type {
   IntegrityReport,
   LedgerEvent,
   LedgerStatus,
+  LimitWait,
   LiaisonOverview,
   ModelInput,
   ObjectiveReport,
@@ -709,6 +710,28 @@ export function setRoutingOptions(options: RoutingOptions): Promise<RoutingSnaps
 /** Try an AI tool again now, although it reported a usage limit. */
 export function clearUsageLimit(runtimeId: string): Promise<RoutingSnapshot> {
   return call<RoutingSnapshot>("clear_usage_limit", { runtimeId });
+}
+
+// ---- When a plan runs out (Phase 25, item 4.2) --------------------------------------------
+
+/** The work usage limits stopped, for each AI tool, with when Plenipo picks it back up. */
+export function getLimitWaits(): Promise<LimitWait[]> {
+  return call<LimitWait[]>("get_limit_waits");
+}
+
+/** The owner used a usage reset: try the AI tool now and give its waiting work back. */
+export function pickUpWorkNow(runtimeId: string): Promise<LimitWait[]> {
+  return call<LimitWait[]>("pick_up_work_now", { runtimeId });
+}
+
+/** Leave work a usage limit stopped as it is: it is never picked up by itself. */
+export function leaveWorkStopped(taskIds: string[]): Promise<LimitWait[]> {
+  return call<LimitWait[]>("leave_work_stopped", { taskIds });
+}
+
+/** Open the company's own usage page, where the owner can use a usage reset it gave them. */
+export function openResetPage(runtimeId: string): Promise<void> {
+  return call<void>("open_reset_page", { runtimeId });
 }
 
 // ---- Permissions, approvals, and the Vault (Phase 7) --------------------------------------

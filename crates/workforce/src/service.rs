@@ -31,6 +31,9 @@ use crate::templates::{
 };
 use crate::view::OrgView;
 
+mod after_limit;
+pub use after_limit::reset_page;
+
 /// Actor recorded for the owner's changes.
 pub const OWNER: &str = "owner";
 /// Actor recorded for Plenipo's own changes (seeding role templates).
@@ -124,6 +127,9 @@ struct Inner {
     /// Held from a Free limit's check to the Ledger write it allows (Phase 11A): two made at
     /// once never both pass.
     making: Mutex<()>,
+    /// Set while work a usage limit stopped is being picked up (Phase 25, item 4.2): two
+    /// pick-ups at once never give the same work twice.
+    picking_up: std::sync::atomic::AtomicBool,
 }
 
 /// Cheap to clone; clones share state.
@@ -195,6 +201,7 @@ impl Workforce {
                 notices: Mutex::new(Vec::new()),
                 refreshing: Mutex::new(()),
                 making: Mutex::new(()),
+                picking_up: std::sync::atomic::AtomicBool::new(false),
             }),
         };
         match ledger.ensure_roles(&role_templates(), PLENIPO) {
