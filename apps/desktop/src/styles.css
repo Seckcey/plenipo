@@ -5523,8 +5523,11 @@ body.popout {
   user-select: all;
 }
 
-/* A card's own button (Message): below its lines, on a line of its own. */
+/* A card's own buttons (Message, Report, Block): below its lines, on a line of their own. */
 .people-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2);
   margin-top: var(--ui-space-2);
 }
 
@@ -5946,6 +5949,168 @@ body.popout {
 .give-to-worker textarea {
   box-sizing: border-box;
   width: 100%;
+}
+
+/* ---- Block, Unblock, Report, and Delete my Community data (Phase 24, ADR-167) -------------- */
+
+/* "You blocked @pat." with Unblock beside it, where the box to write in would be. */
+.conversation__blocked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-sunken);
+}
+
+.conversation__blocked p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A step to take first (Report first), on the left of a question's buttons. */
+.modal__extra {
+  margin-right: auto;
+}
+
+.report {
+  display: grid;
+  gap: var(--ui-space-4);
+  min-width: 0;
+}
+
+.report p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.report fieldset {
+  min-width: 0;
+  margin: 0;
+}
+
+/* The ten reasons: as many to a line as fit. */
+.report__reasons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+}
+
+.report__messages {
+  display: grid;
+  gap: var(--ui-space-3);
+  padding: 0;
+  border: 0;
+}
+
+.report__messages legend {
+  margin-bottom: var(--ui-space-2);
+  padding: 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.report__list {
+  display: grid;
+  gap: var(--ui-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report__message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  cursor: pointer;
+}
+
+.report__message:has(input:checked) {
+  border-color: var(--ui-accent);
+}
+
+.report__what {
+  display: grid;
+  gap: var(--ui-space-1);
+  min-width: 0;
+}
+
+.report__when {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.report__words {
+  display: block;
+}
+
+.report textarea {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+}
+
+.report__count {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.report__count--full {
+  color: var(--ui-warn-text);
+  font-weight: var(--ui-weight-semibold);
+}
+
+/* Settings → Community → Blocked: one person to a line, with Unblock. */
+.blocked {
+  display: grid;
+  gap: var(--ui-space-3);
+  max-width: 480px;
+}
+
+.blocked h3,
+.blocked p {
+  margin: 0;
+}
+
+.blocked__list {
+  display: grid;
+  gap: var(--ui-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.blocked__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+}
+
+.blocked__who {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Delete my Community data from this PC: after everything else, with its own space. */
+.community-delete {
+  display: grid;
+  gap: var(--ui-space-3);
+  max-width: 480px;
+  padding-top: var(--ui-space-4);
+  border-top: 1px solid var(--ui-border);
+}
+
+.community-delete p {
+  margin: 0;
 }
 
 @media (max-width: 760px) {

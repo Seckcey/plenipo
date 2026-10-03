@@ -23,6 +23,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     joinCommunity: vi.fn(),
     signOutOfCommunity: vi.fn(),
     openCommunityPage: vi.fn(),
+    communityBlocked: vi.fn(),
   };
 });
 // The handler the page gave to listen for changes: calling it is "Community changed".
@@ -89,6 +90,8 @@ async function fillIn(user: ReturnType<typeof userEvent.setup>, name: string, ye
 beforeEach(() => {
   vi.clearAllMocks();
   changed.current = () => undefined;
+  // No one is blocked (Settings → Community reads the list when you are signed in).
+  api.communityBlocked.mockResolvedValue([]);
 });
 
 afterEach(() => setSystemWords(SYSTEM_WORDS.windows));

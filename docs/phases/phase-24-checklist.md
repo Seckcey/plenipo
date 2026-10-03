@@ -145,8 +145,8 @@ are written and tested; they reach the live service, still switched off, when th
       steps), and **Invite someone** (ADR-169, ADR-172 §3, §4). The **Thanks** button comes with
       parts 24D and 24E
 - [x] **Give to a worker**, fenced as outside words (a new `fence::Source` kind) (ADR-164 §9)
-- [ ] Block, report (with the proof), and leave, everywhere (ADR-167)
-- [ ] **Delete my Community data from this PC** (ADR-168 §3)
+- [x] Block, report (with the proof), and leave, everywhere (ADR-167)
+- [x] **Delete my Community data from this PC** (ADR-168 §3)
 - [ ] Ledger events `community.*`, never a message's words
 - [ ] New desktop commands, main window only, with IPC tests
 - [x] **Coming soon** while the account service says Community is not open, **Check again**,
@@ -197,7 +197,7 @@ are written and tested; they reach the live service, still switched off, when th
 - [ ] No file, path, sign-in, key, or Ledger content crosses between organizations unless an owner
       sends it on purpose
 - [ ] Removing a collaborator ends their access at once
-- [ ] A made-up report (words nobody sent) is refused (ADR-164 §6)
+- [x] A made-up report (words nobody sent) is refused (ADR-164 §6)
 - [ ] An approval only the owner can answer refuses a collaborator's answer (ADR-166 §3)
 - [ ] Each time in ADR-168 is enforced by the cleanup
 - [x] A Free copy that never signs in to Community still never contacts 8 West (ADR-162 §5)

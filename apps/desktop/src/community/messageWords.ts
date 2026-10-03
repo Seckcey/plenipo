@@ -125,11 +125,14 @@ export function countChars(text: string): number {
   return Array.from(text).length;
 }
 
+/** `text` cut to at most `most` characters (never in the middle of an emoji's pair). */
+export function cutChars(text: string, most: number): string {
+  return countChars(text) <= most ? text : Array.from(text).slice(0, most).join("");
+}
+
 /** `text` cut to at most `MAX_MESSAGE_CHARS` characters (never in the middle of an emoji's pair). */
 export function limitChars(text: string): string {
-  return countChars(text) <= MAX_MESSAGE_CHARS
-    ? text
-    : Array.from(text).slice(0, MAX_MESSAGE_CHARS).join("");
+  return cutChars(text, MAX_MESSAGE_CHARS);
 }
 
 /** When a message was sent or taken by 8 West (Unix seconds), in the person's own time zone. */
@@ -146,4 +149,13 @@ export function messageTime(seconds: number): string {
 /** The same moment for a `<time>` tag. */
 export function messageIso(seconds: number): string {
   return new Date(seconds * 1000).toISOString();
+}
+
+/** A day (Unix seconds) as a date in the person's own language and time zone. */
+export function onDate(seconds: number): string {
+  return new Date(seconds * 1000).toLocaleDateString([], {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 }

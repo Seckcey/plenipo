@@ -15,7 +15,10 @@ import {
 } from "../api/commands";
 import type { Go } from "../components/views";
 import { sentenceStart, systemWords } from "../system/words";
+import { BlockedPeople } from "./BlockedPeople";
+import { DeleteMyData } from "./DeleteMyData";
 import { LeaveCommunityDialog } from "./LeaveCommunity";
+import { onDate } from "./messageWords";
 import { sameProfile } from "./profileWords";
 import { oneLine } from "./safeText";
 import { useCommunity } from "./useCommunity";
@@ -41,15 +44,6 @@ const MONTHS = [
   "November",
   "December",
 ] as const;
-
-/** A day in Unix seconds, as a date in the person's own language and time zone. */
-function onDate(seconds: number): string {
-  return new Date(seconds * 1000).toLocaleDateString([], {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-}
 
 /** What you type for a Community name: small letters, numbers, and dashes only. */
 function cleanName(typed: string): string {
@@ -389,6 +383,7 @@ export function CommunitySettings({ go }: { go: Go }) {
               />
             </>
           )}
+          <BlockedPeople />
           <div className="settings-section__actions">
             <Button disabled={busy} onClick={() => run(signOutOfCommunity)}>
               Sign out of your account
@@ -420,6 +415,7 @@ export function CommunitySettings({ go }: { go: Go }) {
           {problem}
         </p>
       ))}
+      {view.stage !== "signingIn" && view.stage !== "joining" && <DeleteMyData />}
       {leaving && (
         <LeaveCommunityDialog
           onCancel={() => setLeaving(false)}

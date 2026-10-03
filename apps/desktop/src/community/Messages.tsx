@@ -1,4 +1,4 @@
-import { useId, useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import type { ConversationSummary } from "@plenipo/types";
 import { CountBadge, Icon } from "@plenipo/ui";
 
@@ -101,6 +101,15 @@ export function Messages({
 }) {
   const requestsId = useId();
   const listId = useId();
+  // The people blocked in this tab: a conversation says so, with Unblock (Settings has the list).
+  const [blocked, setBlocked] = useState<ReadonlySet<string>>(new Set());
+  const markBlocked = (memberId: string, yes: boolean) =>
+    setBlocked((before) => {
+      const next = new Set(before);
+      if (yes) next.add(memberId);
+      else next.delete(memberId);
+      return next;
+    });
   const { list, error, listAt, reload, changes } = messages;
   const { requests, rest } = useMemo(() => {
     const shown = (list ?? [])
@@ -171,6 +180,8 @@ export function Messages({
             listAt={listAt}
             changes={changes}
             go={go}
+            blocked={blocked.has(target.memberId)}
+            onBlocked={markBlocked}
             onBack={() => onTarget(null)}
             onChanged={reload}
           />

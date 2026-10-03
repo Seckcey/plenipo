@@ -21,6 +21,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     saveCommunityProfile: vi.fn(),
     setCommunityAppearOffline: vi.fn(),
     openCommunityPage: vi.fn(),
+    communityBlocked: vi.fn(),
   };
 });
 // The handler the page gave to listen for changes: calling it is "Community changed".
@@ -96,6 +97,8 @@ const kinds = () => within(screen.getByRole("group", { name: "What your business
 beforeEach(() => {
   vi.clearAllMocks();
   changed.current = () => undefined;
+  // No one is blocked (Settings → Community reads the list when you are signed in).
+  api.communityBlocked.mockResolvedValue([]);
 });
 
 describe("the words for your profile", () => {
