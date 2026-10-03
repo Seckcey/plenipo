@@ -10,6 +10,8 @@
 - **Builds on:** [ADR-164 (private messages, sealed)](ADR-164-private-messages-sealed.md) §6, the
   proof that makes a report trustworthy; [ADR-107 (admin sign-in)](ADR-107-admin-sign-in.md), the
   page where 8 West works
+- **Amended by:** [ADR-173 (leave deletes from this PC)](ADR-173-leave-deletes-from-this-pc.md):
+  **Leave this conversation** deletes it from this PC only (§14).
 
 > **On screen** (ADR-010, plain words and rank names): **Block**, **Unblock**, **Report**, **What is
 > wrong?**, **Spam**, **Harassment or threats**, **A scam**, **Hate**, **Sexual content**, **Someone

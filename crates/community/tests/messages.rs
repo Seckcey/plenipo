@@ -238,6 +238,10 @@ async fn leaving_a_conversation_stops_their_messages() {
         .await
         .unwrap();
     assert_eq!(state(&pat, &f), "leftByMe");
+    assert!(
+        texts(&pat, &f).is_empty(),
+        "deleted from Pat's PC (ADR-173)"
+    );
     assert!(pat
         .events
         .names()

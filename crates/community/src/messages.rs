@@ -812,8 +812,8 @@ impl<T: Transport> Community<T> {
         Ok(())
     }
 
-    /// **Leave this conversation** (contract §5): decline a request, take yours back, or stop
-    /// getting their messages. What is on this PC stays until you delete it.
+    /// **Leave this conversation** (contract §5, ADR-167 §14): decline a request, take yours
+    /// back, or stop getting their messages. Its messages are deleted from this PC (ADR-173).
     pub async fn leave_conversation(
         &self,
         ledger: &Ledger,
@@ -827,6 +827,9 @@ impl<T: Transport> Community<T> {
         if let Some(mut person) = ledger.community_person(member_id).map_err(kept)? {
             person.state = PersonState::LeftByMe;
             ledger.community_put_person(&person).map_err(kept)?;
+            ledger
+                .community_delete_conversation(member_id)
+                .map_err(kept)?;
             self.record(
                 "community.conversation_left",
                 json!({ "name": person.name }),

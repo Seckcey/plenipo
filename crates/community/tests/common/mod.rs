@@ -6,6 +6,7 @@
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use plenipo_community::profile::{ProfileDraft, Tile, TileStatus};
 use plenipo_community::service::{Clock, Community, Recorder, Settings, Store};
 use plenipo_community::stand_in::{AccountId, StandIn};
 use plenipo_ledger::Ledger;
@@ -152,8 +153,14 @@ impl World {
         self.sign_in(&pc, id).await;
         pc.account = Some(id);
         let terms = pc.community.view(true).terms.expect("the terms version");
+        let tile = Tile {
+            status: TileStatus::Available,
+            mood: None,
+            message: String::new(),
+            picture: None,
+        };
         pc.community
-            .join(name, 3, birth_year, &terms)
+            .join(name, 3, birth_year, &terms, &ProfileDraft::default(), &tile)
             .await
             .unwrap();
         pc

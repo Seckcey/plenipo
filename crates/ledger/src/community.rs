@@ -432,6 +432,18 @@ impl Ledger {
         })
     }
 
+    /// **Leave this conversation**: its messages leave this PC; the person stays, so this PC knows
+    /// you left (ADR-173).
+    pub fn community_delete_conversation(&self, member_id: &str) -> Result<()> {
+        self.write(|tx, _| {
+            tx.execute(
+                "DELETE FROM community_items WHERE member_id = ?1",
+                [member_id],
+            )?;
+            Ok(())
+        })
+    }
+
     /// **Delete my Community data from this PC**: every conversation and message. The events
     /// about Community stay in Activity; they never held a message's words.
     pub fn community_delete_all(&self) -> Result<()> {
@@ -552,6 +564,13 @@ mod tests {
             .map(|i| i.item_id)
             .collect();
         assert_eq!(left, [id(3)]);
+        l.community_add_item(&item(&id(4), 230, false)).unwrap();
+        l.community_delete_conversation(PAT).unwrap();
+        assert!(l.community_items(PAT, None, 50).unwrap().is_empty());
+        assert!(
+            l.community_person(PAT).unwrap().is_some(),
+            "the person stays"
+        );
         l.community_delete_all().unwrap();
         assert!(l.community_people().unwrap().is_empty());
         assert!(l.community_item(&id(3)).unwrap().is_none());
