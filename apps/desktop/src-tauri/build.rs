@@ -127,6 +127,8 @@ const COMMANDS: &[&str] = &[
     "remove_model",
     "set_role_policy",
     "set_routing_options",
+    "get_plan_paces",
+    "set_plan_budget",
     "clear_usage_limit",
     "get_limit_waits",
     "pick_up_work_now",

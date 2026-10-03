@@ -213,6 +213,7 @@ pub(crate) fn request<'a>(
             .map(|d| (d.id.as_str(), d.name.as_str())),
         project: project.map(|p| (p.name.as_str(), p.allowed_runtimes.as_slice())),
         reviewed,
+        low_priority: false,
     }
 }
 
@@ -225,7 +226,26 @@ pub(crate) fn decide(
     project: Option<&Project>,
     reviewed: &[WorkDoneBy],
 ) -> RouteDecision {
-    let request = request(view, position, project, reviewed);
+    decide_with(planner, view, position, project, reviewed, false)
+}
+
+/// Priority 3 or 4 (0 is the highest) is low-priority work (Phase 25, item 4.6).
+const LOW_PRIORITY: u8 = 3;
+
+/// [`decide`], for work of a known priority: low-priority work goes to the plan with the most
+/// room left (Phase 25, item 4.6).
+pub(crate) fn decide_with(
+    planner: &Planner,
+    view: &OrgView<'_>,
+    position: &Position,
+    project: Option<&Project>,
+    reviewed: &[WorkDoneBy],
+    low_priority: bool,
+) -> RouteDecision {
+    let request = RouteRequest {
+        low_priority,
+        ..request(view, position, project, reviewed)
+    };
     match &position.runtime_id {
         Some(runtime) => planner.fixed(
             &request,
@@ -464,7 +484,16 @@ impl Directory for WorkforceDirectory {
         // The work is the lead's team's: its project, and that project's runtimes, apply
         // (also to an overseer from outside the project).
         let project = view.project_of(&lead.id);
-        let decision = decide(&planner, &view, target, project, reviewed);
+        // Low-priority work (priority 3 or 4, 0 being the highest) goes to the plan with the
+        // most room left (Phase 25, item 4.6).
+        let decision = decide_with(
+            &planner,
+            &view,
+            target,
+            project,
+            reviewed,
+            requester.priority >= LOW_PRIORITY,
+        );
         let Some(choice) = decision.choice.clone() else {
             return Err(format!(
                 "{} cannot take work now: {} The owner can change this in Plenipo's settings",

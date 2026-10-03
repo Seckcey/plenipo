@@ -8,6 +8,7 @@ import { useRun } from "../guard/useRun";
 import { when } from "../pages/words";
 import { useRouting } from "../routing/useRouting";
 import { AiToolCard, type KeyCard } from "./aiTools/AiToolCard";
+import { PlansView } from "./aiTools/PlansView";
 import { foldedInto, keyToolFor } from "./aiTools/keyFor";
 import { useAiTools } from "./aiTools/useAiTools";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_LABEL } from "./aiTools/words";
@@ -109,6 +110,7 @@ export function AgentRuntimeCards({
 
   return (
     <>
+      <PlansView />
       <div className="section-header">
         <h2>Your AI tools</h2>
       </div>

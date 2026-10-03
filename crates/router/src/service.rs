@@ -51,6 +51,9 @@ pub struct RouteRequest<'a> {
     pub project: Option<(&'a str, &'a [String])>,
     /// The work the worker reviews: each AI tool and the model it ran (cross-company review).
     pub reviewed: &'a [plenipo_runtime::agent::WorkDoneBy],
+    /// Low-priority work (priority 3 or 4): it goes to the listed plan with the most room left
+    /// (Phase 25, item 4.6).
+    pub low_priority: bool,
 }
 
 /// The configuration, AI tool state, and roles, read once for several decisions.
@@ -61,9 +64,9 @@ pub struct Planner {
     pub now: u64,
     /// The spending caps, for paid routes (ADR-085).
     ledger: Option<Arc<plenipo_ledger::Ledger>>,
-    /// How much of each AI tool's plan is used now, in percent, as it last reported (Phase 25,
-    /// item 4.5): the fullest window that has not started again, 100 when it said it is limited.
-    pub plan_used: HashMap<String, u8>,
+    /// Each AI tool's plan windows and their pace (Phase 25, items 4.5 and 4.6): as it last
+    /// reported them, a limited plan as full, or estimated against the owner's weekly budget.
+    pub plans: HashMap<String, Vec<crate::pace::WindowPace>>,
 }
 
 impl Planner {
@@ -99,7 +102,8 @@ impl Planner {
             // review.
             step_down_at: (self.config.options.step_down && request.reviewed.is_empty())
                 .then_some(self.config.options.step_down_at),
-            plan_used: &self.plan_used,
+            plans: &self.plans,
+            low_priority: request.low_priority,
             now: self.now,
             spending_room: self.ledger.as_ref().and_then(|l| {
                 l.spending_room(
@@ -324,22 +328,6 @@ impl Planner {
     }
 }
 
-/// How much of a plan is used now (percent): the fullest window that has not started again, 100
-/// when the AI tool said it is limited; `None` when it reported no share.
-fn plan_used(plan: &plenipo_runtime::agent::PlanReport, now: u64) -> Option<u8> {
-    let fullest = plan
-        .windows
-        .iter()
-        .filter(|w| w.resets_at.is_none_or(|r| r > now))
-        .filter_map(|w| w.used_percent)
-        .max();
-    if plan.limited {
-        Some(100)
-    } else {
-        fullest
-    }
-}
-
 fn to_ledger(e: RouterError) -> LedgerError {
     match e {
         RouterError::Ledger(e) => e,
@@ -548,21 +536,98 @@ impl Router {
             .into_iter()
             .map(|r| (r.id, r.name))
             .collect();
-        let plan_used = tools
-            .iter()
-            .filter_map(|t: &ToolState| {
-                let plan = (self.inner.plans)(&t.info.id)?;
-                plan_used(&plan, now).map(|used| (t.info.id.clone(), used))
-            })
-            .collect();
+        let plans = self.paces(&tools, &config, now);
         Ok(Planner {
             config,
             tools,
             roles,
             now,
             ledger: Some(Arc::clone(&self.inner.ledger)),
-            plan_used,
+            plans,
         })
+    }
+
+    /// Each AI tool's plan windows with their pace (Phase 25, items 4.5 and 4.6): as it reported
+    /// them, or, for an AI tool that reports nothing, this week's tokens against the owner's
+    /// weekly budget for it, marked estimated. Night hours count by the owner's night weight.
+    fn paces(
+        &self,
+        tools: &[ToolState],
+        config: &RoutingConfig,
+        now: u64,
+    ) -> HashMap<String, Vec<crate::pace::WindowPace>> {
+        let hour = |at: u64| plenipo_ledger::spending::pacific_hour(at);
+        let night = config.options.night_weight;
+        let mut out = HashMap::new();
+        for t in tools.iter().filter(|t| !t.paid) {
+            let reported = (self.inner.plans)(&t.info.id)
+                .map(|p| crate::pace::plan_paces(&p, now, night, &hour))
+                .unwrap_or_default();
+            let windows = match (reported.is_empty(), config.budgets.get(&t.info.id)) {
+                (true, Some(&budget)) => {
+                    let start = plenipo_ledger::spending::pacific_week_start(now);
+                    let tokens: u64 = self
+                        .ledger()
+                        .token_steps(&t.info.id, start, now.saturating_add(1))
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|s| s.read.unwrap_or(0).saturating_add(s.written.unwrap_or(0)))
+                        .sum();
+                    let w = crate::pace::estimated_window(tokens, budget, start);
+                    crate::pace::window_pace(&w, now, night, &hour, true)
+                        .into_iter()
+                        .collect()
+                }
+                _ => reported,
+            };
+            if !windows.is_empty() {
+                out.insert(t.info.id.clone(), windows);
+            }
+        }
+        out
+    }
+
+    /// Every subscription AI tool's plan and its pace, for the Plans view (Phase 25, item 4.6).
+    pub fn plan_paces(&self) -> Result<Vec<ToolPaces>> {
+        let planner = self.planner()?;
+        Ok(planner
+            .tools
+            .iter()
+            .filter(|t| !t.paid && not_ready(&t.info).is_none())
+            .map(|t| ToolPaces {
+                runtime_id: t.info.id.clone(),
+                label: t.info.label.clone(),
+                windows: planner.plans.get(&t.info.id).cloned().unwrap_or_default(),
+                weekly_budget: planner.config.budgets.get(&t.info.id).copied(),
+            })
+            .collect())
+    }
+
+    /// The owner's weekly budget of tokens for an AI tool that reports nothing of its plan
+    /// (Phase 25, item 4.6); `None` removes it.
+    pub fn set_budget(&self, runtime_id: &str, tokens: Option<u64>) -> Result<RoutingSnapshot> {
+        let tool = self
+            .tools()
+            .into_iter()
+            .find(|t| t.id == runtime_id)
+            .ok_or_else(|| {
+                RouterError::Invalid(format!("there is no AI tool named {runtime_id:?}"))
+            })?;
+        if tokens.is_some_and(|t| t == 0 || t > MAX_WEEKLY_BUDGET) {
+            return Err(RouterError::Invalid(
+                "a weekly budget is from 1 to 1,000,000,000,000 tokens".into(),
+            ));
+        }
+        self.update("router.budget_changed", OWNER, |c| {
+            match tokens {
+                Some(n) => c.budgets.insert(tool.id.clone(), n),
+                None => c.budgets.remove(&tool.id),
+            };
+            Ok(Some(
+                json!({ "runtimeId": tool.id, "label": tool.label, "tokens": tokens }),
+            ))
+        })?;
+        self.snapshot()
     }
 
     /// Everything the Settings page shows.
@@ -700,6 +765,7 @@ impl Router {
             seen,
             companies,
             options: planner.config.options,
+            budgets: planner.config.budgets.clone(),
             api_billing: false,
             notices,
             generated_at: planner.now,
@@ -833,6 +899,11 @@ impl Router {
                 "work steps down from 50% to 99% of a plan used".into(),
             ));
         }
+        if options.night_weight > 100 {
+            return Err(RouterError::Invalid(
+                "a night hour counts for 0% to 100% of a day hour".into(),
+            ));
+        }
         self.update("router.options_changed", OWNER, |c| {
             c.options = options;
             Ok(Some(json!({ "options": options })))
@@ -957,6 +1028,54 @@ mod tests {
             .find(|r| r.role_id == role)
             .and_then(|r| r.next.choice.as_ref())
             .map(|c| c.model_id.clone())
+    }
+
+    /// Phase 25, item 4.6: an AI tool that reports nothing is paced against the owner's weekly
+    /// budget of tokens, marked estimated; the budget and the night weight are checked and
+    /// recorded.
+    #[test]
+    fn a_weekly_budget_paces_an_ai_tool_that_reports_nothing() {
+        let (ledger, router, _) = setup();
+        let paces = router.plan_paces().unwrap();
+        assert_eq!(paces.len(), 2);
+        assert!(paces
+            .iter()
+            .all(|t| t.windows.is_empty() && t.weekly_budget.is_none()));
+        let s = router.set_budget("alpha", Some(2_000_000)).unwrap();
+        assert_eq!(s.budgets.get("alpha"), Some(&2_000_000));
+        let changed = ledger.recent_events(1).unwrap().remove(0);
+        assert_eq!(changed.event_type, "router.budget_changed");
+        assert_eq!(changed.payload["tokens"], 2_000_000);
+        let alpha = router
+            .plan_paces()
+            .unwrap()
+            .into_iter()
+            .find(|t| t.runtime_id == "alpha")
+            .unwrap();
+        assert_eq!(alpha.weekly_budget, Some(2_000_000));
+        let week = &alpha.windows[0];
+        assert!(week.estimated);
+        assert_eq!((week.used_percent, week.minutes), (0, Some(7 * 24 * 60)));
+        // Refused: no budget of nothing, nor for an AI tool that isn't there.
+        assert!(router.set_budget("alpha", Some(0)).is_err());
+        assert!(router.set_budget("gamma", Some(5)).is_err());
+        // Removed.
+        let s = router.set_budget("alpha", None).unwrap();
+        assert!(s.budgets.is_empty());
+        // A night hour counts for 0% to 100% of a day hour.
+        let options = RoutingOptions {
+            night_weight: 101,
+            ..RoutingOptions::default()
+        };
+        assert!(router.set_options(options).is_err());
+        let options = RoutingOptions {
+            night_weight: 25,
+            ..RoutingOptions::default()
+        };
+        assert_eq!(
+            router.set_options(options).unwrap().options.night_weight,
+            25
+        );
     }
 
     #[test]

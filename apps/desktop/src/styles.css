@@ -1530,6 +1530,50 @@ body.popout {
   outline-offset: 2px;
 }
 
+/* Your plans (Phase 25, item 4.6): every plan, its pace, and paid spending. */
+.plans {
+  margin-bottom: 20px;
+}
+
+.plans__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.plans__tool h3 {
+  margin: 0 0 6px;
+  font-size: var(--ui-font-md, 1rem);
+}
+
+.plans__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ui-font-sm);
+}
+
+.plans__table th,
+.plans__table td {
+  text-align: left;
+  padding: 4px 8px 4px 0;
+  vertical-align: top;
+}
+
+.plans__budget {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.plans__spending {
+  margin-top: 10px;
+  font-size: var(--ui-font-sm);
+}
+
 .ai-tools__bar {
   display: flex;
   flex-wrap: wrap;

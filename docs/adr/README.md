@@ -176,3 +176,4 @@ architecture must be recorded here.
 | [255](ADR-255-step-down-instead-of-stopping.md)                      | Step down instead of stopping: lower effort, then a smaller model, then your key, then wait; on to start with          | Accepted |
 | [256](ADR-256-check-answers-against-what-really-happened.md)         | Check answers against what really happened: Plenipo's record under every answer, four plain checks, sent back once     | Accepted |
 | [257](ADR-257-catch-made-up-answers-step-2.md)                       | Catch made-up answers, step 2: links checked through Guard, leads send work back, a notice on repeat failures          | Accepted |
+| [258](ADR-258-spread-use-across-the-week-and-the-month.md)           | Spread use across the week and the month: a fair pace per window, ahead steps down early, Your plans                   | Accepted |

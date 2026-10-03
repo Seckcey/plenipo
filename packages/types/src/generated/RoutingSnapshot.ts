@@ -31,6 +31,11 @@ agents: Array<AgentRuleView>, seen: Array<ModelSeen>,
  */
 companies: Array<Maker>, options: RoutingOptions, 
 /**
+ * The owner's weekly budget of tokens for each AI tool that reports nothing of its plan,
+ * by runtime ID (Phase 25, item 4.6).
+ */
+budgets: Record<string, number>, 
+/**
  * Pay-per-use API billing (always off in this version; ADR-007).
  */
 apiBilling: boolean, notices: Array<string>, generatedAt: number, };

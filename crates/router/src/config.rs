@@ -32,6 +32,9 @@ pub struct RoutingConfig {
     pub options: RoutingOptions,
     /// When the owner last asked to try each runtime again after a usage limit (ms).
     pub cleared_limits: BTreeMap<String, u64>,
+    /// The owner's weekly budget of tokens for each AI tool that reports nothing of its plan,
+    /// by runtime ID (Phase 25, item 4.6).
+    pub budgets: BTreeMap<String, u64>,
 }
 
 /// What one AI tool takes: its name, its effort levels, and its own models' levels.

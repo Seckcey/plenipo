@@ -144,12 +144,24 @@ describe("Settings → Switches", () => {
       onUsageLimit: "wait",
       stepDown: true,
       stepDownAt: 90,
+      nightWeight: 50,
+    });
+    // Phase 25, item 4.6: how much a night hour counts when a plan's use is paced.
+    const night = screen.getByRole("combobox", { name: "A night hour (8 PM to 8 AM) counts as" });
+    expect(night).toHaveDisplayValue("half a day hour");
+    await user.selectOptions(night, "a quarter of a day hour");
+    expect(api.setRoutingOptions).toHaveBeenLastCalledWith({
+      onUsageLimit: "wait",
+      stepDown: true,
+      stepDownAt: 90,
+      nightWeight: 25,
     });
     await user.click(stepDown);
     expect(api.setRoutingOptions).toHaveBeenLastCalledWith({
       onUsageLimit: "wait",
       stepDown: false,
       stepDownAt: 90,
+      nightWeight: 25,
     });
     expect(await screen.findByRole("combobox", { name: "Start stepping down at" })).toBeDisabled();
   });

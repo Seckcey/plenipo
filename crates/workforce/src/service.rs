@@ -875,6 +875,7 @@ impl Workforce {
             department: department.map(|d| (d.id.as_str(), d.name.as_str())),
             project: project.map(|p| (p.name.as_str(), p.allowed_runtimes.as_slice())),
             reviewed: &[],
+            low_priority: false,
         };
         let decision = self.inner.router.planner()?.fixed(
             &request,

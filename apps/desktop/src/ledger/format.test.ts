@@ -406,6 +406,20 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
     expect(describeEvent(event("router.options_changed", { options: { stepDown: false } }))).toBe(
       "Usage-limit setting changed · Step down is off",
     );
+    // Phase 25, item 4.6: pacing.
+    expect(
+      describeEvent(
+        event("router.options_changed", {
+          options: { stepDown: true, stepDownAt: 80, nightWeight: 25 },
+        }),
+      ),
+    ).toBe("Usage-limit setting changed · Step down from 80% used · a night hour counts 25%");
+    expect(
+      describeEvent(event("router.budget_changed", { label: "Kimi Code", tokens: 2000000 })),
+    ).toBe("Weekly budget for Kimi Code: 2,000,000 tokens");
+    expect(
+      describeEvent(event("router.budget_changed", { label: "Kimi Code", tokens: null })),
+    ).toBe("Weekly budget for Kimi Code removed");
     expect(describeEvent(event("work.picked_up", { label: "Claude Code" }))).toBe(
       "Plenipo picked this work back up after Claude Code's usage limit",
     );

@@ -87,8 +87,12 @@ pub struct RouteInput<'a> {
     /// Step down from this share of a plan used (percent), when stepping down is on and the
     /// work is not a review (Phase 25, item 4.5; ADR-255). `None`: never.
     pub step_down_at: Option<u8>,
-    /// How much of each AI tool's plan is used now (percent), as it last reported.
-    pub plan_used: &'a std::collections::HashMap<String, u8>,
+    /// Each AI tool's plan windows and their pace (Phase 25, items 4.5 and 4.6), as it last
+    /// reported them or as estimated against the owner's weekly budget.
+    pub plans: &'a std::collections::HashMap<String, Vec<crate::pace::WindowPace>>,
+    /// Low-priority work (priority 3 or 4) goes to the listed plan with the most room left
+    /// (Phase 25, item 4.6).
+    pub low_priority: bool,
     pub now: u64,
     /// What is left this month under the spending caps covering this work (ADR-085): a paid
     /// route is skipped when nothing is. None: not known, or no paid route can run anyway.
@@ -515,12 +519,20 @@ fn step_down(
     if t.paid || listing.is_some_and(|l| l.source.layer == RuleLayer::Agent) {
         return None;
     }
-    let used = *input.plan_used.get(&t.info.id)?;
-    if used < line {
+    // The window that steps work down furthest: past the line (unless behind pace), or well
+    // ahead of pace (Phase 25, item 4.6).
+    let (level, window) = input
+        .plans
+        .get(&t.info.id)?
+        .iter()
+        .map(|w| (crate::pace::level(w, line), w))
+        .max_by_key(|(level, w)| (*level, w.used_percent))?;
+    if level == 0 {
         return None;
     }
-    let deep = used >= line + (100u8.saturating_sub(line)) / 2;
-    let smaller = deep.then(|| smaller_model(t, m.name.as_deref())).flatten();
+    let smaller = (level >= 2)
+        .then(|| smaller_model(t, m.name.as_deref()))
+        .flatten();
     let model = smaller
         .as_ref()
         .map_or_else(|| m.name.clone(), |(n, _)| Some(n.clone()));
@@ -543,8 +555,8 @@ fn step_down(
         return None;
     }
     let words = format!(
-        "{}'s plan is {used}% used (your line is {line}%), so it steps down: {}",
-        t.info.label,
+        "{}, so it steps down: {}",
+        crate::pace::why(&t.info.label, window, line),
         what.join(", at ")
     );
     Some((model, lowered, new_label, words))
@@ -654,6 +666,34 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 },
             )
         });
+    }
+
+    // Low-priority work goes to the listed plan with the most room left (Phase 25, item 4.6):
+    // the same order when room is equal, and a plan with nothing reported (or a paid route)
+    // after one with room. Never for a review, whose order is about who made the work.
+    let mut roomier: Option<(String, String)> = None;
+    if input.low_priority && input.reviewed.is_empty() {
+        let room = |c: &Candidate<'_>| -> Option<(u8, &ToolState)> {
+            let t = tool(&c.model?.runtime_id)?;
+            if t.paid {
+                return None;
+            }
+            Some((crate::pace::room(input.plans.get(&t.info.id)?)?, t))
+        };
+        let first = candidates.first().map(|c| c.id);
+        candidates.sort_by_key(|c| std::cmp::Reverse(room(c).map_or(-1i16, |(r, _)| i16::from(r))));
+        if candidates.first().map(|c| c.id) != first {
+            roomier = candidates.first().and_then(room).map(|(r, t)| {
+                (
+                    t.info.id.clone(),
+                    format!(
+                        "Low-priority work goes to the plan with the most room left: {}'s has \
+                         {r}% left.",
+                        t.info.label
+                    ),
+                )
+            });
+        }
     }
 
     // 3–5. Checks.
@@ -933,6 +973,12 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
             if let Some(words) = &stepped {
                 reason.push_str(&format!(" {words}."));
             }
+            if let Some((runtime, words)) = &roomier {
+                if *runtime == choice.runtime_id {
+                    reason.push(' ');
+                    reason.push_str(words);
+                }
+            }
             // Whether it costs money, and what a worker on it can do (ADR-085).
             if let Some(t) = tool(&choice.runtime_id) {
                 if choice.paid {
@@ -1148,7 +1194,8 @@ mod tests {
             reviewed: &reviewed,
             on_limit,
             step_down_at: None,
-            plan_used: &std::collections::HashMap::new(),
+            plans: &std::collections::HashMap::new(),
+            low_priority: false,
             now: NOW,
             spending_room: None,
         })
@@ -1558,7 +1605,8 @@ mod tests {
             reviewed: &[],
             on_limit: LimitBehavior::Wait,
             step_down_at: None,
-            plan_used: &std::collections::HashMap::new(),
+            plans: &std::collections::HashMap::new(),
+            low_priority: false,
             now: NOW,
             spending_room: None,
         })
@@ -1736,7 +1784,8 @@ mod tests {
             reviewed,
             on_limit: LimitBehavior::Wait,
             step_down_at: None,
-            plan_used: &std::collections::HashMap::new(),
+            plans: &std::collections::HashMap::new(),
+            low_priority: false,
             now: NOW,
             spending_room: None,
         })
@@ -1998,7 +2047,8 @@ mod tests {
             reviewed: &[],
             on_limit: LimitBehavior::NextChoice,
             step_down_at: None,
-            plan_used: &std::collections::HashMap::new(),
+            plans: &std::collections::HashMap::new(),
+            low_priority: false,
             now: NOW,
             spending_room: room,
         })
@@ -2056,7 +2106,8 @@ mod tests {
             reviewed: &[],
             on_limit: LimitBehavior::Wait,
             step_down_at: None,
-            plan_used: &std::collections::HashMap::new(),
+            plans: &std::collections::HashMap::new(),
+            low_priority: false,
             now: NOW,
             spending_room: room,
         })
@@ -2177,7 +2228,18 @@ mod tests {
         line: Option<u8>,
         used: u8,
     ) -> RouteDecision {
-        let plan_used = std::collections::HashMap::from([("claude-code".to_owned(), used)]);
+        let plans = std::collections::HashMap::from([(
+            "claude-code".to_owned(),
+            vec![crate::pace::WindowPace {
+                minutes: None,
+                models: None,
+                used_percent: used,
+                fair_percent: None,
+                pace: crate::pace::Pace::Unknown,
+                resets_at: None,
+                estimated: false,
+            }],
+        )]);
         route(&RouteInput {
             role: "Senior Developer",
             role_id: "dev",
@@ -2191,10 +2253,168 @@ mod tests {
             reviewed: &[],
             on_limit: LimitBehavior::Wait,
             step_down_at: line,
-            plan_used: &plan_used,
+            plans: &plans,
+            low_priority: false,
             now: NOW,
             spending_room: None,
         })
+    }
+
+    fn paced(
+        w: &World,
+        policy: &RolePolicy,
+        plans: &std::collections::HashMap<String, Vec<crate::pace::WindowPace>>,
+        now: u64,
+        low_priority: bool,
+    ) -> RouteDecision {
+        route(&RouteInput {
+            role: "Senior Developer",
+            role_id: "dev",
+            policy,
+            agent: None,
+            department: None,
+            organization: None,
+            models: &w.models,
+            tools: &w.tools,
+            project: None,
+            reviewed: &[],
+            on_limit: LimitBehavior::Wait,
+            step_down_at: Some(80),
+            plans,
+            low_priority,
+            now,
+            spending_room: None,
+        })
+    }
+
+    /// Phase 25, item 4.6 (ADR-258): a simulated week of steady work, twelve tasks each day
+    /// from 8 AM to 8 PM. Paced, work steps down early whenever the week is ahead of pace, and
+    /// the plan lasts to its reset; with the line alone (4.5), it runs out on the last task.
+    /// Every step down is recorded with the reason.
+    #[test]
+    fn a_simulated_week_keeps_the_pace_and_lasts_to_the_reset() {
+        use crate::pace::{window_pace, Pace, WindowPace};
+        use plenipo_runtime::agent::PlanWindow;
+        const HOUR: u64 = 3_600_000;
+        let w = claude_ladder();
+        let policy = prefer(&["opus-cc"]);
+        let start = NOW - NOW % (24 * HOUR);
+        let reset = start + 7 * 24 * HOUR;
+        let clock = move |at: u64| u32::try_from((at - start) / HOUR % 24).unwrap_or(0);
+        // What one task costs, in tenths of a percent of the week: Opus at high effort, at
+        // medium, and Sonnet at medium.
+        let cost = |d: &RouteDecision| {
+            let c = d.choice.as_ref().unwrap();
+            match (c.model.as_deref(), c.effort) {
+                (Some("opus"), Some(Effort::High)) => 16,
+                (Some("opus"), _) => 11,
+                _ => 4,
+            }
+        };
+        let week = |paced_by_time: bool| {
+            let (mut tenths, mut steps, mut ran_out) = (0u32, 0u32, None);
+            for day in 0..7 {
+                for hour in 8..20 {
+                    let now = start + (day * 24 + hour) * HOUR;
+                    let used = u8::try_from(tenths / 10).unwrap_or(100);
+                    if used >= 100 {
+                        ran_out.get_or_insert((day, hour));
+                        continue;
+                    }
+                    let mut window = PlanWindow {
+                        minutes: Some(7 * 24 * 60),
+                        used_percent: Some(used),
+                        resets_at: Some(reset),
+                        models: None,
+                    };
+                    if !paced_by_time {
+                        window.minutes = None;
+                    }
+                    let pace: WindowPace = window_pace(&window, now, 50, &clock, false).unwrap();
+                    let plans = std::collections::HashMap::from([(
+                        "claude-code".to_owned(),
+                        vec![pace.clone()],
+                    )]);
+                    let d = paced(&w, &policy, &plans, now, false);
+                    if let Some(words) = &d.stepped_down {
+                        steps += 1;
+                        assert!(
+                            words.contains("ahead of pace") || words.contains("your line is 80%"),
+                            "{words}"
+                        );
+                        assert!(d.reason.contains(words.as_str()), "{}", d.reason);
+                    } else {
+                        assert!(
+                            pace.pace != Pace::Ahead && used < 80,
+                            "day {day} {hour}:00, {used}% used: {pace:?}"
+                        );
+                    }
+                    tenths += cost(&d);
+                }
+            }
+            (tenths, steps, ran_out)
+        };
+        let (tenths, steps, ran_out) = week(true);
+        assert_eq!(ran_out, None, "paced, the plan lasts to its reset");
+        assert!(tenths < 1000, "{tenths}");
+        assert!(steps > 0);
+        let (_, _, ran_out) = week(false);
+        assert_eq!(ran_out, Some((6, 19)), "with the line alone it runs out");
+    }
+
+    /// Phase 25, item 4.6: behind pace, the best model, even past the line; low-priority work
+    /// goes to the listed plan with the most room left, and the reason says so.
+    #[test]
+    fn behind_pace_uses_the_best_model_and_low_priority_work_goes_where_there_is_room() {
+        use crate::pace::{Pace, WindowPace};
+        let window = |used: u8, fair: Option<u8>, pace: Pace| WindowPace {
+            minutes: Some(7 * 24 * 60),
+            models: None,
+            used_percent: used,
+            fair_percent: fair,
+            pace,
+            resets_at: Some(NOW + 3_600_000),
+            estimated: false,
+        };
+        let w = claude_ladder();
+        let policy = prefer(&["opus-cc"]);
+        let plans = std::collections::HashMap::from([(
+            "claude-code".to_owned(),
+            vec![window(85, Some(97), Pace::Behind)],
+        )]);
+        let d = paced(&w, &policy, &plans, NOW, false);
+        let c = d.choice.as_ref().unwrap();
+        assert_eq!(
+            (c.model.as_deref(), c.effort),
+            (Some("opus"), Some(Effort::High))
+        );
+        assert_eq!(d.stepped_down, None);
+
+        // Two plans listed: Claude Code's 70% used, Codex's 20%.
+        let mut both = claude_ladder();
+        let mut codex = tool("codex", "openai");
+        codex.info.label = "Codex".into();
+        both.tools.push(codex);
+        both.models.push(model("gpt-cx", "codex", "GPT"));
+        let policy = prefer(&["opus-cc", "gpt-cx"]);
+        let plans = std::collections::HashMap::from([
+            (
+                "claude-code".to_owned(),
+                vec![window(70, Some(70), Pace::OnPace)],
+            ),
+            ("codex".to_owned(), vec![window(20, Some(70), Pace::Behind)]),
+        ]);
+        let normal = paced(&both, &policy, &plans, NOW, false);
+        assert_eq!(normal.choice.as_ref().unwrap().runtime_id, "claude-code");
+        let low = paced(&both, &policy, &plans, NOW, true);
+        assert_eq!(low.choice.as_ref().unwrap().runtime_id, "codex");
+        assert!(
+            low.reason.ends_with(
+                "Low-priority work goes to the plan with the most room left: Codex's has 80% left."
+            ),
+            "{}",
+            low.reason
+        );
     }
 
     /// Phase 25, item 4.5 (ADR-255): each rung of the ladder, shown in the reason and recorded

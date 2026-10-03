@@ -114,6 +114,14 @@ function AiToolsUpdateSwitch() {
 /** The lines work can step down from, in percent of a plan used. */
 const STEP_DOWN_LINES = [70, 80, 90] as const;
 
+/** How much a night hour counts when a plan's use is spread over the week (Phase 25, item 4.6). */
+const NIGHT_WEIGHTS: readonly { value: number; label: string }[] = [
+  { value: 100, label: "the same as a day hour" },
+  { value: 50, label: "half a day hour" },
+  { value: 25, label: "a quarter of a day hour" },
+  { value: 0, label: "nothing (use is spread over the day only)" },
+];
+
 /**
  * Step down instead of stopping (Phase 25, item 4.5; ADR-255): a choice kept with the AI
  * models settings, shown here with the other switches. On to start with, from 80% used.
@@ -174,6 +182,29 @@ function StepDownSwitch() {
           ))}
         </select>
       </label>
+      <label className="field field--inline">
+        <span>A night hour (8 PM to 8 AM) counts as</span>
+        <select
+          value={options.nightWeight}
+          disabled={pending || !options.stepDown}
+          onChange={(e) =>
+            void run(() => setRoutingOptions({ ...options, nightWeight: Number(e.target.value) }))
+          }
+        >
+          {NIGHT_WEIGHTS.some((w) => w.value === options.nightWeight) ? null : (
+            <option value={options.nightWeight}>{options.nightWeight}% of a day hour</option>
+          )}
+          {NIGHT_WEIGHTS.map((w) => (
+            <option key={w.value} value={w.value}>
+              {w.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="muted">
+        Plenipo spreads each plan&apos;s use over its window: ahead of pace, work steps down early;
+        behind pace, it uses the best model freely. The AI tools page shows each plan&apos;s pace.
+      </p>
       {error && (
         <p className="form-error" role="alert">
           {error}

@@ -10,6 +10,7 @@ import type {
   KeyLimit,
   PlanWindow,
   UsageModel,
+  WindowPace,
 } from "@plenipo/types";
 
 import { count } from "../../pages/words";
@@ -269,4 +270,20 @@ export function dayName(start: number, today: number): string {
     month: "short",
     day: "numeric",
   });
+}
+
+/** "45% used, ahead of pace (27% by now)". */
+export function paceWords(w: WindowPace): string {
+  const used = `${w.estimated ? "About " : ""}${w.usedPercent}% used`;
+  const byNow = w.fairPercent === null ? "" : ` (${w.fairPercent}% by now)`;
+  switch (w.pace) {
+    case "ahead":
+      return `${used}, ahead of pace${byNow}`;
+    case "behind":
+      return `${used}, behind pace${byNow}`;
+    case "onPace":
+      return `${used}, on pace${byNow}`;
+    default:
+      return used;
+  }
 }

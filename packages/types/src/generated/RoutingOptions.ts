@@ -14,4 +14,9 @@ stepDown: boolean,
 /**
  * How much of a plan is used (percent) when work starts to step down: 80 to start with.
  */
-stepDownAt: number, };
+stepDownAt: number, 
+/**
+ * How much a night hour (8 PM to 8 AM, Pacific time) counts when a plan's use is spread
+ * over its window, in percent of a day hour: half to start with (Phase 25, item 4.6).
+ */
+nightWeight: number, };

@@ -346,11 +346,25 @@ function describeRouterEvent(type: string, p: Record<string, unknown>): string |
       return "Built-in roles got their starting model choices";
     case "router.options_changed": {
       // Phase 25, item 4.5: the step-down setting is kept with the usage-limit one.
-      const o = (p.options ?? {}) as { stepDown?: unknown; stepDownAt?: unknown };
-      if (o.stepDown === false) return "Usage-limit setting changed · Step down is off";
+      const o = (p.options ?? {}) as {
+        stepDown?: unknown;
+        stepDownAt?: unknown;
+        nightWeight?: unknown;
+      };
+      // Phase 25, item 4.6: how much a night hour counts when a plan's use is paced.
+      const night =
+        typeof o.nightWeight === "number" ? ` · a night hour counts ${o.nightWeight}%` : "";
+      if (o.stepDown === false) return `Usage-limit setting changed · Step down is off${night}`;
       if (o.stepDown === true && typeof o.stepDownAt === "number")
-        return `Usage-limit setting changed · Step down from ${o.stepDownAt}% used`;
+        return `Usage-limit setting changed · Step down from ${o.stepDownAt}% used${night}`;
       return "Usage-limit setting changed";
+    }
+    // Phase 25, item 4.6: a weekly budget of tokens for an AI tool that reports nothing.
+    case "router.budget_changed": {
+      const who = str(p.label) ?? "an AI tool";
+      return typeof p.tokens === "number"
+        ? `Weekly budget for ${who}: ${p.tokens.toLocaleString("en-US")} tokens`
+        : `Weekly budget for ${who} removed`;
     }
     case "router.limit_cleared":
       return `You asked to try ${str(p.label) ?? "an AI tool"} again after its usage limit`;

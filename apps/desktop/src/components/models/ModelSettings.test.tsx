@@ -629,6 +629,7 @@ describe("Settings → AI models", () => {
       onUsageLimit: "nextChoice",
       stepDown: true,
       stepDownAt: 80,
+      nightWeight: 50,
     });
     // A turn result (a usage limit, a model seen) reloads the settings.
     api.getRouting.mockClear();

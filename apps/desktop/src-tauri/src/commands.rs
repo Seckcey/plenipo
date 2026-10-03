@@ -1371,6 +1371,25 @@ pub async fn set_routing_options(
     with_router(&router, move |r| r.set_options(options)).await
 }
 
+/// Every subscription AI tool's plan and its pace, for the Plans view (Phase 25, item 4.6).
+#[tauri::command]
+pub async fn get_plan_paces(
+    router: Org<'_, Router>,
+) -> Result<Vec<plenipo_router::ToolPaces>, CommandError> {
+    with_router(&router, |r| r.plan_paces()).await
+}
+
+/// The owner's weekly budget of tokens for an AI tool that reports nothing of its plan (Phase
+/// 25, item 4.6); none removes it.
+#[tauri::command]
+pub async fn set_plan_budget(
+    router: Org<'_, Router>,
+    runtime_id: String,
+    tokens: Option<u64>,
+) -> Result<RoutingSnapshot, CommandError> {
+    with_router(&router, move |r| r.set_budget(&runtime_id, tokens)).await
+}
+
 /// Try an AI tool again now, although it reported a usage limit.
 #[tauri::command]
 pub async fn clear_usage_limit(

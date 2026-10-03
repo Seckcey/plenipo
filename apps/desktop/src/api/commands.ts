@@ -97,6 +97,7 @@ import type {
   SpecialtyInput,
   RoutingOptions,
   RoutingSnapshot,
+  ToolPaces,
   RuntimeOverview,
   Screenshot,
   SecretInput,
@@ -716,6 +717,16 @@ export function setModelRule(target: RuleTarget, rule: ModelRule): Promise<Routi
 
 export function setRoutingOptions(options: RoutingOptions): Promise<RoutingSnapshot> {
   return call<RoutingSnapshot>("set_routing_options", { options });
+}
+
+/** Every subscription AI tool's plan and its pace, for the Plans view (Phase 25, item 4.6). */
+export function getPlanPaces(): Promise<ToolPaces[]> {
+  return call<ToolPaces[]>("get_plan_paces");
+}
+
+/** A weekly budget of tokens for an AI tool that reports nothing of its plan; null removes it. */
+export function setPlanBudget(runtimeId: string, tokens: number | null): Promise<RoutingSnapshot> {
+  return call<RoutingSnapshot>("set_plan_budget", { runtimeId, tokens });
 }
 
 /** Try an AI tool again now, although it reported a usage limit. */

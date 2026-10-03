@@ -118,6 +118,8 @@
     "allow-remove-model",
     "allow-set-role-policy",
     "allow-set-routing-options",
+    "allow-get-plan-paces",
+    "allow-set-plan-budget",
     "allow-clear-usage-limit",
     "allow-get-limit-waits",
     "allow-pick-up-work-now",

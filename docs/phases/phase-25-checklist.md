@@ -1,7 +1,7 @@
 # Phase 25 — Implementation Checklist
 
 **Status: started 2026-10-03, beside Phases 23 and 24. Waves 1 to 3 are built; in Wave 4, items
-4.1 to 4.5, 4.7, and 4.8 are built, and 4.6 is next.** The owner answered
+all of Wave 4 (4.1 to 4.8) is built.** The owner answered
 ADR-190's six questions the same day ([the owner's answers](../adr/ADR-190-phase-25-starts.md#the-owners-answers-2026-10-03)). Builds on v1.20.0. Below, "[x]"
 is done.
 Plenipo is made by 8 West Ventures, LLC.
@@ -831,18 +831,27 @@ About 6 to 8 build sessions.
   plan includes. Claude Code, Codex, and Copilot report "% used" and a reset time. The others
   report nothing (ADR-060). So Plenipo paces by **percent of each window over time**, and counts
   its own tokens for the rest.
-- **Do:**
-  - [ ] For each plan window, work out a **fair pace**: how much should be used by now to last
-        until the reset. Day-time and night-time weights can be changed.
-  - [ ] Ahead of pace, step down early (4.5) and send low-priority work to the plan with the most
-        room left.
-  - [ ] Behind pace, use the best model freely.
-  - [ ] A **Plans** view on the AI tools page: every plan, its pace, its reset, and paid spending
-        in one place.
-  - [ ] AI tools that report nothing are paced by Plenipo's own token counts against a weekly
-        budget you can set, labelled "estimated".
+- **Do:** ([ADR-258 (spread use across the week and the month)](../adr/ADR-258-spread-use-across-the-week-and-the-month.md))
+  - [x] For each plan window, work out a **fair pace**: how much should be used by now to last
+        until the reset. Day-time and night-time weights can be changed (day hours 8 AM to 8 PM,
+        Pacific time, count fully; a night hour counts half to start with; Settings → Switches).
+  - [x] Ahead of pace, step down early (4.5) and send low-priority work to the plan with the most
+        room left (10 points ahead: one effort level lower; 25 points: also a smaller model;
+        priority 3 or 4 is low priority, never for a review or onto a paid route).
+  - [x] Behind pace, use the best model freely (even past your line).
+  - [x] A **Plans** view on the AI tools page: every plan, its pace, its reset, and paid spending
+        in one place ("Your plans").
+  - [x] AI tools that report nothing are paced by Plenipo's own token counts against a weekly
+        budget you can set, labelled "estimated" (from Monday at midnight, Pacific time).
 - **Tests:** a simulated week. The pace is kept, nothing runs out before its reset, and every step
   down is recorded.
+  - [x] router `a_simulated_week_keeps_the_pace_and_lasts_to_the_reset` (paced: 97.5% at the
+        reset; the line alone runs out on the last task),
+        `behind_pace_uses_the_best_model_and_low_priority_work_goes_where_there_is_room`, the
+        `pace` tests (fair share with night weights, ahead / on pace / behind, the ladder, the
+        reason), `a_weekly_budget_paces_an_ai_tool_that_reports_nothing`; ledger
+        `the_pacific_hour_and_week_start_for_pacing`
+  - [x] desktop `PlansView.test.tsx`, `SwitchSettings.test.tsx`, `format.test.ts`
 
 ### 4.7 Catch made-up answers, step 1: check answers against what really happened — M
 

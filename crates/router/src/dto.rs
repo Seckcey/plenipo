@@ -254,7 +254,27 @@ pub struct RoutingOptions {
     pub step_down: bool,
     /// How much of a plan is used (percent) when work starts to step down: 80 to start with.
     pub step_down_at: u8,
+    /// How much a night hour (8 PM to 8 AM, Pacific time) counts when a plan's use is spread
+    /// over its window, in percent of a day hour: half to start with (Phase 25, item 4.6).
+    pub night_weight: u8,
 }
+
+/// One subscription AI tool's plan and its pace, for the Plans view (Phase 25, item 4.6).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ToolPaces {
+    pub runtime_id: String,
+    pub label: String,
+    /// Its windows (empty: it reports nothing, and no weekly budget is set).
+    pub windows: Vec<crate::pace::WindowPace>,
+    /// The owner's weekly budget of tokens for it, when set.
+    #[ts(type = "number | null")]
+    pub weekly_budget: Option<u64>,
+}
+
+/// The largest weekly budget of tokens (a trillion).
+pub const MAX_WEEKLY_BUDGET: u64 = 1_000_000_000_000;
 
 /// The line work steps down from, to start with (Phase 25, item 4.5).
 pub const STEP_DOWN_AT: u8 = 80;
@@ -265,6 +285,7 @@ impl Default for RoutingOptions {
             on_usage_limit: LimitBehavior::default(),
             step_down: true,
             step_down_at: STEP_DOWN_AT,
+            night_weight: crate::pace::NIGHT_WEIGHT,
         }
     }
 }
@@ -491,6 +512,10 @@ pub struct RoutingSnapshot {
     /// they list (ADR-081 §5). "AI companies never to use" offers these.
     pub companies: Vec<Maker>,
     pub options: RoutingOptions,
+    /// The owner's weekly budget of tokens for each AI tool that reports nothing of its plan,
+    /// by runtime ID (Phase 25, item 4.6).
+    #[ts(type = "Record<string, number>")]
+    pub budgets: std::collections::BTreeMap<String, u64>,
     /// Pay-per-use API billing (always off in this version; ADR-007).
     pub api_billing: bool,
     pub notices: Vec<String>,
