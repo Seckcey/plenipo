@@ -60,6 +60,7 @@ fn refuse_marker(text: &str) -> Result<(), String> {
 /// learns that a blocked file is there, let alone its name or size. The folder itself is checked
 /// by Guard before this runs (it is the call's file, so a blocked folder is refused).
 pub fn list(dir: &Resolved, blocked: &[String]) -> Out {
+    dir.still_inside()?;
     let meta = fs::metadata(&dir.abs).map_err(|e| io(dir.shown(), &e))?;
     if !meta.is_dir() {
         return Err(format!("{} is a file, not a folder", dir.shown()));
@@ -104,9 +105,42 @@ pub fn list(dir: &Resolved, blocked: &[String]) -> Out {
     Ok(out)
 }
 
+/// Open a file the way the tools below do: on a Mac and Linux without following a link at its
+/// last part, so a link made after the path was checked is refused, not followed (P-GUARD-3).
+/// The path's existing parts were already followed and checked (`Resolved::still_inside`).
+fn opened(options: &mut fs::OpenOptions) -> &mut fs::OpenOptions {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    options
+}
+
+fn read_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    opened(fs::OpenOptions::new().read(true))
+        .open(path)?
+        .read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+fn write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    opened(
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true),
+    )
+    .open(path)?
+    .write_all(bytes)
+}
+
 /// A file for a worker: Plenipo's header (the path and the line range), then the lines
 /// between fence lines that mark them as the file's own words, never instructions.
 pub fn read(file: &Resolved, offset: usize, limit: usize) -> Out {
+    file.still_inside()?;
     let meta = fs::metadata(&file.abs).map_err(|e| io(file.shown(), &e))?;
     if meta.is_dir() {
         return Err(format!("{} is a folder; use list_directory", file.shown()));
@@ -118,7 +152,7 @@ pub fn read(file: &Resolved, offset: usize, limit: usize) -> Out {
             meta.len()
         ));
     }
-    let bytes = fs::read(&file.abs).map_err(|e| io(file.shown(), &e))?;
+    let bytes = read_bytes(&file.abs).map_err(|e| io(file.shown(), &e))?;
     if is_binary(&bytes) {
         return Ok(format!(
             "{} is a binary file ({} bytes).",
@@ -164,6 +198,7 @@ pub fn read(file: &Resolved, offset: usize, limit: usize) -> Out {
 /// never fenced: the AI tool changes a file from what it reads here and writes it back, so a
 /// fence would end up inside files. Plenipo's own `read_file` (`read`) is the fenced view.
 pub fn read_text(file: &Resolved, offset: usize, limit: usize) -> Out {
+    file.still_inside()?;
     let meta = fs::metadata(&file.abs).map_err(|e| io(file.shown(), &e))?;
     if meta.is_dir() {
         return Err(format!("{} is a folder, not a file", file.shown()));
@@ -175,7 +210,7 @@ pub fn read_text(file: &Resolved, offset: usize, limit: usize) -> Out {
             meta.len()
         ));
     }
-    let bytes = fs::read(&file.abs).map_err(|e| io(file.shown(), &e))?;
+    let bytes = read_bytes(&file.abs).map_err(|e| io(file.shown(), &e))?;
     if is_binary(&bytes) {
         return Err(format!("{} is a binary file", file.shown()));
     }
@@ -339,6 +374,7 @@ fn before_change(file: &Resolved) -> Before {
 /// Create or replace `file`, and say what it was before (Watch, Phase 18).
 pub fn write_watched(file: &Resolved, content: &str) -> Result<(String, Written), String> {
     refuse_marker(content)?;
+    file.still_inside()?;
     if file.abs.is_dir() {
         return Err(format!("{} is a folder", file.shown()));
     }
@@ -354,6 +390,7 @@ pub fn edit_watched(
     new: &str,
     all: bool,
 ) -> Result<(String, Written), String> {
+    file.still_inside()?;
     // A file too large for Watch is not read for it: its change shows as a summary.
     let size = fs::metadata(&file.abs).map_or(0, |m| m.len());
     let before = (size <= MAX_WATCH_READ)
@@ -389,11 +426,13 @@ pub fn write(file: &Resolved, content: &str) -> Out {
     if file.rel.is_empty() {
         return Err("name a file inside the project folder".into());
     }
+    file.still_inside()?;
     if let Some(parent) = file.abs.parent() {
         fs::create_dir_all(parent).map_err(|e| io(file.shown(), &e))?;
     }
+    file.still_inside()?;
     let existed = file.abs.exists();
-    fs::write(&file.abs, content).map_err(|e| io(file.shown(), &e))?;
+    write_bytes(&file.abs, content.as_bytes()).map_err(|e| io(file.shown(), &e))?;
     Ok(format!(
         "{} {} ({} bytes).",
         if existed { "Replaced" } else { "Created" },
@@ -404,7 +443,8 @@ pub fn write(file: &Resolved, content: &str) -> Out {
 
 pub fn edit(file: &Resolved, old: &str, new: &str, all: bool) -> Out {
     refuse_marker(new)?;
-    let bytes = fs::read(&file.abs).map_err(|e| io(file.shown(), &e))?;
+    file.still_inside()?;
+    let bytes = read_bytes(&file.abs).map_err(|e| io(file.shown(), &e))?;
     if is_binary(&bytes) {
         return Err(format!("{} is a binary file", file.shown()));
     }
@@ -430,7 +470,8 @@ pub fn edit(file: &Resolved, old: &str, new: &str, all: bool) -> Out {
     } else {
         text.replacen(old, new, 1)
     };
-    fs::write(&file.abs, updated).map_err(|e| io(file.shown(), &e))?;
+    file.still_inside()?;
+    write_bytes(&file.abs, updated.as_bytes()).map_err(|e| io(file.shown(), &e))?;
     Ok(format!("Edited {} ({count} replacement(s)).", file.shown()))
 }
 
@@ -441,9 +482,12 @@ pub fn move_path(from: &Resolved, to: &Resolved) -> Out {
     if to.exists || to.rel.is_empty() {
         return Err(format!("{} already exists", to.shown()));
     }
+    from.still_inside()?;
+    to.still_inside()?;
     if let Some(parent) = to.abs.parent() {
         fs::create_dir_all(parent).map_err(|e| io(to.shown(), &e))?;
     }
+    to.still_inside()?;
     fs::rename(&from.abs, &to.abs).map_err(|e| io(from.shown(), &e))?;
     Ok(format!("Moved {} to {}.", from.shown(), to.shown()))
 }
@@ -452,6 +496,7 @@ pub fn delete(path: &Resolved) -> Out {
     if path.rel.is_empty() {
         return Err("the project folder itself cannot be deleted".into());
     }
+    path.still_inside()?;
     let meta = fs::symlink_metadata(&path.abs).map_err(|e| io(path.shown(), &e))?;
     if meta.is_dir() {
         fs::remove_dir(&path.abs).map_err(|e| {
@@ -723,5 +768,55 @@ mod tests {
         // With nothing blocked, everything shows.
         let out = list(&ws.resolve(".").unwrap(), &[]).unwrap();
         assert!(out.contains(".env") && out.contains("secrets/"), "{out}");
+    }
+
+    /// P-GUARD-3 (Phase 23 Guard review): a folder that became a link after the path was checked
+    /// is never read from, written through, or deleted in (a Mac and Linux, where any program
+    /// can make a link).
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_became_a_link_is_not_used() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("proj");
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::write(root.join("docs/notes.txt"), "mine").unwrap();
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("notes.txt"), "not yours").unwrap();
+        let ws = Workspace::open(&root.display().to_string()).unwrap();
+        let new = ws.resolve("docs/new.txt").unwrap();
+        let notes = ws.resolve("docs/notes.txt").unwrap();
+        let folder = ws.resolve("docs").unwrap();
+        fs::rename(root.join("docs"), dir.path().join("moved")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("docs")).unwrap();
+        assert!(write(&new, "x").is_err());
+        assert!(!outside.join("new.txt").exists());
+        assert!(read(&notes, 1, 10).is_err());
+        assert!(read_text(&notes, 1, usize::MAX).is_err());
+        assert!(edit(&notes, "not", "now", false).is_err());
+        assert!(delete(&notes).is_err());
+        assert!(list(&folder, &[]).is_err());
+        assert_eq!(
+            fs::read_to_string(outside.join("notes.txt")).unwrap(),
+            "not yours"
+        );
+    }
+
+    /// The file tools never follow a link at a file's last part: one made after the check is
+    /// refused (P-GUARD-3).
+    #[cfg(unix)]
+    #[test]
+    fn the_last_part_is_never_followed() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.txt");
+        let link = dir.path().join("link.txt");
+        fs::write(&target, "t").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(write_bytes(&link, b"x").is_err());
+        assert!(read_bytes(&link).is_err());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "t");
+        assert_eq!(read_bytes(&target).unwrap(), b"t");
+        write_bytes(&target, b"new").unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "new");
     }
 }

@@ -15,6 +15,7 @@ pub mod diagnostic;
 pub mod dto;
 pub mod error;
 pub mod keeper;
+pub mod marks;
 mod output;
 pub mod pipes;
 pub mod policy;
@@ -34,7 +35,9 @@ pub use pipes::{ExtraPipes, PipeEnds};
 pub use policy::{ExecutablePolicy, PolicyError};
 pub use profile::{LaunchProfile, LaunchSpec, ProfileRegistry, StdinFeed};
 pub use store::{ExecutionStore, MetadataStore};
-pub use supervisor::{EventSink, Supervisor, SupervisorConfig};
+#[cfg(unix)]
+pub use supervisor::running_as_root;
+pub use supervisor::{EventSink, Supervisor, SupervisorConfig, AS_ROOT};
 
 /// Milliseconds since the Unix epoch.
 pub fn now_ms() -> u64 {
