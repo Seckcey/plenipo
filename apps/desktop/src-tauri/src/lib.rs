@@ -6888,7 +6888,10 @@ mod ipc_boundary_tests {
         )
         .expect_err("no folder to open");
         assert_eq!(err["kind"], "invalidInput", "{err}");
-        assert!(err["message"].as_str().unwrap().contains("no folder"), "{err}");
+        assert!(
+            err["message"].as_str().unwrap().contains("no folder"),
+            "{err}"
+        );
         // Only a task's ID, never a place on the PC.
         for bad in ["", "../Windows", "C:\\Windows", "a b", "x/y"] {
             let err = invoke_json(

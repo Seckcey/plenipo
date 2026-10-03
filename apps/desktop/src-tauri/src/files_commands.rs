@@ -237,7 +237,9 @@ fn check_task(task_id: &str) -> Result<(), CommandError> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
     {
-        return Err(CommandError::invalid_input("That is not a task Plenipo knows."));
+        return Err(CommandError::invalid_input(
+            "That is not a task Plenipo knows.",
+        ));
     }
     Ok(())
 }
