@@ -152,7 +152,7 @@ const PERSONAS: &[(&str, Answer)] = &[
 /// Other programs Plenipo's tools run that this double stands in for (Phase 8): GitHub's `gh`,
 /// and `verify FILE WORD`, a project's test (it passes when FILE, in the folder it runs in,
 /// contains WORD). Listed by `--helpers`, never among the AI tools.
-const HELPERS: &[(&str, Answer)] = &[("gh", gh), ("verify", verify)];
+const HELPERS: &[(&str, Answer)] = &[("gh", gh), ("verify", verify), ("scaffold", scaffold)];
 
 pub fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -1475,6 +1475,30 @@ fn verify(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+/// `scaffold FILE TEXT [FILE TEXT …]`: writes each file (its folders made), as a project
+/// generator or a formatter does — files changed by a command, for Watch (Phase 25, item 3.2).
+fn scaffold(args: &[String]) -> i32 {
+    if args.is_empty() || !args.len().is_multiple_of(2) {
+        eprintln!("usage: scaffold FILE TEXT [FILE TEXT …]");
+        return 2;
+    }
+    for pair in args.chunks(2) {
+        let path = PathBuf::from(&pair[0]);
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                eprintln!("cannot make {}: {e}", parent.display());
+                return 1;
+            }
+        }
+        if let Err(e) = std::fs::write(&path, &pair[1]) {
+            eprintln!("cannot write {}: {e}", path.display());
+            return 1;
+        }
+    }
+    println!("made {} file(s)", args.len() / 2);
+    0
 }
 
 // ---- GitHub's gh (Phase 8) ------------------------------------------------------------------

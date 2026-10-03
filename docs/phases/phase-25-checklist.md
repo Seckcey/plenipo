@@ -569,10 +569,15 @@ About 5 to 7 build sessions.
 - **Why:** Watch only sees files written through Plenipo's own file tools. Files changed by a
   command (`npm create`, `sed`, a git step) don't show (ADR-055, watching a worker write code).
 - **Do:**
-  - [ ] After each command or git step, compare the working copy before and after. Show what
-        changed as "made by a command". Files Guard keeps private are skipped.
-  - [ ] **Change ADR-055 (Watch).**
+  - [x] After each command or git step, compare the working copy before and after. Show what
+        changed as "made by a command". Files Guard keeps private are skipped (never read), and so
+        are `.git`, `node_modules`, and build output.
+  - [x] **Change ADR-055 (Watch):** [ADR-200 (Watch shows changes made by
+        commands)](../adr/ADR-200-watch-shows-changes-made-by-commands.md).
 - **Tests:** a file made by a command shows in Watch. A private file never does.
+  - [x] capabilities `files_a_command_makes_show_in_watch_and_a_private_one_never_does` (a real
+        command through the broker; its record keeps the file and counts, never the text) and
+        `command_changes` unit tests; `CodeWatchView.test.tsx` "says which files a command made".
 
 ### 3.3 A Stop button on every worker — S–M
 

@@ -263,7 +263,7 @@ export function CodeWatchView({
           ) : (
             <EmptyState title="No file changes yet in this objective" icon="file" compact>
               {watch.quiet ??
-                "Changes show here as the worker, or the team it hands work to, makes them. Watch shows the files they write with Plenipo's file tools; changes made by commands they run aren't shown yet."}
+                "Changes show here as the worker, or the team it hands work to, makes them: the files they write, and the files the commands they run make or change."}
             </EmptyState>
           )}
           {/* What it says and does, live, even before a file changes (Phase 25, item 3.1). */}
@@ -293,6 +293,7 @@ export function CodeWatchView({
                       <span className="code-watch__meta">
                         <StatusDot status={STATE_STATUS[c.state]} label={STATE_WORD[c.state]} />
                         {c.kind && <span>{KIND_WORD[c.kind]}</span>}
+                        {c.byCommand && <span>made by a command</span>}
                         {c.state === "saved" && <Counts change={c} />}
                         {task && <span>{task}</span>}
                       </span>
@@ -491,6 +492,7 @@ function FilePane({
         <span className="code-watch__path">{change.path}</span>
         <StatusDot status={STATE_STATUS[change.state]} label={STATE_WORD[change.state]} />
         {change.kind && <span>{KIND_WORD[change.kind]}</span>}
+        {change.byCommand && <span>made by a command</span>}
         {change.state === "saved" && <Counts change={change} />}
         {task && <span>{task}</span>}
         {lines && lines.length > 0 && (

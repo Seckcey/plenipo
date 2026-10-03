@@ -165,3 +165,4 @@ architecture must be recorded here.
 | [197](ADR-197-templates.md)                               | Templates for organizations, departments, and projects, and saving yours as one (part of parked Phase 15)              | Accepted |
 | [198](ADR-198-the-setup-tour.md)                          | The setup tour, with Driver.js: nine steps that move on when each is done (amends 030, 053)                            | Accepted |
 | [199](ADR-199-stop-all-work.md)                           | Stop on every worker, and Stop all work: every task stops and nothing starts until Allow again (amends 020, 094)       | Accepted |
+| [200](ADR-200-watch-shows-changes-made-by-commands.md)    | Watch shows changes made by commands too: files noted before and compared after (amends 055)                           | Accepted |

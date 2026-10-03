@@ -94,6 +94,10 @@ pub struct WatchChange {
     /// Shown instead of the lines: a large or non-text file, or lines no longer kept.
     #[ts(optional)]
     pub summary: Option<String>,
+    /// Made by a command or a git step the worker ran, not by Plenipo's file tools (Phase 25,
+    /// item 3.2).
+    #[ts(optional)]
+    pub by_command: Option<bool>,
     #[ts(type = "number")]
     pub at: u64,
 }
@@ -444,6 +448,7 @@ impl WatchHub {
             removed: 0,
             reason: None,
             summary: None,
+            by_command: None,
             at: plenipo_ledger::now_ms(),
         }
     }
@@ -556,6 +561,26 @@ impl WatchHub {
     /// marked only when they will be shown; the counts are `None` when they are not known (a
     /// file Watch did not read before, or too different to compare in time).
     pub fn saved(&self, who: &Who, path: &str, written: &Written) -> (WatchChange, Option<Counts>) {
+        self.saved_as(who, path, written, false)
+    }
+
+    /// A change a command made (Phase 25, item 3.2): shown as made by a command.
+    pub fn saved_by_command(
+        &self,
+        who: &Who,
+        path: &str,
+        written: &Written,
+    ) -> (WatchChange, Option<Counts>) {
+        self.saved_as(who, path, written, true)
+    }
+
+    fn saved_as(
+        &self,
+        who: &Who,
+        path: &str,
+        written: &Written,
+        by_command: bool,
+    ) -> (WatchChange, Option<Counts>) {
         let shown_before = match &written.before {
             Before::Missing => Some(""),
             Before::Text(t) => Some(t.as_str()),
@@ -581,6 +606,7 @@ impl WatchHub {
             k.change.removed = counts.map_or(0, |c| c.removed);
             k.change.reason = None;
             k.change.summary = summary.clone();
+            k.change.by_command = by_command.then_some(true);
             k.marked = match (summary.is_none(), marked) {
                 (true, Some((_, m))) => Some(m),
                 _ => None,

@@ -222,6 +222,22 @@ describe("the Watch tab for code", () => {
     );
   });
 
+  it("says which files a command made or changed (Phase 25, item 3.2)", async () => {
+    const user = userEvent.setup();
+    const made = change({ path: "src/page.txt", kind: "created", byCommand: true });
+    api.getWatch.mockResolvedValue(view([made, change({ path: "README.md", at: 500 })]));
+    api.getWatchChange.mockResolvedValue(null);
+    render(<Harness />);
+    const body = await openTab(user);
+    const files = within(body).getByRole("navigation", { name: "Files touched in this objective" });
+    expect(within(files).getByRole("button", { name: /page\.txt/ })).toHaveTextContent(
+      "made by a command",
+    );
+    expect(within(files).getByRole("button", { name: /README\.md/ })).not.toHaveTextContent(
+      "made by a command",
+    );
+  });
+
   it("shows a change as it is written, then saved, following along; a pinned file stays", async () => {
     const user = userEvent.setup();
     render(<Harness />);

@@ -1239,10 +1239,34 @@ impl AgentRuntime {
                 .collect()
         };
         let mut stopped = 0;
+        let mut starting = Vec::new();
         for id in sessions {
-            if self.cancel(&id, None).await.is_ok() {
-                stopped += 1;
+            match self.cancel(&id, None).await {
+                Ok(_) => stopped += 1,
+                Err(RuntimeError::NotReady(why)) if why.contains("still starting") => {
+                    starting.push(id);
+                }
+                Err(_) => {}
             }
+        }
+        // A turn still starting reaches the hold in a moment (its AI tool waits for Allow
+        // again), and can be stopped there: tried again for up to two seconds.
+        for _ in 0..40 {
+            if starting.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let mut still = Vec::new();
+            for id in starting {
+                match self.cancel(&id, None).await {
+                    Ok(_) => stopped += 1,
+                    Err(RuntimeError::NotReady(why)) if why.contains("still starting") => {
+                        still.push(id);
+                    }
+                    Err(_) => {}
+                }
+            }
+            starting = still;
         }
         stopped
     }

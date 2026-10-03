@@ -292,6 +292,7 @@ impl Broker {
                     objective_task_id: objective.clone(),
                     path: path.to_owned(),
                     root: c["root"].as_str().map(str::to_owned),
+                    by_command: None,
                     state: WatchState::Saved,
                     kind: Some(if c["kind"] == "created" {
                         ChangeKind::Created
@@ -374,6 +375,29 @@ impl Broker {
         path: &str,
         written: crate::watch::Written,
     ) -> Option<Value> {
+        self.watch_saved_as(who, path, written, false)
+    }
+
+    /// The files a command or a git step made or changed (Phase 25, item 3.2): each shows in
+    /// Watch as made by a command, secrets hidden. Slow for many files: call it off the async
+    /// threads.
+    pub(super) fn watch_made_by_command(
+        &self,
+        who: &Who,
+        made: Vec<crate::command_changes::Made>,
+    ) -> Vec<Value> {
+        made.into_iter()
+            .filter_map(|m| self.watch_saved_as(Some(who), &m.rel, m.written, true))
+            .collect()
+    }
+
+    fn watch_saved_as(
+        &self,
+        who: Option<&Who>,
+        path: &str,
+        written: crate::watch::Written,
+        by_command: bool,
+    ) -> Option<Value> {
         use crate::watch::{Before, Written};
         let who = who?;
         let before = match written.before {
@@ -386,7 +410,11 @@ impl Broker {
             after: self.redact(&written.after),
             after_bytes: written.after_bytes,
         };
-        let (_, counts) = self.watch().saved(who, path, &written);
+        let (_, counts) = if by_command {
+            self.watch().saved_by_command(who, path, &written)
+        } else {
+            self.watch().saved(who, path, &written)
+        };
         let mut record = serde_json::json!({
             "path": path,
             "kind": if created { "created" } else { "changed" },

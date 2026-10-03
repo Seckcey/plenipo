@@ -2198,6 +2198,7 @@ impl Broker {
         // What it touches, for the canvas's live view (Phase 18).
         let touches = live::touched_by(&prepared, scope.project.as_ref().map(|p| p.name.as_str()));
         let mut change = Value::Null;
+        let mut by_command: Vec<Value> = Vec::new();
         let (outcome, execution) = match prepared.work {
             // A file change Watch shows (Phase 18, ADR-055): the file before and after.
             // The change and Watch's look at it (secrets hidden, lines compared) are done off the
@@ -2273,14 +2274,40 @@ impl Broker {
                 (done.result, None)
             }
             work => {
-                self.carry_out(
-                    grant_id,
-                    &worker,
-                    workspace.as_ref(),
-                    work,
-                    &prepared.summary,
-                )
-                .await
+                // A command or a git step: Watch shows the files it made or changed (Phase 25,
+                // item 3.2). The working copy is noted before and compared after, off the async
+                // threads; Guard's private files are never read.
+                let noted = match (&work, workspace.as_ref(), self.who(grant_id)) {
+                    (Work::Program { .. } | Work::PullRequest { .. }, Some(ws), Some(who)) => {
+                        let root = ws.root().to_path_buf();
+                        let blocked = config.blocked_files.clone();
+                        let (r, b) = (root.clone(), blocked.clone());
+                        tokio::task::spawn_blocking(move || crate::command_changes::take(&r, &b))
+                            .await
+                            .ok()
+                            .map(|before| (who, root, blocked, before))
+                    }
+                    _ => None,
+                };
+                let done = self
+                    .carry_out(
+                        grant_id,
+                        &worker,
+                        workspace.as_ref(),
+                        work,
+                        &prepared.summary,
+                    )
+                    .await;
+                if let Some((who, root, blocked, before)) = noted {
+                    let broker = self.clone();
+                    by_command = tokio::task::spawn_blocking(move || {
+                        let made = crate::command_changes::since(&before, &root, &blocked);
+                        broker.watch_made_by_command(&who, made)
+                    })
+                    .await
+                    .unwrap_or_default();
+                }
+                done
             }
         };
         let (text, ok) = match outcome {
@@ -2331,6 +2358,8 @@ impl Broker {
                 "fileRequest": file_request,
                 // A saved file change: its file and line counts, never its text (ADR-055).
                 "change": change,
+                // The files a command made or changed, the same way (Phase 25, item 3.2).
+                "madeByCommand": (!by_command.is_empty()).then_some(by_command),
             }),
             ..NewEvent::default()
         });

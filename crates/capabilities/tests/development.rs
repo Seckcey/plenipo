@@ -267,6 +267,7 @@ async fn harness_with(branch_per_objective: bool) -> H {
     let s = stack(dir.path()).await;
     let mut rules = s.guard.config().unwrap().commands;
     rules.approved.push("verify *".into());
+    rules.approved.push("scaffold *".into());
     s.guard.set_commands(&rules).unwrap();
     let org = s
         .workforce
@@ -2042,6 +2043,52 @@ async fn a_working_copy_a_worker_is_writing_is_read_only_for_the_owner_until_it_
         "the owner's\n"
     );
     let _ = h.finished(&root).await;
+}
+
+/// Phase 25, item 3.2: a file a command makes or changes shows in Watch, as made by a command,
+/// with its lines; a file Guard keeps private never does.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn files_a_command_makes_show_in_watch_and_a_private_one_never_does() {
+    let h = harness().await;
+    h.script(&json!({
+        "Website Supervisor": [
+            { "handoffs": [to("Senior Developer", "Set up the page.")] },
+            { "say": "Done." }
+        ],
+        "Senior Developer": [
+            { "say": "Set up.",
+              "tools": [run("scaffold", &[
+                  "src/page.txt", "title\nbody\n",
+                  ".env", "KEY=made-by-a-command\n",
+              ])] }
+        ]
+    }));
+    let root = h.objective(&h.team.supervisor, "Set up the page").await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let dev = position_id(&h, "Senior Developer");
+    let view = h.broker.watch_view(&dev);
+    let made: Vec<_> = view.changes.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(made, ["src/page.txt"], "{view:#?}");
+    let page = &view.changes[0];
+    assert_eq!(page.by_command, Some(true));
+    assert_eq!(page.added, 2);
+    let file = h.broker.watch_change(&page.id).unwrap();
+    let shown: Vec<_> = file.lines.iter().map(|l| l.text.as_str()).collect();
+    assert_eq!(shown, ["title", "body"]);
+    // The record keeps the file, never its text, and never the private one.
+    let task = &h.tasks_of(&root, "Senior Developer")[0];
+    let used = h.events(&task.id, "capability.used");
+    let record = used
+        .iter()
+        .find(|u| u["tool"] == "run_command")
+        .expect("the command's record");
+    let made = &record["madeByCommand"];
+    assert_eq!(made.as_array().map(Vec::len), Some(1), "{made}");
+    assert_eq!(made[0]["path"], "src/page.txt");
+    assert_eq!(made[0]["kind"], "created");
+    // Its file and line counts only, never its text.
+    let kept = made.to_string();
+    assert!(!kept.contains("title") && !kept.contains(".env"), "{kept}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

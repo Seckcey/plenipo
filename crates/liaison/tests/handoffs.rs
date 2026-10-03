@@ -697,8 +697,19 @@ async fn stopping_a_worker_tells_its_lead_and_the_lead_carries_on() {
     let child = h.only_child(&root);
     let worker = child.metadata["sessionId"].as_str().unwrap().to_owned();
 
-    // The owner stops the worker, as Stop does from any page.
-    h.rt.cancel_turn(&worker).await.unwrap();
+    // The owner stops the worker, as Stop does from any page (in the moment its turn is still
+    // starting, Plenipo says to try again).
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        match h.rt.cancel_turn(&worker).await {
+            Ok(_) => break,
+            Err(e) if e.to_string().contains("still starting") => {
+                assert!(std::time::Instant::now() < deadline, "{e}");
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            Err(e) => panic!("{e}"),
+        }
+    }
     assert_eq!(h.finished(&child.id).await.state, TaskState::Cancelled);
 
     // The lead hears that it was stopped, and finishes its own task.
