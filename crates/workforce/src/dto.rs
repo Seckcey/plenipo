@@ -164,6 +164,15 @@ pub struct ExperienceInfo {
     pub tasks_done: u32,
     /// Above the organization's average.
     pub experienced: bool,
+    /// Its answers sent back because they didn't match Plenipo's record (Phase 25, item 4.8).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[ts(as = "Option<u32>", optional)]
+    pub answers_sent_back: u32,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's `skip_serializing_if` passes a reference
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 /// Whether an agent learns, and which setting decided (ADR-041).

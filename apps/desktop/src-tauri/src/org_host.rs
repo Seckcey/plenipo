@@ -154,6 +154,8 @@ pub fn build<R: Runtime>(
     // Connections and add-on tools are part of Pro (ADR-068); Guard, approvals, and the Vault
     // never are.
     broker.set_entitlements(how.entitlements.clone());
+    // Links named in answers are checked through Guard (Phase 25, item 4.8).
+    liaison.set_link_checker(Arc::new(crate::link_host::Links::new(broker.clone())));
     if how.run {
         guard_host::start(&broker);
     }

@@ -149,8 +149,15 @@ pub fn may_notify(event_type: &str) -> bool {
             | "ai_tool.update_by_hand"
             | "spending.warning"
             | "spending.stopped"
+            | "liaison.answer_sent_back"
     )
 }
+
+/// A week, for counting a worker's answers sent back (Phase 25, item 4.8).
+const WEEK_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+/// The counts within a week at which the owner hears that a worker's answers keep not matching
+/// Plenipo's record: the third, then the tenth.
+const REPEAT_MISMATCHES: [u32; 2] = [3, 10];
 
 fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
     v[key].as_str().map(str::trim).filter(|s| !s.is_empty())
@@ -356,6 +363,7 @@ impl Ledger {
                     _ => None,
                 }
             }
+            "liaison.answer_sent_back" => self.repeat_mismatch_notice(event)?,
             // Phase 16 Wave 3 (ADR-085): once a month per cap, each.
             "spending.warning" => Some(spending_warning(p)),
             "spending.stopped" => Some(spending_stopped(p)),
@@ -375,6 +383,39 @@ impl Ledger {
             ),
             _ => None,
         })
+    }
+
+    /// A worker whose answers keep not matching Plenipo's record (Phase 25, item 4.8): on its
+    /// third answer sent back in a week, and again on its tenth.
+    fn repeat_mismatch_notice(&self, event: &LedgerEvent) -> Result<Option<Notice>> {
+        let Some(task) = event
+            .task_id
+            .as_deref()
+            .map(|id| self.task(id))
+            .transpose()?
+            .flatten()
+        else {
+            return Ok(None);
+        };
+        let Some(position_id) = task.metadata["workforce"]["positionId"].as_str() else {
+            return Ok(None);
+        };
+        let n =
+            self.answers_sent_back_since(position_id, event.created_at.saturating_sub(WEEK_MS))?;
+        if !REPEAT_MISMATCHES.contains(&n) {
+            return Ok(None);
+        }
+        let who = self
+            .position(position_id)?
+            .map_or_else(|| "A worker".to_owned(), |p| p.title);
+        Ok(Some(Notice::new(
+            NoticeKind::Problems,
+            format!("{who}'s answers keep not matching the record"),
+            format!(
+                "{n} of its answers this week didn't match what Plenipo saw it do, and were sent \
+                 back. Check its work, or give it another AI model."
+            ),
+        )))
     }
 
     fn approval_notice(&self, event: &LedgerEvent) -> Result<Notice> {
@@ -605,6 +646,54 @@ mod tests {
         )
         .unwrap();
         assert!(l.notice_settings().unwrap().only_when_away);
+    }
+
+    /// Phase 25, item 4.8: the owner hears when a worker's answers keep not matching Plenipo's
+    /// record: on the third sent back in a week, and again on the tenth.
+    #[test]
+    fn a_worker_whose_answers_keep_not_matching_the_record_makes_a_notice() {
+        let l = ledger();
+        assert!(may_notify("liaison.answer_sent_back"));
+        let send_back = |position: &str| {
+            let t = new_task(
+                &l,
+                "Fix the login bug",
+                None,
+                json!({ "workforce": { "positionId": position } }),
+            );
+            l.append_event(crate::dto::NewEvent {
+                task_id: Some(t),
+                source: "liaison".into(),
+                event_type: "liaison.answer_sent_back".into(),
+                payload: json!({ "mismatches": ["says tests passed, but no test ran"] }),
+                ..crate::dto::NewEvent::default()
+            })
+            .unwrap()
+        };
+        let mut notices = Vec::new();
+        for _ in 0..10 {
+            notices.push(l.notice_for(&send_back("p1"), &tool).unwrap());
+        }
+        // Another worker's answers count for it alone.
+        assert_eq!(l.notice_for(&send_back("p2"), &tool).unwrap(), None);
+        let at: Vec<usize> = notices
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| n.as_ref().map(|_| i + 1))
+            .collect();
+        assert_eq!(at, [3, 10]);
+        assert_eq!(
+            notices[2],
+            Some(note(
+                NoticeKind::Problems,
+                "A worker's answers keep not matching the record",
+                "3 of its answers this week didn't match what Plenipo saw it do, and were sent \
+                 back. Check its work, or give it another AI model."
+            ))
+        );
+        let counts = l.experience_counts().unwrap();
+        assert_eq!(counts["p1"].answers_sent_back, 10);
+        assert_eq!(counts["p2"].answers_sent_back, 1);
     }
 
     #[test]

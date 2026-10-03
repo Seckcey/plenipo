@@ -20,4 +20,5 @@ pub mod store;
 pub use directory::{is_full_time, Directory, MemberConversation, Placement, Team};
 pub use dto::*;
 pub use error::{LiaisonError, Result};
+pub use facts::LinkChecker;
 pub use service::{Liaison, LiaisonConfig, ACTOR};

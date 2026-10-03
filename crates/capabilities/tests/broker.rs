@@ -12,7 +12,8 @@ use plenipo_capabilities::{
     ApprovalStatus, Broker, BrokerConfig, MemorySecretStore, SecretStore as _,
 };
 use plenipo_guard::{
-    Capability, Guard, GuardOptions, PermissionSetInput, Safety, SecretInput, SecretRule,
+    Capability, Guard, GuardOptions, OtherSites, PermissionSetInput, Safety, SecretInput,
+    SecretRule, WebsiteRules,
 };
 use plenipo_ledger::{Ledger, Task, TaskState, DB_FILE_NAME};
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
@@ -2917,4 +2918,62 @@ async fn without_a_files_folder_work_with_no_project_has_no_file_tools() {
             .contains("belongs to no project, so there is no folder"),
         "{skipped:?}"
     );
+}
+
+/// Phase 25, item 4.8: a link named in an answer is visited only when its website is on the
+/// owner's allowed list, with one request and no redirect followed; GitHub's pages never this way
+/// (they answer "not found" for a private page).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn links_in_answers_are_checked_only_on_allowed_websites() {
+    use plenipo_capabilities::broker::links::LinkVerdict;
+    use std::io::{Read as _, Write as _};
+    let h = harness().await;
+    // A small website on this computer: /here exists; anything else is not found.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let mut request = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                match stream.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => request.extend_from_slice(&buf[..n]),
+                }
+            }
+            let line = String::from_utf8_lossy(&request);
+            let status = if line.starts_with("HEAD /here ") {
+                "200 OK"
+            } else {
+                "404 Not Found"
+            };
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+        }
+    });
+    let here = format!("http://127.0.0.1:{port}/here");
+    let gone = format!("http://127.0.0.1:{port}/gone");
+    // Not on the allowed list: not visited.
+    assert!(
+        matches!(h.broker.check_link(&here).await, LinkVerdict::NotChecked(why) if why.contains("not on your allowed websites"))
+    );
+    h.guard
+        .set_websites(&WebsiteRules {
+            allowed: vec![format!("127.0.0.1:{port}"), "github.com".into()],
+            blocked: vec![],
+            others: OtherSites::Ask,
+        })
+        .unwrap();
+    assert_eq!(h.broker.check_link(&here).await, LinkVerdict::Exists);
+    assert_eq!(h.broker.check_link(&gone).await, LinkVerdict::Missing);
+    assert!(matches!(
+        h.broker.check_link("https://github.com/o/r/issues/1").await,
+        LinkVerdict::NotChecked(why) if why.contains("hides private pages")
+    ));
+    assert!(matches!(
+        h.broker.check_link("https://user:pw@127.0.0.1/here").await,
+        LinkVerdict::NotChecked(_)
+    ));
 }

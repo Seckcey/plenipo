@@ -1,6 +1,7 @@
 # Phase 25 — Implementation Checklist
 
-**Status: started 2026-10-03, beside Phases 23 and 24; Wave 1 in progress.** The owner answered
+**Status: started 2026-10-03, beside Phases 23 and 24. Waves 1 to 3 are built; in Wave 4, items
+4.1 to 4.5, 4.7, and 4.8 are built, and 4.6 is next.** The owner answered
 ADR-190's six questions the same day ([the owner's answers](../adr/ADR-190-phase-25-starts.md#the-owners-answers-2026-10-03)). Builds on v1.20.0. Below, "[x]"
 is done.
 Plenipo is made by 8 West Ventures, LLC.
@@ -876,17 +877,28 @@ About 6 to 8 build sessions.
 
 ### 4.8 Catch made-up answers, step 2 — M–L
 
-- **Do:**
-  - [ ] Check that links and pull requests named in an answer really exist, through Guard's
-        outbound rules.
-  - [ ] Supervisors can **stop** a worker and **send work back**, recorded like everything else.
-        Workers still never control each other.
-  - [ ] A notice to you when a worker's answers keep failing the check. Repeat failures show on
-        its Experience.
+- **Do:** ([ADR-257 (catch made-up answers, step 2)](../adr/ADR-257-catch-made-up-answers-step-2.md))
+  - [x] Check that links and pull requests named in an answer really exist, through Guard's
+        outbound rules: a pull request through GitHub's own `gh`; any other link only on your
+        allowed websites (one request, no redirect, "not found" is the only "doesn't exist");
+        GitHub's and GitLab's pages never this way (they hide private pages). At most three per
+        answer; one not checked is never a mismatch.
+  - [x] Supervisors can **send work back** (`"sendBack"`: a finished task they handed on, to the
+        worker who did it, with what to fix), recorded on both tasks. Workers still never control
+        each other. **Stop:** a lead waits while its team works, so it never sees a worker still
+        working; stopping one at once stays the owner's (3.3, 3.4). ADR-257 says why, for the
+        owner to accept.
+  - [x] A notice to you when a worker's answers keep failing the check (the third in a week, then
+        the tenth). Repeat failures show on its Experience ("3 answers didn't match the record").
 - **Tests:**
-  - [ ] a fake link is caught
-  - [ ] a supervisor's stop is recorded
-  - [ ] the notice fires after repeats
+  - [x] a fake link is caught: liaison `a_link_that_doesnt_exist_is_caught`,
+        handoffs `a_fake_link_in_an_answer_is_caught`, capabilities broker
+        `links_in_answers_are_checked_only_on_allowed_websites`
+  - [x] a supervisor's send-back is recorded: handoffs
+        `a_lead_sends_work_back_to_the_worker_who_did_it` (and refused to another worker)
+  - [x] the notice fires after repeats: ledger
+        `a_worker_whose_answers_keep_not_matching_the_record_makes_a_notice`; desktop
+        `org/control.test.ts`, `format.test.ts`
 
 ---
 

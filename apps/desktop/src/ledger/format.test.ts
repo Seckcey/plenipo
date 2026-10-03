@@ -109,6 +109,17 @@ describe("describeEvent (Phase 4 Liaison events)", () => {
     expect(describeEvent(event("liaison.give_back_failed", { reason: "the session closed" }))).toBe(
       "Its answer could not be sent back: the session closed",
     );
+    // Phase 25, item 4.8: a lead sends the work back to the worker who did it.
+    expect(
+      describeEvent(
+        event("liaison.work_sent_back", { by: "Website Supervisor", reason: "Run the tests" }),
+      ),
+    ).toBe("Sent back by Website Supervisor: Run the tests");
+    expect(
+      describeEvent(
+        event("liaison.handoff_received", { depth: 1, objective: "Run the tests", sentBack: "t1" }),
+      ),
+    ).toBe("Received as a handoff (depth 1), work sent back to fix: Run the tests");
   });
 
   it("explains refusals, cancellations, and failures with their reason", () => {

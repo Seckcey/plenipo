@@ -175,3 +175,4 @@ architecture must be recorded here.
 | [254](ADR-254-your-subscription-first-then-the-same-companys-key.md) | Your subscription first, then the same model on the same company's key (amends 085 §6, §8)                             | Accepted |
 | [255](ADR-255-step-down-instead-of-stopping.md)                      | Step down instead of stopping: lower effort, then a smaller model, then your key, then wait; on to start with          | Accepted |
 | [256](ADR-256-check-answers-against-what-really-happened.md)         | Check answers against what really happened: Plenipo's record under every answer, four plain checks, sent back once     | Accepted |
+| [257](ADR-257-catch-made-up-answers-step-2.md)                       | Catch made-up answers, step 2: links checked through Guard, leads send work back, a notice on repeat failures          | Accepted |

@@ -8,4 +8,8 @@ export type ExperienceInfo = { score: number, keptLessons: number, tasksDone: nu
 /**
  * Above the organization's average.
  */
-experienced: boolean, };
+experienced: boolean, 
+/**
+ * Its answers sent back because they didn't match Plenipo's record (Phase 25, item 4.8).
+ */
+answersSentBack?: number, };

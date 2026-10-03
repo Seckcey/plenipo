@@ -143,6 +143,37 @@ impl Guard {
             })
     }
 
+    /// A link named in a worker's answer that Plenipo may visit to see whether it exists (Phase
+    /// 25, item 4.8): only a website on the owner's allowed list, over https (plain http only
+    /// for an address on this computer or the local network that the list names), never one
+    /// with a user name or password in it. GitHub's and GitLab's pages are never visited this
+    /// way: they answer "not found" for a private page, which would look like a made-up link.
+    pub fn link_to_check(
+        &self,
+        address: &str,
+    ) -> std::result::Result<crate::websites::Site, String> {
+        use crate::websites::{check, Site, SiteVerdict};
+        const HIDE_PRIVATE_PAGES: [&str; 2] = ["github.com", "gitlab.com"];
+        let site = Site::parse(address)?;
+        if site.scheme == "about" {
+            return Err("it is not a website".into());
+        }
+        if HIDE_PRIVATE_PAGES
+            .iter()
+            .any(|h| site.host == *h || site.host.ends_with(&format!(".{h}")))
+        {
+            return Err(format!("{} hides private pages", site.host));
+        }
+        let config = self.config().map_err(|e| e.to_string())?;
+        if !matches!(check(&config.websites, &site), SiteVerdict::Allowed(_)) {
+            return Err(format!("{} is not on your allowed websites", site.shown()));
+        }
+        if site.scheme == "http" && !site.is_local() {
+            return Err("only https links are checked".into());
+        }
+        Ok(site)
+    }
+
     /// The stored configuration.
     pub fn config(&self) -> Result<GuardConfig> {
         let value = self.ledger().setting(SETTING)?.unwrap_or(Value::Null);

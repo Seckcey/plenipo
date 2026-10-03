@@ -24,6 +24,7 @@ pub mod ledger_host;
 pub mod license_commands;
 pub mod license_host;
 pub mod limit_host;
+pub mod link_host;
 pub mod logs;
 pub mod notices;
 pub mod org_commands;

@@ -14,13 +14,19 @@ import type {
 
 import { plural } from "./format";
 
-/** "57 — 4 lessons you kept, 17 tasks done". */
+/**
+ * "57 — 4 lessons you kept, 17 tasks done", and "; 2 answers didn't match the record" when its
+ * answers were sent back (Phase 25, item 4.8).
+ */
 export function experienceLine(e: ExperienceInfo): string {
   const reasons = [
     plural(e.keptLessons, "lesson you kept", "lessons you kept"),
     plural(e.tasksDone, "task done", "tasks done"),
   ];
-  return `${e.score} — ${reasons.join(", ")}`;
+  const sentBack = e.answersSentBack ?? 0;
+  const mismatched =
+    sentBack > 0 ? `; ${plural(sentBack, "answer", "answers")} didn't match the record` : "";
+  return `${e.score} — ${reasons.join(", ")}${mismatched}`;
 }
 
 /** Whether it learns, and which setting decided, in one sentence. */

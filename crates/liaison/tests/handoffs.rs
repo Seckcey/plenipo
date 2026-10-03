@@ -1252,6 +1252,120 @@ async fn an_answer_that_doesnt_match_the_record_is_sent_back_once() {
     assert_eq!(recorded.envelope["result"]["record"]["programs"], 0);
 }
 
+/// Phase 25, item 4.8: a link named in an answer that doesn't exist is caught like any other
+/// mismatch: the answer goes back once, then up marked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_fake_link_in_an_answer_is_caught() {
+    struct Links;
+    impl plenipo_liaison::LinkChecker for Links {
+        fn exists(&self, url: &str) -> Option<bool> {
+            Some(!url.contains("missing"))
+        }
+    }
+    let h = harness().await;
+    h.liaison.set_link_checker(Arc::new(Links));
+    let (_, root) = h
+        .start(
+            "codex",
+            "Fix it {{handoff:claude-code|Say: the guide is at https://example.com/missing}}",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.only_child(&root);
+    let sent = h
+        .ledger
+        .last_task_event(&child.id, "liaison.answer_sent_back")
+        .unwrap()
+        .expect("sent back");
+    assert_eq!(
+        sent.payload["mismatches"],
+        serde_json::json!(["names a link that doesn't exist: https://example.com/missing"])
+    );
+    let reply = h.liaison.task_handoffs(&root).unwrap().sent[0]
+        .reply
+        .clone()
+        .unwrap();
+    assert!(reply.sent_back);
+    assert!(
+        reply
+            .mismatches
+            .contains(&"names a link that doesn't exist: https://example.com/missing".to_owned()),
+        "{:?}",
+        reply.mismatches
+    );
+}
+
+/// Phase 25, item 4.8: a lead sends a finished task back to the worker who did it, with what
+/// to fix. Liaison gives it back as a new request, recorded on both tasks; the lead never
+/// controls the worker itself.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_lead_sends_work_back_to_the_worker_who_did_it() {
+    let h = harness().await;
+    let (_, root) = h
+        .start(
+            "codex",
+            "Fix it [handoff:claude-code] [handoff-sendback:claude-code]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let mut children = h.children(&root);
+    children.sort_by_key(|t| t.created_at);
+    assert_eq!(children.len(), 2, "{children:#?}");
+    let (first, again) = (&children[0], &children[1]);
+    let requests = h.requests(&root);
+    let request = requests
+        .iter()
+        .find(|r| r.child_task_id.as_deref() == Some(again.id.as_str()))
+        .unwrap();
+    assert_eq!(request.envelope["sendBack"], first.id.as_str());
+    assert_eq!(
+        request.envelope["objective"],
+        "Run the tests you said passed, and say what they show"
+    );
+    // The worker gets its earlier task as context.
+    assert_eq!(
+        request.envelope["packet"]["references"][0]["taskId"],
+        first.id.as_str()
+    );
+    let sent = h
+        .ledger
+        .last_task_event(&first.id, "liaison.work_sent_back")
+        .unwrap()
+        .expect("recorded on the work sent back");
+    assert_eq!(sent.payload["byTaskId"], root.as_str());
+    assert_eq!(sent.payload["messageId"], request.id.as_str());
+    let received = h
+        .ledger
+        .last_task_event(&again.id, "liaison.handoff_received")
+        .unwrap()
+        .unwrap();
+    assert_eq!(received.payload["sentBack"], first.id.as_str());
+
+    // Only to the worker who did it.
+    let h = harness().await;
+    let (_, root) = h
+        .start(
+            "codex",
+            "Fix it [handoff:claude-code] [handoff-sendback:codex]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let refused = h
+        .requests(&root)
+        .into_iter()
+        .find(|r| r.state == MessageState::Rejected)
+        .expect("refused");
+    assert!(
+        refused.envelope["rejection"]
+            .as_str()
+            .unwrap()
+            .contains("work is sent back to the worker who did it: use \"to\": \"claude-code\""),
+        "{}",
+        refused.envelope["rejection"]
+    );
+    assert_eq!(h.children(&root).len(), 1);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn invalid_blocks_are_explained_to_the_requester() {
     let h = harness().await;

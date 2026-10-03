@@ -692,8 +692,9 @@ pub fn replies_message(
     }
     out.own(
         "\nBefore you pass work up, compare each reply's words with Plenipo's record under it. \
-         When they don't match, don't repeat the claim: say what the record shows, or ask the \
-         worker again.\n",
+         When they don't match, don't repeat the claim: say what the record shows, or send the \
+         work back: hand it to the same worker again with \"sendBack\": \"<its task ID>\" and, \
+         in \"objective\", what to fix.\n",
     );
     out.own(
         "\nContinue your original objective using these replies. Take only what you need from \

@@ -45,7 +45,8 @@
 //!   objective (tool markers inside it are the worker's, not the requester's);
 //!   `[handoff-pass:DEST]` — once the first replies come, one request to DEST that passes the
 //!   first reply's result on by its task ID (`{"kind": "task", "taskId": …}`, ADR-044 §4.12);
-//!   once per conversation.
+//!   once per conversation. `[handoff-sendback:DEST]` — likewise, sends the first reply's work
+//!   back to DEST with what to fix (`"sendBack": …`, Phase 25, item 4.8).
 //!
 //! `[verdict:V]` (a worker given a handoff request) ends its answer with a `plenipo-review` block
 //! whose verdict is V, as a reviewer's instructions ask (Phase 25, item 4.7).
@@ -711,6 +712,16 @@ fn answer(n: usize, mode: &Mode, said: &str, previous: Option<&str>, first: &str
                             "to": dest,
                             "objective": "Check this result again",
                             "context": [{ "kind": "task", "taskId": task }],
+                        })));
+                    }
+                }
+                // Send the first reply's work back to the worker who did it (Phase 25, 4.8).
+                for dest in markers(&own, "handoff-sendback") {
+                    if let Some(task) = tasks.first() {
+                        blocks.push(handoff_block(&json!({
+                            "to": dest,
+                            "objective": "Run the tests you said passed, and say what they show",
+                            "sendBack": task,
                         })));
                     }
                 }

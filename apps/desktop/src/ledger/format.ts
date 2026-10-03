@@ -956,7 +956,10 @@ function describeLiaisonEvent(type: string, p: Record<string, unknown>): string 
     case "liaison.handoff_received":
       return `Received as a handoff${
         typeof p.depth === "number" ? ` (depth ${p.depth})` : ""
-      }: ${brief(p.objective)}`;
+      }${str(p.sentBack) ? ", work sent back to fix" : ""}: ${brief(p.objective)}`;
+    // Phase 25, item 4.8: a lead sent this work back to the worker who did it.
+    case "liaison.work_sent_back":
+      return `Sent back by ${str(p.by) ?? "its lead"}: ${brief(p.reason)}`;
     case "liaison.handoff_rejected":
       return `Handoff refused${why}`;
     case "liaison.duplicate_ignored":

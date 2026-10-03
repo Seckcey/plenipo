@@ -329,6 +329,61 @@ pub fn check(answer: &str, facts: &Facts, wants_verdict: bool) -> Vec<String> {
     out
 }
 
+/// Finds out whether a link named in an answer exists (Phase 25, item 4.8), installed by the
+/// app: through Guard, only where the answer can be trusted.
+pub trait LinkChecker: Send + Sync + 'static {
+    /// `Some(true)`: it exists. `Some(false)`: it doesn't. `None`: not checked.
+    fn exists(&self, url: &str) -> Option<bool>;
+}
+
+/// Most links one answer has checked.
+const MAX_LINKS: usize = 3;
+
+/// The links an answer names that Plenipo's record doesn't already show, at most [`MAX_LINKS`]
+/// (Phase 25, item 4.8).
+pub fn links_to_check(answer: &str, facts: &Facts) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for word in answer.split(|c: char| {
+        c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']' | '`')
+    }) {
+        if !(word.starts_with("https://") || word.starts_with("http://")) {
+            continue;
+        }
+        let link = word
+            .trim_end_matches(['.', ',', ';', ':', '!', '?'])
+            .to_owned();
+        let lower = link.to_lowercase();
+        let recorded = facts
+            .pull_requests
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(&link))
+            || facts.steps.iter().any(|s| s.contains(&lower));
+        if !recorded && !out.contains(&link) {
+            out.push(link);
+        }
+        if out.len() == MAX_LINKS {
+            break;
+        }
+    }
+    out
+}
+
+/// The links an answer names that don't exist, as mismatches ("names a pull request that
+/// doesn't exist: …").
+pub fn check_links(answer: &str, facts: &Facts, checker: &dyn LinkChecker) -> Vec<String> {
+    links_to_check(answer, facts)
+        .into_iter()
+        .filter(|link| checker.exists(link) == Some(false))
+        .map(|link| {
+            if link.contains("/pull/") || link.contains("/merge_requests/") {
+                format!("names a pull request that doesn't exist: {link}")
+            } else {
+                format!("names a link that doesn't exist: {link}")
+            }
+        })
+        .collect()
+}
+
 /// The answer's sentences, lowercased, without Plenipo's own blocks (a verdict, a handoff).
 fn prose(answer: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -870,6 +925,53 @@ mod tests {
         assert_eq!(check(unreadable, &none, true), ["a review with no verdict"]);
         // Only a reviewer is asked for one.
         assert!(check("Looks fine to me.", &none, false).is_empty());
+    }
+
+    /// Phase 25, item 4.8: a fake link is caught; a link on the record, or one Plenipo can't
+    /// check, is not.
+    #[test]
+    fn a_link_that_doesnt_exist_is_caught() {
+        struct Stub;
+        impl LinkChecker for Stub {
+            fn exists(&self, url: &str) -> Option<bool> {
+                if url.contains("missing") {
+                    Some(false)
+                } else if url.contains("private") {
+                    None
+                } else {
+                    Some(true)
+                }
+            }
+        }
+        let f = facts(&[event(
+            "capability.used",
+            json!({"capability": "github.pr", "summary": "open a pull request",
+                   "pullRequest": {"url": "https://github.com/o/r/pull/missing", "number": 1}}),
+        )]);
+        let answer = "See https://example.com/docs/missing, the report at \
+                      (https://example.com/report.html), https://example.com/private/x, \
+                      PR https://github.com/o/r/pull/9-missing. Also https://github.com/o/r/pull/missing.";
+        assert_eq!(
+            links_to_check(answer, &f),
+            [
+                "https://example.com/docs/missing",
+                "https://example.com/report.html",
+                "https://example.com/private/x"
+            ],
+            "at most three, and never one on the record"
+        );
+        assert_eq!(
+            check_links(answer, &f, &Stub),
+            ["names a link that doesn't exist: https://example.com/docs/missing"]
+        );
+        assert_eq!(
+            check_links(
+                "Opened https://github.com/o/r/pull/77-missing",
+                &Facts::default(),
+                &Stub
+            ),
+            ["names a pull request that doesn't exist: https://github.com/o/r/pull/77-missing"]
+        );
     }
 
     #[test]
