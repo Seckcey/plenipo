@@ -264,6 +264,9 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       button open files with Finder's `open` or `xdg-open`.
 - [ ] **Done when:** every test suite passes on Windows, Linux, and Mac in CI, and a Guard safety
       review of Wave 1 finds nothing open.
+      The review is [its own record](phase-23-wave-1-guard-review.md): it found six things (three
+      Medium, three Low), all fixed in the same pull request, with ADR-158 (a program that leaves
+      its group still ends with its work).
 
 ### Wave 2 — Linux, first look
 

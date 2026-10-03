@@ -31,10 +31,10 @@ until "program trees hold" there; this is what makes them hold.
 - **A Mac and Linux** run them in a process group. Plenipo ends the group when the work ends, and
   the keeper (ADR-157) ends it if Plenipo crashes. A program that starts a session of its own is
   no longer in the group. ADR-157 recorded this as a known limit.
-- The Wave 1 Guard safety review found that this is common, not rare. Gradle and Bazel keep a
-  server running after a build (`./gradlew build` is on the approved list), many test tools start
-  one, and anything a worker starts with `setsid`, `tmux`, or `screen` leaves the group. Such a
-  program keeps running as the owner, after the owner pressed Stop.
+- The Wave 1 Guard safety review found that this is ordinary, not rare: some build tools keep a
+  server running in a session of its own after a build (Bazel's does), `ssh-agent` does, and so
+  does anything a worker starts with `setsid`, `tmux`, or `screen`. Such a program keeps running
+  as the owner, after the owner pressed Stop.
 - The tool server already refuses such a program: once it leaves, it no longer descends from the
   worker's AI tool (ADR-034, ADR-156). So the gap is about stopping, not about tools.
 
