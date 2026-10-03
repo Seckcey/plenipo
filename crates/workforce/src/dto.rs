@@ -488,8 +488,34 @@ pub struct OrgSnapshot {
     /// The tiles the owner placed by hand on the canvas (ADR-053); the rest follow the automatic
     /// layout.
     pub places: Vec<TilePlace>,
+    /// The templates to start from (Phase 25, item 2.8).
+    pub templates: Templates,
     #[ts(type = "number")]
     pub generated_at: u64,
+}
+
+/// A ready-made setup to start from (Phase 25, item 2.8).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TemplateInfo {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    /// What it adds, one line each: "Development: Development Manager, with a Senior Developer,
+    /// a Code Reviewer, …".
+    pub adds: Vec<String>,
+    /// More than one department: part of Pro (Free keeps one department).
+    pub pro: bool,
+}
+
+/// The templates an organization and a department can start from (Phase 25, item 2.8).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Templates {
+    pub organizations: Vec<TemplateInfo>,
+    pub departments: Vec<TemplateInfo>,
 }
 
 /// The work a position owns: its own tasks, and its team's unfinished tasks.

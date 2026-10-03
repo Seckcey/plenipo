@@ -28,8 +28,10 @@ import {
   archiveProject,
   assignOversight,
   bringBack,
+  addDepartmentFromTemplate,
   createDepartment,
   createProject,
+  setUpDevelopment,
   createRole,
   createSpecialty,
   deleteForGood,
@@ -82,6 +84,7 @@ import {
   HireDialog,
   NewDepartmentDialog,
   NewProjectDialog,
+  SetUpDevelopmentDialog,
   RoleDialog,
 } from "../components/org/OrgDialogs";
 import {
@@ -145,6 +148,7 @@ type Dialog =
   | { kind: "newDepartment"; reportsTo: string | null; fromWorkforce?: string }
   | { kind: "editDepartment"; id: string }
   | { kind: "newProject"; departmentId: string | null; fromWorkforce?: string }
+  | { kind: "softwareProject" }
   | { kind: "deleteForGood"; target: ArchivedKind; id: string }
   | { kind: "hireSaved"; savedId: string }
   | { kind: "specialty"; roleId: string; specialtyId?: string }
@@ -1336,6 +1340,12 @@ export function OrganizationView({
           {...(dialog.fromWorkforce ? { fromWorkforce: dialog.fromWorkforce } : {})}
           onCancel={closeDialog}
           onSubmit={(input) => submit(() => createDepartment(input), `Created ${input.name}.`)}
+          onTemplate={(id) =>
+            submit(
+              () => addDepartmentFromTemplate(id),
+              `Added ${snapshot.templates.departments.find((d) => d.id === id)?.name ?? "the department"}.`,
+            )
+          }
         />
       )}
       {editingDepartment && (
@@ -1354,6 +1364,16 @@ export function OrganizationView({
           {...(dialog.fromWorkforce ? { fromWorkforce: dialog.fromWorkforce } : {})}
           onCancel={closeDialog}
           onSubmit={(input) => submit(() => createProject(input), `Created ${input.name}.`)}
+          onTemplate={() => setDialog({ kind: "softwareProject" })}
+        />
+      )}
+      {dialog?.kind === "softwareProject" && (
+        <SetUpDevelopmentDialog
+          snapshot={snapshot}
+          onCancel={closeDialog}
+          onSubmit={(input) =>
+            submit(() => setUpDevelopment(input), `Set up ${input.project.name}.`)
+          }
         />
       )}
       {editingProject && (

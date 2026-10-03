@@ -176,6 +176,17 @@ pub struct Orgs {
     changing: tokio::sync::Mutex<()>,
 }
 
+impl Orgs {
+    /// Where your saved organization templates are kept (Phase 25, item 2.8): `templates` beside
+    /// the list of organizations. `None`: nothing is kept (the tests).
+    pub fn templates_folder(&self) -> Option<PathBuf> {
+        self.file
+            .as_ref()
+            .and_then(|f| f.parent())
+            .map(|d| d.join("templates"))
+    }
+}
+
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }

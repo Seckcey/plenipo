@@ -624,6 +624,21 @@ export function setUpDevelopment(input: DevelopmentInput): Promise<OrgSnapshot> 
   return call<OrgSnapshot>("set_up_development", { input });
 }
 
+/** Add a department from a template: its manager and on-call team (Phase 25, item 2.8). */
+export function addDepartmentFromTemplate(id: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("add_department_from_template", { id });
+}
+
+/** Add an organization template's departments to this organization (Phase 25, item 2.8). */
+export function applyOrganizationTemplate(id: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("apply_organization_template", { id });
+}
+
+/** Save this organization's setup as a template for new organizations (Phase 25, item 2.8). */
+export function saveOrganizationTemplate(name: string): Promise<OrgListing> {
+  return call<OrgListing>("save_organization_template", { name });
+}
+
 /** Plenipo's result for an objective (any task of it), built from the Ledger. */
 export function getObjectiveReport(taskId: string): Promise<ObjectiveReport> {
   return call<ObjectiveReport>("get_objective_report", { taskId });

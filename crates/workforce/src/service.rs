@@ -1019,6 +1019,115 @@ impl Workforce {
         self.make_department(input)
     }
 
+    /// Add a department from a template (Phase 25, item 2.8): the department, its manager, and
+    /// its on-call team reporting to the manager. Refused when a department of that name is
+    /// active already.
+    pub fn add_department_from_template(&self, id: &str) -> Result<OrgSnapshot> {
+        let t = templates::department_template(id)
+            .ok_or_else(|| invalid(format!("there is no department template named {id:?}")))?;
+        let _making = self.making();
+        if self.active_department(t.name)? {
+            return Err(invalid(format!(
+                "you already have the {} department",
+                t.name
+            )));
+        }
+        self.allow(Limit::Departments)?;
+        self.make_from_template(t)?;
+        self.snapshot()
+    }
+
+    /// Apply an organization template (Phase 25, item 2.8): each of its departments that this
+    /// organization doesn't have yet, with its manager and team. Free keeps one department, so a
+    /// template that would add more is refused before anything is made.
+    pub fn apply_organization_template(&self, id: &str) -> Result<OrgSnapshot> {
+        let t = templates::organization_template(id)
+            .ok_or_else(|| invalid(format!("there is no organization template named {id:?}")))?;
+        let _making = self.making();
+        let mut missing = Vec::new();
+        for d in t.departments {
+            let d = templates::department_template(d).ok_or_else(|| {
+                WorkforceError::Internal(format!("the {d} department template is missing"))
+            })?;
+            if !self.active_department(d.name)? {
+                missing.push(d);
+            }
+        }
+        if missing.is_empty() {
+            return self.snapshot();
+        }
+        self.allow(Limit::Departments)?;
+        if missing.len() > 1
+            && self.inner.entitlements.get().edition() != plenipo_licensing::Edition::Pro
+        {
+            return Err(WorkforceError::PartOfPro(plenipo_licensing::Blocked::new(
+                Limit::Departments,
+            )));
+        }
+        for d in missing {
+            self.make_from_template(d)?;
+        }
+        self.snapshot()
+    }
+
+    fn active_department(&self, name: &str) -> Result<bool> {
+        Ok(self
+            .ledger()
+            .list_departments()?
+            .iter()
+            .any(|d| d.status == "active" && d.name.eq_ignore_ascii_case(name)))
+    }
+
+    /// Make one department from `t`, its Free check done and the making lock held.
+    fn make_from_template(&self, t: &templates::DepartmentTemplate) -> Result<()> {
+        let roles = self.ledger().list_roles()?;
+        let role = |name: &str| {
+            roles
+                .iter()
+                .find(|r| r.name == name && r.metadata["template"] == true)
+                .map(|r| r.id.clone())
+                .ok_or_else(|| invalid(format!("the built-in role {name} is missing")))
+        };
+        let head_role = role(t.head.1)?;
+        let team: Vec<(&str, String)> = t
+            .team
+            .iter()
+            .map(|(title, r)| Ok((*title, role(r)?)))
+            .collect::<Result<_>>()?;
+        let s = self.make_department(&DepartmentInput {
+            name: t.name.into(),
+            description: t.description.into(),
+            head: Some(LeadInput {
+                role_id: head_role,
+                title: t.head.0.into(),
+                runtime_id: None,
+                model: None,
+                vacant: None,
+                from_workforce: None,
+            }),
+            reports_to: None,
+            active: None,
+        })?;
+        let head = s
+            .departments
+            .iter()
+            .find(|d| d.name == t.name && d.active)
+            .and_then(|d| d.head_position_id.clone())
+            .ok_or_else(|| WorkforceError::Internal("the new department is missing".into()))?;
+        for (title, role_id) in team {
+            self.hire(&HireInput {
+                role_id,
+                title: title.into(),
+                reports_to: Some(head.clone()),
+                runtime_id: None,
+                model: None,
+                vacant: None,
+                specialty_id: None,
+            })?;
+        }
+        Ok(())
+    }
+
     /// Make a department, its Free check done and the making lock held.
     fn make_department(&self, input: &DepartmentInput) -> Result<OrgSnapshot> {
         let head = input

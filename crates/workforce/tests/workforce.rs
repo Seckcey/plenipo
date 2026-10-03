@@ -2244,6 +2244,84 @@ async fn free_allows_one_department_and_one_project_and_refuses_the_second() {
     assert_eq!(s.projects.len(), 1);
 }
 
+/// Templates (Phase 25, item 2.8): an organization template adds each department it lacks, with
+/// its manager and on-call team; on Free, a template that would add more than one department is
+/// refused before anything is made, and one department is added like any other.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn templates_add_departments_with_their_teams_and_free_keeps_one() {
+    use plenipo_licensing::{Edition, Limit};
+    let h = harness().await;
+    let templates = h.snapshot().templates;
+    assert_eq!(
+        templates
+            .organizations
+            .iter()
+            .map(|t| (t.id.as_str(), t.pro))
+            .collect::<Vec<_>>(),
+        [
+            ("software", false),
+            ("small-business", true),
+            ("agency", true),
+            ("it-services", true),
+            ("enterprise", true),
+        ]
+    );
+    // Free: a template with two departments is refused, and nothing is made.
+    h.edition(Edition::Free);
+    assert_eq!(
+        part_of_pro(h.workforce.apply_organization_template("small-business")),
+        Limit::Departments
+    );
+    assert!(h.snapshot().departments.is_empty());
+    // One department is fine, and only once.
+    let s = h.workforce.apply_organization_template("software").unwrap();
+    assert_eq!(s.departments.len(), 1);
+    let head = s.departments[0].head_position_id.clone().unwrap();
+    let team: Vec<&str> = s
+        .positions
+        .iter()
+        .filter(|p| p.reports_to.as_deref() == Some(head.as_str()))
+        .map(|p| p.title.as_str())
+        .collect();
+    assert_eq!(
+        team,
+        [
+            "Senior Developer",
+            "Code Reviewer",
+            "QA Engineer",
+            "Documentation Writer"
+        ]
+    );
+    assert_eq!(
+        h.workforce
+            .apply_organization_template("software")
+            .unwrap()
+            .departments
+            .len(),
+        1
+    );
+    assert_eq!(
+        part_of_pro(h.workforce.add_department_from_template("operations")),
+        Limit::Departments
+    );
+    // Pro: the rest of an agency's departments are added, the one it has is kept.
+    h.edition(Edition::Pro);
+    let s = h.workforce.apply_organization_template("agency").unwrap();
+    let mut names: Vec<&str> = s.departments.iter().map(|d| d.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["Design", "Development", "Marketing"]);
+    // A department template, and its name only once.
+    h.workforce
+        .add_department_from_template("operations")
+        .unwrap();
+    assert!(
+        refusal(h.workforce.add_department_from_template("operations"))
+            .contains("already have the Operations department")
+    );
+    assert!(refusal(h.workforce.apply_organization_template("nope"))
+        .contains("no organization template"));
+}
+
 /// Review finding: the Free check and the Ledger write were apart, so projects made at the same
 /// moment could all pass. One is made; the others are part of Pro.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

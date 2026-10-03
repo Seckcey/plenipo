@@ -593,6 +593,7 @@ export function NewDepartmentDialog({
   fromWorkforce = "",
   onCancel,
   onSubmit,
+  onTemplate,
 }: {
   snapshot: OrgSnapshot;
   reportsTo?: string | null;
@@ -600,7 +601,15 @@ export function NewDepartmentDialog({
   fromWorkforce?: string;
   onCancel: () => void;
   onSubmit: Submit<DepartmentInput>;
+  /** Add a department from a template instead (Phase 25, item 2.8). */
+  onTemplate?: Submit<string> | undefined;
 }) {
+  // The templates for departments this organization doesn't have yet.
+  const templates = snapshot.templates.departments.filter(
+    (d) => !snapshot.departments.some((x) => x.active && x.name === d.name),
+  );
+  const [template, setTemplate] = useState(templates[0]?.id ?? "");
+  const chosen = templates.find((d) => d.id === template);
   const superintendents = snapshot.positions.filter((p) => p.active && p.kind === "superintendent");
   const t = titlesOf(snapshot);
   const manager = rankName(t, "departmentManager");
@@ -627,6 +636,30 @@ export function NewDepartmentDialog({
   return (
     <Modal title="New department" onClose={onCancel} wide>
       <form className="modal__body" aria-label="New department" onSubmit={submit}>
+        {onTemplate && templates.length > 0 && !fromWorkforce && (
+          <fieldset className="choices">
+            <legend>Start from a template</legend>
+            <Field label="Template" hint={chosen ? chosen.adds.join(" · ") : undefined}>
+              <select value={template} onChange={(e) => setTemplate(e.target.value)}>
+                {templates.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}: {d.description}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <div className="actions">
+              <Button
+                size="sm"
+                disabled={pending || !chosen}
+                onClick={() => void run(() => onTemplate(template))}
+              >
+                {chosen ? `Add ${chosen.name}` : "Add it"}
+              </Button>
+              <span className="muted">Or make your own below.</span>
+            </div>
+          </fieldset>
+        )}
         <Field label="Name">
           <input value={name} maxLength={120} required onChange={(e) => setName(e.target.value)} />
         </Field>
@@ -865,6 +898,7 @@ export function NewProjectDialog({
   fromWorkforce = "",
   onCancel,
   onSubmit,
+  onTemplate,
 }: {
   snapshot: OrgSnapshot;
   departmentId?: string | null;
@@ -872,6 +906,8 @@ export function NewProjectDialog({
   fromWorkforce?: string;
   onCancel: () => void;
   onSubmit: Submit<ProjectInput>;
+  /** Use the Software project template instead (Phase 25, item 2.8). */
+  onTemplate?: (() => void) | undefined;
 }) {
   const departments = snapshot.departments.filter((d) => d.active && d.headPositionId);
   const [departmentId, setDepartmentId] = useState(
@@ -925,6 +961,18 @@ export function NewProjectDialog({
   return (
     <Modal title="New project" onClose={onCancel} wide>
       <form className="modal__body" aria-label="New project" onSubmit={submit}>
+        {onTemplate && !fromWorkforce && (
+          <div className="actions">
+            <Button size="sm" onClick={onTemplate}>
+              Use the Software project template
+            </Button>
+            <span className="muted">
+              A {rankName(titlesOf(snapshot), "projectCoordinator")} and a Development team
+              (developer, reviewer, QA engineer, writer), using your department&apos;s workers
+              first.
+            </span>
+          </div>
+        )}
         {departments.length === 0 ? (
           <p className="hint">
             A project belongs to a department, and its {supervisor} reports to the department&apos;s{" "}

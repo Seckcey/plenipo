@@ -18,6 +18,7 @@ import { Modal } from "../components/org/Modal";
 import { useLicense } from "../license/useLicense";
 import { useOrganization } from "../org/useOrganization";
 import { NewOrganizationDialog } from "./NewOrganizationDialog";
+import { TemplatesSetting } from "./TemplatesSetting";
 import { useOrganizations } from "./useOrganizations";
 
 function where(o: OrgSummary): string {
@@ -95,6 +96,8 @@ export function OrganizationsSetting() {
         </Button>
         <FormError error={rename.error} />
       </form>
+
+      <TemplatesSetting onFree={onFree} onSaved={apply} />
 
       <h3>Your organizations</h3>
       <p className="muted">

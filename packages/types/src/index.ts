@@ -194,6 +194,8 @@ export type { Verdict } from "./generated/Verdict";
 // The Development department: working copies, the result of an objective, projects (Phase 8)
 export type { CommitInfo } from "./generated/CommitInfo";
 export type { DevelopmentInput } from "./generated/DevelopmentInput";
+export type { TemplateInfo } from "./generated/TemplateInfo";
+export type { Templates } from "./generated/Templates";
 export type { FileChange } from "./generated/FileChange";
 export type { ObjectiveBrief } from "./generated/ObjectiveBrief";
 export type { ObjectiveReport } from "./generated/ObjectiveReport";

@@ -630,6 +630,7 @@ pub(crate) fn build(inputs: &Inputs<'_>) -> OrgSnapshot {
             })
             .collect(),
         notices: inputs.notices.clone(),
+        templates: crate::templates::templates_info(),
         places: inputs.places.to_vec(),
         generated_at: inputs.now,
     }

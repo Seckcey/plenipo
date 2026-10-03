@@ -7,6 +7,7 @@ import type { ProjectInfo } from "./ProjectInfo";
 import type { RoleInfo } from "./RoleInfo";
 import type { RuntimeBrief } from "./RuntimeBrief";
 import type { SavedAgentInfo } from "./SavedAgentInfo";
+import type { Templates } from "./Templates";
 import type { TilePlace } from "./TilePlace";
 import type { TitleTheme } from "./TitleTheme";
 
@@ -35,4 +36,8 @@ averageExperience: number, oversight: Array<OversightInfo>, stats: OrgStats, run
  * The tiles the owner placed by hand on the canvas (ADR-053); the rest follow the automatic
  * layout.
  */
-places: Array<TilePlace>, generatedAt: number, };
+places: Array<TilePlace>, 
+/**
+ * The templates to start from (Phase 25, item 2.8).
+ */
+templates: Templates, generatedAt: number, };

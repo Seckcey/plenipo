@@ -540,6 +540,168 @@ pub const DEVELOPMENT: TeamTemplate = TeamTemplate {
     business: false,
 };
 
+/// A department a template adds (Phase 25, item 2.8): its name and what it does, its head (title
+/// and role template), and its on-call team reporting to the head (title and role template).
+/// Each role's starting model choices and permissions come with the role.
+pub struct DepartmentTemplate {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub description: &'static str,
+    pub head: (&'static str, &'static str),
+    pub team: &'static [(&'static str, &'static str)],
+}
+
+/// The built-in department templates (Phase 25, item 2.8).
+pub const DEPARTMENT_TEMPLATES: &[DepartmentTemplate] = &[
+    DepartmentTemplate {
+        id: "development",
+        name: "Development",
+        description: "Builds and maintains the software projects.",
+        head: ("Development Manager", "Manager"),
+        team: &[
+            ("Senior Developer", "Senior Developer"),
+            ("Code Reviewer", "Code Reviewer"),
+            ("QA Engineer", "QA Engineer"),
+            ("Documentation Writer", "Documentation Writer"),
+        ],
+    },
+    DepartmentTemplate {
+        id: "operations",
+        name: "Operations",
+        description: "Keeps the servers, computers, and accounts running and safe.",
+        head: ("Operations Manager", "Manager"),
+        team: &[
+            ("Operations Engineer", "Operations Engineer"),
+            ("Security Auditor", "Security Auditor"),
+        ],
+    },
+    DepartmentTemplate {
+        id: "marketing",
+        name: "Marketing",
+        description: "Campaigns, the website, and what customers read.",
+        head: ("Marketing Manager", "Manager"),
+        team: &[
+            ("Designer", "Designer"),
+            ("Writer", "Documentation Writer"),
+            ("Researcher", "Researcher"),
+        ],
+    },
+    DepartmentTemplate {
+        id: "design",
+        name: "Design",
+        description: "Graphics, layouts, and the brand.",
+        head: ("Design Manager", "Manager"),
+        team: &[("Designer", "Designer"), ("Researcher", "Researcher")],
+    },
+    DepartmentTemplate {
+        id: "documentation",
+        name: "Documentation",
+        description: "Guides, help pages, and records.",
+        head: ("Documentation Manager", "Manager"),
+        team: &[
+            ("Documentation Writer", "Documentation Writer"),
+            ("Researcher", "Researcher"),
+        ],
+    },
+];
+
+/// An organization template (Phase 25, item 2.8): the departments it adds. One with more than one
+/// department is part of Pro (Free keeps one department).
+pub struct OrganizationTemplate {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub description: &'static str,
+    pub departments: &'static [&'static str],
+}
+
+/// The built-in organization templates (Phase 25, item 2.8).
+pub const ORGANIZATION_TEMPLATES: &[OrganizationTemplate] = &[
+    OrganizationTemplate {
+        id: "software",
+        name: "Software project",
+        description: "Development: a developer, a reviewer, a QA engineer, and a writer.",
+        departments: &["development"],
+    },
+    OrganizationTemplate {
+        id: "small-business",
+        name: "Small business",
+        description: "Operations and Marketing.",
+        departments: &["operations", "marketing"],
+    },
+    OrganizationTemplate {
+        id: "agency",
+        name: "Agency",
+        description: "Development, Design, and Marketing.",
+        departments: &["development", "design", "marketing"],
+    },
+    OrganizationTemplate {
+        id: "it-services",
+        name: "IT services",
+        description: "Operations and Documentation.",
+        departments: &["operations", "documentation"],
+    },
+    OrganizationTemplate {
+        id: "enterprise",
+        name: "Enterprise",
+        description:
+            "Development, Operations, Marketing, Design, and Documentation, each with its manager.",
+        departments: &[
+            "development",
+            "operations",
+            "marketing",
+            "design",
+            "documentation",
+        ],
+    },
+];
+
+/// "Development: Development Manager, with a Senior Developer, a Code Reviewer, …".
+fn adds_line(t: &DepartmentTemplate) -> String {
+    let team: Vec<&str> = t.team.iter().map(|(title, _)| *title).collect();
+    format!("{}: {}, with {}", t.name, t.head.0, team.join(", "))
+}
+
+/// Every template, for the screens (Phase 25, item 2.8).
+pub fn templates_info() -> crate::dto::Templates {
+    crate::dto::Templates {
+        organizations: ORGANIZATION_TEMPLATES
+            .iter()
+            .map(|t| crate::dto::TemplateInfo {
+                id: t.id.into(),
+                name: t.name.into(),
+                description: t.description.into(),
+                adds: t
+                    .departments
+                    .iter()
+                    .filter_map(|d| department_template(d))
+                    .map(adds_line)
+                    .collect(),
+                pro: t.departments.len() > 1,
+            })
+            .collect(),
+        departments: DEPARTMENT_TEMPLATES
+            .iter()
+            .map(|t| crate::dto::TemplateInfo {
+                id: t.id.into(),
+                name: t.name.into(),
+                description: t.description.into(),
+                adds: vec![adds_line(t)],
+                pro: false,
+            })
+            .collect(),
+    }
+}
+
+/// A department template by its ID.
+pub fn department_template(id: &str) -> Option<&'static DepartmentTemplate> {
+    DEPARTMENT_TEMPLATES.iter().find(|t| t.id == id)
+}
+
+/// An organization template by its ID.
+pub fn organization_template(id: &str) -> Option<&'static OrganizationTemplate> {
+    ORGANIZATION_TEMPLATES.iter().find(|t| t.id == id)
+}
+
 /// Built-in roles whose workers end their answers with a verdict (Phase 8).
 pub const VERDICT_ROLES: [&str; 3] = ["Code Reviewer", "QA Engineer", "Security Auditor"];
 

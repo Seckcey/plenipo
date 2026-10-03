@@ -643,6 +643,8 @@ pub fn configure<R: Runtime>(
             commands::resolve_approval,
             commands::revoke_grant,
             commands::set_up_development,
+            commands::add_department_from_template,
+            commands::apply_organization_template,
             commands::get_objective_report,
             commands::get_project_work,
             commands::remove_workspace,
@@ -702,6 +704,7 @@ pub fn configure<R: Runtime>(
             workspace_commands::close_pop_out,
             org_commands::get_organizations,
             org_commands::create_organization,
+            org_commands::save_organization_template,
             org_commands::switch_organization,
             org_commands::open_organization_window,
             org_commands::archive_organization,
@@ -6256,13 +6259,17 @@ mod ipc_boundary_tests {
     }
 
     #[test]
-    fn a_new_organization_starts_from_scratch_a_copy_or_not_yet_a_template() {
+    fn a_new_organization_starts_from_scratch_a_copy_or_a_template() {
         let app = app();
         let main = window(&app, "main");
         for (start, why) in [
             (
-                serde_json::json!({ "kind": "template", "template": "agency" }),
-                "later",
+                serde_json::json!({ "kind": "template", "template": "nope" }),
+                "no such template",
+            ),
+            (
+                serde_json::json!({ "kind": "template", "template": "saved-../../x" }),
+                "not a saved one",
             ),
             (
                 serde_json::json!({ "kind": "copy", "from": "../../x" }),
@@ -6289,6 +6296,24 @@ mod ipc_boundary_tests {
             "create_organization",
             serde_json::json!({ "name": "Copy Co", "start": { "kind": "copy", "from": orgs::FIRST } }),
         ));
+        // A template (Phase 25, item 2.8): its departments, each with its manager and team.
+        let agency: plenipo_core::OrgSummary = body(invoke_json(
+            &main,
+            "create_organization",
+            serde_json::json!({ "name": "Agency Co", "start": { "kind": "template", "template": "agency" } }),
+        ));
+        let made = app.state::<Arc<orgs::Orgs>>().stack(&agency.id).unwrap();
+        let mut names: Vec<String> = made
+            .ledger
+            .list_departments()
+            .unwrap()
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        names.sort();
+        assert_eq!(names, ["Design", "Development", "Marketing"]);
+        let listing: plenipo_core::OrgListing = body(invoke(&main, "get_organizations"));
+        assert!(listing.templates.iter().any(|t| t.id == "agency"));
         let stack = app.state::<Arc<orgs::Orgs>>().stack(&copy.id).unwrap();
         let first = app.state::<Arc<orgs::Orgs>>().first().unwrap();
         assert_eq!(

@@ -462,20 +462,25 @@ simpler screens.
   new-organization dialog, greyed out, and the code says "Templates are coming later." One team
   template exists (Development), and `set_up_team` can apply any team template.
 - **Do:**
-  - [ ] **Templates:**
+  - [x] **Templates:** recorded in [ADR-197 (templates)](../adr/ADR-197-templates.md).
     - **Small business:** Operations and Marketing.
     - **Software project:** Development (after 2.7, it reuses existing workers).
     - **Agency:** Development, Design, and Marketing.
     - **Enterprise:** several departments, each with a manager and a supervisor.
     - **IT services:** Operations and Documentation.
-    - Each template sets starting models, permissions, and rank names.
-  - [ ] A template picker in the new-organization, new-project, and new-department dialogs.
-  - [ ] Templates with more than one department need Pro (Free keeps one department).
-  - [ ] **Save my organization as a template** (setup only: no keys, no files, no history), and use
+    - Each department comes with its manager and an on-call team of built-in roles, whose
+      starting models and permissions come with the role; rank names stay the organization's.
+    - Enterprise's departments each get a manager; a supervisor comes with a project.
+  - [x] A template picker in the new-organization, new-project, and new-department dialogs, and in
+        Settings → Organization (add a template's departments to this organization).
+  - [x] Templates with more than one department need Pro (Free keeps one department).
+  - [x] **Save my organization as a template** (setup only: no keys, no files, no history), and use
         it for a new organization. It reuses the setup copy in `ledger/src/workforce/copy.rs`.
-  - [ ] This carries out part of parked Phase 15 (department templates). Phase 15 itself stays
+  - [x] This carries out part of parked Phase 15 (department templates). Phase 15 itself stays
         parked.
-- **Tests:** each template applies cleanly, and on Free the Pro templates are locked.
+- **Tests:** [x] each template applies cleanly, and on Free the Pro templates are locked
+  (`templates_add_departments_with_their_teams_and_free_keeps_one`, the app's organization test,
+  `templates.test.tsx`).
 
 ### 2.9 A real setup tour, with Driver.js — M–L
 

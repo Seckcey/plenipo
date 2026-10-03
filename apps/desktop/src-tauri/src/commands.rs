@@ -965,6 +965,41 @@ pub async fn set_up_development(
     with_workforce(&workforce, move |w| w.set_up_development(&input)).await
 }
 
+/// A template's ID: a short name of letters, digits, and dashes.
+fn template_id(id: &str) -> Result<(), CommandError> {
+    if id.is_empty()
+        || id.len() > 64
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(CommandError::invalid_input("that is not a template's name"));
+    }
+    Ok(())
+}
+
+/// Add a department from a template (Phase 25, item 2.8): the department, its manager, and its
+/// on-call team.
+#[tauri::command]
+pub async fn add_department_from_template(
+    workforce: Org<'_, Workforce>,
+    id: String,
+) -> Result<OrgSnapshot, CommandError> {
+    template_id(&id)?;
+    with_workforce(&workforce, move |w| w.add_department_from_template(&id)).await
+}
+
+/// Apply an organization template to this organization (Phase 25, item 2.8): each of its
+/// departments the organization doesn't have yet.
+#[tauri::command]
+pub async fn apply_organization_template(
+    workforce: Org<'_, Workforce>,
+    id: String,
+) -> Result<OrgSnapshot, CommandError> {
+    template_id(&id)?;
+    with_workforce(&workforce, move |w| w.apply_organization_template(&id)).await
+}
+
 /// Plenipo's record of the objective a task belongs to (Phase 8): tasks, workers and AI models,
 /// files, tests, branches, pull requests, findings, and approvals.
 #[tauri::command]
