@@ -29,7 +29,7 @@ pub const MOST_NOTE_CHARS: usize = 1000;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
-pub struct BlockedView {
+pub struct BlockedPerson {
     pub member_id: String,
     /// Their Community name, without the `@`.
     pub name: String,
@@ -138,7 +138,7 @@ impl<T: Transport> Community<T> {
 
     /// Settings → Community → **Blocked**: everyone you blocked, as 8 West has it, and this PC's
     /// marks brought up to date with it.
-    pub async fn blocked(&self, ledger: &Ledger) -> Result<Vec<BlockedView>, Refused> {
+    pub async fn blocked(&self, ledger: &Ledger) -> Result<Vec<BlockedPerson>, Refused> {
         let answer = self
             .as_member(&client::blocks(), 200)
             .await
@@ -181,7 +181,7 @@ impl<T: Transport> Community<T> {
         }
         Ok(blocks
             .into_iter()
-            .map(|b| BlockedView {
+            .map(|b| BlockedPerson {
                 member_id: b.member_id,
                 name: b.name,
                 blocked_at: b.blocked_at,
