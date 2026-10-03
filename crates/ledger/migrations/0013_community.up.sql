@@ -17,6 +17,8 @@ CREATE TABLE community_people (
                                                      AND safety_code NOT GLOB '*[^0-9]*')),
     safety_seen  TEXT CHECK (safety_seen IS NULL OR (length(safety_seen) = 12
                                                      AND safety_seen NOT GLOB '*[^0-9]*')),
+    -- You blocked them: this PC refuses their items too (ADR-167 §4).
+    blocked      INTEGER NOT NULL DEFAULT 0 CHECK (blocked IN (0, 1)),
     updated_at   INTEGER NOT NULL
 );
 

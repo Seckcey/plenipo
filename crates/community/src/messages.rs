@@ -349,6 +349,7 @@ impl<T: Transport> Community<T> {
                     state,
                     safety_code: None,
                     safety_seen: None,
+                    blocked: false,
                     updated_at: contact.since,
                 },
             };
@@ -440,6 +441,7 @@ impl<T: Transport> Community<T> {
                 state: PersonState::None,
                 safety_code: None,
                 safety_seen: None,
+                blocked: false,
                 updated_at: self.now(),
             },
         };

@@ -69,6 +69,8 @@ pub struct CommunityPerson {
     /// The safety code as it was when you last looked: a different one says "Pat's computers
     /// changed".
     pub safety_seen: Option<String>,
+    /// You blocked them: this PC refuses their items too (ADR-167 §4).
+    pub blocked: bool,
     /// When anything last happened with them (Unix seconds).
     pub updated_at: i64,
 }
@@ -186,12 +188,13 @@ fn person_of(r: &Row<'_>) -> rusqlite::Result<CommunityPerson> {
         state: PersonState::parse(&state).ok_or_else(|| bad_column(3, &state))?,
         safety_code: r.get(4)?,
         safety_seen: r.get(5)?,
-        updated_at: r.get(6)?,
+        blocked: r.get(6)?,
+        updated_at: r.get(7)?,
     })
 }
 
 const PERSON_COLUMNS: &str =
-    "member_id, name, display_name, state, safety_code, safety_seen, updated_at";
+    "member_id, name, display_name, state, safety_code, safety_seen, blocked, updated_at";
 
 fn item_of(r: &Row<'_>) -> rusqlite::Result<CommunityItem> {
     let kind: String = r.get(3)?;
@@ -242,12 +245,14 @@ impl Ledger {
         self.write(|tx, _| {
             tx.execute(
                 "INSERT INTO community_people
-                     (member_id, name, display_name, state, safety_code, safety_seen, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                     (member_id, name, display_name, state, safety_code, safety_seen, blocked,
+                      updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                  ON CONFLICT (member_id) DO UPDATE SET
                      name = excluded.name, display_name = excluded.display_name,
                      state = excluded.state, safety_code = excluded.safety_code,
-                     safety_seen = excluded.safety_seen, updated_at = excluded.updated_at",
+                     safety_seen = excluded.safety_seen, blocked = excluded.blocked,
+                     updated_at = excluded.updated_at",
                 params![
                     p.member_id,
                     p.name,
@@ -255,6 +260,7 @@ impl Ledger {
                     p.state.as_str(),
                     p.safety_code,
                     p.safety_seen,
+                    p.blocked,
                     p.updated_at,
                 ],
             )?;
@@ -469,6 +475,7 @@ mod tests {
             state: PersonState::RequestedByThem,
             safety_code: Some("537392077552".into()),
             safety_seen: None,
+            blocked: false,
             updated_at: 100,
         }
     }
