@@ -162,7 +162,11 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       both (ADR-157, a keeper ends programs after a crash): Linux's `PR_SET_PDEATHSIG` turned out
       to fire when a worker thread retires, not when Plenipo ends. Stop gently first, then for
       certain. The test that only ran on Windows (`children_do_not_outlive_a_crashed_owner`) runs
-      on all three, and passes on GitHub's Linux and Mac machines.
+      on all three, and passes on GitHub's Linux and Mac machines. The Guard safety review found
+      that a program can leave the group (a build tool's server, `setsid`, `tmux`) and outlive
+      both; every program now carries a mark that its own programs inherit, and Stop, the end of a
+      run, and the keeper end whatever still carries it (ADR-158, a program that leaves its group
+      still ends with its work), tested on GitHub's Mac and Linux machines.
 - [x] **Tool tickets on the Mac (ADR-034, approved programs run as the owner).** Plenipo checks that a
       tool call comes from the AI tool's own program tree. On Linux this works. On the Mac the check
       cannot tell today (`crates/capabilities/src/process.rs`), and when it cannot tell, the rule is
@@ -269,6 +273,9 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       them, and the Files list marks them as programs; tests on GitHub's Mac and Linux machines.
 - [ ] **Done when:** every test suite passes on Windows, Linux, and Mac in CI, and a Guard safety
       review of Wave 1 finds nothing open.
+      The review is [its own record](phase-23-wave-1-guard-review.md): it found six things (three
+      Medium, three Low), all fixed in the same pull request, with ADR-158 (a program that leaves
+      its group still ends with its work).
 
 ### Wave 2 — Linux, first look
 

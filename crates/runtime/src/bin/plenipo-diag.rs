@@ -1,10 +1,10 @@
 //! Diagnostic child process for runtime tests.
 //!
 //! `plenipo-diag --plenipo-diagnostic=<scenario>` runs a harmless scenario (see
-//! `plenipo_runtime::diagnostic`). `plenipo-diag --host <work-dir>` runs a Supervisor that
-//! owns one long-running child, as Plenipo does (with its keeper on a Mac and Linux, ADR-157);
-//! tests kill the host to prove its children do not survive. `plenipo-diag --plenipo-keeper` is
-//! that keeper.
+//! `plenipo_runtime::diagnostic`). `plenipo-diag --host <work-dir> [scenario]` runs a Supervisor
+//! that owns one long-running child (the scenario, `long-running` unless named), as Plenipo does
+//! (with its keeper on a Mac and Linux, ADR-157 and ADR-158); tests kill the host to prove its
+//! children do not survive. `plenipo-diag --plenipo-keeper` is that keeper.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,7 +21,10 @@ fn main() {
         std::process::exit(code);
     }
     if args.get(1).map(String::as_str) == Some("--host") {
-        std::process::exit(host(args.get(2).map(String::as_str)));
+        std::process::exit(host(
+            args.get(2).map(String::as_str),
+            args.get(3).map(String::as_str),
+        ));
     }
     let code = diagnostic::maybe_run_from_args(args).unwrap_or_else(|| {
         eprintln!("usage: plenipo-diag --plenipo-diagnostic=<scenario> | --host <work-dir>");
@@ -35,10 +38,18 @@ impl EventSink for Silent {
     fn emit(&self, _event: RuntimeEvent) {}
 }
 
-fn host(work_dir: Option<&str>) -> i32 {
+fn host(work_dir: Option<&str>, scenario: Option<&str>) -> i32 {
     let Some(work_dir) = work_dir else {
         eprintln!("--host requires a working directory");
         return 64;
+    };
+    let scenario = match scenario.map(Scenario::parse) {
+        None => Scenario::LongRunning,
+        Some(Some(s)) => s,
+        Some(None) => {
+            eprintln!("unknown scenario");
+            return 64;
+        }
     };
     let exe = std::env::current_exe().expect("current exe");
     keeper::start(&exe).expect("the keeper starts");
@@ -48,7 +59,7 @@ fn host(work_dir: Option<&str>) -> i32 {
         label: "Hosted long-running".into(),
         description: String::new(),
         executable: exe,
-        args: vec![diagnostic::arg(Scenario::LongRunning)],
+        args: vec![diagnostic::arg(scenario)],
         env: vec![],
         working_dir: work_dir.into(),
         max_runtime: Duration::from_secs(600),
