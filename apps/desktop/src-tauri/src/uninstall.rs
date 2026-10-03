@@ -198,19 +198,25 @@ pub fn mac_leftovers(home: &Path) -> [PathBuf; 2] {
     ]
 }
 
-/// Delete each of `paths` (a file or a folder) only when it is one of [`mac_leftovers`]' names;
-/// one already gone is fine, and a link is removed, never followed.
+/// Delete each of `paths` (a file or a folder) only when it is one of [`mac_leftovers`]: that
+/// name, in that folder of a `Library`. One already gone is fine, and a link is removed, never
+/// followed.
 pub fn delete_leftovers(paths: &[PathBuf]) -> Result<(), String> {
     let allowed = [
-        format!("{IDENTIFIER}.plist"),
-        format!("{IDENTIFIER}.savedState"),
+        ("Preferences", format!("{IDENTIFIER}.plist")),
+        (
+            "Saved Application State",
+            format!("{IDENTIFIER}.savedState"),
+        ),
     ];
     let mut problems = Vec::new();
     for path in paths {
-        let named = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| allowed.iter().any(|a| a == n));
+        let named = allowed.iter().any(|(folder, name)| {
+            path.file_name().is_some_and(|n| n == name.as_str())
+                && path
+                    .parent()
+                    .is_some_and(|p| p.ends_with(Path::new("Library").join(folder)))
+        });
         if !named {
             problems.push(format!(
                 "{} is not one of Plenipo's own files, so it was left alone",
@@ -508,9 +514,23 @@ mod tests {
         std::fs::create_dir_all(saved.join("windows")).unwrap();
         let other = plist.with_file_name("com.apple.finder.plist");
         std::fs::write(&other, b"<plist/>").unwrap();
-        let why = delete_leftovers(&[plist.clone(), saved.clone(), other.clone()]).unwrap_err();
+        // Plenipo's name, but not in its Library folder: left alone too.
+        let elsewhere = dir
+            .path()
+            .join("Documents")
+            .join("com.eightwest.plenipo.plist");
+        std::fs::create_dir_all(elsewhere.parent().unwrap()).unwrap();
+        std::fs::write(&elsewhere, b"<plist/>").unwrap();
+        let why = delete_leftovers(&[
+            plist.clone(),
+            saved.clone(),
+            other.clone(),
+            elsewhere.clone(),
+        ])
+        .unwrap_err();
         assert!(!plist.exists() && !saved.exists());
         assert!(other.exists(), "never another program's settings");
+        assert!(elsewhere.exists(), "never outside Library's own folders");
         assert!(why.contains("not one of Plenipo's own files"), "{why}");
         assert!(
             delete_leftovers(&mac_leftovers(dir.path())).is_ok(),

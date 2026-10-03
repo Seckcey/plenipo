@@ -378,9 +378,14 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       would need the owner's own decision and is not the plan.
 - [ ] **The right data folder:** `~/Library/Application Support/com.eightwest.plenipo` (the uninstall
       code looks in the Linux folder on a Mac today). "Delete my Plenipo data" (Wave 2) also
-      deletes the Mac's web-page folders (`~/Library/WebKit` and `~/Library/HTTPStorages`); it
-      still leaves `~/Library/Preferences/com.eightwest.plenipo.plist` and the saved window state,
-      which are not folders named for Plenipo. Add them here.
+      deletes Plenipo's own web-page folders, `~/Library/WebKit/com.eightwest.plenipo` and
+      `~/Library/HTTPStorages/com.eightwest.plenipo` (never `~/Library/WebKit` or
+      `~/Library/HTTPStorages` themselves, which belong to every app); it still leaves
+      `~/Library/Preferences/com.eightwest.plenipo.plist` and the saved window state, which are not
+      folders named for Plenipo. Add them here.
+      Wave 3A, step 1: the uninstall code finds the Mac's data folder in Application Support, and
+      `mac_leftovers` / `delete_leftovers` delete those two, only by their exact names in their own
+      `Library` folders; step 2 hooks them into "Delete my Plenipo data".
 - [ ] **Computer use on a Mac** is new work: there is no screen or mouse code for the Mac today. macOS
       makes the owner allow "Accessibility" and "Screen Recording" in System Settings. Plenipo
       explains why, opens the right page, and never works around it. Each step is still asked
