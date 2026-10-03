@@ -57,12 +57,10 @@ afterEach(() => {
 const rowOf = (name: string) => screen.getByRole("row", { name: new RegExp(`^${name}`) });
 
 describe("Settings → AI models", () => {
-  it("sets model and effort rules for the organization and a department (ADR-041)", async () => {
+  it("sets model and effort rules for the organization and a department, in Who uses what (ADR-041, Phase 25 item 2.6)", async () => {
     render(<ModelSettings go={go} />);
     const user = userEvent.setup();
-    expect(
-      await screen.findByRole("heading", { name: "Model and effort rules" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Who uses what" })).toBeInTheDocument();
     await user.click(
       await screen.findByRole("button", { name: "Change the rule for The whole organization" }),
     );
@@ -73,10 +71,16 @@ describe("Settings → AI models", () => {
       within(org).getByRole("combobox", { name: "Effort for any other model" }),
       "High effort",
     );
+    // AI companies never to use are set here, for the whole organization.
+    const openai = within(org).getByRole("checkbox", { name: "OpenAI" });
+    expect(openai).toHaveAccessibleDescription(
+      "Never used for this work, even when another rule lists them: these add up.",
+    );
+    await user.click(openai);
     await user.click(within(org).getByRole("button", { name: "Save rule" }));
     expect(api.setModelRule).toHaveBeenCalledWith(
       { layer: "organization" },
-      { models: [], efforts: {}, effort: "high", neverCompanies: [] },
+      { models: [], efforts: {}, effort: "high", neverCompanies: ["openai"] },
     );
     await user.click(screen.getByRole("button", { name: "Change the rule for Engineering" }));
     const eng = screen.getByRole("form", { name: "Rule for Engineering" });
@@ -84,23 +88,30 @@ describe("Settings → AI models", () => {
       within(eng).getByRole("combobox", { name: "Add a model to the list" }),
       "Opus (Claude Code)",
     );
-    // AI companies never to use add up across the rules.
-    const openai = within(eng).getByRole("checkbox", { name: "OpenAI" });
-    expect(openai).toHaveAccessibleDescription(
-      "Never used for this work, even when another rule lists them: these add up.",
-    );
-    await user.click(openai);
+    // A department no longer sets AI companies never to use.
+    expect(within(eng).queryByRole("checkbox", { name: "OpenAI" })).toBeNull();
     await user.click(within(eng).getByRole("button", { name: "Save rule" }));
     expect(api.setModelRule).toHaveBeenLastCalledWith(
       { layer: "department", id: "d-eng" },
-      { models: ["m-opus"], efforts: {}, effort: null, neverCompanies: ["openai"] },
+      { models: ["m-opus"], efforts: {}, effort: null, neverCompanies: [] },
     );
   });
 
   it("shows where each role's next worker goes and why", async () => {
     render(<ModelSettings go={go} />);
     const dev = await screen.findByRole("row", { name: /^Senior Developer/ });
-    expect(within(dev).getByText("Opus (Claude Code)")).toBeInTheDocument();
+    // Its model, its backup, its effort, and where the next worker's model came from.
+    expect(
+      within(dev)
+        .getAllByRole("cell")
+        .map((c) => c.textContent),
+    ).toEqual([
+      "Opus (Claude Code)",
+      "Codex: its own choice",
+      "Its own",
+      expect.stringContaining("Opus (Claude Code)from Senior Developer's choices"),
+      "Change",
+    ]);
     expect(
       within(dev).getByText("Opus (Claude Code) is Senior Developer's first choice and is ready."),
     ).toBeInTheDocument();
@@ -128,7 +139,7 @@ describe("Settings → AI models", () => {
     ).toBeInTheDocument();
   });
 
-  it("changes a role's model choices: order, requirements, and companies", async () => {
+  it("changes a role's model choices: order, effort, and reviews under More", async () => {
     render(<ModelSettings go={go} />);
     const user = userEvent.setup();
     await user.click(
@@ -136,14 +147,14 @@ describe("Settings → AI models", () => {
     );
     const form = screen.getByRole("form", { name: "Model choices for Senior Developer" });
     expect(within(form).getByText("First choice")).toBeInTheDocument();
-    await user.click(within(form).getByRole("button", { name: "Move Codex (default model) up" }));
+    await user.click(within(form).getByRole("button", { name: "Move Codex: its own choice up" }));
     await user.selectOptions(
       within(form).getByRole("combobox", { name: "Add a model to the list" }),
-      "Claude Code (default model)",
+      "Claude Code: its own choice",
     );
     // Codex's default model runs at high effort for this role; Opus keeps its own setting.
     const codexEffort = within(form).getByRole("combobox", {
-      name: "Effort for Codex (default model)",
+      name: "Effort for Codex: its own choice",
     });
     expect(
       within(codexEffort)
@@ -159,22 +170,25 @@ describe("Settings → AI models", () => {
       "Ultra effort",
     ]);
     await user.selectOptions(codexEffort, "High effort");
-    await user.click(within(form).getByRole("checkbox", { name: "Sees images" }));
-    await user.type(
-      within(form).getByRole("spinbutton", { name: /Context size, at least/ }),
-      "100000",
-    );
+    // What the model must do and its context size are no longer asked (Phase 25, items 2.3
+    // and 2.4); the saved ones are kept as they are.
+    expect(within(form).queryByRole("checkbox", { name: "Sees images" })).toBeNull();
+    expect(within(form).queryByRole("spinbutton", { name: /Context size/ })).toBeNull();
+    // Reviews and what happens with no list are under More; AI companies never to use are set
+    // for the whole organization only (Phase 25, item 2.6).
+    expect(within(form).queryByRole("combobox", { name: /^Reviews/ })).toBeNull();
+    expect(within(form).queryByRole("checkbox", { name: "OpenAI" })).toBeNull();
+    await user.click(within(form).getByRole("button", { name: "More" }));
     await user.selectOptions(
       within(form).getByRole("combobox", { name: /^Reviews/ }),
       "Prefer a different AI company",
     );
-    await user.click(within(form).getByRole("checkbox", { name: "OpenAI" }));
     await user.click(within(form).getByRole("button", { name: "Save model choices" }));
     expect(api.setRolePolicy).toHaveBeenCalledWith("r-dev", {
       models: ["m-codex", "m-opus", "m-claude"],
-      needs: ["vision"],
-      minContextTokens: 100000,
-      neverCompanies: ["openai"],
+      needs: [],
+      minContextTokens: null,
+      neverCompanies: [],
       cost: "any",
       crossCompany: "prefer",
       efforts: { "m-codex": "high" },
@@ -184,6 +198,71 @@ describe("Settings → AI models", () => {
       expect(
         screen.queryByRole("form", { name: "Model choices for Senior Developer" }),
       ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("picks Fable for Senior Developer and Sonnet for the Designer from every AI tool's models (Phase 25, item 2.5)", async () => {
+    const withModel = (id: string, name: string, label: string) => {
+      const s = sampleRouting();
+      return {
+        ...s,
+        models: [
+          ...s.models,
+          {
+            ...s.models[2]!,
+            id,
+            name,
+            label,
+            features: [],
+            contextTokens: null,
+            cost: "standard" as const,
+          },
+        ],
+      };
+    };
+    render(<ModelSettings go={go} />);
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: "Change Senior Developer's model choices" }),
+    );
+    let form = screen.getByRole("form", { name: "Model choices for Senior Developer" });
+    const add = within(form).getByRole("combobox", { name: "Add a model to the list" });
+    // One group per AI tool, subscriptions first; each AI tool's own models are there.
+    expect([...add.querySelectorAll("optgroup")].map((g) => g.label)).toEqual([
+      "Claude Code",
+      "Codex",
+    ]);
+    expect(within(add).getByRole("option", { name: "Fable" })).toBeInTheDocument();
+    expect(within(add).getByRole("option", { name: "GPT-6-Sol" })).toBeInTheDocument();
+    // Fable isn't in Your models: picking it adds it there, then to the list.
+    api.saveModel.mockResolvedValueOnce(withModel("m-fable", "fable", "Fable"));
+    await user.selectOptions(add, "Fable");
+    expect(api.saveModel).toHaveBeenCalledWith({
+      runtimeId: "claude-code",
+      name: "fable",
+      label: "Fable",
+      features: [],
+      cost: "standard",
+    });
+    await waitFor(() => expect(form).toHaveTextContent("Fable (Claude Code)"));
+    await user.click(within(form).getByRole("button", { name: "Save model choices" }));
+    expect(api.setRolePolicy).toHaveBeenLastCalledWith(
+      "r-dev",
+      expect.objectContaining({ models: ["m-opus", "m-codex", "m-fable"] }),
+    );
+    // The Designer, in the same screen: Sonnet.
+    await user.click(screen.getByRole("button", { name: "Change Designer's model choices" }));
+    form = screen.getByRole("form", { name: "Model choices for Designer" });
+    api.saveModel.mockResolvedValueOnce(withModel("m-sonnet", "sonnet", "Sonnet"));
+    await user.selectOptions(
+      within(form).getByRole("combobox", { name: "Add a model to the list" }),
+      "Sonnet",
+    );
+    await waitFor(() => expect(form).toHaveTextContent("Sonnet (Claude Code)"));
+    await user.click(within(form).getByRole("button", { name: "Save model choices" }));
+    expect(api.setRolePolicy).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ models: ["m-sonnet"] }),
     );
   });
 
@@ -211,34 +290,38 @@ describe("Settings → AI models", () => {
     const label = within(dialog).getByRole("textbox", { name: "Your name for it" });
     await user.clear(label);
     await user.type(label, "Opus 5.5");
-    await user.click(within(dialog).getByRole("checkbox", { name: "Makes images" }));
-    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Cost" }), "Premium");
+    // What a model can do and its context size are no longer asked (Phase 25, 2.3 and 2.4).
+    expect(within(dialog).queryByRole("checkbox", { name: "Makes images" })).toBeNull();
+    expect(within(dialog).queryByRole("spinbutton", { name: /Context size/ })).toBeNull();
+    // Cost is under More (Phase 25, item 2.6).
+    await user.click(within(dialog).getByRole("button", { name: "More" }));
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: /^Cost/ }), "Premium");
     await user.selectOptions(within(dialog).getByRole("combobox", { name: /^Effort/ }), "Max");
     await user.click(within(dialog).getByRole("button", { name: "Add model" }));
     expect(api.saveModel).toHaveBeenCalledWith({
       runtimeId: "claude-code",
       name: "claude-opus-5-5",
       label: "Opus 5.5",
-      features: ["imageGeneration"],
+      features: [],
       cost: "premium",
       effort: "max",
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
 
     // A built-in entry keeps its AI tool and default model; only its details change.
-    await user.click(screen.getByRole("button", { name: "Edit Codex (default model)" }));
-    dialog = screen.getByRole("dialog", { name: "Edit Codex (default model)" });
+    await user.click(screen.getByRole("button", { name: "Edit Codex: its own choice" }));
+    dialog = screen.getByRole("dialog", { name: "Edit Codex: its own choice" });
     expect(within(dialog).getByRole("combobox", { name: "AI tool" })).toBeDisabled();
     await user.click(within(dialog).getByRole("button", { name: "Save model" }));
     expect(api.saveModel).toHaveBeenLastCalledWith({
       id: "m-codex",
       runtimeId: "codex",
-      label: "Codex (default model)",
+      label: "Codex: its own choice",
       features: [],
       cost: "standard",
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "Remove Codex (default model)" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove Codex: its own choice" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Remove Opus" }));
     expect(api.removeModel).toHaveBeenCalledWith("m-opus");
   });
@@ -397,8 +480,8 @@ describe("Settings → AI models", () => {
     const table = await screen.findByRole("table", { name: "Your models" });
     // By AI tool at first: each AI tool by name, its models in the list's order.
     expect(groupsOf(table)).toEqual([
-      ["Claude Code", ["Claude Code (default model)", "Opus"]],
-      ["Codex", ["Codex (default model)"]],
+      ["Claude Code", ["Claude Code: its own choice", "Opus"]],
+      ["Codex", ["Codex: its own choice"]],
       ["Ollama", ["DeepSeek V4 Pro", "Mystery", "gpt-oss"]],
     ]);
     const byMaker = screen.getByRole("button", { name: "Who made it" });
@@ -409,9 +492,9 @@ describe("Settings → AI models", () => {
     // By who made them: each company by name, "Not known" last; OpenAI's gpt-oss on Ollama
     // sits with Codex's default model.
     expect(groupsOf(table)).toEqual([
-      ["Anthropic", ["Claude Code (default model)", "Opus"]],
+      ["Anthropic", ["Claude Code: its own choice", "Opus"]],
       ["DeepSeek", ["DeepSeek V4 Pro"]],
-      ["OpenAI", ["Codex (default model)", "gpt-oss"]],
+      ["OpenAI", ["Codex: its own choice", "gpt-oss"]],
       ["Not known", ["Mystery"]],
     ]);
     // The same models, both ways.
@@ -502,15 +585,37 @@ describe("Settings → AI models", () => {
     api.getRouting.mockResolvedValue(routing);
     render(<ModelSettings go={go} />);
     const user = userEvent.setup();
+    // (They are set for the whole organization: Phase 25, item 2.6.)
+    await user.click(
+      await screen.findByRole("button", { name: "Change the rule for The whole organization" }),
+    );
+    const form = screen.getByRole("form", { name: "Rule for The whole organization" });
+    await user.click(within(form).getByRole("checkbox", { name: "DeepSeek" }));
+    await user.click(within(form).getByRole("button", { name: "Save rule" }));
+    expect(api.setModelRule).toHaveBeenCalledWith(
+      { layer: "organization" },
+      expect.objectContaining({ neverCompanies: ["deepseek"] }),
+    );
+  });
+
+  it("keeps a role's AI companies never to use from before under More, each with Remove (Phase 25, item 2.6)", async () => {
+    const routing = sampleRouting();
+    const dev = routing.roles.find((r) => r.roleName === "Senior Developer")!;
+    dev.policy = { ...dev.policy, neverCompanies: ["openai"] };
+    api.getRouting.mockResolvedValue(routing);
+    render(<ModelSettings go={go} />);
+    const user = userEvent.setup();
     await user.click(
       await screen.findByRole("button", { name: "Change Senior Developer's model choices" }),
     );
     const form = screen.getByRole("form", { name: "Model choices for Senior Developer" });
-    await user.click(within(form).getByRole("checkbox", { name: "DeepSeek" }));
+    await user.click(within(form).getByRole("button", { name: "More" }));
+    expect(form).toHaveTextContent("Never used here (set before)");
+    await user.click(within(form).getByRole("button", { name: "Remove OpenAI from this list" }));
     await user.click(within(form).getByRole("button", { name: "Save model choices" }));
     expect(api.setRolePolicy).toHaveBeenCalledWith(
       "r-dev",
-      expect.objectContaining({ neverCompanies: ["deepseek"] }),
+      expect.objectContaining({ neverCompanies: [] }),
     );
   });
 
@@ -520,7 +625,12 @@ describe("Settings → AI models", () => {
     const wait = await screen.findByRole("radio", { name: /Wait for the limit to reset/ });
     expect(wait).toBeChecked();
     await user.click(screen.getByRole("radio", { name: /Use the role's next choice/ }));
-    expect(api.setRoutingOptions).toHaveBeenCalledWith({ onUsageLimit: "nextChoice" });
+    expect(api.setRoutingOptions).toHaveBeenCalledWith({
+      onUsageLimit: "nextChoice",
+      stepDown: true,
+      stepDownAt: 80,
+      nightWeight: 50,
+    });
     // A turn result (a usage limit, a model seen) reloads the settings.
     api.getRouting.mockClear();
     emitLedger({

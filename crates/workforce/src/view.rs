@@ -262,6 +262,38 @@ impl<'a> OrgView<'a> {
         out
     }
 
+    /// The department's on-call workers outside `lead`'s team, whom it may hand work to after
+    /// its own team (Phase 25, item 2.7): in the department `lead` works in, not lent away, and
+    /// not a lead. The work stays the asking team's (its project, folder, and limits).
+    pub fn department_pool(&self, lead: &str) -> Vec<TeamMember<'a>> {
+        let Some(department) = self.department_of(lead) else {
+            return Vec::new();
+        };
+        let team: HashSet<&str> = self
+            .team(lead)
+            .iter()
+            .map(|m| m.position.id.as_str())
+            .collect();
+        self.tree_order()
+            .into_iter()
+            .filter(|p| {
+                p.id != lead
+                    && !team.contains(p.id.as_str())
+                    && !self.persistent(p)
+                    && self.kind(p) == RoleType::Worker
+                    && self.loan(&p.id).is_none()
+                    && self
+                        .department_of(&p.id)
+                        .is_some_and(|d| d.id == department.id)
+            })
+            .map(|position| TeamMember {
+                position,
+                oversight: None,
+                lent: None,
+            })
+            .collect()
+    }
+
     /// Active positions in tree order (depth-first from the owner).
     pub fn tree_order(&self) -> Vec<&'a Position> {
         let mut out = Vec::new();

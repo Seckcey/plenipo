@@ -74,7 +74,14 @@ function change(over: Partial<WatchChange> = {}): WatchChange {
 }
 
 function view(changes: WatchChange[], over: Partial<WatchView> = {}): WatchView {
-  return { positionId: "p-dev", objectiveTaskId: "root", changes, fromTheRecord: false, ...over };
+  return {
+    positionId: "p-dev",
+    objectiveTaskId: "root",
+    changes,
+    fromTheRecord: false,
+    teamTaskIds: [],
+    ...over,
+  };
 }
 
 /** The file after a change: "TWO" changed, a line removed before "five", two new lines. */
@@ -159,7 +166,9 @@ describe("the Watch tab for code", () => {
     await user.click(screen.getByRole("button", { name: "Watch Senior Developer" }));
     expect(screen.getAllByRole("tab", { name: /Watch · Senior Developer/ })).toHaveLength(1);
     expect(await screen.findByText("No file changes yet in this objective")).toBeInTheDocument();
-    expect(screen.getByText("Changes show here as the worker makes them.")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Changes show here as the worker, or the team it hands work to, makes them/),
+    ).toBeInTheDocument();
     expect(
       screen.getByText("Read-only: you see only what Guard lets this worker change."),
     ).toBeInTheDocument();
@@ -210,6 +219,22 @@ describe("the Watch tab for code", () => {
     expect(screen.getByRole("button", { name: "Follow along" })).toHaveAttribute(
       "aria-pressed",
       "false",
+    );
+  });
+
+  it("says which files a command made or changed (Phase 25, item 3.2)", async () => {
+    const user = userEvent.setup();
+    const made = change({ path: "src/page.txt", kind: "created", byCommand: true });
+    api.getWatch.mockResolvedValue(view([made, change({ path: "README.md", at: 500 })]));
+    api.getWatchChange.mockResolvedValue(null);
+    render(<Harness />);
+    const body = await openTab(user);
+    const files = within(body).getByRole("navigation", { name: "Files touched in this objective" });
+    expect(within(files).getByRole("button", { name: /page\.txt/ })).toHaveTextContent(
+      "made by a command",
+    );
+    expect(within(files).getByRole("button", { name: /README\.md/ })).not.toHaveTextContent(
+      "made by a command",
     );
   });
 

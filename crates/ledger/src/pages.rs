@@ -55,6 +55,8 @@ const PROBLEMS: &[&str] = &[
     "liaison.delivery_failed",
     "approval.expired",
     "ssh.host_key_changed",
+    // A lead needs a job nobody in its department does (Phase 25, item 2.7).
+    "org.hire_needed",
 ];
 
 /// The tasks of a project's work: every task under an objective that touched the project.
@@ -378,6 +380,12 @@ impl Ledger {
                         Some(server) => format!("server:{server}"),
                         None => continue,
                     },
+                    // A lead needs a worker for a job: one question per lead and job (Phase 25,
+                    // item 2.7), until the team or department has one (the caller checks).
+                    (_, "org.hire_needed") => match (text(&p["leadId"]), text(&p["roleId"])) {
+                        (Some(lead), Some(role)) => format!("hire:{lead}:{role}"),
+                        _ => continue,
+                    },
                     (Some(t), _) => format!("task:{t}"),
                     (None, _) => continue,
                 };
@@ -388,6 +396,7 @@ impl Ledger {
                     ("ssh.host_key_changed", _) => {
                         text(&p["serverId"]).is_some_and(|s| !set_right(&s, e.seq))
                     }
+                    ("org.hire_needed", _) => true,
                     ("task.state_changed", Some(t)) => objective(t)
                         .is_some_and(|(company, state)| company && state != TaskState::Succeeded),
                     (_, Some(t)) => objective(t).is_some_and(|(company, _)| company) && running(t),

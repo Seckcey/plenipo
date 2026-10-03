@@ -38,6 +38,8 @@ import {
   type ViewId,
 } from "./components/views";
 import { RuntimeProvider } from "./runtime/RuntimeProvider";
+import { StopAllButton } from "./components/stop/StopAll";
+import { SetupTour } from "./tour/SetupTour";
 import { isActive } from "./runtime/store";
 import { useRuntime } from "./runtime/useRuntime";
 import { useControl } from "./control/useControl";
@@ -76,6 +78,7 @@ import { ProjectsView } from "./views/ProjectsView";
 import { RuntimesView } from "./views/RuntimesView";
 import { SettingsView } from "./views/SettingsView";
 import { WorkersView } from "./views/WorkersView";
+import { LimitBanners } from "./limits/LimitBanners";
 import { SpendingBanner } from "./spending/SpendingBanner";
 import { RecoveryBanners } from "./upkeep/RecoveryBanners";
 import { UpdateMark } from "./upkeep/UpdateSettings";
@@ -189,6 +192,16 @@ export function App() {
     </RuntimeProvider>
   );
 }
+
+/** The pages that show work: Stop all is in their top bar (Phase 25, item 3.4). */
+const WORK_PAGES: ReadonlySet<ViewId> = new Set<ViewId>([
+  "home",
+  "organization",
+  "projects",
+  "workers",
+  "task",
+  "worker",
+]);
 
 function Shell({ core }: { core: CoreState }) {
   const { state } = useRuntime();
@@ -332,6 +345,8 @@ function Shell({ core }: { core: CoreState }) {
           title={placeTitle(place, organization.snapshot)}
           end={
             <>
+              {/* Stop all work on every page that shows work (Phase 25, item 3.4). */}
+              {WORK_PAGES.has(view) && <StopAllButton control={control} />}
               <UpdateMark go={go} />
               {info && (
                 <span className="shell__version" aria-label="Application version">
@@ -368,6 +383,7 @@ function Shell({ core }: { core: CoreState }) {
         </footer>
       }
     >
+      <SetupTour go={go} snapshot={organization.snapshot} />
       <div ref={workArea} className="shell__work">
         <Dock side="left" />
         <main
@@ -377,6 +393,7 @@ function Shell({ core }: { core: CoreState }) {
           <BannerSlot>
             <ControlBanner control={control} />
             <RecoveryBanners go={go} />
+            <LimitBanners go={go} />
             <SpendingBanner go={go} />
             {ledgerNotices.length > 0 && !noticesDismissed && (
               <Banner
@@ -451,6 +468,7 @@ function Shell({ core }: { core: CoreState }) {
               onOpenPage={go}
               focusId={orgFocus}
               onFocusHandled={clearOrgFocus}
+              control={control}
             />
           )}
           {view === "projects" && (

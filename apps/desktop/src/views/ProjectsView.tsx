@@ -95,6 +95,7 @@ function ObjectiveForm({
       {...files.dropProps}
       className="objective-form"
       aria-label="Give an objective"
+      data-tour="give-objective"
       onSubmit={(e) => void submit(e)}
     >
       <label className="field">

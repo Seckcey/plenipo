@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pick-up-work-now"
+description = "Enables the pick_up_work_now command without any pre-configured scope."
+commands.allow = ["pick_up_work_now"]
+
+[[permission]]
+identifier = "deny-pick-up-work-now"
+description = "Denies the pick_up_work_now command without any pre-configured scope."
+commands.deny = ["pick_up_work_now"]

@@ -31,6 +31,9 @@ use crate::templates::{
 };
 use crate::view::OrgView;
 
+mod after_limit;
+pub use after_limit::reset_page;
+
 /// Actor recorded for the owner's changes.
 pub const OWNER: &str = "owner";
 /// Actor recorded for Plenipo's own changes (seeding role templates).
@@ -124,6 +127,9 @@ struct Inner {
     /// Held from a Free limit's check to the Ledger write it allows (Phase 11A): two made at
     /// once never both pass.
     making: Mutex<()>,
+    /// Set while work a usage limit stopped is being picked up (Phase 25, item 4.2): two
+    /// pick-ups at once never give the same work twice.
+    picking_up: std::sync::atomic::AtomicBool,
 }
 
 /// Cheap to clone; clones share state.
@@ -195,6 +201,7 @@ impl Workforce {
                 notices: Mutex::new(Vec::new()),
                 refreshing: Mutex::new(()),
                 making: Mutex::new(()),
+                picking_up: std::sync::atomic::AtomicBool::new(false),
             }),
         };
         match ledger.ensure_roles(&role_templates(), PLENIPO) {
@@ -715,6 +722,21 @@ impl Workforce {
             .collect();
         let mut stuck = Vec::new();
         for event in l.problems(since, 30)? {
+            // A lead that needed a worker no longer does once its team or department has one
+            // for the job, or it is gone (Phase 25, item 2.7).
+            if event.event_type == "org.hire_needed" {
+                let role = event.payload["roleId"].as_str().unwrap_or_default();
+                let lead = event.payload["leadId"].as_str().unwrap_or_default();
+                let has = |members: Vec<crate::view::TeamMember<'_>>| {
+                    members.iter().any(|m| m.position.role_id == role)
+                };
+                if view.active(lead).is_none()
+                    || has(view.team(lead))
+                    || has(view.department_pool(lead))
+                {
+                    continue;
+                }
+            }
             let task = match event.task_id.as_deref() {
                 Some(id) => l.task(id)?.map(|t| snapshot::brief(&t, &titles)),
                 None => None,
@@ -853,6 +875,7 @@ impl Workforce {
             department: department.map(|d| (d.id.as_str(), d.name.as_str())),
             project: project.map(|p| (p.name.as_str(), p.allowed_runtimes.as_slice())),
             reviewed: &[],
+            low_priority: false,
         };
         let decision = self.inner.router.planner()?.fixed(
             &request,
@@ -1006,6 +1029,115 @@ impl Workforce {
         self.make_department(input)
     }
 
+    /// Add a department from a template (Phase 25, item 2.8): the department, its manager, and
+    /// its on-call team reporting to the manager. Refused when a department of that name is
+    /// active already.
+    pub fn add_department_from_template(&self, id: &str) -> Result<OrgSnapshot> {
+        let t = templates::department_template(id)
+            .ok_or_else(|| invalid(format!("there is no department template named {id:?}")))?;
+        let _making = self.making();
+        if self.active_department(t.name)? {
+            return Err(invalid(format!(
+                "you already have the {} department",
+                t.name
+            )));
+        }
+        self.allow(Limit::Departments)?;
+        self.make_from_template(t)?;
+        self.snapshot()
+    }
+
+    /// Apply an organization template (Phase 25, item 2.8): each of its departments that this
+    /// organization doesn't have yet, with its manager and team. Free keeps one department, so a
+    /// template that would add more is refused before anything is made.
+    pub fn apply_organization_template(&self, id: &str) -> Result<OrgSnapshot> {
+        let t = templates::organization_template(id)
+            .ok_or_else(|| invalid(format!("there is no organization template named {id:?}")))?;
+        let _making = self.making();
+        let mut missing = Vec::new();
+        for d in t.departments {
+            let d = templates::department_template(d).ok_or_else(|| {
+                WorkforceError::Internal(format!("the {d} department template is missing"))
+            })?;
+            if !self.active_department(d.name)? {
+                missing.push(d);
+            }
+        }
+        if missing.is_empty() {
+            return self.snapshot();
+        }
+        self.allow(Limit::Departments)?;
+        if missing.len() > 1
+            && self.inner.entitlements.get().edition() != plenipo_licensing::Edition::Pro
+        {
+            return Err(WorkforceError::PartOfPro(plenipo_licensing::Blocked::new(
+                Limit::Departments,
+            )));
+        }
+        for d in missing {
+            self.make_from_template(d)?;
+        }
+        self.snapshot()
+    }
+
+    fn active_department(&self, name: &str) -> Result<bool> {
+        Ok(self
+            .ledger()
+            .list_departments()?
+            .iter()
+            .any(|d| d.status == "active" && d.name.eq_ignore_ascii_case(name)))
+    }
+
+    /// Make one department from `t`, its Free check done and the making lock held.
+    fn make_from_template(&self, t: &templates::DepartmentTemplate) -> Result<()> {
+        let roles = self.ledger().list_roles()?;
+        let role = |name: &str| {
+            roles
+                .iter()
+                .find(|r| r.name == name && r.metadata["template"] == true)
+                .map(|r| r.id.clone())
+                .ok_or_else(|| invalid(format!("the built-in role {name} is missing")))
+        };
+        let head_role = role(t.head.1)?;
+        let team: Vec<(&str, String)> = t
+            .team
+            .iter()
+            .map(|(title, r)| Ok((*title, role(r)?)))
+            .collect::<Result<_>>()?;
+        let s = self.make_department(&DepartmentInput {
+            name: t.name.into(),
+            description: t.description.into(),
+            head: Some(LeadInput {
+                role_id: head_role,
+                title: t.head.0.into(),
+                runtime_id: None,
+                model: None,
+                vacant: None,
+                from_workforce: None,
+            }),
+            reports_to: None,
+            active: None,
+        })?;
+        let head = s
+            .departments
+            .iter()
+            .find(|d| d.name == t.name && d.active)
+            .and_then(|d| d.head_position_id.clone())
+            .ok_or_else(|| WorkforceError::Internal("the new department is missing".into()))?;
+        for (title, role_id) in team {
+            self.hire(&HireInput {
+                role_id,
+                title: title.into(),
+                reports_to: Some(head.clone()),
+                runtime_id: None,
+                model: None,
+                vacant: None,
+                specialty_id: None,
+            })?;
+        }
+        Ok(())
+    }
+
     /// Make a department, its Free check done and the making lock held.
     fn make_department(&self, input: &DepartmentInput) -> Result<OrgSnapshot> {
         let head = input
@@ -1147,11 +1279,24 @@ impl Workforce {
         if t.business {
             self.allow(Limit::BusinessDepartment)?;
         }
-        let has_department = self
-            .ledger()
-            .list_departments()?
-            .iter()
-            .any(|d| d.status == "active" && d.name.eq_ignore_ascii_case(t.department));
+        // The department the owner chose (Phase 25, item 2.7), else the template's own.
+        let chosen = match input.department_id.as_deref().filter(|d| !d.is_empty()) {
+            Some(id) => Some(
+                self.ledger()
+                    .list_departments()?
+                    .into_iter()
+                    .find(|d| d.id == id && d.status == "active")
+                    .ok_or_else(|| invalid("that department is no longer active"))?
+                    .id,
+            ),
+            None => None,
+        };
+        let has_department = chosen.is_some()
+            || self
+                .ledger()
+                .list_departments()?
+                .iter()
+                .any(|d| d.status == "active" && d.name.eq_ignore_ascii_case(t.department));
         if !has_department {
             self.allow(Limit::Departments)?;
         }
@@ -1204,13 +1349,15 @@ impl Workforce {
             vacant: None,
             from_workforce: None,
         };
-        let department = match self
-            .ledger()
-            .list_departments()?
-            .into_iter()
-            .find(|d| d.status == "active" && d.name.eq_ignore_ascii_case(t.department))
-        {
-            Some(d) => d.id,
+        let department = match chosen.or_else(|| {
+            self.ledger()
+                .list_departments()
+                .ok()?
+                .into_iter()
+                .find(|d| d.status == "active" && d.name.eq_ignore_ascii_case(t.department))
+                .map(|d| d.id)
+        }) {
+            Some(d) => d,
             None => {
                 let s = self.make_department(&DepartmentInput {
                     name: t.department.into(),
@@ -1229,7 +1376,7 @@ impl Workforce {
             }
         };
         let s = self.make_project(&ProjectInput {
-            department_id: Some(department),
+            department_id: Some(department.clone()),
             coordinator: Some(lead(&supervisor_role, format!("{name} Supervisor"))),
             ..input.project.clone()
         })?;
@@ -1239,7 +1386,23 @@ impl Workforce {
             .find(|p| p.name == name)
             .and_then(|p| p.coordinator_position_id.clone())
             .ok_or_else(|| WorkforceError::Internal("the new project is missing".into()))?;
+        // No copies (Phase 25, item 2.7): each job uses a matching worker the department already
+        // has, unless the owner asked for a new one; only the rest are hired.
+        let reused = self.reusable(&department, &supervisor)?;
+        let mut taken: Vec<String> = Vec::new();
+        let hire_new = input.hire_new.clone().unwrap_or_default();
         for (title, role_id) in team {
+            let wanted_new = hire_new.iter().any(|h| h.eq_ignore_ascii_case(title));
+            if !wanted_new {
+                if let Some(id) = reused
+                    .iter()
+                    .find(|(id, role)| role == &role_id && !taken.contains(id))
+                    .map(|(id, _)| id.clone())
+                {
+                    taken.push(id);
+                    continue;
+                }
+            }
             self.hire(&HireInput {
                 role_id,
                 title: title.into(),
@@ -1251,6 +1414,30 @@ impl Workforce {
             })?;
         }
         self.snapshot()
+    }
+
+    /// The on-call workers already in `department`, outside `lead`'s new team, as (position ID,
+    /// role ID): the ones a new project's team can use instead of hiring copies (Phase 25, item
+    /// 2.7).
+    fn reusable(&self, department: &str, lead: &str) -> Result<Vec<(String, String)>> {
+        let records = self.ledger().org_records()?;
+        let view = OrgView::new(&records);
+        let mut out: Vec<(String, String)> = view
+            .tree_order()
+            .into_iter()
+            .filter(|p| {
+                p.id != lead
+                    && !view.persistent(p)
+                    && view.kind(p) == plenipo_ledger::RoleType::Worker
+                    && view.loan(&p.id).is_none()
+                    && view
+                        .department_of(&p.id)
+                        .is_some_and(|d| d.id == department)
+            })
+            .map(|p| (p.id.clone(), p.role_id.clone()))
+            .collect();
+        out.dedup();
+        Ok(out)
     }
 
     pub fn update_project(&self, id: &str, input: &ProjectInput) -> Result<OrgSnapshot> {
@@ -1872,6 +2059,74 @@ impl Workforce {
             tokio::task::spawn_blocking(move || this.record_chain(task_id, &order, news, &words))
                 .await;
         Ok(detail)
+    }
+
+    /// A side chat with a full-time agent (Phase 25, item 3.5; ADR-251): a new conversation on
+    /// the agent's AI tool and model, told who it is, what it is doing now, and its recent
+    /// conversation, with the owner's question. Answer only: no tools and no hand-offs. It works
+    /// while the agent is busy or waiting, and never touches its work. Listed in Workers as "Side
+    /// chat with …".
+    pub async fn ask_side_question(
+        &self,
+        position_id: &str,
+        question: &str,
+    ) -> Result<AgentSessionDetail> {
+        if question.trim().is_empty() {
+            return Err(invalid("write your question first"));
+        }
+        let runtime = &self.inner.runtime;
+        if runtime
+            .runtimes()
+            .iter()
+            .any(|r| r.installation.state == InstallState::Checking)
+        {
+            runtime.refresh().await;
+        }
+        let this = self.clone();
+        let id = position_id.to_owned();
+        let (plan, role) = tokio::task::spawn_blocking(move || {
+            let l = this.ledger();
+            let records = l.org_records()?;
+            let view = OrgView::new(&records);
+            let position = view.position(&id).ok_or_else(|| {
+                WorkforceError::Ledger(plenipo_ledger::LedgerError::NotFound(format!(
+                    "position {id}"
+                )))
+            })?;
+            let role = view
+                .role(position)
+                .map_or_else(|| position.title.clone(), |r| r.name.clone());
+            let planner = this.inner.router.planner()?;
+            let plan = conversation::plan(l, &planner, &view, position)?;
+            Ok::<_, WorkforceError>((plan, role))
+        })
+        .await
+        .map_err(|e| WorkforceError::Internal(e.to_string()))??;
+        // What the agent knows: Plenipo's own record of its conversation.
+        let known = if plan.existing {
+            runtime.session(&plan.session_id).await.ok()
+        } else {
+            None
+        };
+        let brief = crate::side_chat::brief(&plan.title, &role, known.as_ref(), question);
+        Ok(self
+            .inner
+            .liaison
+            .start_side_chat(
+                SessionStart {
+                    id: None,
+                    runtime_id: plan.runtime_id,
+                    model: plan.model,
+                    effort: None,
+                    title: Some(format!("Side chat with {}", plan.title)),
+                    metadata: json!({ "sideChat": {
+                        "positionId": position_id,
+                        "title": plan.title,
+                    }}),
+                },
+                &brief,
+            )
+            .await?)
     }
 
     /// Write the chain of command's records for an order whose turn has started (ADR-202): the

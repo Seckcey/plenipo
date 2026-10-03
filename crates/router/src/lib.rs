@@ -14,6 +14,7 @@ pub mod engine;
 mod error;
 pub mod limits;
 pub mod makers;
+pub mod pace;
 mod service;
 
 pub use dto::*;

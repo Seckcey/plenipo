@@ -119,6 +119,16 @@ pub fn build<R: Runtime>(
         ledger.clone(),
         supervisor.clone(),
     );
+    // One plan book for the PC: an AI tool's plan is the owner's account in every organization,
+    // and the hold after a usage limit waits for the reset it reported (Phase 25, item 4.3).
+    if let Some(first) = how.first {
+        agents.share_plans(first.agents.plans());
+    }
+    // Stop all work holds every organization's work until Allow again (Phase 25, item 3.4): one
+    // opened meanwhile is held too.
+    if how.control.status().stopped {
+        agents.hold_all_work();
+    }
     // Liaison (Phase 4): handoffs between workers, reconciled from the Ledger.
     let liaison = Liaison::new(ledger.clone(), agents.clone(), LiaisonConfig::default());
     // Free runs three workers at once across the PC (ADR-113).
@@ -136,9 +146,16 @@ pub fn build<R: Runtime>(
         &agents,
         how.control.clone(),
     );
+    // One set of paid AI keys for the whole PC, kept with the first organization (Phase 25, item
+    // 1.4): set before anything reads a key or hides one from the record.
+    if let Some(first) = how.first {
+        broker.keep_paid_keys_in(&first.broker);
+    }
     // Connections and add-on tools are part of Pro (ADR-068); Guard, approvals, and the Vault
     // never are.
     broker.set_entitlements(how.entitlements.clone());
+    // Links named in answers are checked through Guard (Phase 25, item 4.8).
+    liaison.set_link_checker(Arc::new(crate::link_host::Links::new(broker.clone())));
     if how.run {
         guard_host::start(&broker);
     }
@@ -201,7 +218,7 @@ pub fn build<R: Runtime>(
         let busy = supervisor.clone();
         backup_host::start_daily(&ledger, stopped.clone(), move || busy.active_count() > 0);
     }
-    Arc::new(OrgStack {
+    let stack = Arc::new(OrgStack {
         stopped,
         place,
         ledger,
@@ -214,7 +231,12 @@ pub fn build<R: Runtime>(
         workforce,
         notices,
         watchers,
-    })
+    });
+    // Work a usage limit stopped is picked back up once the limit is over (Phase 25, item 4.2).
+    if how.run {
+        crate::limit_host::start(&stack);
+    }
+    stack
 }
 
 /// Copy your choices for the PC from the first organization's Ledger to `to` (no event: they

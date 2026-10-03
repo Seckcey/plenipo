@@ -55,6 +55,20 @@ const waitForTurn = (browser, n, predicate, what, timeoutMs = 30_000) =>
     timeoutMs,
   );
 
+/**
+ * AI tool cards start closed (Phase 25, item 2.1): open every card shown. An opened card is
+ * remembered, so it stays open while the test works in it.
+ */
+async function openCards(browser) {
+  await browser.execute(() => {
+    for (const toggle of document.querySelectorAll(
+      'li[aria-label$=" AI tool"] .ui-disclosure__toggle[aria-expanded="false"]',
+    )) {
+      toggle.click();
+    }
+  });
+}
+
 async function startTask(browser, runtimeLabel, objective) {
   await nav(browser, "Workers");
   const radio = await browser.$(`//label[.//span[normalize-space()="${runtimeLabel}"]]//input`);
@@ -104,12 +118,15 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     await waitForShell(browser);
     await nav(browser, "AI tools");
     const cards = '[aria-label="AI tools"]';
-    // Claude Code, Codex, Grok, and Kimi are Ready; Ollama is found too, and Ready only when an
-    // Ollama service is signed in on this machine (the fake plays only its program).
+    // Claude Code, Codex, Grok, and Kimi are connected; Ollama is found too, and connected only
+    // when an Ollama service is signed in on this machine (the fake plays only its program). A
+    // card says which works: its subscription, its key, or both (Phase 25, item 1.3).
     await waitUntil(
-      async () => (await textOf(browser, cards)).match(/Ready/g)?.length >= 4,
+      async () =>
+        (await textOf(browser, cards)).match(/(?:Subscription|API key) connected/g)?.length >= 4,
       "every AI tool ready",
     );
+    await openCards(browser);
     const text = await textOf(browser, cards);
     // Each card shows the sign-in first, then the version (Phase 19).
     assert.match(text, /Claude Code[\s\S]*Signed in \(subscription\)[\s\S]*Installed 2\.1\.999/);

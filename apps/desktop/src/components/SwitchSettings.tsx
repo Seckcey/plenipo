@@ -1,8 +1,15 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
-import type { AiToolsPage, PermissionsSnapshot, Switches } from "@plenipo/types";
+import type { AiToolsPage, PermissionsSnapshot, RoutingSnapshot, Switches } from "@plenipo/types";
 import { Switch } from "@plenipo/ui";
 
-import { getAiTools, setAiToolsAutoUpdate, setSwitches, toCommandError } from "../api/commands";
+import {
+  getAiTools,
+  getRouting,
+  setAiToolsAutoUpdate,
+  setRoutingOptions,
+  setSwitches,
+  toCommandError,
+} from "../api/commands";
 import { usePermissions } from "../guard/usePermissions";
 import { useRun } from "../guard/useRun";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_LABEL } from "./aiTools/words";
@@ -104,6 +111,109 @@ function AiToolsUpdateSwitch() {
   );
 }
 
+/** The lines work can step down from, in percent of a plan used. */
+const STEP_DOWN_LINES = [70, 80, 90] as const;
+
+/** How much a night hour counts when a plan's use is spread over the week (Phase 25, item 4.6). */
+const NIGHT_WEIGHTS: readonly { value: number; label: string }[] = [
+  { value: 100, label: "the same as a day hour" },
+  { value: 50, label: "half a day hour" },
+  { value: 25, label: "a quarter of a day hour" },
+  { value: 0, label: "nothing (use is spread over the day only)" },
+];
+
+/**
+ * Step down instead of stopping (Phase 25, item 4.5; ADR-255): a choice kept with the AI
+ * models settings, shown here with the other switches. On to start with, from 80% used.
+ */
+function StepDownSwitch() {
+  const [snapshot, setSnapshot] = useState<RoutingSnapshot | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const { pending, error, run } = useRun<RoutingSnapshot>(setSnapshot);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve()
+      .then(getRouting)
+      .then(
+        (s) => {
+          if (live) setSnapshot(s);
+        },
+        (reason: unknown) => {
+          if (live) setLoadError(toCommandError(reason).message);
+        },
+      );
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (!snapshot) {
+    return (
+      <p className={loadError ? "form-error" : "muted"}>
+        {loadError ? `Couldn't read Step down: ${loadError}` : "Loading Step down…"}
+      </p>
+    );
+  }
+  const options = snapshot.options;
+  return (
+    <>
+      <Toggle
+        label="Step down instead of stopping"
+        hint={`On to start with. When a plan passes ${options.stepDownAt}% used, new work runs at a lower effort; closer to the limit, on a smaller model from the same company; at the limit, on your key for the same company if paid keys are on. Each step is shown on the worker and recorded. Reviewers, and agents you set to their own model, never step down. Off: work keeps its model until the limit.`}
+        checked={options.stepDown}
+        disabled={pending}
+        onChange={(on) => void run(() => setRoutingOptions({ ...options, stepDown: on }))}
+      />
+      <label className="field field--inline">
+        <span>Start stepping down at</span>
+        <select
+          value={options.stepDownAt}
+          disabled={pending || !options.stepDown}
+          onChange={(e) =>
+            void run(() => setRoutingOptions({ ...options, stepDownAt: Number(e.target.value) }))
+          }
+        >
+          {(STEP_DOWN_LINES as readonly number[]).includes(options.stepDownAt) ? null : (
+            <option value={options.stepDownAt}>{options.stepDownAt}% used</option>
+          )}
+          {STEP_DOWN_LINES.map((line) => (
+            <option key={line} value={line}>
+              {line}% used
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="field field--inline">
+        <span>A night hour (8 PM to 8 AM) counts as</span>
+        <select
+          value={options.nightWeight}
+          disabled={pending || !options.stepDown}
+          onChange={(e) =>
+            void run(() => setRoutingOptions({ ...options, nightWeight: Number(e.target.value) }))
+          }
+        >
+          {NIGHT_WEIGHTS.some((w) => w.value === options.nightWeight) ? null : (
+            <option value={options.nightWeight}>{options.nightWeight}% of a day hour</option>
+          )}
+          {NIGHT_WEIGHTS.map((w) => (
+            <option key={w.value} value={w.value}>
+              {w.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="muted">
+        Plenipo spreads each plan&apos;s use over its window: ahead of pace, work steps down early;
+        behind pace, it uses the best model freely. The AI tools page shows each plan&apos;s pace.
+      </p>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
 /**
  * Settings → Switches (ADR-023): turn whole features on or off, and choose what workers may do on
  * your allowed websites without asking. The rules that keep you in charge have no switch.
@@ -160,6 +270,13 @@ export function SwitchSettings({
           disabled={pending}
           onChange={flip("paidAiKeys")}
         />
+        <Toggle
+          label="Let leads hire missing workers on their own"
+          hint="Off to start with: when a supervisor or manager needs a job nobody in its department does, Plenipo asks you first on Home. On: it hires one on call for that team by itself."
+          checked={s.hireOnItsOwn}
+          disabled={pending}
+          onChange={flip("hireOnItsOwn")}
+        />
         {learning}
       </section>
       <section aria-labelledby="switches-websites">
@@ -213,6 +330,7 @@ export function SwitchSettings({
       <section aria-labelledby="switches-ai-tools">
         <h3 id="switches-ai-tools">AI tools</h3>
         <AiToolsUpdateSwitch />
+        <StepDownSwitch />
       </section>
       {phone && (
         <section aria-labelledby="switches-phone">

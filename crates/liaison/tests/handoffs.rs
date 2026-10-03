@@ -680,6 +680,96 @@ async fn an_unavailable_destination_fails_the_handoff_without_switching_provider
     assert!(h.ledger.executions_for_task(&child.id).unwrap().is_empty());
 }
 
+/// Side chats (Phase 25, item 3.5): a side chat during a running task leaves the task alone, has
+/// no tools (it is not a member's conversation, which is what Plenipo gives tools to), and its
+/// hand-off blocks are not read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_side_chat_leaves_the_work_alone_has_no_tools_and_hands_nothing_on() {
+    let h = harness().await;
+    let (_, root) = h
+        .start("codex", "Build it [handoff:claude-code+slow]")
+        .await;
+    h.until("the child to run", |h| {
+        h.children(&root)
+            .first()
+            .is_some_and(|c| c.state == TaskState::Running)
+    })
+    .await;
+    let child = h.only_child(&root);
+
+    let side = h
+        .liaison
+        .start_side_chat(
+            plenipo_runtime::agent::SessionStart {
+                runtime_id: "codex".into(),
+                title: Some("Side chat with Builder".into()),
+                metadata: serde_json::json!({ "sideChat": { "positionId": "p-1", "title": "Builder" } }),
+                ..plenipo_runtime::agent::SessionStart::default()
+            },
+            "How far along is it? [handoff:claude-code]",
+        )
+        .await
+        .unwrap();
+    assert_eq!(side.session.title, "Side chat with Builder");
+    let meta = &side.session.metadata;
+    assert!(
+        meta.get("workforce").is_none() && meta.get("liaison").is_none(),
+        "{meta}"
+    );
+    let asked = side.turns[0].task_id.clone();
+    assert_eq!(h.finished(&asked).await.state, TaskState::Succeeded);
+    // Its hand-off block was not read: nothing was handed on.
+    assert!(h.children(&asked).is_empty());
+    assert!(h.requests(&asked).is_empty());
+    // The work goes on, untouched.
+    assert_eq!(h.task(&child.id).state, TaskState::Running);
+    assert_eq!(h.task(&root).state, TaskState::Blocked);
+    assert_eq!(h.children(&root).len(), 1);
+}
+
+/// Stop on a worker (Phase 25, item 3.3): only its task ends; the lead that asked for it is told
+/// it was stopped, and carries on with its own task.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stopping_a_worker_tells_its_lead_and_the_lead_carries_on() {
+    let h = harness().await;
+    let (_, root) = h
+        .start("codex", "Build it [handoff:claude-code+slow]")
+        .await;
+    h.until("the child to run", |h| {
+        h.children(&root)
+            .first()
+            .is_some_and(|c| c.state == TaskState::Running && c.metadata["sessionId"].is_string())
+    })
+    .await;
+    let child = h.only_child(&root);
+    let worker = child.metadata["sessionId"].as_str().unwrap().to_owned();
+
+    // The owner stops the worker, as Stop does from any page (in the moment its turn is still
+    // starting, Plenipo says to try again).
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        match h.rt.cancel_turn(&worker).await {
+            Ok(_) => break,
+            Err(e) if e.to_string().contains("still starting") => {
+                assert!(std::time::Instant::now() < deadline, "{e}");
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            Err(e) => panic!("{e}"),
+        }
+    }
+    assert_eq!(h.finished(&child.id).await.state, TaskState::Cancelled);
+
+    // The lead hears that it was stopped, and finishes its own task.
+    let request = h.requests(&root)[0].id.clone();
+    h.until("the lead to be told", |h| {
+        h.ledger.liaison_reply_to(&request).unwrap().is_some()
+    })
+    .await;
+    let reply = h.ledger.liaison_reply_to(&request).unwrap().unwrap();
+    assert_eq!(reply.envelope["result"]["outcome"], "cancelled");
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cancelling_a_waiting_parent_cancels_its_handoffs_down_the_tree() {
     let h = harness().await;
@@ -1055,6 +1145,225 @@ async fn capability_requests_are_recorded_but_never_granted() {
         .clone();
     let tools = args.iter().position(|a| a == "--tools").unwrap();
     assert_eq!(args[tools + 1], "");
+}
+
+/// Every prompt the fake AI tools received, in every conversation.
+fn all_prompts(h: &H) -> Vec<String> {
+    let dir = h.fake_state().join("sessions");
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let text = std::fs::read_to_string(entry.unwrap().path()).unwrap();
+        let session: serde_json::Value = serde_json::from_str(&text).unwrap();
+        for p in session["prompts"].as_array().into_iter().flatten() {
+            out.push(p.as_str().unwrap_or_default().to_owned());
+        }
+    }
+    out
+}
+
+/// Phase 25, item 4.7 (ADR-256): an answer that doesn't match Plenipo's record goes back to its
+/// worker once, with the reasons and the record; its next answer goes up as it is, marked, with
+/// the record under it. A true answer goes straight up.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_answer_that_doesnt_match_the_record_is_sent_back_once() {
+    let h = harness().await;
+    // The worker says the tests pass, and runs none.
+    let (_, root) = h
+        .start(
+            "codex",
+            "Fix it {{handoff:claude-code|Say: all tests pass}}",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.only_child(&root);
+    assert_eq!(child.state, TaskState::Succeeded);
+    let types = h.types(&child.id);
+    assert_in_order(
+        &types,
+        &[
+            "agent.result",
+            "liaison.answer_sent_back",
+            "liaison.sent_back_delivered",
+            "agent.result",
+        ],
+    );
+    assert_eq!(
+        types
+            .iter()
+            .filter(|t| *t == "liaison.answer_sent_back")
+            .count(),
+        1,
+        "sent back once only"
+    );
+    let sent = h
+        .ledger
+        .last_task_event(&child.id, "liaison.answer_sent_back")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        sent.payload["mismatches"],
+        serde_json::json!(["says tests passed, but no test ran"])
+    );
+    let prompts = all_prompts(&h);
+    let back = prompts
+        .iter()
+        .find(|p| p.contains("[Plenipo Liaison — your answer, sent back to check]"))
+        .expect("the worker was given its answer back");
+    assert!(
+        back.contains("- Says tests passed, but no test ran.")
+            && back.contains("- Tests and checks run: none"),
+        "{back}"
+    );
+    // Its second answer still says so: it goes up marked, with the record under it.
+    let reply = h.liaison.task_handoffs(&root).unwrap().sent[0]
+        .reply
+        .clone()
+        .unwrap();
+    assert_eq!(reply.mismatches, ["says tests passed, but no test ran"]);
+    assert!(reply.sent_back);
+    // The requester's answer came after the reply (the words it was given are tested with
+    // `context::replies_message`).
+    assert!(
+        h.text(&root).contains("received 1 reply"),
+        "{}",
+        h.text(&root)
+    );
+
+    // A true answer goes straight up, with the record under it.
+    let h = harness().await;
+    let (_, root) = h
+        .start("codex", "Fix it {{handoff:claude-code|Look at the parser}}")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.only_child(&root);
+    assert!(!h
+        .types(&child.id)
+        .contains(&"liaison.answer_sent_back".to_owned()));
+    let reply = h.liaison.task_handoffs(&root).unwrap().sent[0]
+        .reply
+        .clone()
+        .unwrap();
+    assert!(reply.mismatches.is_empty() && !reply.sent_back);
+    let recorded = h
+        .messages(&root)
+        .into_iter()
+        .find(|m| m.kind == MessageKind::Reply)
+        .unwrap();
+    assert_eq!(recorded.envelope["result"]["record"]["programs"], 0);
+}
+
+/// Phase 25, item 4.8: a link named in an answer that doesn't exist is caught like any other
+/// mismatch: the answer goes back once, then up marked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_fake_link_in_an_answer_is_caught() {
+    struct Links;
+    impl plenipo_liaison::LinkChecker for Links {
+        fn exists(&self, url: &str) -> Option<bool> {
+            Some(!url.contains("missing"))
+        }
+    }
+    let h = harness().await;
+    h.liaison.set_link_checker(Arc::new(Links));
+    let (_, root) = h
+        .start(
+            "codex",
+            "Fix it {{handoff:claude-code|Say: the guide is at https://example.com/missing}}",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.only_child(&root);
+    let sent = h
+        .ledger
+        .last_task_event(&child.id, "liaison.answer_sent_back")
+        .unwrap()
+        .expect("sent back");
+    assert_eq!(
+        sent.payload["mismatches"],
+        serde_json::json!(["names a link that doesn't exist: https://example.com/missing"])
+    );
+    let reply = h.liaison.task_handoffs(&root).unwrap().sent[0]
+        .reply
+        .clone()
+        .unwrap();
+    assert!(reply.sent_back);
+    assert!(
+        reply
+            .mismatches
+            .contains(&"names a link that doesn't exist: https://example.com/missing".to_owned()),
+        "{:?}",
+        reply.mismatches
+    );
+}
+
+/// Phase 25, item 4.8: a lead sends a finished task back to the worker who did it, with what
+/// to fix. Liaison gives it back as a new request, recorded on both tasks; the lead never
+/// controls the worker itself.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_lead_sends_work_back_to_the_worker_who_did_it() {
+    let h = harness().await;
+    let (_, root) = h
+        .start(
+            "codex",
+            "Fix it [handoff:claude-code] [handoff-sendback:claude-code]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let mut children = h.children(&root);
+    children.sort_by_key(|t| t.created_at);
+    assert_eq!(children.len(), 2, "{children:#?}");
+    let (first, again) = (&children[0], &children[1]);
+    let requests = h.requests(&root);
+    let request = requests
+        .iter()
+        .find(|r| r.child_task_id.as_deref() == Some(again.id.as_str()))
+        .unwrap();
+    assert_eq!(request.envelope["sendBack"], first.id.as_str());
+    assert_eq!(
+        request.envelope["objective"],
+        "Run the tests you said passed, and say what they show"
+    );
+    // The worker gets its earlier task as context.
+    assert_eq!(
+        request.envelope["packet"]["references"][0]["taskId"],
+        first.id.as_str()
+    );
+    let sent = h
+        .ledger
+        .last_task_event(&first.id, "liaison.work_sent_back")
+        .unwrap()
+        .expect("recorded on the work sent back");
+    assert_eq!(sent.payload["byTaskId"], root.as_str());
+    assert_eq!(sent.payload["messageId"], request.id.as_str());
+    let received = h
+        .ledger
+        .last_task_event(&again.id, "liaison.handoff_received")
+        .unwrap()
+        .unwrap();
+    assert_eq!(received.payload["sentBack"], first.id.as_str());
+
+    // Only to the worker who did it.
+    let h = harness().await;
+    let (_, root) = h
+        .start(
+            "codex",
+            "Fix it [handoff:claude-code] [handoff-sendback:codex]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let refused = h
+        .requests(&root)
+        .into_iter()
+        .find(|r| r.state == MessageState::Rejected)
+        .expect("refused");
+    assert!(
+        refused.envelope["rejection"]
+            .as_str()
+            .unwrap()
+            .contains("work is sent back to the worker who did it: use \"to\": \"claude-code\""),
+        "{}",
+        refused.envelope["rejection"]
+    );
+    assert_eq!(h.children(&root).len(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

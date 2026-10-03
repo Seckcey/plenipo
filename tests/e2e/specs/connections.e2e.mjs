@@ -53,6 +53,20 @@ import {
   waitUntil,
 } from "../lib/app.mjs";
 
+/**
+ * Cards on Settings → Connections start closed (Phase 25, item 2.2): open every card shown. An
+ * opened card is remembered, so it stays open while the test works in it.
+ */
+async function openCards(browser) {
+  await browser.execute(() => {
+    for (const toggle of document.querySelectorAll(
+      '.connections .ui-disclosure__toggle[aria-expanded="false"]',
+    )) {
+      toggle.click();
+    }
+  });
+}
+
 const STAND_IN = process.env.PLENIPO_CONNECTIONS_STAND_IN;
 const APP_ID = process.env.PLENIPO_MICROSOFT_APP_ID;
 const SLACK_ID = process.env.PLENIPO_SLACK_CLIENT_ID;
@@ -282,6 +296,7 @@ describe(
       await waitForShell(browser);
       await openSettings(browser, "Connections");
       await waitUntil(() => exists(browser, CARD), "Microsoft 365's card");
+      await openCards(browser);
       await waitForText(browser, CARD, "Not connected");
       await waitForText(browser, ".connections", "other people's words");
       for (const id of ["hubspot", "stripe", "wordpress"]) {
@@ -319,6 +334,7 @@ describe(
 
       await openSettings(browser, "Connections");
       await waitUntil(() => exists(browser, CARD), "Microsoft 365's card");
+      await openCards(browser);
       await part(browser, "Mail", "Full access");
       await part(browser, "Teams", "Read only");
       const who = `//li[@aria-labelledby="connection-microsoft365"]//section[@aria-labelledby="microsoft365-who"]`;
@@ -476,6 +492,7 @@ describe(
       const { browser } = app;
       await openSettings(browser, "Connections");
       await waitUntil(() => exists(browser, CARD), "Microsoft 365's card");
+      await openCards(browser);
       await onCard(browser, "Disconnect");
       await waitForText(browser, CARD, "its sign-in is removed from");
       await onCard(browser, "Yes, disconnect");
@@ -558,6 +575,7 @@ describe(
       await waitForShell(browser);
       await openSettings(browser, "Connections");
       await waitUntil(() => exists(browser, SLACK_CARD), "Slack's card");
+      await openCards(browser);
       await waitForText(browser, SLACK_CARD, "Not connected");
       await waitForText(
         browser,
@@ -586,6 +604,7 @@ describe(
       await waitForNode(browser, "Client Co Supervisor, Idle");
       await openSettings(browser, "Connections");
       await waitUntil(() => exists(browser, SLACK_CARD), "Slack's card");
+      await openCards(browser);
       await partOf(browser, "slack", "Channels", "Full access");
       await supervisorMayUse(browser, "slack", SLACK_CARD);
       await partOf(browser, "google", "Gmail", "Full access");
@@ -614,6 +633,7 @@ describe(
       await clickButton(browser, "Add another Slack workspace");
       const second = 'li[aria-labelledby="connection-slack-2"]';
       await waitUntil(() => exists(browser, second), "the second workspace's card");
+      await openCards(browser);
       await waitForText(browser, second, "Not connected");
       await screenshot(browser, "slack-second-workspace", second);
       await onCardOf(browser, "slack-2", "Remove this workspace");
@@ -751,6 +771,7 @@ describe(
         ["google", GOOGLE_CARD],
       ]) {
         await waitUntil(() => exists(browser, card), `${id}'s card`);
+        await openCards(browser);
         await onCardOf(browser, id, "Disconnect");
         await waitForText(browser, card, "and cancelled at");
         await onCardOf(browser, id, "Yes, disconnect");
@@ -830,6 +851,7 @@ describe(
       await waitForShell(browser);
       await openSettings(browser, "Connections");
       await waitUntil(() => exists(browser, cardOf("hubspot")), "HubSpot's card");
+      await openCards(browser);
       await waitForText(browser, cardOf("hubspot"), "Save and check");
       await waitForText(browser, cardOf("stripe"), "Start with a test-mode key");
       await waitForText(browser, cardOf("wordpress"), "Your site's address");
@@ -850,6 +872,7 @@ describe(
       await waitForNode(browser, "Client Co Supervisor, Idle");
       await openSettings(browser, "Connections");
       await waitUntil(() => exists(browser, cardOf("hubspot")), "HubSpot's card");
+      await openCards(browser);
       await partOf(browser, "hubspot", "Contacts", "Full access");
       await supervisorMayUse(browser, "hubspot", cardOf("hubspot"));
       await partOf(browser, "stripe", "Payments", "Full access");
@@ -1019,6 +1042,7 @@ describe(
       await (await browser.$(`${form} button[type="submit"]`)).click();
       const card = 'li[aria-labelledby="add-on-tickets"]';
       await waitUntil(() => exists(browser, card), "the add-on's card", 30_000);
+      await openCards(browser);
       await waitForText(browser, card, "Not looked at yet");
       await waitForText(browser, card, `with --log ${addOnLog}`);
       await (

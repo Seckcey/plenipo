@@ -20,16 +20,19 @@ import { useTerminalIfAny } from "../../terminal/useTerminal";
 import { Refusal } from "../models/shared";
 import type { Go } from "../views";
 import type { KeyCard } from "./AiToolCard";
-import { OPENROUTER } from "./keyFor";
+import { movesToKey, OPENROUTER } from "./keyFor";
 import { PaidKey } from "./PaidKey";
 import { SignIn } from "./SignIn";
+import { useToolUsage } from "./useAiTools";
 import {
   atLimit,
   countsNothing,
   isNewerVersion,
+  keyLimitWords,
   MOVING,
-  planLeft,
+  planUsed,
   planWindowName,
+  resetWhen,
   usageBetween,
   usageLine,
   usingWords,
@@ -62,6 +65,7 @@ export function Overview({
   onRouting,
   go,
   keyCard,
+  keyWeek,
 }: {
   info: AgentRuntimeInfo;
   /** The page's part for this tool; `undefined` while it loads. */
@@ -76,6 +80,8 @@ export function Overview({
   go?: Go | undefined;
   /** A subscription AI tool's key box: the paid AI tool whose key it saves. */
   keyCard?: KeyCard | undefined;
+  /** This week's work with that key, as a second line (Phase 25, item 2.1). */
+  keyWeek?: ReactNode;
 }) {
   const install = info.installation.state;
   const paid = tool?.payment === "paidKey";
@@ -153,7 +159,7 @@ export function Overview({
       </dd>
       <dt>Usage limit</dt>
       <dd>
-        <UsageLimit route={route} onRouting={onRouting} />
+        <UsageLimit route={route} onRouting={onRouting} keyCard={keyCard} />
       </dd>
       <dt>Left of your plan</dt>
       <dd>
@@ -163,6 +169,8 @@ export function Overview({
               No plan: {info.label} is paid per use. A spending limit is up to you, in Spending
               caps.
             </p>
+            {/* The key's own limit, where the service reports it (Phase 25, item 4.3). */}
+            {tool?.plan?.keyLimit && <p>{keyLimitWords(tool.plan.keyLimit)}</p>}
             {go && (
               <div className="ai-tool__buttons">
                 <Button
@@ -176,12 +184,13 @@ export function Overview({
             )}
           </div>
         ) : (
-          <PlanLeft info={info} tool={tool} />
+          <PlanLeft info={info} tool={tool} onApply={onApply} />
         )}
       </dd>
       <dt>This week</dt>
       <dd>
         <WeekLine label={info.label} usage={usage} />
+        {keyWeek}
       </dd>
     </dl>
   );
@@ -212,9 +221,11 @@ function PayPerUse({
         {keyCard.info.id === OPENROUTER
           ? `${label} has no key of its own for paying per use; an OpenRouter key reaches the same kinds of models, and many more.`
           : `Your ${company} key goes here.`}{" "}
-        It is the same key as on the {company} card under Paid per use with your key. Work on it
-        runs on Plenipo&apos;s {company} AI tool and is priced and listed under Spending caps;{" "}
-        {label} itself keeps using your subscription.
+        {keyCard.info.id === OPENROUTER
+          ? "It is the same key as on the OpenRouter card under Paid per use with your key. "
+          : ""}
+        Work on it runs on Plenipo&apos;s {company} AI tool and is priced and listed under Spending
+        caps; {label} itself keeps using your subscription.
       </p>
       {keyCard.tool.paidKey && (
         <KeyCheck
@@ -463,18 +474,30 @@ function nothingToUpdate(label: string, install: InstallState): string {
   }
 }
 
-/** The usage limit and when it resets, from the Router, with Try again now (ADR-060 §2). */
+/**
+ * The usage limit and when it resets, from the Router, with Try again now (ADR-060 §2), and
+ * where its work goes meanwhile: the same models on its company's key, when the key can take them
+ * (Phase 25, item 4.4; ADR-254).
+ */
 function UsageLimit({
   route,
   onRouting,
+  keyCard,
 }: {
   route: ToolInfo | undefined;
   onRouting: (snapshot: RoutingSnapshot) => void;
+  keyCard?: KeyCard | undefined;
 }) {
   const { pending, error, run } = useRun<RoutingSnapshot>(onRouting);
   if (!route) return <span className="muted">Loading…</span>;
   const limit = route.usageLimit;
   if (!limit) return <>No usage limit reached</>;
+  const onKey =
+    movesToKey(route.runtimeId) &&
+    keyCard !== undefined &&
+    keyCard.tool.paidKey !== null &&
+    keyCard.info.ready &&
+    keyCard.tool.paidBlocked === null;
   return (
     <div className="ai-tool__block">
       <div>
@@ -483,6 +506,12 @@ function UsageLimit({
           ? `resets at ${when(limit.until)} (${until(limit.until)})`
           : `Plenipo tries it again at ${when(limit.until)} (${until(limit.until)})`}
       </div>
+      {onKey && keyCard && (
+        <div>
+          Its work moves to your {keyCard.info.label} key while it waits (paid per use, within your
+          spending caps).
+        </div>
+      )}
       <div className="ai-tool__buttons">
         <Button
           size="sm"
@@ -506,18 +535,46 @@ const NO_WINDOW: PlanWindow = { minutes: null, usedPercent: null, resetsAt: null
  * reached" is said once: on the window at its limit, or above them all when the tool said only
  * that the plan is limited.
  */
-function PlanLeft({ info, tool }: { info: AgentRuntimeInfo; tool: AiToolState | undefined }) {
+function PlanLeft({
+  info,
+  tool,
+  onApply,
+}: {
+  info: AgentRuntimeInfo;
+  tool: AiToolState | undefined;
+  onApply: Apply;
+}) {
   const label = info.label;
+  const { pending, error, run } = useRun<AiToolsPage>(onApply);
   if (!tool) return <span className="muted">Loading…</span>;
   if (!tool.reportsPlanLeft) return <>{label} doesn&apos;t report how much of your plan is left.</>;
+  // Asked now, for an AI tool Plenipo can ask (Phase 25, item 1.2); Claude Code tells it only
+  // during a task.
+  const ask = PLAN_DURING_A_TASK.has(info.id) ? null : (
+    <div className="ai-tool__buttons">
+      <Button
+        size="sm"
+        variant="quiet"
+        disabled={pending || !info.ready}
+        aria-label={`Check ${label}'s plan now`}
+        onClick={() => void run(() => checkAiTool(info.id))}
+      >
+        {pending ? "Checking…" : "Check plan"}
+      </Button>
+      <Refusal error={error} />
+    </div>
+  );
   const plan = tool.plan;
   if (!plan) {
     return PLAN_DURING_A_TASK.has(info.id) ? (
       <>{label} reports this during a task; nothing reported yet.</>
     ) : (
-      <>
-        {label} hasn&apos;t reported it yet. Plenipo asks when it checks {label}.
-      </>
+      <div className="ai-tool__block">
+        <span>
+          {label} hasn&apos;t reported it yet. Plenipo asks when it checks {label}.
+        </span>
+        {ask}
+      </div>
     );
   }
   const windows = plan.windows.length > 0 ? plan.windows : [NO_WINDOW];
@@ -527,12 +584,12 @@ function PlanLeft({ info, tool }: { info: AgentRuntimeInfo; tool: AiToolState | 
       {limitedAbove && <div>Limit reached</div>}
       <ul className="ai-tool__list" aria-label={`Left of your plan with ${label}`}>
         {windows.map((w, i) => {
-          const name = planWindowName(w.minutes);
+          const name = planWindowName(w.minutes, w.models);
           return (
-            <li key={`${w.minutes ?? "plan"}-${i}`}>
+            <li key={`${w.minutes ?? "plan"}-${w.models ?? ""}-${i}`}>
               {name && <strong>{name}: </strong>}
-              {planLeft(w, plan)}
-              {w.resetsAt ? ` · resets at ${when(w.resetsAt)}` : ""}
+              {planUsed(w, plan)}
+              {w.resetsAt ? `, resets ${resetWhen(w.resetsAt)}` : ""}
             </li>
           );
         })}
@@ -541,6 +598,29 @@ function PlanLeft({ info, tool }: { info: AgentRuntimeInfo; tool: AiToolState | 
         Reported by {label} at {when(plan.reportedAt)}
         {plan.plan ? ` · your plan: ${plan.plan}` : ""}
       </span>
+      {ask}
+    </div>
+  );
+}
+
+/**
+ * This week's work with a subscription AI tool's key, as a second line under its own (Phase 25,
+ * item 2.1): read only while the card shows it.
+ */
+export function KeyWeekLine({
+  keyCard,
+  revision,
+  today,
+}: {
+  keyCard: KeyCard;
+  revision: number;
+  today: number;
+}) {
+  const usage = useToolUsage(keyCard.info.id, revision, today);
+  return (
+    <div>
+      <span className="muted">With your key: </span>
+      <WeekLine label={keyCard.info.label} usage={usage} />
     </div>
   );
 }

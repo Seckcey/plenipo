@@ -73,6 +73,7 @@ export function HirePalette({
       className={`palette${open ? "" : " palette--rail"}`}
       aria-label="Hire palette"
       data-canvas-scroll
+      data-tour="hire"
     >
       <div className="palette__header">
         {open && <h2>Hire</h2>}
@@ -92,10 +93,10 @@ export function HirePalette({
       {group("Team members", members)}
       {open && (
         <div className="palette__more">
-          <Button variant="quiet" size="sm" onClick={onNewDepartment}>
+          <Button variant="quiet" size="sm" onClick={onNewDepartment} data-tour="add-department">
             + Department
           </Button>
-          <Button variant="quiet" size="sm" onClick={onNewProject}>
+          <Button variant="quiet" size="sm" onClick={onNewProject} data-tour="add-project">
             + Project
           </Button>
           <Button variant="quiet" size="sm" onClick={onNewRole}>

@@ -9,7 +9,7 @@ use plenipo_ledger::{ChildConversation, Ledger, NewWorker, Position, Project, Ta
 use plenipo_liaison::context::Destination;
 use plenipo_liaison::protocol::PROTOCOL;
 use plenipo_liaison::{Directory, MemberConversation, Placement, Team};
-use plenipo_router::{ModelFeature, Planner, RouteDecision, RouteRequest, Router};
+use plenipo_router::{Planner, RouteDecision, RouteRequest, Router};
 use plenipo_runtime::agent::{SessionStart, WorkDoneBy};
 use serde_json::{json, Value};
 
@@ -56,6 +56,82 @@ impl WorkforceDirectory {
         learned(&self.ledger, view, p, project_id)
     }
 
+    /// Nobody in `lead`'s team or department does the job `name` (Phase 25, item 2.7). With the
+    /// owner's switch on, an on-call worker for that role is hired onto `lead`'s team (`Ok`: the
+    /// caller places the work again). Otherwise Plenipo asks the owner, once a day for the same
+    /// lead and job, on Home's What's stuck, and says so.
+    fn missing_job(
+        &self,
+        view: &OrgView<'_>,
+        lead: &Position,
+        requester: &Task,
+        name: &str,
+        why: String,
+    ) -> Result<(), String> {
+        let wanted = name.trim();
+        let role = view.records.roles.iter().find(|r| {
+            r.name.eq_ignore_ascii_case(wanted)
+                && r.role_type == plenipo_ledger::RoleType::Worker
+                && !r.persistent
+        });
+        let Some(role) = role else {
+            return Err(format!(
+                "{why}. Nobody in your department does this job either: ask the owner to hire \
+                 one, or do this part yourself"
+            ));
+        };
+        if hire_on_its_own(&self.ledger) {
+            let new = plenipo_ledger::NewPosition {
+                title: role.name.clone(),
+                role_id: role.id.clone(),
+                reports_to: Some(lead.id.clone()),
+                runtime_id: None,
+                runtime_provider: None,
+                model: None,
+                staffed: true,
+                specialty_id: None,
+                from_workforce: None,
+            };
+            return self
+                .ledger
+                .create_position(&new, "plenipo")
+                .map(|_| ())
+                .map_err(|e| format!("Plenipo could not hire a {}: {e}", role.name));
+        }
+        const DAY_MS: u64 = 24 * 3_600_000;
+        let since = plenipo_ledger::now_ms().saturating_sub(DAY_MS);
+        let asked = self
+            .ledger
+            .events_of_types(&["org.hire_needed"], 200)
+            .unwrap_or_default()
+            .into_iter()
+            .any(|e| {
+                e.created_at >= since
+                    && e.payload["leadId"] == lead.id.as_str()
+                    && e.payload["roleId"] == role.id.as_str()
+            });
+        if !asked {
+            let _ = self.ledger.append_event(plenipo_ledger::NewEvent {
+                task_id: Some(requester.id.clone()),
+                source: format!("position:{}", lead.id),
+                event_type: "org.hire_needed".into(),
+                payload: json!({
+                    "leadId": lead.id,
+                    "lead": lead.title,
+                    "roleId": role.id,
+                    "role": role.name,
+                    "projectId": view.project_of(&lead.id).map(|p| p.id.clone()),
+                }),
+                ..plenipo_ledger::NewEvent::default()
+            });
+        }
+        Err(format!(
+            "{why}. Nobody in your department is a {} either: Plenipo asked the owner whether to \
+             hire one; meanwhile do this part yourself, or skip it and say so",
+            role.name
+        ))
+    }
+
     /// A request to a full-time member (a VP's Supervisor, a manager's Supervisor): the member
     /// does it in its own conversation, which keeps its memory, and no worker is brought in
     /// (ADR-016). The member works on its own project, whose AI tools apply.
@@ -95,6 +171,16 @@ impl WorkforceDirectory {
     }
 }
 
+/// Whether the owner let leads hire missing workers on their own (Settings → Switches, Phase 25,
+/// item 2.7). Read from Guard's saved settings; off when they can't be read.
+fn hire_on_its_own(ledger: &Ledger) -> bool {
+    ledger
+        .setting("guard")
+        .ok()
+        .flatten()
+        .is_some_and(|g| g["switches"]["hireOnItsOwn"] == true)
+}
+
 /// What the position's role has learned, for a worker on `project_id`, and how to write down a
 /// lesson (ADR-024; ADR-050: notes in a fence, from this project or from none), unless learning
 /// is off for it (ADR-041).
@@ -127,6 +213,7 @@ pub(crate) fn request<'a>(
             .map(|d| (d.id.as_str(), d.name.as_str())),
         project: project.map(|p| (p.name.as_str(), p.allowed_runtimes.as_slice())),
         reviewed,
+        low_priority: false,
     }
 }
 
@@ -139,7 +226,26 @@ pub(crate) fn decide(
     project: Option<&Project>,
     reviewed: &[WorkDoneBy],
 ) -> RouteDecision {
-    let request = request(view, position, project, reviewed);
+    decide_with(planner, view, position, project, reviewed, false)
+}
+
+/// Priority 3 or 4 (0 is the highest) is low-priority work (Phase 25, item 4.6).
+const LOW_PRIORITY: u8 = 3;
+
+/// [`decide`], for work of a known priority: low-priority work goes to the plan with the most
+/// room left (Phase 25, item 4.6).
+pub(crate) fn decide_with(
+    planner: &Planner,
+    view: &OrgView<'_>,
+    position: &Position,
+    project: Option<&Project>,
+    reviewed: &[WorkDoneBy],
+    low_priority: bool,
+) -> RouteDecision {
+    let request = RouteRequest {
+        low_priority,
+        ..request(view, position, project, reviewed)
+    };
     match &position.runtime_id {
         Some(runtime) => planner.fixed(
             &request,
@@ -151,15 +257,9 @@ pub(crate) fn decide(
     }
 }
 
-/// Whether the model with this ID in the owner's list is marked as able to see images (`None`:
-/// the model is not in the list, such as a fixed position's unlisted model).
-fn sees_images(planner: &Planner, model_id: &str) -> Option<bool> {
-    planner
-        .config
-        .models
-        .iter()
-        .find(|m| !model_id.is_empty() && m.id == model_id)
-        .map(|m| m.features.contains(&ModelFeature::Vision))
+/// Whether the routed model is known to see images, from who made it (Phase 25, item 2.4).
+fn sees_images(maker: Option<&str>, model: Option<&str>) -> bool {
+    plenipo_router::makers::sees_images(maker, model) == Some(true)
 }
 
 /// Why `name` is not on `lead`'s team when it is one of the team's agents lent to another team
@@ -244,12 +344,19 @@ impl Directory for WorkforceDirectory {
         let me = view.position(position_id)?;
         let planner = self.router.planner().ok()?;
         let lead = view.lead_of(position_id);
-        let members = lead.map(|l| view.team(&l.id)).unwrap_or_default();
+        let mut members = lead.map(|l| view.team(&l.id)).unwrap_or_default();
+        // The department's other workers come after the team (Phase 25, item 2.7).
+        let shared = members.len();
+        if let Some(l) = lead.filter(|_| view.persistent(me)) {
+            members.extend(view.department_pool(&l.id));
+        }
         // Work for a team belongs to the team's project, whose runtimes then apply.
         let project = lead.and_then(|l| view.project_of(&l.id));
         let destinations: Vec<Destination> = members
             .iter()
-            .map(|m| {
+            .enumerate()
+            .map(|(i, m)| {
+                let from_department = i >= shared;
                 if view.persistent(m.position) {
                     // A full-time member: ready when it is staffed and its conversation can
                     // take work (it may have to finish a current task first).
@@ -271,9 +378,14 @@ impl Directory for WorkforceDirectory {
                     .as_ref()
                     .filter(|_| decision.fixed)
                     .map(|c| c.runtime_label.as_str());
+                let label = member_label(&view, tool, m);
                 Destination {
                     address: format!("role:{}", m.position.title),
-                    label: member_label(&view, tool, m),
+                    label: if from_department {
+                        format!("{label} — from your department, when your team has no one for it")
+                    } else {
+                        label
+                    },
                     ready,
                 }
             })
@@ -282,10 +394,9 @@ impl Directory for WorkforceDirectory {
         let identity = if view.persistent(me) {
             member_identity(&view, &name, me, destinations.iter().any(|d| d.ready))
         } else {
-            let model = workforce["routing"]["choice"]["modelId"]
-                .as_str()
-                .unwrap_or_default();
-            worker_identity(&view, &name, me, None, sees_images(&planner, model))
+            let choice = &workforce["routing"]["choice"];
+            let sees = sees_images(choice["maker"]["id"].as_str(), choice["model"].as_str());
+            worker_identity(&view, &name, me, None, sees)
         } + &self.learned(&view, me, workforce["projectId"].as_str());
         Some(Team {
             identity,
@@ -315,22 +426,34 @@ impl Directory for WorkforceDirectory {
             .lead_of(position_id)
             .ok_or_else(|| format!("{} has no team to hand work to", me.title))?;
         let team = view.team(&lead.id);
-        let member = find(&view, &team, name).map_err(|e| {
-            // Lent away is the reason only when nobody on the team answers to that name (else
-            // `find`'s own reason, such as two members with that role, is the useful one).
+        // The department's other workers, after the team (Phase 25, item 2.7).
+        let pool = view.department_pool(&lead.id);
+        let answers = |members: &[TeamMember<'_>]| {
             let wanted = name.trim().to_lowercase();
-            let someone = team.iter().any(|m| {
+            members.iter().any(|m| {
                 m.position.title.to_lowercase() == wanted
                     || view
                         .role(m.position)
                         .is_some_and(|r| r.name.to_lowercase() == wanted)
-            });
-            if someone {
-                e
-            } else {
-                away(&view, &lead.id, name).unwrap_or(e)
+            })
+        };
+        let from_pool = !answers(&team) && answers(&pool);
+        let searched = if from_pool { &pool } else { &team };
+        let member = match find(&view, searched, name) {
+            Ok(m) => m,
+            // Lent away is the reason only when nobody on the team answers to that name (else
+            // `find`'s own reason, such as two members with that role, is the useful one).
+            Err(e) if answers(&team) || answers(&pool) => return Err(e),
+            Err(e) => {
+                if let Some(why) = away(&view, &lead.id, name) {
+                    return Err(why);
+                }
+                // Nobody in the department does the job: hire one when the owner let leads
+                // do that, else ask the owner (Phase 25, item 2.7).
+                self.missing_job(&view, lead, requester, name, e)?;
+                return self.place(workforce, requester, name, reviewed);
             }
-        })?;
+        };
         let target = member.position;
         if let Some(loan) = member.lent {
             // Lent for one objective: only that objective's work (ADR-054).
@@ -361,7 +484,16 @@ impl Directory for WorkforceDirectory {
         // The work is the lead's team's: its project, and that project's runtimes, apply
         // (also to an overseer from outside the project).
         let project = view.project_of(&lead.id);
-        let decision = decide(&planner, &view, target, project, reviewed);
+        // Low-priority work (priority 3 or 4, 0 being the highest) goes to the plan with the
+        // most room left (Phase 25, item 4.6).
+        let decision = decide_with(
+            &planner,
+            &view,
+            target,
+            project,
+            reviewed,
+            requester.priority >= LOW_PRIORITY,
+        );
         let Some(choice) = decision.choice.clone() else {
             return Err(format!(
                 "{} cannot take work now: {} The owner can change this in Plenipo's settings",
@@ -412,13 +544,19 @@ impl Directory for WorkforceDirectory {
                 "departmentId": department_id,
                 "leadId": lead.id,
                 "routing": routing,
+                // It ends its answer with a verdict, which Plenipo checks (Phase 25, item 4.7).
+                "verdict": member.oversight.is_some()
+                    || view.role(target).is_some_and(crate::prompt::gives_verdict),
             }),
             identity: worker_identity(
                 &view,
                 &org_name(&self.ledger),
                 target,
                 member.oversight.map(|o| (lead, o.kind)),
-                sees_images(&planner, &choice.model_id),
+                sees_images(
+                    choice.maker.as_ref().map(|m| m.id.as_str()),
+                    choice.model.as_deref(),
+                ),
             ) + &self.learned(&view, target, project_id.as_deref()),
             project_id,
         })

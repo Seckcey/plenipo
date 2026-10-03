@@ -6,6 +6,7 @@ import { setConnectionSendList } from "../../api/commands";
 import { Refusal } from "../../components/models/shared";
 import type { Go } from "../../components/views";
 import { useRun } from "../../guard/useRun";
+import { SEND_LIST_NOTE } from "./words";
 
 /**
  * **Send without asking to** (ADR-062 §5, ADR-070 §1): addresses and `@domains` — and, on a Slack
@@ -34,16 +35,25 @@ export function SendList({
   return (
     <section className="connection__section" aria-labelledby={`${id}-send`}>
       <h4 id={`${id}-send`}>Send without asking to</h4>
-      <p className="notice-box" role="note">
-        <strong>
-          An email could trick a worker into writing to anyone on this list without asking you.
-        </strong>{" "}
+      {/* The warning about this list is said once, at the top of the page (Phase 25, 2.2). */}
+      <p className="muted">
         {service === "slack"
-          ? "Add only addresses, domains, and channels you would be happy to receive anything a worker writes. A channel goes on the list by its ID (in Slack, click the channel's name; its ID is at the bottom of About), and a post there reaches everyone in it, guests from other organizations too. Everyone else, and every message with someone not on the list, still asks you."
+          ? "A channel goes on the list by its ID (in Slack, click the channel's name; its ID is at the bottom of About), and a post there reaches everyone in it, guests from other organizations too."
           : service === "wordpress"
-            ? "Add only customers' addresses and domains you would be happy to receive anything a worker writes. An order's status and a note the customer sees go ahead without asking only to them; publishing on your site and refunds always ask you."
-            : "Add only addresses and domains you would be happy to receive anything a worker writes. Everyone else, and every send with someone not on the list, still asks you."}
-        {service === "microsoft365" && " Posting in a Teams channel always asks you."}
+            ? "Customers' addresses and domains: an order's status and a note the customer sees go ahead without asking only to them; publishing on your site and refunds always ask you."
+            : "Addresses and domains."}
+        {service === "microsoft365" && " Posting in a Teams channel always asks you."}{" "}
+        <Button
+          variant="quiet"
+          size="sm"
+          onClick={() => {
+            const note = document.getElementById(SEND_LIST_NOTE);
+            note?.scrollIntoView?.({ block: "center" });
+            note?.focus({ preventScroll: true });
+          }}
+        >
+          Learn more
+        </Button>
       </p>
       <p className="muted">
         {switchOn

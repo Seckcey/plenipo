@@ -48,7 +48,7 @@ function Control({ control, reload }: { control: ControlStatus | null; reload: (
   if (control?.stopped) {
     return (
       <div className="stop-all__said" role="status">
-        <span>Browser, desktop, and server work is stopped.</span>
+        <span>All work is stopped.</span>
         <Button
           size="sm"
           variant="primary"

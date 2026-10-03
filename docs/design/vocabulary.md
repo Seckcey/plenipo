@@ -242,7 +242,18 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Usage / tokens (pieces of words) read, reused, written                         | token usage, input / cached / output tokens                                                |
 | today / this week (Monday to Sunday) / last week / the last 14 days            | rolling window, time bucket, period                                                        |
 | left of your plan / reported by Codex at 1:05 PM                               | quota, rate-limit utilization, remaining quota                                             |
-| resets at 3:10 PM / 5-hour limit / weekly limit                                | reset timestamp, rate-limit window                                                         |
+| 5-hour: 62% used, resets 3:10 PM / Week (Opus): 40% used, resets Monday        | reset timestamp, rate-limit window, utilization                                            |
+| Key limit: $10.00 · $3.20 spent · $6.80 left (a paid key's own limit)          | credit limit, quota, balance                                                               |
+| on your Anthropic key / Its work moves to your Anthropic key while it waits    | API fallback, overflow billing, provider failover                                          |
+| Step down instead of stopping / Start stepping down at 80% used                | model downgrade, throttling, degradation policy                                            |
+| so it steps down: Sonnet 5.5 instead of Opus, at medium effort                 | model downgrade, fallback model                                                            |
+| Doesn't match the record / Plenipo's record                                    | hallucination, fact-check failure, verification error, grounding                           |
+| Answer sent back to check / Checking its answer again                          | verification retry, re-prompt                                                              |
+| Sent back by Website Supervisor / work sent back to fix                        | rejected, rework request, QA failure                                                       |
+| answers keep not matching the record                                           | hallucination rate                                                                         |
+| Your plans / ahead of pace / on pace / behind pace / 27% by now                | quota pacing, burn rate, rate shaping                                                      |
+| Weekly budget (estimated)                                                      | token quota, soft limit                                                                    |
+| A night hour (8 PM to 8 AM) counts as half a day hour                          | off-peak weighting, time-of-day multiplier                                                 |
 | How it is paid for: Subscription / Paid per use with your key                  | billing mode, BYOK, metered API                                                            |
 | installed / checked by Plenipo (an AI tool's version)                          | CLI version, tested version, compatibility                                                 |
 | a new version / Update / Updating… / Updated to 1.0.43                         | upgrade, self-update, patch                                                                |
@@ -391,6 +402,17 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Thanked by 12 people (different people, not presses)                           | thanks count, kudos total, upvotes received                                                |
 | Getting started (Fill in your profile, Find someone, Send a message)           | onboarding checklist, first-run wizard, setup tour                                         |
 | Only people you invite by email count (for points)                             | referral link, invite code, share-link referral                                            |
+| Subscription connected / API key connected (Phase 25)                          | authenticated, credentials valid                                                           |
+| Claude Code: its own choice                                                    | (default model), provider default                                                          |
+| Who uses what                                                                  | routing matrix, model policy table                                                         |
+| Use Senior Developer / Hire new / Hire one?                                    | reuse instance, spawn agent, provision                                                     |
+| Use a template / Save this organization as a template                          | scaffold, preset, blueprint                                                                |
+| Take the setup tour / Pick up the setup tour / Skip this step                  | onboarding flow, walkthrough, wizard                                                       |
+| Stop (one worker's task) / Keep working                                        | cancel turn, abort, kill                                                                   |
+| Stop all (all work) / Allow again / All work is stopped.                       | kill switch, global halt, resume dispatch                                                  |
+| Live conversation / now: Running `npm test` / Step 3 of 7 · 4 min              | token stream, agent log, telemetry, trace                                                  |
+| Ask a question / Side chat with Alex / made by a command                       | fork session, sub-agent, side channel, shell side effects                                  |
+| Claude Code is out until 3:00 PM / Wait / Use a reset / Pick it up now         | rate limited, quota exhausted, 429, redeem credit, retry                                   |
 | Chat (a live conversation with an agent, ADR-200)                              | session view, transcript pane, agent console                                               |
 | Side by side (up to four chats at once)                                        | split view, multi-pane, tiling                                                             |
 | What it is doing now, with a timer ("Saving a file · 12 s")                    | thinking…, loading, spinner text, status: busy                                             |

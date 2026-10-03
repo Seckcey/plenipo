@@ -236,6 +236,7 @@ describe("Projects", () => {
         localPath: "D:\\shop",
       },
       runtimeId: "claude-code",
+      hireNew: [],
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     const list = screen.getByRole("list", { name: "Projects" });

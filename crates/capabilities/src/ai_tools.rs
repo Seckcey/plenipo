@@ -345,7 +345,13 @@ struct Inner {
     live: Mutex<Live>,
     /// Held while the setting is read, changed, and written.
     keeping: Mutex<()>,
+    /// Every open organization's Ledger, for usage that counts them all (Phase 25, item 1.2).
+    /// Unset: the first organization's alone.
+    every_ledger: Mutex<Option<EveryLedger>>,
 }
+
+/// Every open organization's Ledger, the first one's among them.
+pub type EveryLedger = Arc<dyn Fn() -> Vec<Arc<plenipo_ledger::Ledger>> + Send + Sync>;
 
 /// Cheap to clone; clones share state.
 #[derive(Clone)]
@@ -410,6 +416,7 @@ impl AiTools {
                 release_base,
                 live: Mutex::new(Live::default()),
                 keeping: Mutex::new(()),
+                every_ledger: Mutex::new(None),
             }),
         }
     }
@@ -513,6 +520,10 @@ impl AiTools {
             }
             if tool.out_of_service.is_some() {
                 self.agents().set_out_of_service(&id, tool.out_of_service);
+            }
+            // The plans reported before, for the hold after a usage limit (Phase 25, item 4.3).
+            if let Some(plan) = tool.plan {
+                self.agents().plans().keep(&id, plan);
             }
         }
     }
@@ -623,7 +634,9 @@ impl AiTools {
             Some(_) => match self.agents().hold_if_free(runtime_id, HoldFor::SignIn) {
                 Ok(hold) => (Some(hold), 0, None),
                 Err(NotFree::Tasks(tasks)) => (None, tasks.len(), None),
-                Err(NotFree::Held(HoldFor::Update)) => (None, 0, Some(AiToolBusy::Updating)),
+                Err(NotFree::Held(HoldFor::Update | HoldFor::StopAll)) => {
+                    (None, 0, Some(AiToolBusy::Updating))
+                }
                 Err(NotFree::Held(HoldFor::SignIn)) => (None, 0, Some(AiToolBusy::SignInOpen)),
             },
             None => (None, 0, None),
@@ -774,7 +787,9 @@ impl AiTools {
                     self.models_reported(runtime_id, models);
                 }
                 if let Some(plan) = answer.plan {
-                    self.keep_tool(runtime_id, |t| t.plan = Some(plan));
+                    self.keep_tool(runtime_id, |t| {
+                        t.plan = Some(plan.merged_with(t.plan.as_ref(), now()));
+                    });
                 }
                 true
             }
@@ -812,18 +827,23 @@ impl AiTools {
         self.keep_tool(runtime_id, |t| t.models = Some(reported));
     }
 
-    /// An AI tool reported how much of the plan is used during a task (Claude Code's
-    /// `rate_limit_event`, ADR-060 §3).
+    /// An AI tool reported how much of the plan is used (Claude Code's `rate_limit_event`
+    /// during a task, a check, ADR-060 §3), added to what it reported before: Claude Code reports
+    /// one window at a time (Phase 25, item 4.3).
     pub fn plan_reported(&self, runtime_id: &str, report: PlanReport) {
         if self.agents().adapter_for(runtime_id).is_none() {
             return;
         }
-        self.keep_tool(runtime_id, |t| t.plan = Some(report));
+        self.keep_tool(runtime_id, |t| {
+            t.plan = Some(report.merged_with(t.plan.as_ref(), now()));
+        });
     }
 
     /// A task on `runtime_id` ended: a tool that reports its plan through its check (Codex's
-    /// app server) is asked again, at most every five minutes (ADR-060 §3).
-    pub fn task_ended(&self, runtime_id: &str) {
+    /// app server) is asked again, at most every five minutes (ADR-060 §3) — at once when the
+    /// task reached a usage limit, so the hold waits for the reset it reports (Phase 25, item
+    /// 4.3).
+    pub fn task_ended(&self, runtime_id: &str, limited: bool) {
         let Some(adapter) = self.agents().adapter_for(runtime_id) else {
             return;
         };
@@ -839,7 +859,7 @@ impl AiTools {
         {
             let mut live = lock(&self.inner.live);
             let last = live.plan_checked.get(runtime_id).copied().unwrap_or(0);
-            if now().saturating_sub(last) < PLAN_CHECK_EVERY_MS {
+            if !limited && now().saturating_sub(last) < PLAN_CHECK_EVERY_MS {
                 return;
             }
             live.plan_checked.insert(runtime_id.to_owned(), now());
@@ -858,6 +878,26 @@ impl AiTools {
     }
 
     // ---- Usage (ADR-060 §1) ------------------------------------------------------------------------
+
+    /// Count every open organization's tasks in usage, through `every` (the app's list of open
+    /// organizations; Phase 25, item 1.2).
+    pub fn count_every_organization(&self, every: EveryLedger) {
+        *lock(&self.inner.every_ledger) = Some(every);
+    }
+
+    /// The Ledgers usage reads: every open organization's, each once, the first one's always.
+    fn ledgers(&self) -> Vec<Arc<plenipo_ledger::Ledger>> {
+        let mut out = vec![Arc::clone(self.ledger())];
+        let every = lock(&self.inner.every_ledger).clone();
+        if let Some(every) = every {
+            for ledger in every() {
+                if !out.iter().any(|l| Arc::ptr_eq(l, &ledger)) {
+                    out.push(ledger);
+                }
+            }
+        }
+        out
+    }
 
     /// `runtime_id`'s usage for the days whose starts are `day_starts` (the last value ends the
     /// last day): tokens read, reused, and written, and tasks, by model, added up from the
@@ -881,7 +921,11 @@ impl AiTools {
             ));
         }
         let (first, last) = (day_starts[0], day_starts[day_starts.len() - 1]);
-        let steps = self.ledger().token_steps(runtime_id, first, last)?;
+        // The PC's AI tool: every organization's tasks on it count (Phase 25, item 1.2).
+        let mut steps = Vec::new();
+        for ledger in self.ledgers() {
+            steps.extend(ledger.token_steps(runtime_id, first, last)?);
+        }
         let mut days: Vec<UsageDay> = day_starts
             .windows(2)
             .map(|w| UsageDay {
@@ -970,10 +1014,33 @@ impl AiTools {
         name: &str,
         key: &str,
     ) -> Result<AiToolsPage> {
-        self.adapter(runtime_id)?;
-        crate::paid::save_key(&self.inner.broker, self.agents(), runtime_id, name, key)
+        let (broker, agents) = (self.inner.broker.clone(), self.agents().clone());
+        self.save_paid_key_for(runtime_id, name, key, &broker, &agents)
             .await
-            .map_err(BrokerError::Invalid)?;
+    }
+
+    /// Save a paid AI tool's key for the whole PC (kept with the first organization), while
+    /// paid keys are on in `allowed_by`, the organization the owner is looking at, whose
+    /// `agents` check the key (Phase 25, item 1.4).
+    pub async fn save_paid_key_for(
+        &self,
+        runtime_id: &str,
+        name: &str,
+        key: &str,
+        allowed_by: &Broker,
+        agents: &AgentRuntime,
+    ) -> Result<AiToolsPage> {
+        self.adapter(runtime_id)?;
+        crate::paid::save_key(
+            &self.inner.broker,
+            allowed_by,
+            agents,
+            runtime_id,
+            name,
+            key,
+        )
+        .await
+        .map_err(BrokerError::Invalid)?;
         Ok(self.page())
     }
 

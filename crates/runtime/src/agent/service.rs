@@ -332,6 +332,9 @@ struct State {
     /// AI tools Plenipo gives no tasks, and why: an update left one that does not answer the way
     /// Plenipo reads it (ADR-059 §6).
     out_of_service: HashMap<String, String>,
+    /// The owner pressed Stop all work (Phase 25, item 3.4): no new turn starts on any AI tool
+    /// until Allow again. In memory only: after a restart nothing resumes anyway.
+    work_held: bool,
 }
 
 impl State {
@@ -358,6 +361,9 @@ struct Inner {
     state: Mutex<State>,
     /// Woken when a hold on an AI tool ends.
     holds_changed: tokio::sync::Notify,
+    /// The latest plan each AI tool reported, shared by every organization on the PC (Phase 25,
+    /// item 4.3).
+    plans: RwLock<Arc<PlanBook>>,
 }
 
 /// Cheap to clone; clones share state.
@@ -421,6 +427,7 @@ impl AgentRuntime {
                     ..State::default()
                 }),
                 holds_changed: tokio::sync::Notify::new(),
+                plans: RwLock::new(Arc::default()),
             }),
         };
         this.recover();
@@ -703,7 +710,11 @@ impl AgentRuntime {
             .runtimes
             .iter()
             .map(|r| AgentRuntimeInfo {
-                held: state.holds.get(&r.id).map(|h| h.reason()),
+                held: if state.work_held {
+                    Some(HoldFor::StopAll)
+                } else {
+                    state.holds.get(&r.id).map(|h| h.reason())
+                },
                 ..r.clone()
             })
             .collect()
@@ -986,7 +997,8 @@ impl AgentRuntime {
             }
         };
         info.auth = adapter.parse_auth(&out);
-        // A paid AI tool's check lists its models with today's prices (ADR-085, ADR-086).
+        // A paid AI tool's check lists its models with today's prices (ADR-085, ADR-086), and
+        // OpenRouter's its key's own limit (Phase 25, item 4.3).
         if adapter.paid() {
             if let Some(models) = adapter.parse_models(&out) {
                 info.reported_models = Some(ReportedModels {
@@ -994,6 +1006,9 @@ impl AgentRuntime {
                     complete: true,
                     checked_at: crate::now_ms(),
                 });
+            }
+            if let Some(plan) = adapter.parse_plan(&out) {
+                self.plan_reported(adapter.id(), plan);
             }
         }
         info.ready = auth_allowed(adapter, info.auth.state);
@@ -1198,7 +1213,74 @@ impl AgentRuntime {
 
     /// Whether `runtime_id` is held now.
     pub fn held(&self, runtime_id: &str) -> bool {
-        self.lock().holds.contains_key(runtime_id)
+        let state = self.lock();
+        state.work_held || state.holds.contains_key(runtime_id)
+    }
+
+    // ---- Stop all work (Phase 25, item 3.4; ADR-199) ------------------------------------
+
+    /// Hold all work: no new turn starts on any AI tool — each waits, and can still be stopped —
+    /// until [`Self::allow_work`]. Turns already running go on; [`Self::stop_all_turns`] stops
+    /// them.
+    pub fn hold_all_work(&self) {
+        self.lock().work_held = true;
+        self.holds_shown();
+    }
+
+    /// Allow again after Stop all work: the turns that waited start.
+    pub fn allow_work(&self) {
+        self.lock().work_held = false;
+        self.inner.holds_changed.notify_waiters();
+        self.holds_shown();
+    }
+
+    /// Whether Stop all work holds the work now.
+    pub fn work_held(&self) -> bool {
+        self.lock().work_held
+    }
+
+    /// Stop every turn running or waiting now, as Stop does for one. Returns how many stopped.
+    pub async fn stop_all_turns(&self) -> usize {
+        let sessions: Vec<String> = {
+            let state = self.lock();
+            state
+                .active
+                .iter()
+                .filter(|(_, a)| a.claim != Claim::Close)
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        let mut stopped = 0;
+        let mut starting = Vec::new();
+        for id in sessions {
+            match self.cancel(&id, None).await {
+                Ok(_) => stopped += 1,
+                Err(RuntimeError::NotReady(why)) if why.contains("still starting") => {
+                    starting.push(id);
+                }
+                Err(_) => {}
+            }
+        }
+        // A turn still starting reaches the hold in a moment (its AI tool waits for Allow
+        // again), and can be stopped there: tried again for up to two seconds.
+        for _ in 0..40 {
+            if starting.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let mut still = Vec::new();
+            for id in starting {
+                match self.cancel(&id, None).await {
+                    Ok(_) => stopped += 1,
+                    Err(RuntimeError::NotReady(why)) if why.contains("still starting") => {
+                        still.push(id);
+                    }
+                    Err(_) => {}
+                }
+            }
+            starting = still;
+        }
+        stopped
     }
 
     fn release_hold(&self, runtime_id: &str, reason: HoldFor) {
@@ -1228,6 +1310,7 @@ impl AgentRuntime {
             let updating = {
                 let mut state = self.lock();
                 let holds = state.holds.get(runtime_id).copied().unwrap_or_default();
+                let held_by_owner = state.work_held;
                 let past = tokio::time::Instant::now() >= deadline;
                 let Some(active) = state.active.get_mut(session_id) else {
                     return true;
@@ -1236,13 +1319,14 @@ impl AgentRuntime {
                     active.waiting_for_hold = false;
                     return false;
                 }
-                if holds.update == 0 && (holds.sign_in == 0 || past) {
+                if !held_by_owner && holds.update == 0 && (holds.sign_in == 0 || past) {
                     active.runtime_id = Some(runtime_id.to_owned());
                     active.waiting_for_hold = false;
                     return true;
                 }
                 active.waiting_for_hold = true;
-                holds.update > 0
+                // An update, or Stop all work: until it is let go.
+                holds.update > 0 || held_by_owner
             };
             if updating {
                 // Each step of an update has its own time limit, so the hold is let go.
@@ -1409,7 +1493,15 @@ impl AgentRuntime {
             }
         };
         let models = adapter.parse_models(&out);
-        let plan = adapter.parse_plan(&out);
+        let plan = adapter
+            .parse_plan(&out)
+            .map(|p| self.plans().keep(runtime_id, p));
+        if let Some(plan) = &plan {
+            self.inner.sink.emit(AgentUpdate::Plan(PlanUpdate {
+                runtime_id: runtime_id.to_owned(),
+                report: plan.clone(),
+            }));
+        }
         let greeted = greeting.is_some_and(|id| talk_answer(&out, id).is_some());
         if models.is_none() && plan.is_none() && !greeted {
             return Err(probe_failure("check", &out));
@@ -1462,12 +1554,35 @@ impl AgentRuntime {
         self.lock().out_of_service.get(runtime_id).cloned()
     }
 
-    /// An AI tool reported how much of the plan is used, during a task (ADR-060 §3).
+    /// An AI tool reported how much of the plan is used, during a task or in its check (ADR-060
+    /// §3): kept in the PC's plan book, added to what it reported before, and told to the screen
+    /// (Phase 25, item 4.3: a check in the background updates the open page too).
     fn plan_reported(&self, runtime_id: &str, report: PlanReport) {
+        let report = self.plans().keep(runtime_id, report);
         self.inner.sink.emit(AgentUpdate::Plan(PlanUpdate {
             runtime_id: runtime_id.to_owned(),
             report,
         }));
+    }
+
+    /// Share one plan book with the PC's other organizations (Phase 25, item 4.3).
+    pub fn share_plans(&self, book: Arc<PlanBook>) {
+        *self
+            .inner
+            .plans
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = book;
+    }
+
+    /// The latest plan each AI tool reported, on this PC.
+    pub fn plans(&self) -> Arc<PlanBook> {
+        Arc::clone(
+            &self
+                .inner
+                .plans
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
     }
 
     // ---- Sessions -----------------------------------------------------------------------
@@ -2681,7 +2796,9 @@ impl Holds {
     fn count(&mut self, reason: HoldFor) -> &mut u32 {
         match reason {
             HoldFor::SignIn => &mut self.sign_in,
-            HoldFor::Update => &mut self.update,
+            // Stop all work holds every AI tool at once (`State::work_held`); counted with
+            // updates if a single tool is ever held for it.
+            HoldFor::Update | HoldFor::StopAll => &mut self.update,
         }
     }
 }

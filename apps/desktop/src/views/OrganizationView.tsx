@@ -28,8 +28,10 @@ import {
   archiveProject,
   assignOversight,
   bringBack,
+  addDepartmentFromTemplate,
   createDepartment,
   createProject,
+  setUpDevelopment,
   createRole,
   createSpecialty,
   deleteForGood,
@@ -82,6 +84,7 @@ import {
   HireDialog,
   NewDepartmentDialog,
   NewProjectDialog,
+  SetUpDevelopmentDialog,
   RoleDialog,
 } from "../components/org/OrgDialogs";
 import {
@@ -118,6 +121,11 @@ import {
 } from "../org/rules";
 import { searchMatches } from "../org/search";
 import { rankName, roleLabel, titleSet, withArticle } from "../org/titles";
+import { StopAllButton } from "../components/stop/StopAll";
+import { StopConfirm } from "../components/stop/StopWork";
+import { workToStop } from "../components/stop/whatToStop";
+import type { Control } from "../control/useControl";
+import { useSetupTourRunning } from "../tour/store";
 import { LEGEND_KEY, TOUR_KEY, readFlag, writeFlag, type PointerMode } from "../org/tour";
 import { useLiveView, useReducedMotion } from "../org/useLiveView";
 import { useOrganization } from "../org/useOrganization";
@@ -146,6 +154,7 @@ type Dialog =
   | { kind: "newDepartment"; reportsTo: string | null; fromWorkforce?: string }
   | { kind: "editDepartment"; id: string }
   | { kind: "newProject"; departmentId: string | null; fromWorkforce?: string }
+  | { kind: "softwareProject" }
   | { kind: "deleteForGood"; target: ArchivedKind; id: string }
   | { kind: "hireSaved"; savedId: string }
   | { kind: "specialty"; roleId: string; specialtyId?: string }
@@ -153,6 +162,7 @@ type Dialog =
   | { kind: "role" }
   | { kind: "editRole"; id: string }
   | { kind: "rename" }
+  | { kind: "stop"; positionId: string }
   | {
       kind: "confirm";
       title: string;
@@ -242,6 +252,7 @@ export function OrganizationView({
   onOpenPage,
   focusId = null,
   onFocusHandled,
+  control,
 }: {
   onOpenSession: (sessionId: string) => void;
   onOpenTask: (taskId: string) => void;
@@ -250,6 +261,8 @@ export function OrganizationView({
   /** A position to show on arrival (from another view). */
   focusId?: string | null;
   onFocusHandled?: () => void;
+  /** Stop all work on the toolbar (Phase 25, item 3.4). */
+  control?: Control;
 }) {
   const org = useOrganization();
   const { snapshot, apply, reload } = org;
@@ -273,6 +286,7 @@ export function OrganizationView({
   const [legendOpen, setLegendOpen] = useState(() => readFlag(LEGEND_KEY) === "shown");
   const [whereOn, setWhereOn] = useState(() => read(WHERE_KEY) === "on");
   const [touring, setTouring] = useState(() => readFlag(TOUR_KEY) !== "seen");
+  const setupTouring = useSetupTourRunning();
   /** Tiles following the pointer while they are arranged (not saved yet). */
   const [preview, setPreview] = useState<TilePlace[] | null>(null);
   const { profile: owner } = useOwnerProfile();
@@ -1028,6 +1042,10 @@ export function OrganizationView({
       : undefined;
   const editingProject =
     dialog?.kind === "editProject" ? snapshot.projects.find((p) => p.id === dialog.id) : undefined;
+  const stopping =
+    dialog?.kind === "stop"
+      ? snapshot.positions.find((p) => p.id === dialog.positionId)
+      : undefined;
   const editingRole =
     dialog?.kind === "editRole" ? snapshot.roles.find((r) => r.id === dialog.id) : undefined;
   const savedForHire =
@@ -1155,6 +1173,7 @@ export function OrganizationView({
             onWatch={
               openWatch ? (id: string) => openWatch(id, byId.get(id)?.title ?? "Agent") : null
             }
+            onStop={(id: string) => setDialog({ kind: "stop", positionId: id })}
             onChat={
               chat
                 ? (n) => {
@@ -1182,6 +1201,7 @@ export function OrganizationView({
             insetRight={selectedExists ? panelWidth : 0}
             toolbar={
               <CanvasToolbar
+                stopAll={control ? <StopAllButton control={control} /> : undefined}
                 mode={pointer}
                 onMode={setPointer}
                 onTidy={tidyUp}
@@ -1241,7 +1261,8 @@ export function OrganizationView({
               />
             )}
             {legendOpen && <LegendPanel onClose={toggleLegend} />}
-            {touring && !empty && <CanvasTour onDone={endTour} />}
+            {/* The canvas's own tour waits while the setup tour shows (Phase 25, item 2.9). */}
+            {touring && !empty && !setupTouring && <CanvasTour onDone={endTour} />}
             {empty && (
               <div className="topology__empty" data-canvas-ui>
                 <h2>Build your organization</h2>
@@ -1264,6 +1285,7 @@ export function OrganizationView({
                 <div className="actions">
                   <Button
                     variant="primary"
+                    data-tour="add-department"
                     onClick={() => setDialog({ kind: "newDepartment", reportsTo: null })}
                   >
                     Create a department
@@ -1356,6 +1378,12 @@ export function OrganizationView({
           {...(dialog.fromWorkforce ? { fromWorkforce: dialog.fromWorkforce } : {})}
           onCancel={closeDialog}
           onSubmit={(input) => submit(() => createDepartment(input), `Created ${input.name}.`)}
+          onTemplate={(id) =>
+            submit(
+              () => addDepartmentFromTemplate(id),
+              `Added ${snapshot.templates.departments.find((d) => d.id === id)?.name ?? "the department"}.`,
+            )
+          }
         />
       )}
       {editingDepartment && (
@@ -1374,6 +1402,16 @@ export function OrganizationView({
           {...(dialog.fromWorkforce ? { fromWorkforce: dialog.fromWorkforce } : {})}
           onCancel={closeDialog}
           onSubmit={(input) => submit(() => createProject(input), `Created ${input.name}.`)}
+          onTemplate={() => setDialog({ kind: "softwareProject" })}
+        />
+      )}
+      {dialog?.kind === "softwareProject" && (
+        <SetUpDevelopmentDialog
+          snapshot={snapshot}
+          onCancel={closeDialog}
+          onSubmit={(input) =>
+            submit(() => setUpDevelopment(input), `Set up ${input.project.name}.`)
+          }
         />
       )}
       {editingProject && (
@@ -1400,6 +1438,14 @@ export function OrganizationView({
           onUpdate={(input) =>
             submit(() => updateRole(editingRole.id, input), `Saved the ${input.name} role.`)
           }
+        />
+      )}
+      {dialog?.kind === "stop" && stopping && (
+        <StopConfirm
+          who={stopping.title}
+          work={workToStop(stopping)}
+          fullTime={stopping.staffing === "persistent"}
+          onClose={closeDialog}
         />
       )}
       {dialog?.kind === "rename" && (

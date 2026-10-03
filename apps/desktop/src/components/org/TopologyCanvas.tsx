@@ -59,6 +59,7 @@ import { nodeAt, type LayoutNode, type OrgLayout, type Point } from "../../org/l
 import type { HandoffMark, WhereLine } from "../../org/live";
 import type { DropState, NodeContext } from "../../org/nodes";
 import type { PointerMode } from "../../org/tour";
+import { workToStop } from "../stop/whatToStop";
 import { canTakeObjective } from "../../org/rules";
 import { CanvasControlsContext } from "./canvasContext";
 import { Glyph } from "./Glyph";
@@ -136,6 +137,8 @@ interface Props {
   onLent?: (positionId: string, at: { x: number; y: number }) => void;
   /** Watch a working agent write code (`null` when there is no terminal panel). */
   onWatch?: ((positionId: string) => void) | null;
+  /** Stop a tile's work now, after a question (Phase 25, item 3.3). */
+  onStop?: ((positionId: string) => void) | null;
   /**
    * Chat with an agent, or watch an on-call worker's chat (ADR-200; `null` when there is no Chat
    * panel). Its button shows on the chosen tile, and on each one at work.
@@ -254,6 +257,7 @@ export function TopologyCanvas({
   onLineMenu,
   onLent,
   onWatch = null,
+  onStop = null,
   onChat = null,
   live: liveView = null,
   toolbar,
@@ -1057,6 +1061,7 @@ export function TopologyCanvas({
           onLineMenu={lineMenu}
           onLent={onLent}
           onWatch={onWatch}
+          onStop={onStop}
           onChat={onChat}
         />
       </div>
@@ -1109,6 +1114,7 @@ const World = memo(function World({
   onLineMenu,
   onLent,
   onWatch,
+  onStop,
   onChat,
 }: {
   layout: OrgLayout;
@@ -1128,6 +1134,7 @@ const World = memo(function World({
   onLineMenu: (line: LineEnd, at: { x: number; y: number }) => void;
   onLent: ((positionId: string, at: { x: number; y: number }) => void) | undefined;
   onWatch: ((positionId: string) => void) | null;
+  onStop: ((positionId: string) => void) | null;
   onChat: ((node: LayoutNode) => void) | null;
 }) {
   const oversight = showOversight ? layout.oversight : [];
@@ -1349,11 +1356,13 @@ const World = memo(function World({
                 {loan.goingHome ? "Going home" : `Lent → ${loan.to}`}
               </button>
             )}
-            {onWatch && working && (
+            {/* On every active tile, quieter while it isn't working (Phase 25, item 1.8). */}
+            {onWatch && p.active && (
               <button
                 type="button"
                 data-canvas-ui
-                className="topo-watch"
+                className={working ? "topo-watch" : "topo-watch topo-watch--quiet"}
+                data-tour={working ? "watch" : "watch-quiet"}
                 style={{ left: n.x + n.w, top: n.y + n.h }}
                 aria-label={`Watch ${p.title} write code`}
                 title={`Watch ${p.title} write code`}
@@ -1361,6 +1370,22 @@ const World = memo(function World({
               >
                 <Glyph name="watch" size={13} />
                 Watch
+              </button>
+            )}
+            {/* Stop, while it has work to stop (Phase 25, item 3.3): in the middle of the
+                tile's bottom edge, between Chat (left) and Watch (right). */}
+            {onStop && p.active && workToStop(p).length > 0 && (
+              <button
+                type="button"
+                data-canvas-ui
+                className="topo-stop"
+                style={{ left: n.x + n.w / 2, top: n.y + n.h }}
+                aria-label={`Stop ${p.title}`}
+                title={`Stop ${p.title}'s work now`}
+                onClick={() => onStop(p.id)}
+              >
+                <Glyph name="stop" size={11} />
+                Stop
               </button>
             )}
           </span>

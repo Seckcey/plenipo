@@ -5,4 +5,9 @@ export type RuntimeBrief = { id: string, label: string, ready: boolean,
  * The AI company behind it ("Anthropic"), whose cloud its models run in (Phase 18: the
  * canvas's "where" and its AI company filter; each model's own maker comes with Phase 16).
  */
-company: string, };
+company: string, 
+/**
+ * Paid per use with the owner's key (ADR-085), not a subscription: the pickers list these
+ * after the subscriptions, and only once a key is saved (Phase 25, item 1.5).
+ */
+paid: boolean, };

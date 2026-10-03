@@ -31,4 +31,9 @@ reason?: string,
 /**
  * Shown instead of the lines: a large or non-text file, or lines no longer kept.
  */
-summary?: string, at: number, };
+summary?: string, 
+/**
+ * Made by a command or a git step the worker ran, not by Plenipo's file tools (Phase 25,
+ * item 3.2).
+ */
+byCommand?: boolean, at: number, };

@@ -29,6 +29,7 @@ import {
 import { DetailSplitView, PropertyList, TimelineScrubber, type TimelineValue } from "../detail";
 import { LogView } from "../log";
 import { Hero, PageHeader, Panel, RowList, StatGrid } from "../page";
+import { Disclosure } from "../disclosure";
 import { MenuButton, ResizeHandle } from "../menu";
 import { TERMINAL_FONT } from "../terminal-theme";
 import { EMPTY_FACETS, useFacets, type FacetConfig } from "../facet-logic";
@@ -105,16 +106,20 @@ function Variant({
   caption,
   children,
   wide = false,
+  looked = true,
 }: {
   name: string;
   caption: string;
   children: ReactNode;
   wide?: boolean;
+  /** Compared by the design test's look snapshots (a new sample joins once one is taken). */
+  looked?: boolean;
 }) {
   return (
     <figure
       className={wide ? "gallery__variant gallery__variant--wide" : "gallery__variant"}
-      data-gallery={name}
+      data-gallery={looked ? name : undefined}
+      data-gallery-sample={name}
     >
       <figcaption>{caption}</figcaption>
       <div className="gallery__sample">{children}</div>
@@ -1095,6 +1100,33 @@ function GalleryBody({ now, live, prefix }: { now: number; live?: GalleryLive; p
               error="The Ledger did not answer."
               onRetry={() => undefined}
             />
+          </Variant>
+        </div>
+        <div className="gallery__row">
+          <Variant name="disclosure-closed" caption="A card that opens: closed" looked={false}>
+            <Disclosure
+              title="Slack"
+              status={{ status: "ok", label: "Connected" }}
+              summary="frank@8west.example · 3 of 5 parts on · 2 people may use it"
+              actions={<Button size="sm">Reconnect</Button>}
+            >
+              <p>Its parts and who may use them.</p>
+            </Disclosure>
+          </Variant>
+          <Variant name="disclosure-open" caption="A card that opens: open" looked={false}>
+            <Disclosure
+              title="Codex"
+              status={{ status: "warn", label: "Not signed in" }}
+              summary="Sign in to use your ChatGPT plan"
+              actions={
+                <Button size="sm" variant="primary">
+                  Sign in
+                </Button>
+              }
+              defaultOpen
+            >
+              <p>Installed 0.99.0 · Up to date</p>
+            </Disclosure>
           </Variant>
         </div>
         <Variant name="stats" caption="Number tiles" wide>

@@ -121,6 +121,24 @@
   background: var(--ui-surface-raised);
 }
 
+.ui-rows__row {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+}
+
+.ui-rows__row > .ui-rows__item {
+  flex: 1;
+  min-width: 0;
+}
+
+.ui-rows__actions {
+  display: flex;
+  flex: none;
+  gap: var(--ui-space-2);
+  padding-right: var(--ui-space-2);
+}
+
 .ui-rows__main {
   display: grid;
   flex: 1;

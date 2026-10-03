@@ -79,6 +79,7 @@ export function CanvasToolbar({
   onTrash,
   helpOpen,
   onHelp,
+  stopAll,
 }: {
   mode: PointerMode;
   onMode: (mode: PointerMode) => void;
@@ -100,6 +101,8 @@ export function CanvasToolbar({
   onTrash: () => void;
   helpOpen: boolean;
   onHelp: () => void;
+  /** Stop all work, at the toolbar's end (Phase 25, item 3.4). */
+  stopAll?: ReactNode;
 }) {
   const bar = useRef<HTMLDivElement>(null);
   const controls = useContext(CanvasControlsContext);
@@ -229,7 +232,7 @@ export function CanvasToolbar({
           onClick: onOversight,
         })}
       </div>
-      <div className="canvas-toolbar__group">
+      <div className="canvas-toolbar__group" data-tour="add-menu">
         <MenuButton label="Add" icon="plus" variant="quiet" items={addItems} onSelect={onAdd} />
       </div>
       <div className="canvas-toolbar__group canvas-toolbar__end">
@@ -258,6 +261,7 @@ export function CanvasToolbar({
           expanded: helpOpen,
           onClick: onHelp,
         })}
+        {stopAll}
       </div>
     </div>
   );

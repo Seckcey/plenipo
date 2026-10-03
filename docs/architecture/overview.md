@@ -973,7 +973,9 @@ Decision records: [ADR-037](../adr/ADR-037-background-work.md) (background work)
   or, when it cannot be read, unknown. The unfinished tasks are listed first; the services then mark
   the work that was going as stopped, as before; then the recovery is recorded with the cause (`plenipo.recovered`, a notice), and the
   window offers **Run again** (a new task with the same objective, for the same position or AI
-  tool) or **Leave stopped**. Nothing runs again by itself.
+  tool) or **Leave stopped**. Nothing runs again by itself. (Work a usage limit stopped is
+  different: it is picked back up once the limit is over, unless you leave it stopped;
+  `limit_host.rs`, Phase 25, ADR-253.)
 - **Backups and restore** (Ledger `backups.rs`): kinds told apart by file names (made by you,
   daily, before a new version, before an update, before a layout change, before a restore), each
   kept to its own number. On Unix the app's data folder (at start) and the Ledger's folder (at

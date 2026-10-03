@@ -363,9 +363,7 @@ describe("a paired phone", () => {
     await user.click(screen.getByRole("button", { name: "Stop all" }));
     const ask = screen.getByRole("alertdialog", { name: "Stop all?" });
     await user.click(within(ask).getByRole("button", { name: "Stop all" }));
-    expect(
-      await screen.findByText("Browser, desktop, and server work is stopped."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("All work is stopped.")).toBeInTheDocument();
     expect(pc.asked).toContainEqual({ kind: "stopAll" });
   });
 

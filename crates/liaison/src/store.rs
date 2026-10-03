@@ -428,7 +428,14 @@ impl SessionStore for LedgerSessionStore {
             })
             .unwrap_or_default();
         let reason = Some(note.reason.as_str()).filter(|r| !r.is_empty());
-        let resumed = if deliver.is_empty() {
+        // `sentBack`: its answer, given back to check (Phase 25, item 4.7).
+        let resumed = if note.data.get("sentBack") == Some(&Value::Bool(true)) {
+            self.0.resume_sent_back(
+                turn.task_id,
+                reason.unwrap_or("checking its answer"),
+                turn.actor,
+            )
+        } else if deliver.is_empty() {
             self.0
                 .transition_task(turn.task_id, TaskState::Running, turn.actor, reason)
         } else {

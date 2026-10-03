@@ -93,7 +93,7 @@ export function NewOrganizationDialog({
             templates.length === 0,
           )}
           {how === "template" && templates.length > 0 && (
-            <Field label="Template">
+            <Field label="Template" hint={templates.find((t) => t.id === template)?.description}>
               <select value={template} onChange={(e) => setTemplate(e.target.value)}>
                 {templates.map((t) => (
                   <option key={t.id} value={t.id}>

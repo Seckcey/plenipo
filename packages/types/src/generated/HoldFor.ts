@@ -4,4 +4,4 @@
  * Why an AI tool is held — no new task starts on it for now — which decides how long a task
  * that would start waits for it.
  */
-export type HoldFor = "signIn" | "update";
+export type HoldFor = "signIn" | "update" | "stopAll";

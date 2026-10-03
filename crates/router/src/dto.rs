@@ -243,11 +243,51 @@ pub struct AgentRuleView {
 }
 
 /// Choices that apply to every role.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 #[ts(export)]
 pub struct RoutingOptions {
     pub on_usage_limit: LimitBehavior,
+    /// Step down instead of stopping (Phase 25, item 4.5; ADR-255): when an AI tool's plan is
+    /// past `step_down_at`, new work runs at a lower effort, then on a smaller model from the same
+    /// company. On to start with (the owner's answer 6, ADR-190).
+    pub step_down: bool,
+    /// How much of a plan is used (percent) when work starts to step down: 80 to start with.
+    pub step_down_at: u8,
+    /// How much a night hour (8 PM to 8 AM, Pacific time) counts when a plan's use is spread
+    /// over its window, in percent of a day hour: half to start with (Phase 25, item 4.6).
+    pub night_weight: u8,
+}
+
+/// One subscription AI tool's plan and its pace, for the Plans view (Phase 25, item 4.6).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ToolPaces {
+    pub runtime_id: String,
+    pub label: String,
+    /// Its windows (empty: it reports nothing, and no weekly budget is set).
+    pub windows: Vec<crate::pace::WindowPace>,
+    /// The owner's weekly budget of tokens for it, when set.
+    #[ts(type = "number | null")]
+    pub weekly_budget: Option<u64>,
+}
+
+/// The largest weekly budget of tokens (a trillion).
+pub const MAX_WEEKLY_BUDGET: u64 = 1_000_000_000_000;
+
+/// The line work steps down from, to start with (Phase 25, item 4.5).
+pub const STEP_DOWN_AT: u8 = 80;
+
+impl Default for RoutingOptions {
+    fn default() -> Self {
+        Self {
+            on_usage_limit: LimitBehavior::default(),
+            step_down: true,
+            step_down_at: STEP_DOWN_AT,
+            night_weight: crate::pace::NIGHT_WEIGHT,
+        }
+    }
 }
 
 /// An AI tool reached its usage limit and is not given new work until `until`.
@@ -302,6 +342,10 @@ pub struct ToolInfo {
     /// (ADR-081 §6).
     #[serde(default)]
     pub runs_other_makers: bool,
+    /// A paid AI tool, paid per use with your key (ADR-085): listed after the subscriptions in
+    /// model menus (Phase 25, item 2.5).
+    #[serde(default)]
+    pub paid: bool,
 }
 
 impl ToolInfo {
@@ -408,6 +452,16 @@ pub struct RouteDecision {
     /// The layer that set the effort (`None`: the AI tool's default).
     #[serde(default)]
     pub effort_from: Option<RuleSource>,
+    /// The subscription AI tool whose usage limit moved this work to the same model on the same
+    /// company's key ("Claude Code"; Phase 25, item 4.4; ADR-254). `None` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub on_key_for: Option<String>,
+    /// How the work stepped down because its AI tool's plan is running low, in plain words
+    /// (Phase 25, item 4.5; ADR-255). `None`: it did not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub stepped_down: Option<String>,
 }
 
 /// A role's policy with the model its next worker would get.
@@ -458,6 +512,10 @@ pub struct RoutingSnapshot {
     /// they list (ADR-081 §5). "AI companies never to use" offers these.
     pub companies: Vec<Maker>,
     pub options: RoutingOptions,
+    /// The owner's weekly budget of tokens for each AI tool that reports nothing of its plan,
+    /// by runtime ID (Phase 25, item 4.6).
+    #[ts(type = "Record<string, number>")]
+    pub budgets: std::collections::BTreeMap<String, u64>,
     /// Pay-per-use API billing (always off in this version; ADR-007).
     pub api_billing: bool,
     pub notices: Vec<String>,

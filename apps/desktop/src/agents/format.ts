@@ -121,6 +121,8 @@ export function heldNote(r: AgentRuntimeInfo): string | null {
       return `Waiting: ${r.label} is being updated. A new task starts on it when that's done.`;
     case "signIn":
       return `${r.label}'s sign-in tab is open. A new task waits until it closes, or 10 minutes at most.`;
+    case "stopAll":
+      return "All work is stopped. A new task starts when you press Allow again.";
     default:
       return null;
   }
@@ -232,7 +234,14 @@ export function describeActivity(e: AgentEvent): {
       return { label: "Usage", text: describeUsage(e.usage) };
     case "memoryShortened":
       return { label: "Memory", text: e.detail };
+    case "plan": {
+      const done = e.steps.filter((s) => s.status === "done").length;
+      return { label: "Plan", text: `${done} of ${e.steps.length} steps done` };
+    }
     case "status":
-      return { label: e.phase === "thinking" ? "Thinking" : "Waiting", text: e.text };
+      return {
+        label: e.phase === "thinking" ? "Thinking" : e.phase === "starting" ? "Step" : "Waiting",
+        text: e.text,
+      };
   }
 }

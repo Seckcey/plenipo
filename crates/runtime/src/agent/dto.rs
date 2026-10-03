@@ -337,6 +337,9 @@ pub enum HoldFor {
     /// An update and the checks after it (ADR-059 §4): a task waits until they are done, and
     /// starts on the new version, or on the old one if the update failed.
     Update,
+    /// The owner pressed Stop all work (Phase 25, item 3.4; ADR-199): every AI tool is held, and
+    /// a task waits until the owner presses Allow again.
+    StopAll,
 }
 
 /// Signing in to, or out of, an AI tool, in a terminal tab that runs the tool's own command
@@ -413,6 +416,27 @@ pub struct PlanWindow {
     /// When the window starts again (milliseconds since 1970), when the tool says.
     #[ts(type = "number | null")]
     pub resets_at: Option<u64>,
+    /// The models it counts, when it counts only some: Claude Code's weekly limits for Opus
+    /// and for Sonnet ("Opus"). Phase 25, item 4.3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub models: Option<String>,
+}
+
+/// A paid key's own spending limit, where the service reports it (OpenRouter's key check; Phase
+/// 25, item 4.3), in US cents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct KeyLimit {
+    /// The most the key may spend; `None`: the key has no limit.
+    #[ts(type = "number | null")]
+    pub limit_cents: Option<u64>,
+    /// What the key has spent.
+    #[ts(type = "number")]
+    pub used_cents: u64,
+    /// The service's free tier.
+    pub free_tier: bool,
 }
 
 /// How much of the owner's plan an AI tool reported used, through an official command or
@@ -430,6 +454,95 @@ pub struct PlanReport {
     pub plan: Option<String>,
     #[ts(type = "number")]
     pub reported_at: u64,
+    /// A paid key's own spending limit, where the service reports it (OpenRouter).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub key_limit: Option<KeyLimit>,
+}
+
+/// The longest a reported reset is believed: a month (no plan window is longer).
+const MAX_RESET_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+
+impl PlanReport {
+    /// This report, with the windows `earlier` reported that this one does not cover and that
+    /// have not started again by `now`. Claude Code reports one window at a time (its five hours,
+    /// then its week), so each report adds to the last (Phase 25, item 4.3).
+    #[must_use]
+    pub fn merged_with(mut self, earlier: Option<&PlanReport>, now: u64) -> Self {
+        let Some(earlier) = earlier else {
+            return self;
+        };
+        let kept: Vec<PlanWindow> = earlier
+            .windows
+            .iter()
+            .filter(|w| w.resets_at.is_some_and(|r| r > now))
+            .filter(|w| {
+                !self
+                    .windows
+                    .iter()
+                    .any(|n| n.minutes == w.minutes && n.models == w.models)
+            })
+            .cloned()
+            .collect();
+        self.windows.extend(kept);
+        // The shortest window first, as each tool lists them.
+        self.windows
+            .sort_by_key(|w| (w.minutes.unwrap_or(u64::MAX), w.models.is_some()));
+        if self.plan.is_none() {
+            self.plan.clone_from(&earlier.plan);
+        }
+        self
+    }
+
+    /// When the window at its limit starts again, for a usage limit reached at `at`: the latest
+    /// reset of the windows all used up, or of every window when the tool said only that it is
+    /// limited. `None` when the report gives none that is after `at` and within a month (Phase
+    /// 25, item 4.3: the hold uses the reset time the tool reported).
+    pub fn reset_after(&self, at: u64) -> Option<u64> {
+        let full: Vec<&PlanWindow> = self
+            .windows
+            .iter()
+            .filter(|w| w.used_percent.is_some_and(|u| u >= 100))
+            .collect();
+        let windows: Vec<&PlanWindow> = if !full.is_empty() {
+            full
+        } else if self.limited {
+            self.windows.iter().collect()
+        } else {
+            return None;
+        };
+        windows
+            .iter()
+            .filter_map(|w| w.resets_at)
+            .filter(|r| *r > at && *r <= at + MAX_RESET_MS)
+            .max()
+    }
+}
+
+/// The latest plan each AI tool reported, for every organization on this PC (Phase 25, item
+/// 4.3): an AI tool's plan is the owner's account, the same in each. The Router reads it for the
+/// reset time of a limit whose message gave none.
+#[derive(Debug, Default)]
+pub struct PlanBook(std::sync::Mutex<std::collections::HashMap<String, PlanReport>>);
+
+impl PlanBook {
+    fn lock(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, PlanReport>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Keep `report` for `runtime_id`, added to what it reported before; returns what is kept.
+    pub fn keep(&self, runtime_id: &str, report: PlanReport) -> PlanReport {
+        let mut book = self.lock();
+        let merged = report.merged_with(book.get(runtime_id), crate::now_ms());
+        book.insert(runtime_id.to_owned(), merged.clone());
+        merged
+    }
+
+    pub fn latest(&self, runtime_id: &str) -> Option<PlanReport> {
+        self.lock().get(runtime_id).cloned()
+    }
 }
 
 /// An AI tool reported how much of the plan is used (ADR-060 §3).
@@ -506,6 +619,12 @@ pub enum AgentEvent {
     MemoryShortened {
         detail: String,
     },
+    /// The worker's plan, all of it each time (Phase 25, item 3.1): Grok's and Kimi's plans,
+    /// Codex's to-do list, Claude Code's to-dos. The screen shows "step 3 of 7" from it. Live
+    /// view only.
+    Plan {
+        steps: Vec<PlanStep>,
+    },
     /// What the AI tool is doing or waiting for between words: it asked again because its AI
     /// company was busy, it sent the request and waits for the first words, or it is thinking.
     /// Shown live in a conversation until the next words, never stored (ADR-200).
@@ -514,6 +633,68 @@ pub enum AgentEvent {
         /// In plain words, for the owner.
         text: String,
     },
+}
+
+/// One step of a worker's plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PlanStep {
+    pub text: String,
+    pub status: PlanStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum PlanStatus {
+    Pending,
+    InProgress,
+    Done,
+}
+
+impl PlanStatus {
+    /// From the words the AI tools use: "completed", "in_progress", "pending", and the like.
+    pub fn from_words(status: &str) -> Self {
+        match status {
+            "completed" | "done" | "complete" => Self::Done,
+            "in_progress" | "inProgress" | "active" | "running" => Self::InProgress,
+            _ => Self::Pending,
+        }
+    }
+}
+
+/// A plan's steps from a list of objects: `text_keys` name where each step's words are, and
+/// its status is read from `status`, or a `completed: true` flag. At most 50 steps.
+pub fn plan_steps(items: &serde_json::Value, text_keys: &[&str]) -> Vec<PlanStep> {
+    items
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let text = text_keys
+                .iter()
+                .find_map(|k| item.get(*k).and_then(serde_json::Value::as_str))?
+                .trim();
+            if text.is_empty() {
+                return None;
+            }
+            let status = match item.get("status").and_then(serde_json::Value::as_str) {
+                Some(s) => PlanStatus::from_words(s),
+                None if item.get("completed").and_then(serde_json::Value::as_bool)
+                    == Some(true) =>
+                {
+                    PlanStatus::Done
+                }
+                None => PlanStatus::Pending,
+            };
+            Some(PlanStep {
+                text: crate::agent::adapter::first_line(text, 200),
+                status,
+            })
+        })
+        .take(50)
+        .collect()
 }
 
 /// What a [`AgentEvent::Status`] is about.
@@ -525,6 +706,9 @@ pub enum StatusPhase {
     Waiting,
     /// The model is thinking, before it writes.
     Thinking,
+    /// A step has just started, in plain words ("Running a command"); what it does shows when
+    /// the call is complete (Phase 25, item 3.1).
+    Starting,
 }
 
 impl AgentEvent {
@@ -540,6 +724,7 @@ impl AgentEvent {
             Self::TextDelta { .. }
             | Self::Reasoning { .. }
             | Self::Usage { .. }
+            | Self::Plan { .. }
             | Self::Status { .. } => None,
         }
     }
@@ -828,5 +1013,89 @@ mod tests {
             .ledger_type(),
             None
         );
+    }
+
+    fn window(minutes: u64, used: u8, resets_at: u64, models: Option<&str>) -> PlanWindow {
+        PlanWindow {
+            minutes: Some(minutes),
+            used_percent: Some(used),
+            resets_at: Some(resets_at),
+            models: models.map(str::to_owned),
+        }
+    }
+
+    fn report(windows: Vec<PlanWindow>, limited: bool) -> PlanReport {
+        PlanReport {
+            windows,
+            limited,
+            warning: false,
+            plan: None,
+            reported_at: 1,
+            key_limit: None,
+        }
+    }
+
+    /// Phase 25, item 4.3: Claude Code reports one window at a time; each report adds to the
+    /// last, and a window that has started again is dropped.
+    #[test]
+    fn plan_reports_add_up_and_say_when_a_full_window_resets() {
+        const H: u64 = 3_600_000;
+        let week = report(vec![window(10_080, 40, 100 * H, None)], false);
+        let five = report(vec![window(300, 62, 5 * H, None)], false);
+        let both = five.clone().merged_with(Some(&week), H);
+        assert_eq!(
+            both.windows.iter().map(|w| w.minutes).collect::<Vec<_>>(),
+            [Some(300), Some(10_080)]
+        );
+        // The same window again replaces it; one past its reset is dropped.
+        let later = report(vec![window(300, 70, 5 * H, None)], false).merged_with(Some(&both), H);
+        assert_eq!(later.windows[0].used_percent, Some(70));
+        assert_eq!(later.windows.len(), 2);
+        let after = report(vec![window(10_080, 41, 100 * H, Some("Opus"))], false)
+            .merged_with(Some(&later), 6 * H);
+        assert_eq!(
+            after
+                .windows
+                .iter()
+                .map(|w| (w.minutes, w.models.as_deref()))
+                .collect::<Vec<_>>(),
+            [(Some(10_080), None), (Some(10_080), Some("Opus"))]
+        );
+
+        // The full window's reset; a report that says only "limited" gives its latest.
+        let full = report(
+            vec![
+                window(300, 100, 5 * H, None),
+                window(10_080, 40, 100 * H, None),
+            ],
+            true,
+        );
+        assert_eq!(full.reset_after(H), Some(5 * H));
+        let limited = report(
+            vec![
+                window(300, 90, 5 * H, None),
+                window(10_080, 95, 100 * H, None),
+            ],
+            true,
+        );
+        assert_eq!(limited.reset_after(H), Some(100 * H));
+        // Not at the limit, past, or too far: none.
+        assert_eq!(week.reset_after(H), None);
+        assert_eq!(full.reset_after(6 * H), None);
+        let far = report(vec![window(300, 100, 40 * 24 * H, None)], true);
+        assert_eq!(far.reset_after(H), None);
+
+        let book = PlanBook::default();
+        book.keep(
+            "claude-code",
+            report(vec![window(300, 10, u64::MAX / 2, None)], false),
+        );
+        let kept = book.keep(
+            "claude-code",
+            report(vec![window(10_080, 20, u64::MAX / 2, None)], false),
+        );
+        assert_eq!(kept.windows.len(), 2);
+        assert_eq!(book.latest("claude-code"), Some(kept));
+        assert_eq!(book.latest("codex"), None);
     }
 }

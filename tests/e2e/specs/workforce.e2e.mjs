@@ -37,7 +37,7 @@ const MAP = '[aria-label="Organization topology"]';
 const DETAILS = "aside.inspector";
 const OBJECTIVE =
   "Ship the pricing page [handoff:role:Senior Developer+delay:6000]" +
-  " [handoff:role:Code Reviewer+delay:6000]";
+  " [handoff:role:Code Reviewer+delay:6000+verdict:approve]";
 
 /**
  * The rendered text of the first element matching `selector` (in-page `innerText`: WebKit's

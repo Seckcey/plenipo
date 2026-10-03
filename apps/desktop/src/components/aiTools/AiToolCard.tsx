@@ -6,7 +6,7 @@ import type {
   RoutingSnapshot,
   ToolInfo,
 } from "@plenipo/types";
-import { Panel, StatusPill, Tabs, type Status } from "@plenipo/ui";
+import { Disclosure, Tabs, type Status } from "@plenipo/ui";
 
 import { runtimeStatus } from "../../agents/format";
 import { useNow } from "../../runtime/useNow";
@@ -14,7 +14,8 @@ import { useTerminalIfAny } from "../../terminal/useTerminal";
 import { PILL_TONE } from "../tones";
 import type { Go } from "../views";
 import { ModelsTab } from "./ModelsTab";
-import { Overview } from "./Overview";
+import { QuickSignIn } from "./SignIn";
+import { KeyWeekLine, Overview } from "./Overview";
 import { UsageTab } from "./UsageTab";
 import { useToolUsage } from "./useAiTools";
 import { midnight, MOVING } from "./words";
@@ -32,11 +33,26 @@ const CHECK_SLACK_MS = 2000;
 /** "Checking…" gives up after this long without an answer. */
 const CHECK_GIVE_UP_MS = 120_000;
 
-/** The card's pill: checking, updating, given no tasks, or ready and why not. */
+/** Whether a subscription card's key works: saved, checked, and paid keys on (ADR-085). */
+function keyWorks(keyCard: KeyCard | undefined): boolean {
+  return (
+    keyCard !== undefined &&
+    keyCard.tool.paidKey !== null &&
+    keyCard.info.ready &&
+    keyCard.tool.paidBlocked === null
+  );
+}
+
+/**
+ * The card's pill: checking, updating, given no tasks, or ready and why not. A subscription AI
+ * tool's card is green when its subscription or its company's key works, and says which (Phase
+ * 25, item 1.3).
+ */
 function cardStatus(
   info: AgentRuntimeInfo,
   tool: AiToolState | undefined,
   checking: boolean,
+  keyCard?: KeyCard,
 ): { status: Status; label: string } {
   if (checking) return { status: "offline", label: "Checking…" };
   if (tool?.outOfService) return { status: "error", label: "No tasks for now" };
@@ -50,14 +66,48 @@ function cardStatus(
   if (tool?.payment === "paidKey" && (!info.ready || tool.paidBlocked !== null)) {
     return { status: PILL_TONE.warn, label: tool.paidKey ? "Key not in use" : "No key yet" };
   }
+  if (tool?.payment !== "paidKey") {
+    const key = keyWorks(keyCard);
+    if (info.ready && key) {
+      return { status: PILL_TONE.ok, label: "Subscription and API key connected" };
+    }
+    if (info.ready) return { status: PILL_TONE.ok, label: "Subscription connected" };
+    if (key) return { status: PILL_TONE.ok, label: "API key connected" };
+  }
   const s = runtimeStatus(info);
   return { status: PILL_TONE[s.tone], label: s.text };
 }
 
 /**
+ * Whether a card needs you, so it opens by itself (Phase 25, item 2.1): an AI tool that is
+ * installed but can't take work (not signed in, a sign-in Plenipo can't use), one given no tasks,
+ * or one installed in a way Plenipo can't use. A paid AI tool's key is up to you, so it never does.
+ */
+function needsYou(info: AgentRuntimeInfo, tool: AiToolState | undefined, checking: boolean) {
+  if (checking || !tool || tool.payment === "paidKey") return false;
+  const install = info.installation.state;
+  if (install === "broken" || install === "unsupported" || tool.outOfService) return true;
+  return install === "installed" && !info.ready;
+}
+
+/** One line under a card's name (Phase 25, item 2.1): its AI company, plan, and saved key. */
+function cardSummary(info: AgentRuntimeInfo, tool: AiToolState | undefined, keyCard?: KeyCard) {
+  const signedIn = info.auth.state === "subscription" || info.auth.state === "unverified";
+  const plan = tool?.plan?.plan ?? (signedIn ? info.auth.method : null);
+  return [
+    `AI company: ${info.providerLabel}`,
+    plan,
+    keyCard?.tool.paidKey ? `Your ${keyCard.info.label} key: ${keyCard.tool.paidKey.name}` : null,
+  ]
+    .filter((x): x is string => !!x)
+    .join(" · ");
+}
+
+/**
  * One AI tool's card on the AI tools page (Phase 19): its AI company and state, then Overview
  * (sign-in, version and update, how it is paid for, limits, plan left, this week), Usage, and
- * Models.
+ * Models. It starts closed, showing its light, one line, and Sign in or Reconnect (Phase 25, item
+ * 2.1); it opens by itself when it needs you or a link points at it, and remembers being opened.
  */
 export function AiToolCard({
   info,
@@ -68,6 +118,7 @@ export function AiToolCard({
   onRouting,
   go,
   keyCard,
+  focused = false,
 }: {
   info: AgentRuntimeInfo;
   tool: AiToolState | undefined;
@@ -79,6 +130,8 @@ export function AiToolCard({
   go?: Go | undefined;
   /** A subscription AI tool's key box: the paid AI tool whose key it saves. */
   keyCard?: KeyCard | undefined;
+  /** A link points at this card: it opens. */
+  focused?: boolean;
 }) {
   const [tab, setTab] = useState<CardTab>("overview");
   const terminal = useTerminalIfAny();
@@ -97,17 +150,21 @@ export function AiToolCard({
     tool?.checking === true ||
     info.auth.state === "checking" ||
     info.installation.state === "checking";
-  const status = cardStatus(info, tool, checking);
+  const status = cardStatus(info, tool, checking, keyCard);
   const prefix = `ai-tool-${info.id}`;
 
+  const paid = tool?.payment === "paidKey";
   return (
-    <Panel
-      id={prefix}
+    <Disclosure
       title={info.label}
+      headingId={prefix}
       className="ai-tool"
-      actions={<StatusPill status={status.status} label={status.label} />}
+      status={status}
+      summary={cardSummary(info, tool, keyCard)}
+      actions={(open) => (open || paid ? null : <QuickSignIn info={info} checking={checking} />)}
+      openWhen={focused || needsYou(info, tool, checking)}
+      rememberAs={`ai-tool:${info.id}`}
     >
-      <div className="card__meta">AI company: {info.providerLabel}</div>
       <Tabs<CardTab>
         label={`${info.label}: what to show`}
         value={tab}
@@ -136,11 +193,16 @@ export function AiToolCard({
             onRouting={onRouting}
             go={go}
             keyCard={keyCard}
+            keyWeek={
+              keyCard?.tool.paidKey ? (
+                <KeyWeekLine keyCard={keyCard} revision={usageRevision} today={midnight(now)} />
+              ) : null
+            }
           />
         )}
         {tab === "usage" && <UsageTab label={info.label} usage={usage} />}
         {tab === "models" && <ModelsTab info={info} tool={tool} route={route} onApply={onApply} />}
       </div>
-    </Panel>
+    </Disclosure>
   );
 }

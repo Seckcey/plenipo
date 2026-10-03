@@ -120,6 +120,15 @@ pub struct ReplyView {
     pub source: String,
     #[ts(type = "number")]
     pub created_at: u64,
+    /// How the answer doesn't match Plenipo's record ("says tests passed, but no test ran";
+    /// Phase 25, item 4.7). Empty when it matches.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub mismatches: Vec<String>,
+    /// It was sent back to its worker to check once before it came.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub sent_back: bool,
 }
 
 /// One handoff request with its child and reply.

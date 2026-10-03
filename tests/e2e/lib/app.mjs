@@ -296,7 +296,11 @@ export const waitForShell = async (browser, timeoutMs, { edition = "pro" } = {})
     "Plenipo's frame",
     timeoutMs,
   );
-  await browser.execute(() => localStorage.setItem("plenipo.canvasTour", "seen"));
+  await browser.execute(() => {
+    localStorage.setItem("plenipo.canvasTour", "seen");
+    // The setup tour starts only from its button in the tests (Phase 25, item 2.9).
+    localStorage.setItem("plenipo.setupTourByItself", "off");
+  });
   if (edition === "pro") await becomePro(browser);
   else await becomeFree(browser);
 };

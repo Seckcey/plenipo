@@ -8,13 +8,18 @@
 //! tool's own, from its adapter, decided by Guard and run through the supervisor; the release
 //! lists they read are fixed and go through Guard's gate.
 
+use std::sync::Arc;
+
 use plenipo_capabilities::ai_tools::{
     AiToolUsage, AiTools, AiToolsPage, PaymentMethod, UpdateBy, MAX_USAGE_DAYS,
 };
+use plenipo_capabilities::Broker;
 use plenipo_core::CommandError;
+use plenipo_runtime::agent::AgentRuntime;
 use tauri::State;
 
 use crate::commands::{broker_error, validate_runtime_id};
+use crate::orgs::{Org, Orgs};
 
 /// The AI tools page's own part: each tool's newest version, update, plan, and payment. Read
 /// off the main thread, like all Ledger work (the window never waits on the Ledger).
@@ -131,6 +136,9 @@ const MAX_KEY_CHARS: usize = 400;
 #[tauri::command]
 pub async fn save_paid_key(
     tools: State<'_, AiTools>,
+    orgs: State<'_, Arc<Orgs>>,
+    broker: Org<'_, Broker>,
+    agents: Org<'_, AgentRuntime>,
     runtime_id: String,
     name: String,
     key: String,
@@ -146,23 +154,38 @@ pub async fn save_paid_key(
             "That is longer than any key: paste the whole key, as the service shows it.",
         ));
     }
-    tools
-        .save_paid_key(&runtime_id, &name, &key)
+    let page = tools
+        .save_paid_key_for(&runtime_id, &name, &key, &broker, &agents)
         .await
-        .map_err(broker_error)
+        .map_err(broker_error)?;
+    every_organization_uses_the_keys(&orgs, &runtime_id).await;
+    Ok(page)
+}
+
+/// One set of paid keys for the whole PC (Phase 25, item 1.4): after a key is saved or removed,
+/// every organization hides it from its record and checks that AI tool again, so its card's
+/// light and its workers follow at once.
+async fn every_organization_uses_the_keys(orgs: &Orgs, runtime_id: &str) {
+    for stack in orgs.stacks() {
+        stack.broker.refresh_redactor();
+        let _ = stack.agents.recheck(runtime_id).await;
+    }
 }
 
 /// Remove a paid AI tool's key, from the Vault too.
 #[tauri::command]
 pub async fn remove_paid_key(
     tools: State<'_, AiTools>,
+    orgs: State<'_, Arc<Orgs>>,
     runtime_id: String,
 ) -> Result<AiToolsPage, CommandError> {
     validate_runtime_id(&runtime_id)?;
-    tools
+    let page = tools
         .remove_paid_key(&runtime_id)
         .await
-        .map_err(broker_error)
+        .map_err(broker_error)?;
+    every_organization_uses_the_keys(&orgs, &runtime_id).await;
+    Ok(page)
 }
 
 #[cfg(test)]

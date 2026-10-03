@@ -540,6 +540,7 @@ fn carry_out<R: Runtime>(side: &AppSide<R>, phone: &Phone, ask: &Ask) -> Result<
         Ask::AllowAgain => {
             let orgs = side.orgs()?;
             for s in orgs.stacks() {
+                crate::commands::allow_work_again(&s.agents, &s.ledger);
                 s.broker.allow_control(OWNER).map_err(plain)?;
             }
             value(side.first()?.broker.control_status())
@@ -554,6 +555,7 @@ fn carry_out<R: Runtime>(side: &AppSide<R>, phone: &Phone, ask: &Ask) -> Result<
         }
         Ask::RunAgain { org, task } => {
             let stack = side.stack(org)?;
+            crate::commands::refuse_while_stopped(&stack.agents).map_err(|e| e.message)?;
             tauri::async_runtime::block_on(crate::upkeep_commands::run_again_core(
                 &stack.ledger,
                 &stack.workforce,
@@ -585,6 +587,7 @@ fn carry_out<R: Runtime>(side: &AppSide<R>, phone: &Phone, ask: &Ask) -> Result<
         } => {
             crate::commands::validate_objective(text).map_err(|e| e.message)?;
             let stack = side.stack(org)?;
+            crate::commands::refuse_while_stopped(&stack.agents).map_err(|e| e.message)?;
             let detail = tauri::async_runtime::block_on(stack.workforce.give_objective(
                 position,
                 text,
@@ -881,7 +884,7 @@ pub fn stopped_notice(org: &str, at: u64) -> PhoneNotice {
         kind: "plenipo".into(),
         org: org.to_owned(),
         title: "Stopped: everything".into(),
-        body: "Browser, desktop, and server work is stopped. Allow it again from Plenipo.".into(),
+        body: "All work is stopped: every task, and the browser, desktop, and servers. Allow it again from Plenipo.".into(),
         about: Some(NoticeAbout::Stopped),
         tag: "stopped".into(),
         at,

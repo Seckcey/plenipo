@@ -75,6 +75,7 @@ import type {
   IntegrityReport,
   LedgerEvent,
   LedgerStatus,
+  LimitWait,
   LiaisonOverview,
   ModelInput,
   ObjectiveReport,
@@ -96,6 +97,7 @@ import type {
   SpecialtyInput,
   RoutingOptions,
   RoutingSnapshot,
+  ToolPaces,
   RuntimeOverview,
   Screenshot,
   SecretInput,
@@ -619,6 +621,11 @@ export function endOversight(oversightId: string): Promise<OrgSnapshot> {
  * chooses its session; the UI names only the position. With `projectId`, the objective belongs
  * to that project (which the position's team must run).
  */
+/** A side chat with a full-time agent (Phase 25, item 3.5): answer only, in a new conversation. */
+export function askSideQuestion(positionId: string, question: string): Promise<AgentSessionDetail> {
+  return call<AgentSessionDetail>("ask_side_question", { positionId, question });
+}
+
 export function giveObjective(
   positionId: string,
   objective: string,
@@ -639,6 +646,21 @@ export function giveObjective(
  * missing, then the project with its Supervisor and the standard team. */
 export function setUpDevelopment(input: DevelopmentInput): Promise<OrgSnapshot> {
   return call<OrgSnapshot>("set_up_development", { input });
+}
+
+/** Add a department from a template: its manager and on-call team (Phase 25, item 2.8). */
+export function addDepartmentFromTemplate(id: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("add_department_from_template", { id });
+}
+
+/** Add an organization template's departments to this organization (Phase 25, item 2.8). */
+export function applyOrganizationTemplate(id: string): Promise<OrgSnapshot> {
+  return call<OrgSnapshot>("apply_organization_template", { id });
+}
+
+/** Save this organization's setup as a template for new organizations (Phase 25, item 2.8). */
+export function saveOrganizationTemplate(name: string): Promise<OrgListing> {
+  return call<OrgListing>("save_organization_template", { name });
 }
 
 /**
@@ -697,9 +719,41 @@ export function setRoutingOptions(options: RoutingOptions): Promise<RoutingSnaps
   return call<RoutingSnapshot>("set_routing_options", { options });
 }
 
+/** Every subscription AI tool's plan and its pace, for the Plans view (Phase 25, item 4.6). */
+export function getPlanPaces(): Promise<ToolPaces[]> {
+  return call<ToolPaces[]>("get_plan_paces");
+}
+
+/** A weekly budget of tokens for an AI tool that reports nothing of its plan; null removes it. */
+export function setPlanBudget(runtimeId: string, tokens: number | null): Promise<RoutingSnapshot> {
+  return call<RoutingSnapshot>("set_plan_budget", { runtimeId, tokens });
+}
+
 /** Try an AI tool again now, although it reported a usage limit. */
 export function clearUsageLimit(runtimeId: string): Promise<RoutingSnapshot> {
   return call<RoutingSnapshot>("clear_usage_limit", { runtimeId });
+}
+
+// ---- When a plan runs out (Phase 25, item 4.2) --------------------------------------------
+
+/** The work usage limits stopped, for each AI tool, with when Plenipo picks it back up. */
+export function getLimitWaits(): Promise<LimitWait[]> {
+  return call<LimitWait[]>("get_limit_waits");
+}
+
+/** The owner used a usage reset: try the AI tool now and give its waiting work back. */
+export function pickUpWorkNow(runtimeId: string): Promise<LimitWait[]> {
+  return call<LimitWait[]>("pick_up_work_now", { runtimeId });
+}
+
+/** Leave work a usage limit stopped as it is: it is never picked up by itself. */
+export function leaveWorkStopped(taskIds: string[]): Promise<LimitWait[]> {
+  return call<LimitWait[]>("leave_work_stopped", { taskIds });
+}
+
+/** Open the company's own usage page, where the owner can use a usage reset it gave them. */
+export function openResetPage(runtimeId: string): Promise<void> {
+  return call<void>("open_reset_page", { runtimeId });
 }
 
 // ---- Permissions, approvals, and the Vault (Phase 7) --------------------------------------

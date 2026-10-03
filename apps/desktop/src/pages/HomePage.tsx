@@ -20,7 +20,8 @@ import {
   type StatItem,
 } from "@plenipo/ui";
 
-import { getHome } from "../api/commands";
+import { SetupTourButton } from "../tour/SetupTourButton";
+import { getHome, hirePosition } from "../api/commands";
 import type { Go } from "../components/views";
 import type { useApprovals } from "../guard/usePermissions";
 import type { Learning } from "../learning/useLearning";
@@ -30,6 +31,7 @@ import { ago } from "../org/format";
 import { rankName, titlesOf } from "../org/titles";
 import { useOrganization } from "../org/useOrganization";
 import { useNow } from "../runtime/useNow";
+import { useOpenWatch } from "../terminal/useTerminal";
 import { approvalRows, workingRows } from "./rows";
 import { changesWork, useLive } from "./useLive";
 import {
@@ -48,8 +50,33 @@ import {
 
 type Approvals = ReturnType<typeof useApprovals>;
 
+/**
+ * A lead needs a worker for a job nobody in its department does (Phase 25, item 2.7): choosing
+ * the row hires one on call for its team.
+ */
+function hireRow(item: StuckItem, now: number): RowItem {
+  const p = (item.event.payload ?? {}) as Record<string, unknown>;
+  const lead = typeof p.lead === "string" ? p.lead : "A lead";
+  const role = typeof p.role === "string" ? p.role : "worker";
+  return {
+    id: `stuck:${item.event.seq}`,
+    title: `${lead} needs a ${role}`,
+    detail: `Nobody in its department does this job. Hire one? Choose this to hire a ${role} on call for its team.`,
+    status: eventStatus(item.event),
+    meta: ago(item.event.createdAt, now),
+    onOpen: () =>
+      void hirePosition({
+        roleId: typeof p.roleId === "string" ? p.roleId : "",
+        title: role,
+        reportsTo: typeof p.leadId === "string" ? p.leadId : null,
+      }).catch(() => undefined),
+    openLabel: `Hire a ${role} for ${lead}'s team`,
+  };
+}
+
 /** A stuck item's row: its task (or the server), what went wrong, and where to fix it. */
 function stuckRow(item: StuckItem, go: Go, now: number): RowItem {
+  if (item.event.eventType === "org.hire_needed") return hireRow(item, now);
   const what = describeEvent(item.event);
   const task = item.task;
   return {
@@ -65,6 +92,15 @@ function stuckRow(item: StuckItem, go: Go, now: number): RowItem {
       ? `${firstLine(task.objective)}: ${what}. Open the task`
       : `${what}. Open Settings`,
   };
+}
+
+/** Bring a part of Home into view and move the focus to its heading. */
+function showPanel(id: string) {
+  const heading = document.getElementById(id);
+  if (!heading) return;
+  if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+  heading.scrollIntoView?.({ block: "start" });
+  heading.focus({ preventScroll: true });
 }
 
 /**
@@ -84,6 +120,7 @@ export function HomePage({
   const now = useNow(30_000);
   const home = useLive<HomeView>("home", getHome, changesWork, 800);
   const organization = useOrganization();
+  const openWatch = useOpenWatch();
   const org = organization.snapshot;
   const departments = useMemo(() => org?.departments.filter((d) => d.active) ?? [], [org]);
   const scopes = useMemo(
@@ -101,6 +138,7 @@ export function HomePage({
         org,
         go,
         org.positions.filter((p) => p.active),
+        openWatch,
       )
     : [];
   const finishedDay = home.value?.finishedDay ?? 0;
@@ -145,6 +183,19 @@ export function HomePage({
     })),
   ];
 
+  // One stuck thing opens it; more show the list (Phase 25, item 1.7).
+  const openStuck = () => {
+    const only = stuckRows.length === 1 ? stuckRows[0]?.onOpen : undefined;
+    if (only) only();
+    else showPanel("home-stuck");
+  };
+  const current = home.value?.current ?? [];
+  const openObjectives = () => {
+    const only = current.length === 1 ? current[0] : undefined;
+    if (only) go({ view: "task", id: only.rootTaskId });
+    else showPanel("home-objectives");
+  };
+
   const stats: StatItem[] = [
     waitingError
       ? {
@@ -161,12 +212,14 @@ export function HomePage({
           onOpen: () => go({ view: "approvals", id: null }),
         },
     home.status === "error"
-      ? { label: "Stuck", value: "—", hint: "Couldn't check" }
+      ? { label: "Stuck", value: "—", hint: "Couldn't check", onOpen: openStuck }
       : {
           label: "Stuck",
           value: mood.stuck,
           status: mood.stuck > 0 ? "error" : "ok",
-          hint: mood.stuck > 0 ? "See What's stuck" : "Nothing stuck",
+          hint:
+            mood.stuck === 1 ? "Open it" : mood.stuck > 1 ? "See What's stuck" : "Nothing stuck",
+          onOpen: openStuck,
         },
     {
       label: "Working now",
@@ -179,6 +232,7 @@ export function HomePage({
       label: "Objectives going",
       value: home.value?.going ?? "—",
       hint: "Given to your company",
+      onOpen: openObjectives,
     },
     {
       label: "Finished",
@@ -198,15 +252,18 @@ export function HomePage({
         pip={homePip(mood)}
         title={greeting(new Date(now).getHours())}
         actions={
-          mood.waiting > 0 ? (
-            <Button variant="primary" onClick={() => go({ view: "approvals", id: null })}>
-              Review what's waiting
-            </Button>
-          ) : mood.empty ? (
-            <Button variant="primary" onClick={() => go({ view: "organization", id: null })}>
-              Set up your company
-            </Button>
-          ) : undefined
+          <>
+            {mood.waiting > 0 ? (
+              <Button variant="primary" onClick={() => go({ view: "approvals", id: null })}>
+                Review what's waiting
+              </Button>
+            ) : mood.empty ? (
+              <Button variant="primary" onClick={() => go({ view: "organization", id: null })}>
+                Set up your company
+              </Button>
+            ) : null}
+            <SetupTourButton />
+          </>
         }
       >
         {homeLine(mood)}

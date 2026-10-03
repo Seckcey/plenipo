@@ -1,13 +1,6 @@
 import { useState, type FormEvent } from "react";
-import type {
-  CostClass,
-  Effort,
-  ModelFeature,
-  ModelInfo,
-  ModelInput,
-  RoutingSnapshot,
-} from "@plenipo/types";
-import { Button, Segmented, useStoredState } from "@plenipo/ui";
+import type { CostClass, Effort, ModelInfo, ModelInput, RoutingSnapshot } from "@plenipo/types";
+import { Button, Disclosure, Segmented, useStoredState } from "@plenipo/ui";
 
 import { removeModel, saveModel } from "../../api/commands";
 import { ago } from "../../org/format";
@@ -15,14 +8,11 @@ import {
   COSTS,
   COST_LABEL,
   EFFORT_LABEL,
-  FEATURES,
-  FEATURE_LABEL,
   GROUP_BY_LABEL,
   effortLevels,
   groupModels,
   isGroupBy,
   makerWords,
-  tokens,
   type GroupBy,
 } from "../../routing/format";
 import { Modal } from "../org/Modal";
@@ -39,7 +29,7 @@ const GROUP_BY_OPTIONS = (["maker", "tool"] as const).map((value) => ({
   value,
   label: GROUP_BY_LABEL[value],
 }));
-const COLUMNS = 9;
+const COLUMNS = 6;
 
 /**
  * The model registry: the owner's models, grouped by who made them or by the AI tool that runs
@@ -62,9 +52,8 @@ export function ModelList({ snapshot, onApply }: { snapshot: RoutingSnapshot; on
         </Button>
       </div>
       <p className="muted">
-        The models your roles can choose from. Plenipo cannot ask the AI tools what a model can do
-        or costs, so you say it here; a model not marked as able to do something is treated as
-        unable.
+        The models your roles can choose from. Plenipo cannot ask the AI tools what a model costs,
+        so you say it here.
       </p>
       <div className="models__group-by">
         <span className="muted" aria-hidden="true">
@@ -84,9 +73,6 @@ export function ModelList({ snapshot, onApply }: { snapshot: RoutingSnapshot; on
             <th scope="col">Who made it</th>
             <th scope="col">AI tool</th>
             <th scope="col">Model the tool runs</th>
-            <th scope="col">Can also</th>
-            <th scope="col">Context</th>
-            <th scope="col">Cost</th>
             <th scope="col">Effort</th>
             <th scope="col">
               <span className="visually-hidden">Actions</span>
@@ -109,9 +95,6 @@ export function ModelList({ snapshot, onApply }: { snapshot: RoutingSnapshot; on
                 <td>{makerWords(m.maker)}</td>
                 <td>{tool(m.runtimeId)}</td>
                 <td>{m.name ?? "Its default"}</td>
-                <td>{m.features.map((f) => FEATURE_LABEL[f]).join(", ") || "—"}</td>
-                <td>{m.contextTokens ? tokens(m.contextTokens) : "—"}</td>
-                <td>{COST_LABEL[m.cost]}</td>
                 <td>{m.effort ? EFFORT_LABEL[m.effort] : "Tool's default"}</td>
                 <td className="models__actions">
                   <Button
@@ -198,12 +181,10 @@ function ModelDialog({
   const [label, setLabel] = useState(existing?.label ?? add.label ?? "");
   // Until the owner names it, the model's name follows the one chosen ("gpt-6-sol" → "GPT-6-Sol").
   const [labelEdited, setLabelEdited] = useState(existing !== null);
-  const [features, setFeatures] = useState<ModelFeature[]>(
-    existing?.features ?? add.features ?? [],
-  );
-  const [context, setContext] = useState(
-    (existing?.contextTokens ?? add.contextTokens)?.toString() ?? "",
-  );
+  // What a model can do and its context size are no longer asked (Phase 25, items 2.3 and 2.4):
+  // a model's saved ones are kept as they are.
+  const features = existing?.features ?? add.features ?? [];
+  const context = existing?.contextTokens ?? add.contextTokens ?? null;
   const [cost, setCost] = useState<CostClass>(existing?.cost ?? add.cost ?? "standard");
   const [effort, setEffort] = useState<Effort | "">(existing?.effort ?? add.effort ?? "");
   const { pending, error, run } = useChange(onApply);
@@ -236,7 +217,7 @@ function ModelDialog({
       cost,
       ...(existing ? { id: existing.id } : {}),
       ...(name.trim() && !builtIn ? { name: name.trim() } : {}),
-      ...(context.trim() ? { contextTokens: Number(context) } : {}),
+      ...(context ? { contextTokens: context } : {}),
       ...(chosenEffort ? { effort: chosenEffort } : {}),
     };
     void run(() => saveModel(input));
@@ -287,41 +268,6 @@ function ModelDialog({
             }}
           />
         </label>
-        <fieldset className="fieldset">
-          <legend>It can also</legend>
-          {FEATURES.map((f) => (
-            <label key={f} className="check">
-              <input
-                type="checkbox"
-                checked={features.includes(f)}
-                onChange={(e) =>
-                  setFeatures(e.target.checked ? [...features, f] : features.filter((x) => x !== f))
-                }
-              />
-              <span>{FEATURE_LABEL[f]}</span>
-            </label>
-          ))}
-        </fieldset>
-        <label className="field">
-          <span>Context size (tokens, optional)</span>
-          <input
-            type="number"
-            min={1}
-            inputMode="numeric"
-            value={context}
-            onChange={(e) => setContext(e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>Cost</span>
-          <select value={cost} onChange={(e) => setCost(e.target.value as CostClass)}>
-            {COSTS.map((c) => (
-              <option key={c} value={c}>
-                {COST_LABEL[c]}
-              </option>
-            ))}
-          </select>
-        </label>
         <label className="field">
           <span>Effort</span>
           <select
@@ -341,6 +287,22 @@ function ModelDialog({
             plan. A role can choose its own effort for this model.
           </small>
         </label>
+        {/* Only used when a role lists no models (Phase 25, item 2.6). */}
+        <Disclosure title="More" headingLevel={4} summary={`Cost: ${COST_LABEL[cost]}`}>
+          <label className="field">
+            <span>Cost</span>
+            <select value={cost} onChange={(e) => setCost(e.target.value as CostClass)}>
+              {COSTS.map((c) => (
+                <option key={c} value={c}>
+                  {COST_LABEL[c]}
+                </option>
+              ))}
+            </select>
+            <small className="field__hint">
+              Used only when a role lists no models of its own: Plenipo then picks by cost.
+            </small>
+          </label>
+        </Disclosure>
         <Refusal error={error} />
         <footer className="modal__footer">
           <Button variant="quiet" onClick={onCancel}>

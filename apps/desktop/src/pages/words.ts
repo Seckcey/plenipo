@@ -56,6 +56,8 @@ export function eventStatus(e: LedgerEvent): { status: Status; label: string } |
       if (p.to === "succeeded") return { status: "ok", label: "Done" };
       if (p.to === "cancelled") return { status: "offline", label: "Cancelled" };
       return undefined;
+    case "org.hire_needed":
+      return { status: "warn", label: "Needs you" };
     case "guard.denied":
     case "guard.ai_tool_refused":
     case "guard.approvals_limited":

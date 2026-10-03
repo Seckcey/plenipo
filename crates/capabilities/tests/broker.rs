@@ -12,7 +12,8 @@ use plenipo_capabilities::{
     ApprovalStatus, Broker, BrokerConfig, MemorySecretStore, SecretStore as _,
 };
 use plenipo_guard::{
-    Capability, Guard, GuardOptions, PermissionSetInput, Safety, SecretInput, SecretRule,
+    Capability, Guard, GuardOptions, OtherSites, PermissionSetInput, Safety, SecretInput,
+    SecretRule, WebsiteRules,
 };
 use plenipo_ledger::{Ledger, Task, TaskState, DB_FILE_NAME};
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
@@ -1142,13 +1143,16 @@ async fn plan_command_allow_and_deny_behavior() {
     assert!(results[3].contains("without spaces"), "{text}");
     assert!(results[4].contains("did not approve"), "{text}");
     assert!(h.folder.join("src").exists());
-    // A reviewer may only ask to run programs.
+    // A reviewer may only ask to run programs. (It gives its verdict, as reviewers do.)
     let task = h
         .objective(&handoff(
             "Reviewer",
-            &tool(
-                "run_command",
-                serde_json::json!({ "program": "git", "args": ["--version"] }),
+            &format!(
+                "{} [verdict:approve]",
+                tool(
+                    "run_command",
+                    serde_json::json!({ "program": "git", "args": ["--version"] }),
+                )
             ),
         ))
         .await;
@@ -1512,7 +1516,7 @@ async fn project_and_department_limits_narrow_a_role() {
         .objective(&handoff(
             "Reviewer",
             &format!(
-                "[tools-list] {}",
+                "[tools-list] {} [verdict:approve]",
                 tool("read_file", serde_json::json!({ "path": "README.md" }))
             ),
         ))
@@ -2417,8 +2421,19 @@ async fn watch_shows_every_file_change_as_it_lands_with_its_lines() {
     assert_eq!(paths, vec!["big.txt", ".env", "src/app.txt", "src/new.txt"]);
     assert!(!view.from_the_record, "every file is still in memory");
 
+    // Its lead's Watch shows them too: the work it handed on (Phase 25, item 1.8).
+    let lead = h.broker.watch_view(&h.supervisor);
+    let mut lead_paths: Vec<&str> = lead.changes.iter().map(|c| c.path.as_str()).collect();
+    lead_paths.sort_unstable();
+    assert_eq!(
+        lead_paths,
+        vec![".env", "big.txt", "src/app.txt", "src/new.txt"]
+    );
+    assert!(lead.team_task_ids.contains(&child.id));
+    assert!(lead.quiet.is_none());
+
     // After a restart, the record lists the saved files again (the refused one was never
-    // saved), for this agent only: its lead's own list has none of them.
+    // saved), each under the agent that made it; its lead's list shows them as its team's.
     let restarted = Broker::new(
         h.guard.clone(),
         Supervisor::new(
@@ -2442,7 +2457,12 @@ async fn watch_shows_every_file_change_as_it_lands_with_its_lines() {
         .iter()
         .all(|c| c.state == WatchState::Saved
             && c.position_id.as_deref() == Some(h.developer.as_str())));
-    assert!(restarted.watch_view(&h.supervisor).changes.is_empty());
+    let lead = restarted.watch_view(&h.supervisor);
+    assert_eq!(lead.changes.len(), 3);
+    assert!(lead
+        .changes
+        .iter()
+        .all(|c| c.position_id.as_deref() == Some(h.developer.as_str())));
 
     // An ACP write (Kimi) shows the same way.
     h.workforce
@@ -2898,4 +2918,62 @@ async fn without_a_files_folder_work_with_no_project_has_no_file_tools() {
             .contains("belongs to no project, so there is no folder"),
         "{skipped:?}"
     );
+}
+
+/// Phase 25, item 4.8: a link named in an answer is visited only when its website is on the
+/// owner's allowed list, with one request and no redirect followed; GitHub's pages never this way
+/// (they answer "not found" for a private page).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn links_in_answers_are_checked_only_on_allowed_websites() {
+    use plenipo_capabilities::broker::links::LinkVerdict;
+    use std::io::{Read as _, Write as _};
+    let h = harness().await;
+    // A small website on this computer: /here exists; anything else is not found.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let mut request = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                match stream.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => request.extend_from_slice(&buf[..n]),
+                }
+            }
+            let line = String::from_utf8_lossy(&request);
+            let status = if line.starts_with("HEAD /here ") {
+                "200 OK"
+            } else {
+                "404 Not Found"
+            };
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+        }
+    });
+    let here = format!("http://127.0.0.1:{port}/here");
+    let gone = format!("http://127.0.0.1:{port}/gone");
+    // Not on the allowed list: not visited.
+    assert!(
+        matches!(h.broker.check_link(&here).await, LinkVerdict::NotChecked(why) if why.contains("not on your allowed websites"))
+    );
+    h.guard
+        .set_websites(&WebsiteRules {
+            allowed: vec![format!("127.0.0.1:{port}"), "github.com".into()],
+            blocked: vec![],
+            others: OtherSites::Ask,
+        })
+        .unwrap();
+    assert_eq!(h.broker.check_link(&here).await, LinkVerdict::Exists);
+    assert_eq!(h.broker.check_link(&gone).await, LinkVerdict::Missing);
+    assert!(matches!(
+        h.broker.check_link("https://github.com/o/r/issues/1").await,
+        LinkVerdict::NotChecked(why) if why.contains("hides private pages")
+    ));
+    assert!(matches!(
+        h.broker.check_link("https://user:pw@127.0.0.1/here").await,
+        LinkVerdict::NotChecked(_)
+    ));
 }

@@ -1220,7 +1220,10 @@ async fn a_worker_without_permission_never_sees_the_tools() {
     };
     let before = graph_calls();
     let task = h
-        .objective(&handoff("Reviewer", &format!("[tools-list] {search}")))
+        .objective(&handoff(
+            "Reviewer",
+            &format!("[tools-list] {search} [verdict:approve]"),
+        ))
         .await;
     let child = h.child(&task).await;
     assert_eq!(h.finished(&child.id).await.state, TaskState::Succeeded);

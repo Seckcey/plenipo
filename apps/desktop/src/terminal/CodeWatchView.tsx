@@ -2,6 +2,7 @@ import { Fragment, useContext, useEffect, useRef, useState, type ReactNode } fro
 import type { WatchChange, WatchFileView, WatchLine } from "@plenipo/types";
 import { Banner, Button, EmptyState, Segmented, StatusDot, cx } from "@plenipo/ui";
 
+import { LiveForTasks } from "../live/LiveForTasks";
 import { AgentsContext } from "../agents/context";
 import { isRunning, isWaiting } from "../agents/store";
 import { cancelAgentTurn, getWatch, getWatchChange, toCommandError } from "../api/commands";
@@ -13,6 +14,7 @@ import {
   isOpen,
   KIND_WORD,
   loadWatchView,
+  mayBeNewTeamWork,
   pinFile,
   removedWords,
   setFollowing,
@@ -64,6 +66,11 @@ export function CodeWatchView({
 }) {
   const { positionId } = tab;
   const [watch, setWatch] = useState<CodeWatch>(() => emptyCodeWatch(positionId));
+  // The list as last drawn, for the listener set up once below.
+  const latest = useRef(watch);
+  useEffect(() => {
+    latest.current = watch;
+  }, [watch]);
   const [reading, setReading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -74,8 +81,23 @@ export function CodeWatchView({
   useEffect(() => {
     let disposed = false;
     let stop: (() => void) | undefined;
+    // Work this agent may just have handed on: read what Plenipo has again, once at a time.
+    let rereading = false;
+    const reread = () => {
+      if (rereading || disposed) return;
+      rereading = true;
+      getWatch(positionId)
+        .then((view) => {
+          if (!disposed) setWatch((s) => loadWatchView(s, view));
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          rereading = false;
+        });
+    };
     subscribeWatch((update) => {
       if (disposed) return;
+      if (mayBeNewTeamWork(latest.current, update)) reread();
       setWatch((s) => applyWatchUpdate(s, update));
       // News of this agent's changes: the list is up to date again from here on.
       if (update.change.positionId === positionId) setLoadError(null);
@@ -240,9 +262,14 @@ export function CodeWatchView({
             </p>
           ) : (
             <EmptyState title="No file changes yet in this objective" icon="file" compact>
-              Changes show here as the worker makes them.
+              {watch.quiet ??
+                "Changes show here as the worker, or the team it hands work to, makes them: the files they write, and the files the commands they run make or change."}
             </EmptyState>
           )}
+          {/* What it says and does, live, even before a file changes (Phase 25, item 3.1). */}
+          <div className="code-watch__live">
+            <LiveForTasks taskIds={watch.teamTasks} preferred={null} who={tab.title} />
+          </div>
         </div>
       ) : (
         <div className="code-watch__main">
@@ -266,6 +293,7 @@ export function CodeWatchView({
                       <span className="code-watch__meta">
                         <StatusDot status={STATE_STATUS[c.state]} label={STATE_WORD[c.state]} />
                         {c.kind && <span>{KIND_WORD[c.kind]}</span>}
+                        {c.byCommand && <span>made by a command</span>}
                         {c.state === "saved" && <Counts change={c} />}
                         {task && <span>{task}</span>}
                       </span>
@@ -286,6 +314,16 @@ export function CodeWatchView({
               task={labels.get(shown.taskId)}
             />
           )}
+          {/* Next to the file changes: what it says and does, live (Phase 25, item 3.1). */}
+          <aside className="code-watch__live" aria-label="Live conversation">
+            <LiveForTasks
+              taskIds={watch.teamTasks}
+              preferred={
+                shown ? { taskId: shown.taskId, sessionId: shown.sessionId ?? null } : null
+              }
+              who={tab.title}
+            />
+          </aside>
         </div>
       )}
     </div>
@@ -454,6 +492,7 @@ function FilePane({
         <span className="code-watch__path">{change.path}</span>
         <StatusDot status={STATE_STATUS[change.state]} label={STATE_WORD[change.state]} />
         {change.kind && <span>{KIND_WORD[change.kind]}</span>}
+        {change.byCommand && <span>made by a command</span>}
         {change.state === "saved" && <Counts change={change} />}
         {task && <span>{task}</span>}
         {lines && lines.length > 0 && (

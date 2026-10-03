@@ -101,6 +101,11 @@ fn open<R: Runtime>(
     );
     orgs.insert(stack.clone());
     orgs::filter_logs(orgs);
+    // Its tasks ending ask for the AI tools' plan left, as every organization's do (Phase 25,
+    // item 1.2).
+    if let Some(tools) = app.try_state::<plenipo_capabilities::ai_tools::AiTools>() {
+        crate::ai_tools_host::listen(&stack.ledger, &tools);
+    }
     Ok(stack)
 }
 
@@ -134,14 +139,124 @@ pub fn listing(orgs: &Orgs, label: &str) -> OrgListing {
     OrgListing {
         current,
         organizations,
-        // A place for templates: none yet (ADR-091 §5).
-        templates: Vec::new(),
+        templates: org_templates(orgs),
     }
+}
+
+/// One organization template you saved (Phase 25, item 2.8): its setup is a Ledger of its own in
+/// `templates/<id>`, made by the same copy as "Copy from one of your organizations".
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SavedTemplate {
+    id: String,
+    name: String,
+    created_at: u64,
+}
+
+const SAVED_PREFIX: &str = "saved-";
+const SAVED_LIST: &str = "templates.json";
+
+fn saved_templates(orgs: &Orgs) -> Vec<SavedTemplate> {
+    orgs.templates_folder()
+        .and_then(|f| std::fs::read(f.join(SAVED_LIST)).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+/// The templates a new organization can start from (Phase 25, item 2.8): the built-in ones, then
+/// the ones you saved.
+fn org_templates(orgs: &Orgs) -> Vec<plenipo_core::organizations::OrgTemplate> {
+    let mut out: Vec<plenipo_core::organizations::OrgTemplate> =
+        plenipo_workforce::templates::ORGANIZATION_TEMPLATES
+            .iter()
+            .map(|t| plenipo_core::organizations::OrgTemplate {
+                id: t.id.into(),
+                name: t.name.into(),
+                description: t.description.into(),
+            })
+            .collect();
+    out.extend(saved_templates(orgs).into_iter().map(|s| {
+        plenipo_core::organizations::OrgTemplate {
+            id: format!("{SAVED_PREFIX}{}", s.id),
+            name: s.name,
+            description: "Your own: an organization's setup you saved (no work, keys, or files)."
+                .into(),
+        }
+    }));
+    out
+}
+
+/// A saved template's Ledger, to copy a new organization's setup from.
+fn saved_ledger(orgs: &Orgs, id: &str) -> Result<(Ledger, String), CommandError> {
+    let saved = saved_templates(orgs)
+        .into_iter()
+        .find(|s| s.id == id)
+        .ok_or_else(|| CommandError::invalid_input("that template is no longer saved"))?;
+    let folder = orgs
+        .templates_folder()
+        .ok_or_else(|| CommandError::invalid_input("that template is no longer saved"))?;
+    let ledger = Ledger::open(&folder.join(&saved.id).join(plenipo_ledger::DB_FILE_NAME))
+        .map_err(ledger_error)?;
+    Ok((ledger, saved.name))
+}
+
+/// Save this window's organization's setup as a template for new organizations (Phase 25, item
+/// 2.8): its departments and positions, roles, permissions, switches, AI model choices, and
+/// titles, never its work, keys, connections, or files.
+#[tauri::command]
+pub async fn save_organization_template<R: Runtime>(
+    window: WebviewWindow<R>,
+    orgs: State<'_, Arc<Orgs>>,
+    name: String,
+) -> Result<OrgListing, CommandError> {
+    let label = org_window(&window)?;
+    let name = plenipo_ledger::workforce::clean_line("the template's name", &name, MAX_NAME)
+        .map_err(ledger_error)?;
+    let current = orgs
+        .org_of_window(&label)
+        .unwrap_or_else(|| FIRST.to_owned());
+    let source = orgs
+        .stack(&current)
+        .ok_or_else(|| CommandError::invalid_input("this organization is not open"))?;
+    let folder = orgs.templates_folder().ok_or_else(|| {
+        CommandError::invalid_input(
+            "Templates are kept in Plenipo's data folder, which this copy doesn't have.",
+        )
+    })?;
+    let orgs2 = orgs.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), CommandError> {
+        let id = orgs::new_id();
+        let here = folder.join(&id);
+        std::fs::create_dir_all(&here)
+            .and_then(|()| plenipo_ledger::owner_only::folder(&folder))
+            .and_then(|()| plenipo_ledger::owner_only::folder(&here))
+            .map_err(|e| CommandError::internal(format!("its folder could not be made: {e}")))?;
+        let ledger =
+            Ledger::open(&here.join(plenipo_ledger::DB_FILE_NAME)).map_err(ledger_error)?;
+        ledger
+            .copy_setup_from(&source.ledger, &orgs::name_in(&source.ledger), OWNER)
+            .map_err(ledger_error)?;
+        let mut list = saved_templates(&orgs2);
+        list.push(SavedTemplate {
+            id,
+            name,
+            created_at: plenipo_ledger::now_ms(),
+        });
+        let bytes =
+            serde_json::to_vec_pretty(&list).map_err(|e| CommandError::internal(e.to_string()))?;
+        std::fs::write(folder.join(SAVED_LIST), bytes).map_err(|e| {
+            CommandError::internal(format!("the template list could not be saved: {e}"))
+        })?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| CommandError::internal(format!("saving the template failed: {e}")))??;
+    Ok(listing(&orgs, &label))
 }
 
 /// Your organizations, and which one this window shows.
 #[tauri::command]
-pub fn get_organizations<R: Runtime>(
+pub async fn get_organizations<R: Runtime>(
     window: WebviewWindow<R>,
     orgs: State<'_, Arc<Orgs>>,
 ) -> Result<OrgListing, CommandError> {
@@ -171,9 +286,23 @@ pub async fn create_organization<R: Runtime>(
     // Free has one organization; a Pro or Partner key covers its number (ADR-110, ADR-119).
     app.state::<Arc<LicenseHost>>()
         .allow(plenipo_licensing::Limit::Organizations)?;
+    // A built-in template is applied once the new organization is open; a saved one is copied
+    // like another organization's setup (Phase 25, item 2.8).
+    let mut built_in: Option<String> = None;
+    let mut saved: Option<(Ledger, String)> = None;
     let source = match &start {
-        OrgStart::Template { .. } => {
-            return Err(CommandError::invalid_input("Templates are coming later."));
+        OrgStart::Template { template } => {
+            if let Some(id) = template.strip_prefix(SAVED_PREFIX) {
+                checked_id(id)?;
+                saved = Some(saved_ledger(&orgs, id)?);
+            } else if plenipo_workforce::templates::organization_template(template).is_some() {
+                built_in = Some(template.clone());
+            } else {
+                return Err(CommandError::invalid_input(
+                    "there is no template by that name",
+                ));
+            }
+            None
         }
         OrgStart::Copy { from } => {
             checked_id(from)?;
@@ -210,11 +339,22 @@ pub async fn create_organization<R: Runtime>(
                 .copy_setup_from(&source.ledger, &orgs::name_in(&source.ledger), OWNER)
                 .map_err(ledger_error)?;
         }
+        if let Some((template, from)) = &saved {
+            ledger
+                .copy_setup_from(template, from, OWNER)
+                .map_err(ledger_error)?;
+        }
         let stack = open(&app2, &orgs, place, Some(ledger))?;
         stack
             .workforce
             .rename(&name)
             .map_err(crate::commands::workforce_error)?;
+        if let Some(template) = &built_in {
+            stack
+                .workforce
+                .apply_organization_template(template)
+                .map_err(crate::commands::workforce_error)?;
+        }
         orgs.add(OrgEntry {
             id: made.clone(),
             name: name.clone(),
@@ -245,7 +385,7 @@ pub async fn create_organization<R: Runtime>(
 /// Show organization `id` in this window: the page loads again, and this window's terminals and
 /// pop-outs close (ADR-094 §11). Brings its window to the front when another window shows it.
 #[tauri::command]
-pub fn switch_organization<R: Runtime>(
+pub async fn switch_organization<R: Runtime>(
     app: AppHandle<R>,
     window: WebviewWindow<R>,
     orgs: State<'_, Arc<Orgs>>,
@@ -281,8 +421,12 @@ pub fn switch_organization<R: Runtime>(
 }
 
 /// Open organization `id` in a window of its own (or bring its window to the front).
+///
+/// `async`, like every command here: a window built on the window's own thread locks the whole app
+/// up on Windows (WebView2), which froze Plenipo right after a new organization was made (Phase 25,
+/// item 1.1).
 #[tauri::command]
-pub fn open_organization_window<R: Runtime>(
+pub async fn open_organization_window<R: Runtime>(
     app: AppHandle<R>,
     window: WebviewWindow<R>,
     orgs: State<'_, Arc<Orgs>>,
@@ -700,4 +844,24 @@ pub fn leave<R: Runtime>(app: &AppHandle<R>, orgs: &Orgs, label: &str, why: &str
         None => {}
     }
     workspace_windows::close_popouts(app, label);
+}
+
+#[cfg(test)]
+mod tests {
+    /// Tauri runs a command that is not `async` on the window's own thread. On Windows, a window
+    /// built there locks the whole app up (WebView2), and these also read every organization's
+    /// Ledger, so none may run there (Phase 25, item 1.1).
+    #[test]
+    fn every_organization_command_runs_off_the_windows_thread() {
+        let source = include_str!("org_commands.rs");
+        let commands: Vec<&str> = source
+            .split("#[tauri::command]\n")
+            .skip(1)
+            .map(|rest| rest.lines().next().unwrap_or_default())
+            .collect();
+        assert_eq!(commands.len(), 9, "{commands:?}");
+        for line in commands {
+            assert!(line.starts_with("pub async fn "), "not async: {line}");
+        }
+    }
 }

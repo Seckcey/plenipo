@@ -537,6 +537,8 @@ fn models_from(service: PaidService, body: &str) -> Vec<Value> {
                 Some(json!({
                     "input": per_million(p, "prompt")?,
                     "cachedInput": per_million(p, "input_cache_read"),
+                    // Storing input for reuse, where it costs more (Anthropic's models, ADR-252).
+                    "cacheWrite": per_million(p, "input_cache_write"),
                     "output": output,
                 }))
             });
@@ -826,6 +828,46 @@ async fn chat(client: &Client, args: &[String], input: &mut dyn Read, out: &mut 
     0
 }
 
+/// Phase 25, item 4.1 (ADR-252): `content` marked for Anthropic's prompt cache: a text becomes a
+/// block with the mark, or the last of its blocks gets it. Everything up to a mark is stored for
+/// reuse, so the next task reads its instructions and the conversation so far from the cache.
+fn cache_marked(content: &Value) -> Value {
+    let mark = json!({ "type": "ephemeral" });
+    match content {
+        Value::String(text) => json!([{ "type": "text", "text": text, "cache_control": mark }]),
+        Value::Array(parts) if !parts.is_empty() => {
+            let mut parts = parts.clone();
+            if let Some(last) = parts.last_mut().filter(|p| p.is_object()) {
+                last["cache_control"] = mark;
+            }
+            Value::Array(parts)
+        }
+        other => other.clone(),
+    }
+}
+
+/// Mark the reusable start of a request for the cache: its instructions (the system message) and
+/// its latest message (two of the four marks Anthropic allows).
+fn mark_for_cache(messages: &mut [Value]) {
+    if let Some(system) = messages
+        .iter_mut()
+        .rfind(|m| m.get("role").and_then(Value::as_str) == Some("system"))
+    {
+        system["content"] = cache_marked(&system["content"]);
+    }
+    if let Some(last) = messages
+        .iter_mut()
+        .rfind(|m| m.get("role").and_then(Value::as_str) != Some("system"))
+    {
+        last["content"] = cache_marked(&last["content"]);
+    }
+}
+
+/// An Anthropic model reached through OpenRouter ("anthropic/claude-…").
+fn anthropic_through_openrouter(model: &str) -> bool {
+    model.starts_with("anthropic/")
+}
+
 /// The request for one task: its path and body, in the service's own way of talking.
 fn request_body(
     service: PaidService,
@@ -837,6 +879,11 @@ fn request_body(
 ) -> (&'static str, Value) {
     match service.protocol() {
         plenipo_guard::PaidProtocol::OpenAiChat => {
+            // Anthropic's models through OpenRouter are cached the same way (ADR-252).
+            let mut messages = messages.to_vec();
+            if service == PaidService::OpenRouter && anthropic_through_openrouter(model) {
+                mark_for_cache(&mut messages);
+            }
             let mut body = json!({
                 "model": model,
                 "messages": messages,
@@ -881,11 +928,13 @@ fn request_body(
                 .filter(|m| m.get("role").and_then(Value::as_str) == Some("system"))
                 .filter_map(|m| m.get("content").and_then(Value::as_str))
                 .collect();
-            let turns: Vec<Value> = messages
+            let mut turns: Vec<Value> = messages
                 .iter()
                 .filter(|m| m.get("role").and_then(Value::as_str) != Some("system"))
                 .cloned()
                 .collect();
+            // Its instructions and the conversation so far are cached (ADR-252).
+            mark_for_cache(&mut turns);
             let mut body = json!({
                 "model": model,
                 "messages": turns,
@@ -893,7 +942,7 @@ fn request_body(
                 "max_tokens": max_output,
             });
             if !system.is_empty() {
-                body["system"] = json!(system.join("\n\n"));
+                body["system"] = cache_marked(&json!(system.join("\n\n")));
             }
             if let Some(level) = effort {
                 body["output_config"] = json!({ "effort": level });
@@ -1438,6 +1487,59 @@ mod tests {
             None,
         );
         assert!(haiku.get("inference_geo").is_none());
+    }
+
+    /// Phase 25, item 4.1 (ADR-252): an Anthropic model's instructions and latest message carry
+    /// the cache mark, on the key and through OpenRouter; other companies' requests don't.
+    #[test]
+    fn anthropic_requests_carry_the_cache_marks() {
+        let messages = [
+            json!({ "role": "system", "content": "You are the Senior Developer." }),
+            json!({ "role": "user", "content": "Fix the bug." }),
+            json!({ "role": "assistant", "content": "Done." }),
+            json!({ "role": "user", "content": "Now the tests." }),
+        ];
+        let mark = json!({ "type": "ephemeral" });
+        let (_, direct) = request_body(
+            PaidService::Anthropic,
+            "claude-sonnet-5-5",
+            &messages,
+            16_000,
+            None,
+            None,
+        );
+        assert_eq!(direct["system"][0]["text"], "You are the Senior Developer.");
+        assert_eq!(direct["system"][0]["cache_control"], mark);
+        let turns = direct["messages"].as_array().unwrap();
+        assert_eq!(turns.len(), 3);
+        assert_eq!(
+            turns[0]["content"], "Fix the bug.",
+            "earlier messages stay as they are"
+        );
+        assert_eq!(turns[2]["content"][0]["text"], "Now the tests.");
+        assert_eq!(turns[2]["content"][0]["cache_control"], mark);
+
+        let (_, routed) = request_body(
+            PaidService::OpenRouter,
+            "anthropic/claude-sonnet-5-5",
+            &messages,
+            16_000,
+            None,
+            None,
+        );
+        let sent = routed["messages"].as_array().unwrap();
+        assert_eq!(sent[0]["content"][0]["cache_control"], mark);
+        assert_eq!(sent[3]["content"][0]["cache_control"], mark);
+        assert_eq!(sent[1]["content"], "Fix the bug.");
+
+        // Another company's model through OpenRouter, and OpenAI's own: no marks.
+        for (service, model) in [
+            (PaidService::OpenRouter, "openai/gpt-6.1-sol"),
+            (PaidService::OpenAi, "gpt-6.1-sol"),
+        ] {
+            let (_, b) = request_body(service, model, &messages, 16_000, None, None);
+            assert!(!b.to_string().contains("cache_control"), "{model}");
+        }
     }
 
     #[test]

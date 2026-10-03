@@ -15,6 +15,12 @@ import { EFFORT_LABEL } from "../../../routing/format";
 import { useOpenWatch } from "../../../terminal/useTerminal";
 import { useChatIfAny } from "../../../chat/context";
 import { PILL_TONE } from "../../tones";
+import { LiveConversation } from "../../../live/LiveConversation";
+import { liveWork } from "../../../live/words";
+import { AskQuestionButton } from "../../sideChat/AskQuestion";
+import { canAsk } from "../../sideChat/canAsk";
+import { StopButton } from "../../stop/StopWork";
+import { workToStop } from "../../stop/whatToStop";
 import { Glyph } from "../Glyph";
 import { Field, ItemLink, Option, Options, Refusal, Section, TaskRow } from "./parts";
 import type { InspectorActions } from "./types";
@@ -70,6 +76,10 @@ export function OverviewTab({
   const role = snapshot.roles.find((r) => r.id === p.roleId);
   const t = titlesOf(snapshot);
   const sessionId = p.agent?.sessionId ?? null;
+  const stopWork = workToStop(p);
+  const liveNow = liveWork(p)[0] ?? null;
+  const stopHint = useId();
+  const askHint = useId();
   // Watch (Phase 18, ADR-055): what its workers change, in the terminal panel. Hidden where
   // there is no terminal panel, and for an archived or vacant position.
   const openWatch = useOpenWatch();
@@ -97,8 +107,45 @@ export function OverviewTab({
           </div>
           <StatusPill status={POSITION_STATUS[p.status]} label={STATUS_LABEL[p.status]} />
           {p.statusDetail && <p className="inspector__detail">{p.statusDetail}</p>}
+          {/* Ask it a question while it works (Phase 25, item 3.5). */}
+          {canAsk(p) && (
+            <div className="inspector__stop">
+              <AskQuestionButton p={p} onAsked={actions.openSession} describedBy={askHint} />
+              <span id={askHint} className="muted">
+                A side chat: it answers from what it knows, and its work goes on.
+              </span>
+            </div>
+          )}
+          {/* Stop its work now, after a question (Phase 25, item 3.3). */}
+          {stopWork.length > 0 && (
+            <div className="inspector__stop">
+              <StopButton
+                who={p.title}
+                work={stopWork}
+                fullTime={p.staffing === "persistent"}
+                describedBy={stopHint}
+              />
+              <span id={stopHint} className="muted">
+                {p.staffing === "persistent"
+                  ? "Stops its task now, after a question. Its conversation stays."
+                  : "Stops its workers' tasks now, after a question."}
+              </span>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* The last 3 lines of what it says and does, live (Phase 25, item 3.1). */}
+      {liveNow && (
+        <LiveConversation
+          taskId={liveNow.taskId}
+          sessionId={liveNow.sessionId}
+          startedAt={liveNow.startedAt}
+          running
+          who={p.title}
+          lines={3}
+        />
+      )}
 
       {!p.active ? (
         <p className="muted">
@@ -259,6 +306,7 @@ function ObjectivePanel({ p, actions }: { p: PositionInfo; actions: InspectorAct
       {...files.dropProps}
       className="inspector__objective"
       aria-label="Give an objective"
+      data-tour="give-objective"
       onSubmit={(e) => void submit(e)}
     >
       <Field

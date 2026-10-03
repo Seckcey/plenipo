@@ -21,6 +21,8 @@
 
 **The final push, at the owner's direction (2026-10-01), ADR-132 (the final push: Phase 14, then Mac and Linux, then Community):** after Phase 22's go-live is done, the work is exactly three phases, in this order: **1. Phase 14** (Plenipo on your phone), **2. Phase 23** (Mac and Linux), **3. Phase 24** (Community). Phase 16's Wave 4, Phase 15, and Phase 9 are **parked**: they stay in this plan, as written, with no place in the order until the owner schedules them. No session starts a parked phase on its own.
 
+**Added at the owner's direction (2026-10-03), ADR-190 (Phase 25 starts: fixes and a simpler Plenipo before launch, in four waves):** Phase 25 gathers the owner's 17 bug reports and changes and six ideas kept from a pre-launch list, in four waves: fix what's broken; make Plenipo simple; see and steer the work; make AI plans last and catch made-up answers. It uses ADR-190 to ADR-199. **It started on 2026-10-03, beside Phases 23 and 24** (the owner: "start asap as long as you don't step on each other's work"); no phase pauses.
+
 **Added at the owner's direction (2026-10-03), beside the final push, not a phase:** a live chat with each agent, as in Claude Code (ADR-200, a live chat with each agent); agents that save files and run programs by default, with the warnings in Settings → Safety (ADR-201, light by default); and the chain of command, where skipped leads are told and results come back up one level at a time (ADR-202, the chain of command). They change no phase and no phase's order; Phase 25's items 3.1 (Live conversation) and 3.5 (Side chats) build on ADR-200. Checklist and acceptance report: `docs/phases/chat-light-chain-*`.
 
 ## Order of work (owner's direction, 2026-09-28, ADR-039; Phase 20 moved ahead of Phase 16 by ADR-061; the final push set by ADR-132, 2026-10-01)
@@ -43,8 +45,9 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | Parked | 16, Wave 4 | Tools for any model, then specialist jobs | No place in the order until the owner schedules it (ADR-131, ADR-132) |
 | Parked | 15 | Additional providers, departments, Windows servers, and Milepost | No place in the order until the owner schedules it (ADR-132) |
 | Parked | 9 | Sales department on HubSpot | Postponed (ADR-018), parked by ADR-132 |
+| Beside 23 and 24 | 25 | Fixes and a simpler Plenipo before launch | **Started** (2026-10-03, ADR-190): four waves, Wave 1 first; built beside Phases 23 and 24, each on its own branch from the latest `main`; checklist `docs/phases/phase-25-checklist.md` |
 
-Phases 0–8, 10, 11, 11A, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered, and Phase 16's Waves 1 to 3. Phase 22 is live (the owner's word, 2026-10-01). Phase 14, the first of the final push, is delivered (v1.19.0 to v1.19.2, its own relay in v1.19.3, and phone access on in v1.19.4); **Phase 23** is in progress (ADR-150), and **Phase 24** is being built beside it (ADR-160). Parked: Phase 16's Wave 4, Phase 15, and Phase 9.
+Phases 0–8, 10, 11, 11A, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered, and Phase 16's Waves 1 to 3. Phase 22 is live (the owner's word, 2026-10-01). Phase 14, the first of the final push, is delivered (v1.19.0 to v1.19.2, its own relay in v1.19.3, and phone access on in v1.19.4); **Phase 23** is in progress (ADR-150), and **Phase 24** is being built beside it (ADR-160). Parked: Phase 16's Wave 4, Phase 15, and Phase 9. **Phase 25** (fixes and a simpler Plenipo before launch) started on 2026-10-03, beside them (ADR-190).
 
 ---
 
@@ -2322,6 +2325,120 @@ Phase 22 (accounts), Phase 14 (the web interface's signed-in connection), Phase 
 
 - public posting, feeds, or a marketplace
 - one owner's workers reaching into another owner's PC
+
+---
+
+# Phase 25 — Fixes and a Simpler Plenipo Before Launch
+
+**Added at the owner's direction (2026-10-03), ADR-190.** The owner tried Plenipo as a new user
+would and sent two lists: 17 bugs and changes, and six ideas kept from a pre-launch list. **Started
+2026-10-03, beside Phases 23 and 24.** Checklist, with the cause of every bug:
+`docs/phases/phase-25-checklist.md`.
+
+## Goal
+
+Plenipo works the first time, is simple to set up, lets the owner see and steer every worker, and
+makes the owner's AI plans last.
+
+## Deliverables
+
+- **Wave 1, fix what's broken:**
+  - a new organization opens without freezing
+  - usage and "plan left" for Claude Code and Codex, added up across organizations, with a Check
+    plan button
+  - one light per AI company: green when the subscription or the key works
+  - paid keys that work in every organization
+  - subscriptions first in every AI tool picker, with paid tools marked
+  - Copilot accepted when picked by name
+  - "What's stuck" opens the stuck thing
+  - Watch on every tile, showing the whole team's changes and why it's empty
+- **Wave 2, make Plenipo simple:**
+  - AI tools and Connections cards that start closed, with a light and one line each
+  - context size, "makes images", and "uses a computer" removed
+  - the exact model chosen for each job in one screen
+  - one "who uses what" table
+  - new projects reuse the workers already hired, and a manager asks before bringing in a missing
+    one
+  - templates for organizations, projects, and departments, and saving your own
+  - a setup tour built with Driver.js, from signing in to the first objective
+- **Wave 3, see and steer the work:**
+  - a live, chat-style conversation for every worker, with its steps and progress
+  - Watch shows changes made by commands
+  - Stop on every worker
+  - **Stop all work** on every page that shows work, and on the canvas, held until Allow again
+  - side chats with any manager or supervisor, answer only
+- **Wave 4, make AI plans last and catch made-up answers:**
+  - Anthropic prompt caching on the direct key and OpenRouter
+  - when a plan runs out, choices to wait, use a reset the company gave you (on its own site or
+    app), or use a key, and the work restarts after the reset
+  - labelled plan windows
+  - the subscription first, then the same company's key
+  - stepping down effort and model instead of stopping
+  - pacing each plan over its week or month
+  - answers checked against Plenipo's own record of files, tests, and pull requests, and sent back
+    when they don't match
+
+## Technical Implementation
+
+- **Freeze:** the organization commands that open or reload windows become `async`. A source test
+  keeps every command in `org_commands.rs` async.
+- **Across organizations:** usage, the plan checks, and (by question 2) paid keys move from "the
+  first organization" to every organization, or to the PC.
+- **Routing:**
+  - A model chosen for a job maps to an ordered route: the subscription, then the same company's
+    key (using `KnownModel.same`, with links added between Claude Code and the Anthropic key, and
+    between Codex and the OpenAI key).
+  - Then a step-down ladder (effort, a smaller model, the key, then wait).
+  - Then a pace for each plan window, from the percentages the AI tools report (ADR-060).
+  - Every step is shown and recorded (§3.2).
+- **Teams:** `set_up_team` reuses positions already in the department. Directory routing looks at
+  the lead's team first, then the department.
+- **Watch and live output:** Watch filters by objective, not by position. Commands are followed by
+  a before-and-after look at the working copy. Live text, tool steps, and plans from each AI tool
+  are joined into one live conversation.
+- **Stop all work:** stops control and every running task in every organization, and holds new
+  work until Allow again. It is recorded, and it matches the phone and the tray.
+- **Side chats:** fork the agent's conversation where its AI tool can (Claude Code
+  `--fork-session`, Plenipo-held histories), otherwise brief a new one. No tools, no hand-offs.
+- **Made-up answers:** each reply handed up carries Plenipo's facts from `outcome.rs`. A plain
+  claim-against-record check runs before the supervisor reads it.
+- **Saved settings:** fields that leave the screen stay readable and are ignored. Old settings must
+  still load.
+
+## Tests
+
+- a new organization's window opens on Windows 11 five times in a row
+- usage and plan checks in a second organization
+- every card light and message
+- a pinned Copilot with a "never use" list warns, and doesn't refuse
+- setup with existing workers hires no copies; a hand-off reaches a department worker outside the
+  team
+- Stop all holds new work until Allow again
+- a side chat has no tools
+- a subscription limit moves the same model to the key only when paid keys are on and the cap has
+  room
+- a simulated week keeps pace
+- a false "tests passed" is caught and sent back
+- old saved settings with removed fields still load
+
+## Acceptance Criteria
+
+On a brand-new install, the owner follows only the setup tour from first launch to a running
+objective, with Claude Fable for the developer and Sonnet for the docs. The project reuses the
+workers already hired. The owner watches a worker type live, asks a busy supervisor a question,
+stops one worker from its tile, and stops everything from the canvas, then allows it again. Over one
+real week, no plan runs out before its reset, and every step down is shown and recorded.
+
+## Dependencies
+
+Nothing new to buy. Phase 23's Wave 1 is in progress in the same code, so each wave starts from the
+latest `main`.
+
+## Out of Scope
+
+- the workflow canvas, a command-line version, installing AI tools for the owner, making every
+  number clickable, and the website copy (dropped by the owner, 2026-10-03)
+- Plenipo buying usage, or using a reset, for the owner
 
 ---
 

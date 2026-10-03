@@ -202,11 +202,18 @@ export function ActivityView({
         feed.events.length === 0 ? (
           <p className="muted">No events recorded yet.</p>
         ) : (
-          <ol className="trail" aria-label="All events">
-            {feed.events.filter(shownInTrail).map((e) => (
-              <EventRow key={e.seq} event={e} />
-            ))}
-          </ol>
+          <>
+            <ol className="trail" aria-label="All events">
+              {feed.events.filter(shownInTrail).map((e) => (
+                <EventRow key={e.seq} event={e} />
+              ))}
+            </ol>
+            {feed.hasOlder && (
+              <Button variant="quiet" onClick={() => void feed.loadOlder()}>
+                Show older events
+              </Button>
+            )}
+          </>
         )
       ) : (
         <div className="split">

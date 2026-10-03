@@ -13,11 +13,14 @@ export function Modal({
   onClose,
   children,
   wide = false,
+  tour,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  /** Its mark for the setup tour (`data-tour`, Phase 25, item 2.9). */
+  tour?: string;
 }) {
   const id = useId();
   const box = useRef<HTMLDivElement>(null);
@@ -64,6 +67,7 @@ export function Modal({
         className={`modal${wide ? " modal--wide" : ""}`}
         role="dialog"
         aria-modal="true"
+        data-tour={tour}
         aria-labelledby={id}
         onKeyDown={onKeyDown}
       >
@@ -84,6 +88,7 @@ export function ConfirmDialog({
   title,
   message,
   confirmLabel,
+  cancelLabel = "Cancel",
   danger = false,
   extra,
   onConfirm,
@@ -92,6 +97,8 @@ export function ConfirmDialog({
   title: string;
   message: ReactNode;
   confirmLabel: string;
+  /** The button that closes it without doing anything. */
+  cancelLabel?: string;
   danger?: boolean;
   /** Another button, on the left of the footer (for a step to take first). */
   extra?: ReactNode;
@@ -118,7 +125,7 @@ export function ConfirmDialog({
       <footer className="modal__footer">
         {extra && <div className="modal__extra">{extra}</div>}
         <Button variant="quiet" onClick={onCancel}>
-          Cancel
+          {cancelLabel}
         </Button>
         <Button
           variant={danger ? "danger" : "primary"}
