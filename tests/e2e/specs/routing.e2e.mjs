@@ -238,7 +238,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     }
     // The AI tools' sign-in and usage limits are on the AI tools page (Phase 19, ADR-060).
     await nav(browser, "AI tools");
-    await waitForText(browser, '[aria-label="AI tools"]', "Ready");
+    await waitForText(browser, '[aria-label="AI tools"]', "Subscription connected");
     await openSettings(browser, "AI models");
     await waitForText(browser, ROLES, "Senior Developer");
     // Starting choices for built-in roles: the Designer needs a model that makes images.

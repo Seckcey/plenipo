@@ -104,10 +104,12 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     await waitForShell(browser);
     await nav(browser, "AI tools");
     const cards = '[aria-label="AI tools"]';
-    // Claude Code, Codex, Grok, and Kimi are Ready; Ollama is found too, and Ready only when an
-    // Ollama service is signed in on this machine (the fake plays only its program).
+    // Claude Code, Codex, Grok, and Kimi are connected; Ollama is found too, and connected only
+    // when an Ollama service is signed in on this machine (the fake plays only its program). A
+    // card says which works: its subscription, its key, or both (Phase 25, item 1.3).
     await waitUntil(
-      async () => (await textOf(browser, cards)).match(/Ready/g)?.length >= 4,
+      async () =>
+        (await textOf(browser, cards)).match(/(?:Subscription|API key) connected/g)?.length >= 4,
       "every AI tool ready",
     );
     const text = await textOf(browser, cards);

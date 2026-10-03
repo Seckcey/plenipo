@@ -110,7 +110,9 @@ const showCard = (browser, label) =>
 async function openAiTools(browser) {
   await nav(browser, "AI tools");
   await waitUntil(
-    async () => (await textOf(browser, PAGE)).match(/Ready/g)?.length >= 4,
+    // Each card says which works: its subscription, its key, or both (Phase 25, item 1.3).
+    async () =>
+      (await textOf(browser, PAGE)).match(/(?:Subscription|API key) connected/g)?.length >= 4,
     "every AI tool ready",
   );
 }
