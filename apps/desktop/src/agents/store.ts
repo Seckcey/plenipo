@@ -300,6 +300,9 @@ export function activityItems(activity: AgentActivity[]): ActivityItem[] {
       continue;
     }
     if (e.type === "usage") continue; // shown with the result
+    // A step just starting shows until its call is complete (the live conversation's last
+    // line); it never splits the words being typed.
+    if (e.type === "status" && e.phase === "starting") continue;
     if (e.type === "message") {
       streamText = ""; // the message is the complete version of the streamed text
     } else {

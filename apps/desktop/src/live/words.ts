@@ -157,6 +157,21 @@ export function progressWords(p: LiveProgress, startedAt: number | null, now: nu
   return parts.join(" · ");
 }
 
+/**
+ * A step Claude Code has just started and not yet finished writing ("Running a command"), when
+ * it is the latest thing it did; `null` once the step is complete or anything came after it.
+ */
+export function startingStep(activity: readonly AgentActivity[]): string | null {
+  for (let i = activity.length - 1; i >= 0; i--) {
+    const e = activity[i]?.event;
+    if (!e || e.type === "usage") continue;
+    if (e.type === "status" && e.phase === "starting") return e.text;
+    if (e.type === "status") continue;
+    return null;
+  }
+  return null;
+}
+
 /** What it is doing now, in a few words, for a tile: the last step, or writing its answer. */
 export function nowWords(activity: readonly AgentActivity[]): string | null {
   for (let i = activity.length - 1; i >= 0; i--) {
@@ -170,6 +185,9 @@ export function nowWords(activity: readonly AgentActivity[]): string | null {
         return "Writing its answer";
       case "reasoning":
         return "Thinking";
+      case "status":
+        if (e.phase === "starting") return e.text;
+        break;
       case "plan": {
         const p = liveProgress(activity);
         if (p.current) return p.current;

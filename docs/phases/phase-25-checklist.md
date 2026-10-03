@@ -566,14 +566,16 @@ About 5 to 7 build sessions.
   - [x] Read plans and progress from every AI tool that sends them: Grok's and Kimi's plans,
         Codex's to-do list (as it starts, each step ticked, and at the end), and Claude Code's
         to-dos. A new "plan" event, live only.
-  - [ ] Claude Code's tool calls as soon as they start: **not yet.** A step shows when its call
-        is complete (as before); a file it writes already shows in Watch as it is written.
+  - [x] Claude Code's tool calls as soon as they start: "Running a command…" shows the moment
+        it starts writing the call (a new live-only "starting" status), then "Running `npm test`"
+        when the call is complete. A file it writes also shows in Watch as it is written.
   - [ ] Codex live text needs its other connection method (app-server). That's a stretch goal,
         built last. **Not yet:** Codex's words show as each message is complete.
 - **Tests:** the store joins live text correctly (`agents/store.test.ts`, as before). Each tool's
   plan becomes progress: Rust `its_to_do_list_is_its_plan` (Codex), `its_to_dos_are_its_plan`
   (Claude Code), `the_plan_is_passed_on` (Grok and Kimi); `live/live.test.tsx` (plain-word steps,
-  the progress line, the last 3 lines, a tile's one line).
+  the progress line, the last 3 lines, a tile's one line, a step shown as soon as it starts);
+  Rust `a_step_shows_as_soon_as_it_starts`.
 
 ### 3.2 Watch shows changes made by commands too — M–L
 

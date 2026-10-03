@@ -6,7 +6,7 @@
 | **Branch**   | `claude/relaxed-mccarthy-uxyguw` ([PR #156](https://github.com/Seckcey/plenipo/pull/156)), commits `f5a1280` to `a83c145`, the Windows fix `bf29ff2`, and the merge of `main`                         |
 | **Verified** | `pnpm check`, `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace`, `pnpm bindings` (no diff), and `pnpm docs:check`, here. GitHub CI on the pull request, Windows and the E2E included. |
 | **Date**     | 2026-10-03 (Pacific time)                                                                                                                                                                             |
-| **Result**   | All five items built, with three parts left for later (section 4). The owner's checks are next (section 3). Plenipo is made by 8 West Ventures, LLC.                                                  |
+| **Result**   | All five items built, with two parts left for later (section 4). The owner's checks are next (section 3). Plenipo is made by 8 West Ventures, LLC.                                                    |
 
 ## In short
 
@@ -44,8 +44,9 @@ The tests for each item are named in the [checklist](phase-25-checklist.md).
 
 ## 4. Not done yet
 
-- Claude Code's tool calls the moment they start: a step shows when its call is complete (a file
-  it writes already shows in Watch as it is written).
+Claude Code's steps now show the moment they start (done after this report; see 3.1 in the
+checklist).
+
 - Codex's words as it types: they show as each message is complete (Codex's app-server, a stretch
   goal).
 - A side chat continuing a copy of the AI tool's own conversation (`--fork-session` and the

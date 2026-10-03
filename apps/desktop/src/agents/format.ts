@@ -239,6 +239,9 @@ export function describeActivity(e: AgentEvent): {
       return { label: "Plan", text: `${done} of ${e.steps.length} steps done` };
     }
     case "status":
-      return { label: e.phase === "thinking" ? "Thinking" : "Waiting", text: e.text };
+      return {
+        label: e.phase === "thinking" ? "Thinking" : e.phase === "starting" ? "Step" : "Waiting",
+        text: e.text,
+      };
   }
 }

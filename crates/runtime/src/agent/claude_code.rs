@@ -759,6 +759,44 @@ fn thinking(v: &Value) -> Option<Parsed> {
     }
 }
 
+/// A tool call that has just started, as soon as Claude Code begins writing it (Phase 25, item
+/// 3.1): its name is known at once, its arguments only when the call is complete. Live only.
+fn starting(v: &Value) -> Option<AgentEvent> {
+    let event = v.get("event")?;
+    if event.get("type").and_then(Value::as_str)? != "content_block_start" {
+        return None;
+    }
+    let block = event.get("content_block")?;
+    if block.get("type").and_then(Value::as_str)? != "tool_use" {
+        return None;
+    }
+    let text = starting_words(block.get("name").and_then(Value::as_str)?)?;
+    Some(AgentEvent::Status {
+        phase: StatusPhase::Starting,
+        text,
+    })
+}
+
+/// A step's first words, from the tool's name alone ("Bash" → "Running a command"). Its plan
+/// (`TodoWrite`) is not a step: it shows as the progress line.
+fn starting_words(name: &str) -> Option<String> {
+    let tool = name.rsplit("__").next().unwrap_or(name);
+    let words = match tool.to_ascii_lowercase().as_str() {
+        "" | "todowrite" => return None,
+        "bash" | "run_command" => "Running a command",
+        "read" | "read_file" | "notebookread" => "Reading a file",
+        "write" | "write_file" => "Writing a file",
+        "edit" | "multiedit" | "edit_file" | "notebookedit" => "Changing a file",
+        "grep" | "search_files" => "Searching the files",
+        "glob" | "ls" | "list_files" => "Looking at the files",
+        "webfetch" => "Opening a web page",
+        "websearch" => "Searching the web",
+        "task" | "agent" => "Asking a helper",
+        _ => return Some(format!("Using {}", cap(tool, 80))),
+    };
+    Some(words.to_owned())
+}
+
 /// Claude Code's `system` line `api_retry` in plain words: why it is waiting, how long, and
 /// which try it is on. The fields are the ones Claude Code's own output schema names
 /// (`attempt`, `max_retries`, `retry_delay_ms`, `error_status`, `error`, `no_response`).
@@ -815,7 +853,11 @@ impl TurnParser for Parser {
                     }
                     _ => match thinking(&v) {
                         Some(parsed) => parsed,
-                        None => self.tool_input(&v),
+                        None => {
+                            let mut parsed = self.tool_input(&v);
+                            parsed.events.extend(starting(&v));
+                            parsed
+                        }
                     },
                 }
             }
@@ -1336,7 +1378,17 @@ mod tests {
             stop(2),
         ] {
             let parsed = p.line(&line.to_string(), false);
-            assert!(parsed.events.is_empty(), "previews are not activity");
+            assert!(
+                parsed.events.iter().all(|e| matches!(
+                    e,
+                    AgentEvent::Status {
+                        phase: StatusPhase::Starting,
+                        ..
+                    }
+                )),
+                "previews are not activity: {:?}",
+                parsed.events
+            );
             previews.extend(parsed.previews);
         }
         assert!(
@@ -1367,6 +1419,53 @@ mod tests {
         assert!(
             later.iter().all(|x| !x.text.contains("other") && !x.done),
             "{later:#?}"
+        );
+    }
+
+    /// Phase 25, item 3.1: a step shows the moment Claude Code starts writing its call, in plain
+    /// words, before its arguments are complete; its plan does not.
+    #[test]
+    fn a_step_shows_as_soon_as_it_starts() {
+        let mut p = ClaudeCode.parser(&new_request());
+        let init = json!({"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111","model":"m","apiKeySource":"none","tools":[]});
+        p.line(&init.to_string(), false);
+        let start = |index: u64, kind: &str, name: &str| {
+            json!({"type":"stream_event","event":{"type":"content_block_start","index":index,
+                "content_block":{"type":kind,"id":format!("toolu_{index}"),"name":name,"input":{}}}})
+        };
+        let events = feed(
+            p.as_mut(),
+            &[
+                start(0, "tool_use", "Bash"),
+                start(1, "tool_use", "Read"),
+                start(2, "tool_use", "mcp__plenipo__edit_file"),
+                start(3, "tool_use", "TodoWrite"),
+                start(4, "tool_use", "mcp__github__create_issue"),
+                start(5, "text", ""),
+            ],
+        );
+        let words: Vec<_> = events
+            .iter()
+            .map(|e| match e {
+                AgentEvent::Status {
+                    phase: StatusPhase::Starting,
+                    text,
+                } => text.as_str(),
+                other => panic!("only steps starting: {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            words,
+            [
+                "Running a command",
+                "Reading a file",
+                "Changing a file",
+                "Using create_issue"
+            ]
+        );
+        assert!(
+            events.iter().all(|e| e.ledger_type().is_none()),
+            "live only"
         );
     }
 

@@ -3,4 +3,4 @@
 /**
  * What a [`AgentEvent::Status`] is about.
  */
-export type StatusPhase = "waiting" | "thinking";
+export type StatusPhase = "waiting" | "thinking" | "starting";

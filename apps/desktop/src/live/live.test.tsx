@@ -9,7 +9,7 @@ import { initialAgentState } from "../agents/store";
 import { position, worker } from "../test/orgFixtures";
 import { LiveConversation } from "./LiveConversation";
 import { NowLine } from "./NowLine";
-import { liveProgress, liveWork, nowWords, progressWords, stepWords } from "./words";
+import { liveProgress, liveWork, nowWords, progressWords, startingStep, stepWords } from "./words";
 
 let seq = 0;
 const at = (event: AgentEvent, taskId = "t-1"): AgentActivity => ({
@@ -84,6 +84,23 @@ describe("the live conversation's words (Phase 25, item 3.1)", () => {
     expect(nowWords([])).toBeNull();
   });
 
+  it("shows a step the moment Claude Code starts it, until the call is complete", () => {
+    const starting: AgentEvent = { type: "status", phase: "starting", text: "Running a command" };
+    const usage: AgentEvent = {
+      type: "usage",
+      usage: { inputTokens: 1, cachedInputTokens: 0, outputTokens: 1 },
+    };
+    expect(startingStep([at(starting)])).toBe("Running a command");
+    expect(startingStep([at(starting), at(usage)])).toBe("Running a command");
+    expect(nowWords([at({ type: "textDelta", text: "Let me" }), at(starting)])).toBe(
+      "Running a command",
+    );
+    // Complete: its full words.
+    const done = [at(starting), at({ type: "toolUse", tool: "Bash", summary: "npm test" })];
+    expect(startingStep(done)).toBeNull();
+    expect(nowWords(done)).toBe("Running `npm test`");
+  });
+
   it("finds the work going on now, with its conversation", () => {
     const sup = position("sup", "Website Supervisor", "r-coord", null, {
       currentTask: {
@@ -146,6 +163,38 @@ describe("the live conversation on screen (Phase 25, item 3.1)", () => {
     ]);
     // Still typing: the last words have a caret.
     expect(log.querySelector(".live__caret")).not.toBeNull();
+  });
+
+  it("shows a step as soon as it starts, then its full words, with the words kept whole", () => {
+    const typed = [
+      at({ type: "textDelta", text: "Let me run " }),
+      at({ type: "textDelta", text: "the tests." }),
+      at({ type: "status", phase: "starting", text: "Running a command" }),
+    ];
+    const lines = (activity: AgentActivity[]) => {
+      cleanup();
+      render(<LiveConversation taskId="t-1" sessionId="s-1" startedAt={null} running who="Dev" />, {
+        wrapper: provide({ "t-1": activity }),
+      });
+      const log = screen.getByRole("log", { name: "What Dev says and does" });
+      return {
+        text: within(log)
+          .getAllByRole("listitem")
+          .map((l) => l.textContent),
+        typing: log.querySelector(".live__caret") !== null,
+      };
+    };
+    expect(lines(typed)).toEqual({
+      text: ["Let me run the tests.", "Running a command…"],
+      typing: false,
+    });
+    expect(
+      lines([
+        ...typed,
+        at({ type: "message", text: "Let me run the tests." }),
+        at({ type: "toolUse", tool: "Bash", summary: "npm test" }),
+      ]).text,
+    ).toEqual(["Let me run the tests.", "Running `npm test`"]);
   });
 
   it("shows only the last lines in the details panel, and reads a conversation not loaded yet", () => {

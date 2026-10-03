@@ -13,7 +13,7 @@ import { AgentsContext } from "../agents/context";
 import { useChatIfAny } from "../chat/context";
 import { activityItems } from "../agents/store";
 import { useNow } from "../runtime/useNow";
-import { liveProgress, progressWords, stepWords } from "./words";
+import { liveProgress, progressWords, startingStep, stepWords } from "./words";
 
 /** One line of the conversation. */
 type Line =
@@ -60,6 +60,13 @@ function linesOf(activity: readonly AgentActivity[]): Line[] {
         break;
     }
   });
+  // A step just started (Claude Code): it shows at once, and its full words when it is complete.
+  const starting = startingStep(activity);
+  if (starting) {
+    for (const line of lines) if (line.kind === "words") line.typing = false;
+    const last = activity[activity.length - 1];
+    lines.push({ key: `s${last?.seq ?? 0}`, kind: "step", text: `${starting}…` });
+  }
   return lines;
 }
 

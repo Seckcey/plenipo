@@ -706,6 +706,9 @@ pub enum StatusPhase {
     Waiting,
     /// The model is thinking, before it writes.
     Thinking,
+    /// A step has just started, in plain words ("Running a command"); what it does shows when
+    /// the call is complete (Phase 25, item 3.1).
+    Starting,
 }
 
 impl AgentEvent {
