@@ -126,7 +126,11 @@ export function runtimeReducer(state: RuntimeState, action: RuntimeAction): Runt
 }
 
 function upsertRecord(state: RuntimeState, record: ExecutionRecord): RuntimeState {
-  const known = record.id in state.executions;
+  const current = state.executions[record.id];
+  // A run never starts again once it has ended. An answer sent before the end (the start
+  // command's, when a program ends at once) never puts "Running" back over "Failed".
+  if (current && !isActive(current) && isActive(record)) return state;
+  const known = current !== undefined;
   return {
     ...state,
     executions: { ...state.executions, [record.id]: record },

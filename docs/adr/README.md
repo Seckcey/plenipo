@@ -36,7 +36,7 @@ architecture must be recorded here.
 | [019](ADR-019-role-working-instructions.md)                          | Every role knows its job: working instructions for all roles                                                           | Accepted |
 | [020](ADR-020-browser-and-computer-use.md)                           | Plenipo's browser and computer use, through Guard (amended by 023, 028, 035, 046, 047, 049)                            | Accepted |
 | [021](ADR-021-editions-and-license.md)                               | Free and Pro editions under the Elastic License 2.0                                                                    | Accepted |
-| [022](ADR-022-subscription-and-license-check.md)                     | Subscription pricing and the weekly license check                                                                      | Accepted |
+| [022](ADR-022-subscription-and-license-check.md)                     | Subscription pricing and the weekly license check (amended by 211)                                                     | Accepted |
 | [023](ADR-023-settings-switches.md)                                  | On/off switches in Settings                                                                                            | Accepted |
 | [024](ADR-024-workers-learn-from-work.md)                            | Workers learn from their work (amended by 041, 045, 050)                                                               | Accepted |
 | [025](ADR-025-servers-over-ssh.md)                                   | Servers over SSH, through Guard                                                                                        | Accepted |
@@ -115,7 +115,7 @@ architecture must be recorded here.
 | [113](ADR-113-workers-at-the-same-time.md)                           | Workers at once: Free's fourth waits its turn; Pro runs four per organization (amends 021)                             | Accepted |
 | [114](ADR-114-business-departments.md)                               | What counts as a business department                                                                                   | Accepted |
 | [115](ADR-115-free-never-contacts-8-west.md)                         | A Free copy never contacts 8 West                                                                                      | Accepted |
-| [116](ADR-116-the-weekly-answer-is-signed.md)                        | The weekly check's answer is signed, and its time decides the grace (adds to 022)                                      | Accepted |
+| [116](ADR-116-the-weekly-answer-is-signed.md)                        | The weekly check's answer is signed, and its time decides the grace (adds to 022; amended by 211)                      | Accepted |
 | [117](ADR-117-paid-ai-keys-are-free.md)                              | Paid AI keys are in the Free edition (amends 021)                                                                      | Accepted |
 | [118](ADR-118-customer-accounts.md)                                  | Customer accounts: signing in, and deleting an account                                                                 | Accepted |
 | [119](ADR-119-editions-and-prices-revised.md)                        | Editions and prices, revised: Pro $19 with 3 organizations; Partner plans by organizations                             | Accepted |
@@ -123,8 +123,8 @@ architecture must be recorded here.
 | [131](ADR-131-tools-for-any-model.md)                                | Wave 4: Plenipo's own tools for any model, then specialist jobs; no Hermes (changes 036)                               | Accepted |
 | [132](ADR-132-the-final-push.md)                                     | The final push: Phase 14, then Mac and Linux, then Community; Wave 4, 15, and 9 parked                                 | Accepted |
 | [140](ADR-140-phase-14-starts.md)                                    | Phase 14 starts: numbers 140 to 149, what the check found, three parts                                                 | Accepted |
-| [141](ADR-141-pairing-a-phone.md)                                    | Pairing a phone: a picture code or a typed code, shown on your PC                                                      | Accepted |
-| [142](ADR-142-the-phone-proves-it-is-you.md)                         | The phone proves it is you: a passkey, checked by your PC                                                              | Accepted |
+| [141](ADR-141-pairing-a-phone.md)                                    | Pairing a phone: a picture code or a typed code, shown on your PC (amended by 212)                                     | Accepted |
+| [142](ADR-142-the-phone-proves-it-is-you.md)                         | The phone proves it is you: a passkey, checked by your PC (amended by 212)                                             | Accepted |
 | [143](ADR-143-the-relay-and-the-lock.md)                             | The relay and the lock: sealed end to end, no copies, wrong tries (amended by 147, 149)                                | Accepted |
 | [144](ADR-144-notices-on-your-phone.md)                              | Notices on your phone, sealed for it, sent straight from the PC (amends 040)                                           | Accepted |
 | [145](ADR-145-what-a-phone-may-ask.md)                               | The fixed list of what a phone may ask; what stays on your PC                                                          | Accepted |
@@ -168,6 +168,8 @@ architecture must be recorded here.
 | [200](ADR-200-a-live-chat-with-each-agent.md)                        | A live chat with each agent, as in Claude Code: streaming, what it is doing now, files saved                           | Proposed |
 | [201](ADR-201-light-by-default.md)                                   | Light by default: agents save files and run programs; Settings → Safety; Plenipo's own folder                          | Proposed |
 | [202](ADR-202-the-chain-of-command.md)                               | The chain of command: skipped leads are told, reports come back up one level at a time                                 | Proposed |
+| [211][adr-211]                                                       | Pro ends a set time after the paid period (amends 022, 116)                                                            | Proposed |
+| [212](ADR-212-the-owner-compares-six-digits.md)                      | The owner compares six digits; a page that refreshes by itself keeps no sign-in (amends 141, 142)                      | Proposed |
 | [250](ADR-250-watch-shows-changes-made-by-commands.md)               | Watch shows changes made by commands too: files noted before and compared after (amends 055)                           | Accepted |
 | [251](ADR-251-side-chats.md)                                         | Side chats with a manager or supervisor: answer only, briefed on what the agent knows                                  | Accepted |
 | [252](ADR-252-prompt-caching-for-anthropic-models.md)                | Prompt caching for Anthropic models on your key and through OpenRouter (amends 085 §3.5)                               | Accepted |
@@ -177,3 +179,5 @@ architecture must be recorded here.
 | [256](ADR-256-check-answers-against-what-really-happened.md)         | Check answers against what really happened: Plenipo's record under every answer, four plain checks, sent back once     | Accepted |
 | [257](ADR-257-catch-made-up-answers-step-2.md)                       | Catch made-up answers, step 2: links checked through Guard, leads send work back, a notice on repeat failures          | Accepted |
 | [258](ADR-258-spread-use-across-the-week-and-the-month.md)           | Spread use across the week and the month: a fair pace per window, ahead steps down early, Your plans                   | Accepted |
+
+[adr-211]: ADR-211-pro-ends-a-set-time-after-the-paid-period.md
