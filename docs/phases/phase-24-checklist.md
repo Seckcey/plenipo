@@ -134,17 +134,17 @@ are written and tested; they reach the live service, still switched off, when th
       offline** sits beside your status (ADR-163 §1, §5)
 - [x] The directory, **Find someone**, **Invite by email**, and **Share my profile** (ADR-163 §4,
       §6), with the share page on the website (the same page for every name)
-- [ ] Messages: HPKE sealing with test answers, signing, **Requests**, the safety code, "**Pat's
+- [x] Messages: HPKE sealing with test answers, signing, **Requests**, the safety code, "**Pat's
       computers changed**", **Delete for me** (ADR-164)
-- [ ] Every letter, number, symbol, and emoji, emoji reactions, and hidden control characters shown
+- [x] Every letter, number, symbol, and emoji, emoji reactions, and hidden control characters shown
       as visible marks (ADR-164 §4)
-- [ ] A pasted or dropped photo is refused (ADR-164 §4). The **GIF** button stays hidden until the
+- [x] A pasted or dropped photo is refused (ADR-164 §4). The **GIF** button stays hidden until the
       owner chooses the library (then a release adds Guard's **GIFs** purpose, ADR-170 §8); stickers
       are left out for now (ADR-172 §1)
 - [ ] Points, the leaderboard, badges, "**Thanked by**", **Getting started** (its first three
       steps), and **Invite someone** (ADR-169, ADR-172 §3, §4). The **Thanks** button comes with
       parts 24D and 24E
-- [ ] **Give to a worker**, fenced as outside words (a new `fence::Source` kind) (ADR-164 §9)
+- [x] **Give to a worker**, fenced as outside words (a new `fence::Source` kind) (ADR-164 §9)
 - [ ] Block, report (with the proof), and leave, everywhere (ADR-167)
 - [ ] **Delete my Community data from this PC** (ADR-168 §3)
 - [ ] Ledger events `community.*`, never a message's words
@@ -202,11 +202,11 @@ are written and tested; they reach the live service, still switched off, when th
 - [ ] Each time in ADR-168 is enforced by the cleanup
 - [x] A Free copy that never signs in to Community still never contacts 8 West (ADR-162 §5)
 - [x] Under 13 cannot join, and nothing of the answer is kept (ADR-162 §4)
-- [ ] A member under 18 is never in the directory, an adult never sees their status or mood, and an
+- [x] A member under 18 is never in the directory, an adult never sees their status or mood, and an
       adult's message to them lands in **Requests** (ADR-162 §4)
 - [ ] The directory cannot be copied whole, and **Appear offline** removes you from it and the
       leaderboard at once (ADR-163 §4, §5)
-- [ ] A message can never make Plenipo fetch anything but the GIF library's pictures (ADR-164 §4)
+- [x] A message can never make Plenipo fetch anything but the GIF library's pictures (ADR-164 §4)
 - [ ] Sending messages earns no points, and one person can give another at most 20 points a month
       (ADR-169 §1)
 - [ ] A reward cannot be earned by inviting yourself, and is taken back on a refund (ADR-169 §6)

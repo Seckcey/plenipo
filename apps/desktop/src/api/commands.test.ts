@@ -3,6 +3,16 @@ import { SYSTEM_WORDS } from "@plenipo/types";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  acceptCommunityRequest,
+  communityConversation,
+  communityConversations,
+  communitySafetyCodeChecked,
+  deleteCommunityMessage,
+  giveCommunityMessageToWorker,
+  leaveCommunityConversation,
+  openCommunityLink,
+  reactInCommunity,
+  sendCommunityMessage,
   cancelAiToolUpdate,
   checkAiTool,
   checkAiToolVersions,
@@ -229,5 +239,66 @@ describe("command client", () => {
     });
     await removePaidKey("openrouter");
     expect(mockedInvoke).toHaveBeenLastCalledWith("remove_paid_key", { runtimeId: "openrouter" });
+  });
+
+  it("sends Community's message commands their arguments (Phase 24, ADR-164)", async () => {
+    await communityConversations();
+    expect(mockedInvoke).toHaveBeenLastCalledWith("community_conversations", undefined);
+    await communityConversation("cm_1", null);
+    expect(mockedInvoke).toHaveBeenLastCalledWith("community_conversation", {
+      memberId: "cm_1",
+      before: null,
+    });
+    await communityConversation("cm_1", "ci_1");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("community_conversation", {
+      memberId: "cm_1",
+      before: "ci_1",
+    });
+    await sendCommunityMessage("cm_1", "pat-lee", "Hello", "ci_1");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("send_community_message", {
+      to: "cm_1",
+      name: "pat-lee",
+      text: "Hello",
+      replyTo: "ci_1",
+    });
+    await sendCommunityMessage("cm_1", "pat-lee", "Hello", null);
+    expect(mockedInvoke).toHaveBeenLastCalledWith("send_community_message", {
+      to: "cm_1",
+      name: "pat-lee",
+      text: "Hello",
+      replyTo: null,
+    });
+    await reactInCommunity("ci_1", "\u{1F44D}");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("react_in_community", {
+      itemId: "ci_1",
+      emoji: "\u{1F44D}",
+    });
+    await reactInCommunity("ci_1", null);
+    expect(mockedInvoke).toHaveBeenLastCalledWith("react_in_community", {
+      itemId: "ci_1",
+      emoji: null,
+    });
+    await acceptCommunityRequest("cm_1");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("accept_community_request", { memberId: "cm_1" });
+    await leaveCommunityConversation("cm_1");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("leave_community_conversation", {
+      memberId: "cm_1",
+    });
+    await deleteCommunityMessage("ci_1");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("delete_community_message", { itemId: "ci_1" });
+    await communitySafetyCodeChecked("cm_1");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("community_safety_code_checked", {
+      memberId: "cm_1",
+    });
+    await openCommunityLink("https://example.com/a");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("open_community_link", {
+      link: "https://example.com/a",
+    });
+    await giveCommunityMessageToWorker("ci_1", "p-web", "Reply for me");
+    expect(mockedInvoke).toHaveBeenLastCalledWith("give_community_message_to_worker", {
+      itemId: "ci_1",
+      positionId: "p-web",
+      note: "Reply for me",
+    });
   });
 });
