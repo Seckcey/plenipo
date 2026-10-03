@@ -1659,6 +1659,59 @@ async fn work_a_usage_limit_stopped_is_picked_back_up_unless_left_stopped() {
     assert!(h.workforce.limit_waits().unwrap().is_empty());
 }
 
+/// Work a usage limit stopped whose worker is gone by the time the limit is over (Phase 25,
+/// item 4.2; asked for by the review of #156): it is not given to anyone else, it is not tried
+/// again, and the owner hears why in plain words, in Activity and as a notice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn work_whose_worker_is_gone_after_a_limit_is_not_picked_up_and_the_owner_hears_why() {
+    use plenipo_ledger::limit_stops::NOT_PICKED_UP;
+    let h = harness().await;
+    let o = h.development();
+    std::fs::write(
+        h.dir
+            .path()
+            .join("home")
+            .join(".plenipo-fake-agent")
+            .join("script.json"),
+        serde_json::json!({ "Cloudline Coordinator": [ { "usageLimit": true } ] }).to_string(),
+    )
+    .unwrap();
+    let checks = h.objective(&o.coordinator, "Check the release.").await;
+    assert_eq!(h.finished(&checks).await.state, TaskState::Failed);
+    // The owner archives the project, and its coordinator with it; then the limit is over.
+    h.workforce.archive_project(&o.project).unwrap();
+    h.router.clear_limit("claude-code").unwrap();
+    assert_eq!(h.workforce.pick_up_after_limits().await.unwrap(), 0);
+    let event = h
+        .ledger
+        .last_task_event(&checks, NOT_PICKED_UP)
+        .unwrap()
+        .expect("recorded");
+    assert_eq!(
+        event.payload["reason"],
+        "Cloudline Coordinator has been archived"
+    );
+    // Not tried again.
+    assert_eq!(h.workforce.pick_up_after_limits().await.unwrap(), 0);
+    assert_eq!(
+        h.ledger.count_task_events(&checks, NOT_PICKED_UP).unwrap(),
+        1
+    );
+    // The notice says what, after which limit, and why.
+    let notice = h
+        .ledger
+        .notice_for(&event, &|_| "Claude Code".to_owned())
+        .unwrap()
+        .expect("a notice");
+    assert_eq!(notice.title, "Work wasn't picked back up");
+    assert_eq!(
+        notice.body,
+        "Check the release.\nAfter Claude Code's usage limit, Plenipo couldn't give it back: \
+         Cloudline Coordinator has been archived. Give it again to someone else if it still \
+         needs doing."
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_usage_limit_holds_work_back_or_moves_it_on_as_the_owner_chose() {
     let h = harness().await;

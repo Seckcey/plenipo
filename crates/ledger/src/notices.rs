@@ -150,6 +150,7 @@ pub fn may_notify(event_type: &str) -> bool {
             | "spending.warning"
             | "spending.stopped"
             | "liaison.answer_sent_back"
+            | "work.not_picked_up"
     )
 }
 
@@ -364,6 +365,7 @@ impl Ledger {
                 }
             }
             "liaison.answer_sent_back" => self.repeat_mismatch_notice(event)?,
+            "work.not_picked_up" => Some(self.not_picked_up_notice(event, tool)?),
             // Phase 16 Wave 3 (ADR-085): once a month per cap, each.
             "spending.warning" => Some(spending_warning(p)),
             "spending.stopped" => Some(spending_stopped(p)),
@@ -383,6 +385,44 @@ impl Ledger {
             ),
             _ => None,
         })
+    }
+
+    /// Work a usage limit stopped that Plenipo couldn't give back once the limit was over (Phase
+    /// 25, item 4.2): its worker was archived or deleted, or its AI tool refused it. The owner
+    /// hears what and why, in the words Plenipo recorded (asked for by the review of #156).
+    fn not_picked_up_notice(
+        &self,
+        event: &LedgerEvent,
+        tool: &dyn Fn(&str) -> String,
+    ) -> Result<Notice> {
+        let p = &event.payload;
+        let objective = event
+            .task_id
+            .as_deref()
+            .map(|id| self.task(id))
+            .transpose()?
+            .flatten()
+            .map(|t| line(&t.objective));
+        let ai_tool = text(p, "label")
+            .map(str::to_owned)
+            .or_else(|| text(p, "runtimeId").map(tool))
+            .unwrap_or_else(|| "its AI tool".to_owned());
+        let why = match text(p, "reason").map(line) {
+            Some(why) => format!(": {}", why.trim_end_matches('.')),
+            None => String::new(),
+        };
+        let what = format!(
+            "After {ai_tool}'s usage limit, Plenipo couldn't give it back{why}. Give it again to \
+             someone else if it still needs doing."
+        );
+        Ok(Notice::new(
+            NoticeKind::Problems,
+            "Work wasn't picked back up",
+            match objective {
+                Some(objective) => format!("{objective}\n{what}"),
+                None => what,
+            },
+        ))
     }
 
     /// A worker whose answers keep not matching Plenipo's record (Phase 25, item 4.8): on its

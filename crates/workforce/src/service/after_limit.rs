@@ -49,6 +49,24 @@ fn owners_objective(objective: &str) -> String {
     }
 }
 
+/// Why work couldn't be given back, in the owner's words: it shows in Activity and in a notice
+/// (asked for by the review of #156). Plenipo's own refusals already say it plainly ("Cloudline
+/// Coordinator has been archived"), so only their "invalid input: " is dropped; a worker or a
+/// conversation deleted for good is said here.
+fn plain_reason(e: &WorkforceError) -> String {
+    use plenipo_ledger::LedgerError;
+    use plenipo_runtime::RuntimeError;
+    match e {
+        WorkforceError::Ledger(LedgerError::NotFound(_))
+        | WorkforceError::Runtime(RuntimeError::UnknownSession(_)) => {
+            "its worker was deleted for good".into()
+        }
+        WorkforceError::Ledger(LedgerError::InvalidInput(why))
+        | WorkforceError::Runtime(RuntimeError::InvalidInput(why)) => why.clone(),
+        _ => e.to_string(),
+    }
+}
+
 /// How `task` is given again; `None` for work that is not picked up by itself (a side chat, or
 /// work Plenipo cannot place).
 fn again(task: &Task) -> Option<Again> {
@@ -203,7 +221,7 @@ impl Workforce {
                 }
                 Err(e) => (
                     NOT_PICKED_UP,
-                    json!({ "reason": e.to_string(), "runtimeId": runtime, "label": label }),
+                    json!({ "reason": plain_reason(&e), "runtimeId": runtime, "label": label }),
                 ),
             };
             self.ledger().append_event(NewEvent {
@@ -302,5 +320,35 @@ mod tests {
         assert_eq!(reset_page("claude-code").unwrap().0, "Anthropic");
         assert_eq!(reset_page("codex").unwrap().0, "OpenAI");
         assert!(reset_page("grok").is_none());
+    }
+
+    /// The reason Activity and the notice give is the owner's words, never an error code.
+    #[test]
+    fn why_work_was_not_picked_up_is_said_plainly() {
+        use plenipo_ledger::LedgerError;
+        use plenipo_runtime::RuntimeError;
+        let said = |e: WorkforceError| plain_reason(&e);
+        assert_eq!(
+            said(WorkforceError::Ledger(LedgerError::NotFound(
+                "position p1".into()
+            ))),
+            "its worker was deleted for good"
+        );
+        assert_eq!(
+            said(WorkforceError::Runtime(RuntimeError::UnknownSession(
+                "s1".into()
+            ))),
+            "its worker was deleted for good"
+        );
+        assert_eq!(
+            said(WorkforceError::Ledger(LedgerError::InvalidInput(
+                "Cloudline Coordinator has been archived".into()
+            ))),
+            "Cloudline Coordinator has been archived"
+        );
+        assert_eq!(
+            said(WorkforceError::Invalid("All work is stopped".into())),
+            "All work is stopped"
+        );
     }
 }
