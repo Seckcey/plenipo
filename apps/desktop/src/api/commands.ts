@@ -130,6 +130,7 @@ import type {
   ChangingFile,
   FileRoots,
   WorkFolder,
+  ChainOrder,
   FileView,
   FolderListing,
   LineEnding,
@@ -638,6 +639,14 @@ export function giveObjective(
  * missing, then the project with its Supervisor and the standard team. */
 export function setUpDevelopment(input: DevelopmentInput): Promise<OrgSnapshot> {
   return call<OrgSnapshot>("set_up_development", { input });
+}
+
+/**
+ * A position's chain of command (ADR-202): the owner's orders it was given, that went through
+ * it, or that went past it, newest first, with where each stands and what came back up to it.
+ */
+export function getChainOrders(positionId: string): Promise<ChainOrder[]> {
+  return call<ChainOrder[]>("get_chain_orders", { positionId });
 }
 
 /** Plenipo's result for an objective (any task of it), built from the Ledger. */

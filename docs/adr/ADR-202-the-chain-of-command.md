@@ -121,4 +121,24 @@ What Plenipo did at v1.22.0:
 
 ## As built
 
-_Filled in when it is built._
+- **Workforce** (`crates/workforce/src/chain.rs`): `record_order`, `report` (with its Ledger
+  listener, `watch`, started beside the lessons' in `service.rs`), `orders_for`, `news_for` and
+  `record_told`, and `through_words`. What another agent wrote is repeated as news cut short and
+  without the marks instructions are written with (brackets, braces, angle brackets, backticks),
+  with a unit test. `ChainOrder`, `ChainPart`, and `ChainStanding` (`dto.rs`);
+  `OrgView::leads_above` (`view.rs`).
+- **The owner's objectives** (`Workforce::give_objective` and `plan_objective` in `service.rs`):
+  an on-call position's order goes to its lead's conversation, with the line that asks it to hand
+  it on; the news the taker has not heard is added; the records are written once the turn has
+  started (`record_chain`), and a turn that already ended reports at once.
+- **The desktop host:** `get_chain_orders` (`commands.rs`), the main window's alone, with an IPC
+  test (`the_chain_of_command_is_read_by_position`).
+- **The chat** (`apps/desktop/src/chat/`): **Chain of command** in the Tasks list
+  (`PlanPanel.tsx`, `useChainOrders.ts`, the words in `plan.ts`); a message to an on-call
+  position opens its lead's chat, and the first chat says where it went (`ChatProvider.tsx`);
+  the Chat button on an on-call position's tile and in its Inspector. The Activity trail's words
+  (`ledger/format.ts`).
+- **Tests:** `an_order_that_skips_a_level_is_told_to_the_lead_and_reported_back_up` and
+  `an_order_for_an_on_call_position_goes_through_its_lead` (`crates/workforce/tests/workforce.rs`);
+  a test that caught news repeating the owner's words as a hand-off led to the quoting rule
+  above. Web tests for the words, the list, and the routed message.

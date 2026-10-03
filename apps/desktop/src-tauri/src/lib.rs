@@ -567,6 +567,7 @@ pub fn configure<R: Runtime>(
             commands::cancel_agent_turn,
             commands::close_agent_session,
             commands::get_task_handoffs,
+            commands::get_chain_orders,
             commands::get_task_tree,
             commands::get_liaison_overview,
             commands::get_organization,
@@ -6866,6 +6867,36 @@ mod ipc_boundary_tests {
             "https://example.com"
         )
         .is_err());
+    }
+
+    /// The chain of command (ADR-202) is read by position, from an organization's window only.
+    #[test]
+    fn the_chain_of_command_is_read_by_position() {
+        let app = app();
+        let main = window(&app, "main");
+        let orders: Vec<plenipo_workforce::ChainOrder> = body(invoke_json(
+            &main,
+            "get_chain_orders",
+            serde_json::json!({ "positionId": "0f8fad5b-d9cb-469f-a165-70867728950e" }),
+        ));
+        assert!(orders.is_empty());
+        let err = invoke_json(
+            &main,
+            "get_chain_orders",
+            serde_json::json!({ "positionId": "../../etc" }),
+        )
+        .expect_err("not a position");
+        assert_eq!(err["kind"], "invalidInput", "{err}");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for w in [&other, &sign] {
+            assert!(invoke_json(
+                w,
+                "get_chain_orders",
+                serde_json::json!({ "positionId": "0f8fad5b-d9cb-469f-a165-70867728950e" }),
+            )
+            .is_err());
+        }
     }
 
     /// "Open folder" (ADR-201): the page names a task, never a path. Plenipo answers from its own

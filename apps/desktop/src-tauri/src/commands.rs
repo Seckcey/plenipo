@@ -1129,6 +1129,17 @@ pub async fn end_oversight(
     with_workforce(&workforce, move |w| w.end_oversight(&oversight_id)).await
 }
 
+/// A position's chain of command (ADR-202): the owner's orders it was given, that went through
+/// it, or that went past it, newest first, with where each stands and what came back up to it.
+#[tauri::command]
+pub async fn get_chain_orders(
+    workforce: Org<'_, Workforce>,
+    position_id: String,
+) -> Result<Vec<plenipo_workforce::ChainOrder>, CommandError> {
+    validate_id("position", &position_id)?;
+    with_workforce(&workforce, move |w| w.chain_orders(&position_id)).await
+}
+
 /// Give a staffed persistent position's agent an objective. Core builds its instructions and
 /// chooses its session; the UI names only the position and, optionally, the project the
 /// objective is about (one its team runs, Phase 8).

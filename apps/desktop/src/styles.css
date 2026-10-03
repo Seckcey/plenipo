@@ -5367,7 +5367,7 @@ body.popout {
 .chat-log__scroll {
   flex: 1;
   min-height: 0;
-  padding: var(--ui-space-4) var(--ui-space-4) var(--ui-space-2);
+  padding: var(--ui-space-4);
   overflow-y: auto;
   overscroll-behavior: contain;
   /* The top fades out, as in the reference: words scroll away under the header. */
@@ -5410,6 +5410,8 @@ body.popout {
 
 .chat-turn {
   display: grid;
+  /* Columns may shrink below their widest line (a long line of code scrolls in its own box). */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--ui-space-3);
   margin: 0 auto var(--ui-space-5);
   max-width: 820px;
@@ -5433,6 +5435,7 @@ body.popout {
 
 .chat-turn__answer {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--ui-space-2);
   min-width: 0;
 }
@@ -5576,12 +5579,17 @@ body.popout {
 
 /* What it is doing now: three dots, the action, and a timer that counts up. */
 .chat-live {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
   color: var(--ui-text-secondary);
   font-size: var(--ui-font-sm);
+}
+
+.chat-live__line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
 }
 
 .chat-live__dots {
@@ -5612,6 +5620,7 @@ body.popout {
 
 .chat-live__detail {
   max-width: 100%;
+  padding-left: 30px;
   overflow: hidden;
   color: var(--ui-text-muted);
   font-family: var(--ui-font-mono);
@@ -5620,8 +5629,7 @@ body.popout {
   text-overflow: ellipsis;
 }
 
-.chat-live__time,
-.chat-live__total {
+.chat-live__time {
   color: var(--ui-text-muted);
   font-family: var(--ui-font-mono);
   font-size: var(--ui-font-xs);
@@ -5878,6 +5886,22 @@ body.popout {
 
 .chat-plan__asked span {
   color: var(--ui-text-secondary);
+}
+
+.chat-plan__order {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chat-plan__result {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+  overflow-wrap: anywhere;
+}
+
+.chat-window__note {
+  margin: 0 var(--ui-space-4) var(--ui-space-2);
 }
 
 .chat-plan__list {

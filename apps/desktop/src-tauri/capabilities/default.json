@@ -32,6 +32,7 @@
     "allow-cancel-agent-turn",
     "allow-close-agent-session",
     "allow-get-task-handoffs",
+    "allow-get-chain-orders",
     "allow-get-task-tree",
     "allow-get-liaison-overview",
     "allow-get-organization",

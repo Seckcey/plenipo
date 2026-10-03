@@ -26,6 +26,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     getWorkFolder: vi.fn(),
     openWorkFolder: vi.fn(),
     getTaskHandoffs: vi.fn(),
+    getChainOrders: vi.fn(),
   };
 });
 
@@ -119,6 +120,7 @@ beforeEach(() => {
     exists: true,
   });
   vi.mocked(commands.openWorkFolder).mockResolvedValue(undefined);
+  vi.mocked(commands.getChainOrders).mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -272,6 +274,64 @@ describe("a chat with an agent (ADR-200)", () => {
     expect(await screen.findByText("Write the script")).toBeInTheDocument();
     expect(screen.getByText(/takes its work from its lead/)).toBeInTheDocument();
     expect(screen.getByLabelText("Message to Developer (on call)")).toBeDisabled();
+  });
+
+  it("sends an on-call worker's message through its lead, and opens the lead's chat", async () => {
+    vi.mocked(commands.giveObjective).mockResolvedValue({
+      session: session("s5", {
+        title: "Cloudline Supervisor",
+        activeTaskId: "t5",
+        metadata: { liaison: { origin: "member" }, workforce: { positionId: "p-lead" } },
+      }),
+      turns: [
+        turn("t5", {
+          sessionId: "s5",
+          objective:
+            "Write the tests\n\n(The owner asks this of your Senior Developer, through you)",
+          startedAt: started,
+        }),
+      ],
+      activity: [],
+    });
+    const user = await openChat({ positionId: "p-dev", title: "Senior Developer" });
+    await user.type(screen.getByLabelText("Message to Senior Developer"), "Write the tests{Enter}");
+    expect(commands.giveObjective).toHaveBeenCalledWith("p-dev", "Write the tests");
+    expect(await screen.findByRole("tab", { name: /Cloudline Supervisor/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByText(/through you/)).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /Senior Developer/ }));
+    expect(
+      screen.getByText(/Sent to Cloudline Supervisor, who hands it to Senior Developer/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows your orders that went past this agent, and what came back up", async () => {
+    vi.mocked(commands.getChainOrders).mockResolvedValue([
+      {
+        taskId: "t7",
+        at: 1,
+        positionId: "p-sup",
+        position: "Cloudline Supervisor",
+        via: null,
+        words: "Fix the login page",
+        leads: ["Development Manager"],
+        part: "told",
+        standing: "done",
+        result: "Fixed: the button works.",
+        reportedAt: 2,
+      },
+    ]);
+    const user = await openChat();
+    await user.click(screen.getByRole("button", { name: "Show its tasks" }));
+    const list = await screen.findByRole("list", { name: "Chain of command" });
+    expect(
+      within(list).getByText("You asked Cloudline Supervisor directly: “Fix the login page”."),
+    ).toBeInTheDocument();
+    expect(within(list).getByText("Reported: Fixed: the button works.")).toBeInTheDocument();
+    expect(within(list).getByRole("img", { name: "Done" })).toBeInTheDocument();
+    expect(commands.getChainOrders).toHaveBeenCalledWith("p1");
   });
 
   it("closes a chat with its tab", async () => {

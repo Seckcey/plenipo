@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { IconButton, StatusDot, cx, type Status } from "@plenipo/ui";
+import { Icon, IconButton, StatusDot, cx, type Status } from "@plenipo/ui";
 
 import { useAgents } from "../agents/useAgents";
 import { liaisonInfo } from "../agents/store";
@@ -86,11 +86,14 @@ export function ChatWindow({
   const planShown = planChoice ?? wide;
   const state = stateOf(last, busy);
 
-  const facts = [
-    runtime?.label ?? (session ? session.runtimeId : "Its AI tool"),
-    session?.model ?? "its usual model",
-    ...(session?.effort ? [`${EFFORT_LABEL[session.effort]} effort`] : []),
-  ];
+  // Which AI tool, model, and effort answer: known once there is a conversation.
+  const facts = session
+    ? [
+        runtime?.label ?? session.runtimeId,
+        session.model ?? "its usual model",
+        ...(session.effort ? [`${EFFORT_LABEL[session.effort]} effort`] : []),
+      ]
+    : [];
   const disabledReason =
     origin === "handoff"
       ? `${tab.title} takes its work from its lead, so you can watch it here but not message it. To change what it does, message its lead.`
@@ -109,13 +112,13 @@ export function ChatWindow({
       aria-label={`Chat with ${tab.title}`}
     >
       <header className="chat-head">
-        <StatusDot status={state.status} label={state.words} className="chat-head__state" />
-        {busy && last && !isOver(last) && <Since from={last.startedAt} />}
         <h2 className="chat-head__title" title={tab.title}>
           {tab.title}
         </h2>
         {runtime && <span className="chat-head__chip">{runtime.label}</span>}
         <span className="chat-head__spacer" />
+        <StatusDot status={state.status} label={state.words} className="chat-head__state" />
+        {busy && last && !isOver(last) && <Since from={last.startedAt} />}
         <IconButton
           icon="list"
           label={planShown ? "Hide its tasks" : "Show its tasks"}
@@ -126,6 +129,12 @@ export function ChatWindow({
       <div className="chat-body">
         <div className="chat-main">
           <Transcript session={conversation} title={tab.title} onOpenLink={onOpenLink} />
+          {chat.note(tab.key) && (
+            <p className="chat-note chat-window__note" role="status">
+              <Icon name="info" size={14} />
+              {chat.note(tab.key)}
+            </p>
+          )}
           {textOnly && (
             <p className="chat-text-only">
               {runtime.label} writes answers only: it cannot save files or run programs. To have{" "}
@@ -150,6 +159,7 @@ export function ChatWindow({
           <PlanPanel
             turn={last}
             title={tab.title}
+            positionId={tab.positionId}
             onOpenWorker={(id, title) => chat.open({ sessionId: id, title })}
           />
         )}

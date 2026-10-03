@@ -78,8 +78,9 @@ export function OverviewTab({
       ? () => openWatch(p.id, p.title)
       : null;
   const chat = useChatIfAny();
+  // An on-call position's messages go through its lead (ADR-202).
   const chatWith =
-    chat && canTakeObjective(p)
+    chat && (canTakeObjective(p) || (p.active && p.staffing === "onDemand" && p.reportsTo !== null))
       ? () => chat.open({ positionId: p.id, sessionId: p.agent?.sessionId ?? null, title: p.title })
       : null;
 

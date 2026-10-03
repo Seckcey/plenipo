@@ -29,6 +29,7 @@ const COMMANDS: &[&str] = &[
     "cancel_agent_turn",
     "close_agent_session",
     "get_task_handoffs",
+    "get_chain_orders",
     "get_task_tree",
     "get_liaison_overview",
     "get_organization",

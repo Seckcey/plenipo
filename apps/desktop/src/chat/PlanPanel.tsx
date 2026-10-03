@@ -2,7 +2,8 @@ import { cx } from "@plenipo/ui";
 
 import { useLiaisonRevision, useTaskHandoffs } from "../agents/useTaskHandoffs";
 import { isOver, type ChatTurn } from "./model";
-import { firstLine, STANDING_WORDS, standingOf, type Standing } from "./plan";
+import { chainLine, firstLine, STANDING_WORDS, standingOf, type Standing } from "./plan";
+import { useChainOrders } from "./useChainOrders";
 
 /** The circle: dotted while waiting, a turning arc while working, a check when done. */
 export function StandingMark({ standing }: { standing: Standing }) {
@@ -17,17 +18,22 @@ export function StandingMark({ standing }: { standing: Standing }) {
 
 /**
  * The agent's plan beside its chat (ADR-200): the tasks it handed to its team for the message
- * it is working on, each with where it stands. Choose one to watch that worker's chat.
+ * it is working on, each with where it stands (choose one to watch that worker's chat), and its
+ * chain of command (ADR-202): your orders it was given, passed on, or was told about.
  */
 export function PlanPanel({
   turn,
   title,
+  positionId,
   onOpenWorker,
 }: {
   turn: ChatTurn | undefined;
   title: string;
+  /** Its position, when it has one (a worker's conversation has none). */
+  positionId: string | null;
   onOpenWorker: (sessionId: string, title: string) => void;
 }) {
+  const chain = useChainOrders(positionId);
   const revision = useLiaisonRevision();
   const handoffs = useTaskHandoffs(
     turn?.taskId ?? null,
@@ -76,6 +82,22 @@ export function PlanPanel({
         <p className="chat-plan__asked">
           Asked by its lead: <span>{firstLine(asked.objective)}</span>
         </p>
+      )}
+      {chain && chain.length > 0 && (
+        <>
+          <h3 className="chat-plan__head">Chain of command</h3>
+          <ul className="chat-plan__list" aria-label="Chain of command">
+            {chain.map((o) => (
+              <li key={o.taskId} className="chat-plan__item">
+                <StandingMark standing={o.standing} />
+                <div className="chat-plan__order">
+                  <span className="chat-plan__task">{chainLine(o)}</span>
+                  {o.result && <span className="chat-plan__result">Reported: {o.result}</span>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </aside>
   );

@@ -11,7 +11,7 @@ import type { AgentSessionDetail, AgentUpdate } from "@plenipo/types";
 import { storedKey } from "@plenipo/ui";
 
 import { useAgents } from "../agents/useAgents";
-import { isRunning, isWaiting, type AgentState } from "../agents/store";
+import { isRunning, isWaiting, liaisonInfo, type AgentState } from "../agents/store";
 import {
   cancelAgentTurn,
   getAgentSession,
@@ -122,6 +122,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [sendingKeys, setSendingKeys] = useState<Record<string, boolean>>({});
   const sendingRef = useRef<Record<string, boolean>>({});
   const [problems, setProblems] = useState<Record<string, string | null>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
 
   /** Conversations being fetched, and the live updates that came for them meanwhile. */
   const loading = useRef(new Map<string, AgentUpdate[]>());
@@ -222,9 +223,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         const detail = tab.positionId
           ? await giveObjective(tab.positionId, text)
           : await resumeAgentSession(sessionId ?? "", text);
-        setTabs((t) => setSession(t, tab.key, detail.session.id));
         take(detail);
         setProblems((p) => ({ ...p, [tab.key]: null }));
+        const lead = liaisonInfo(detail.session).positionId;
+        if (tab.positionId && lead && lead !== tab.positionId) {
+          // An on-call position takes its work from its lead (ADR-202): the lead's chat opens,
+          // and this one says where the message went.
+          const leadTitle = detail.session.title;
+          setNotes((n) => ({
+            ...n,
+            [tab.key]: `Sent to ${leadTitle}, who hands it to ${tab.title} and reports back. Follow it in ${leadTitle}'s chat.`,
+          }));
+          setTabs((t) =>
+            openTab(t, { positionId: lead, sessionId: detail.session.id, title: leadTitle }),
+          );
+          return true;
+        }
+        setNotes((n) => {
+          if (!(tab.key in n)) return n;
+          const rest = { ...n };
+          delete rest[tab.key];
+          return rest;
+        });
+        setTabs((t) => setSession(t, tab.key, detail.session.id));
         return true;
       } catch (reason) {
         const message = toCommandError(reason).message;
@@ -359,6 +380,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         }
       },
       sending: (key) => sendingKeys[key] === true,
+      note: (key) => notes[key] ?? null,
       problem: (key) => problems[key] ?? null,
       dismissProblem: (key) => setProblems((p) => ({ ...p, [key]: null })),
     };
@@ -369,6 +391,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     queues,
     sendingKeys,
     problems,
+    notes,
     setTabs,
     setQueues,
     show,

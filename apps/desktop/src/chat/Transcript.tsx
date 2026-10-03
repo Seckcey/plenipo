@@ -277,17 +277,16 @@ function LiveRow({ turn }: { turn: ChatTurn }) {
   const since = Math.min(doing.since, now);
   return (
     <div className="chat-live" aria-hidden="true">
-      <span className="chat-live__dots">
-        <span />
-        <span />
-        <span />
+      <span className="chat-live__line">
+        <span className="chat-live__dots">
+          <span />
+          <span />
+          <span />
+        </span>
+        <span className="chat-live__what">{doing.text}</span>
+        <span className="chat-live__time">{elapsed(now - since)}</span>
       </span>
-      <span className="chat-live__what">{doing.text}</span>
       {doing.detail && <code className="chat-live__detail">{doing.detail}</code>}
-      <span className="chat-live__time">{elapsed(now - since)}</span>
-      {turn.status === null && doing.text !== "Starting" && (
-        <span className="chat-live__total">· {elapsed(now - turn.startedAt)} in all</span>
-      )}
     </div>
   );
 }

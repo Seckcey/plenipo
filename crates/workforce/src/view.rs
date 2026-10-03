@@ -125,6 +125,15 @@ impl<'a> OrgView<'a> {
         out
     }
 
+    /// The active leads above `id`, nearest first (ADR-202).
+    pub fn leads_above(&self, id: &str) -> Vec<&'a Position> {
+        self.chain(id)
+            .into_iter()
+            .skip(1)
+            .filter(|p| p.state == PositionState::Active)
+            .collect()
+    }
+
     /// `ancestor` is above `id` in the reporting lines.
     pub fn chain_contains(&self, id: &str, ancestor: &str) -> bool {
         self.chain(id).iter().skip(1).any(|p| p.id == ancestor)

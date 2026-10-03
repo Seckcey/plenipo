@@ -25,6 +25,8 @@ export interface ChatApi {
   /** Stop what the agent is doing now. */
   stop: (key: string) => Promise<void>;
   sending: (key: string) => boolean;
+  /** Where the last message went, when it went somewhere else (an on-call worker's lead). */
+  note: (key: string) => string | null;
   /** Why the last message did not go, until it is dismissed or the next one goes. */
   problem: (key: string) => string | null;
   dismissProblem: (key: string) => void;

@@ -2711,7 +2711,12 @@ async fn a_lead_reads_in_its_teams_project_folder_and_hands_changes_on() {
     // The record lists what was given: reading, not changing or running.
     let opened = h.events(&task, "guard.grant_opened");
     assert_eq!(opened[0]["permissions"]["filesystem.read"], "allowed");
-    for kept in ["filesystem.write", "shell.exec", "powershell.exec", "git.write"] {
+    for kept in [
+        "filesystem.write",
+        "shell.exec",
+        "powershell.exec",
+        "git.write",
+    ] {
         assert!(opened[0]["permissions"][kept].is_null(), "{kept}");
     }
     assert!(opened[0]["workspace"].is_null() || opened[0]["workspace"]["changesFiles"] == false);

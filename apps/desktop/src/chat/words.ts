@@ -197,7 +197,7 @@ export function elapsed(ms: number): string {
   return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
-/** "Thought for 6 s". */
+/** "Thought for 6 s", or "Thought for a moment" when it took under a second. */
 export function thoughtFor(ms: number): string {
-  return `Thought for ${elapsed(ms)}`;
+  return ms < 1000 ? "Thought for a moment" : `Thought for ${elapsed(ms)}`;
 }
