@@ -1291,7 +1291,11 @@ impl AgentRuntime {
         let executable = match located {
             Located::Found(path) => path,
             Located::NotFound => {
-                return Err(format!("{} is not installed on this PC.", adapter.label()))
+                return Err(format!(
+                    "{} is not installed on {}.",
+                    adapter.label(),
+                    plenipo_core::WORDS.this_computer
+                ))
             }
             Located::Unsupported(_) => {
                 return Err(format!(

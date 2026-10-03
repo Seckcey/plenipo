@@ -21,6 +21,8 @@ required-features = ["stand-in"]
 test = false
 
 [dependencies]
+# Each system's own words on screen (Phase 23, ADR-155).
+plenipo-core = { path = "../core" }
 plenipo-guard = { path = "../guard" }
 # 8 West's signed weekly answer, which the PC shows the relay (ADR-143 §3).
 plenipo-licensing = { path = "../licensing" }

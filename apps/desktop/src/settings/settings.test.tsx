@@ -1,8 +1,12 @@
 import { useState } from "react";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { NoticeSettings, TerminalSettings as Terminal } from "@plenipo/types";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  SYSTEM_WORDS,
+  type NoticeSettings,
+  type TerminalSettings as Terminal,
+} from "@plenipo/types";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../api/commands";
 import { AgentsProvider } from "../agents/AgentsProvider";
@@ -15,6 +19,7 @@ import { a11yProblems } from "../test/a11y";
 import { samplePermissions } from "../test/permissionFixtures";
 import { sampleServers } from "../test/serverFixtures";
 import { SettingsView } from "../views/SettingsView";
+import { setSystemWords } from "../system/words";
 import { SETTINGS_SECTION_KEY } from "./sections";
 import { sampleBackups, startAndClose, upToDate } from "../test/upkeepFixtures";
 
@@ -185,6 +190,8 @@ beforeEach(() => {
   ]);
 });
 
+afterEach(() => setSystemWords(SYSTEM_WORDS.windows));
+
 describe("Settings in one place", () => {
   it("lists every section on the left, shows one at a time, and keeps the last one", async () => {
     show();
@@ -282,6 +289,36 @@ describe("Settings in one place", () => {
     await user.click(cmd);
     expect(api.setTerminalShell).toHaveBeenCalledWith("commandPrompt");
     expect(screen.getByText(/Turn on Settings → Switches → Remote computers/)).toBeInTheDocument();
+  });
+
+  it("says it in a Mac's words on a Mac (ADR-155)", async () => {
+    setSystemWords(SYSTEM_WORDS.mac);
+    api.getTerminalSettings.mockResolvedValue({
+      ...terminal,
+      shell: "yourShell",
+      shells: [
+        { shell: "yourShell", label: "Your shell (zsh)", installed: true },
+        { shell: "zsh", label: "zsh", installed: true },
+        { shell: "bash", label: "bash", installed: true },
+        { shell: "fish", label: "fish", installed: false },
+      ],
+      runsAs: "as yourself — never as root",
+    });
+    const { unmount } = show("terminal");
+    expect(
+      await screen.findByRole("heading", { name: "The shell on this Mac" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("The shell your terminal on this Mac starts.")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Your shell (zsh)" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /^fish.*not on this Mac$/ })).toBeDisabled();
+    expect(screen.getByText(/as yourself — never as root/)).toBeInTheDocument();
+    expect(screen.getByText(/and ⌃` to hide or show the panel/)).toBeInTheDocument();
+    unmount();
+    show("notifications");
+    expect(
+      await screen.findByText("Which notifications your Mac shows you when something needs you."),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/or your Mac closed it/)).toBeInTheDocument();
   });
 
   it("lists departments and projects, each opening its page", async () => {

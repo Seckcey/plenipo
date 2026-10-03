@@ -244,9 +244,20 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       `windows-x86_64`). Installing an update on each system comes in Waves 2 and 3. Done: each copy
       asks for its own (`darwin-aarch64`, `linux-x86_64`, and so on), and a release with no download
       for it is simply not offered, instead of the check failing every day.
-- [ ] **Screen words** come from the new vocabulary table: the system's own name for the password
+- [x] **Screen words** come from the new vocabulary table: the system's own name for the password
       store, "Start Plenipo when you sign in", Cmd and Option on a Mac, no "Windows" where it does not
-      apply.
+      apply. Done: one list of each system's words in Rust (`crates/core/src/words.rs`), sent to the
+      screens with the app's information before the first paint; Plenipo's own messages use the same
+      list. "this PC" becomes "this Mac" or "this computer", the tray becomes the menu bar on a Mac,
+      "Windows closed Plenipo" becomes "Your Mac closed Plenipo", and shortcut labels read ⌘S and ⌃⇧E
+      on a Mac. `pnpm bindings` writes every system's words for the screens' tests, which check the Mac
+      and Linux words too. Names in the code and the Ledger (`windowsRestart`) stay.
+- [ ] **Files that run when opened** (found 2026-10-02): "Open in another program" refuses a
+      program or a script by the end of its name, which is Windows' rule. On a Mac and Linux a file
+      with no ending can run if it is marked as a program, and some kinds run or open something else
+      (`.command`, `.app`, `.terminal`, `.scpt`, `.workflow`, `.fileloc`, `.webloc` on a Mac;
+      `.desktop`, `.AppImage`, `.run` on Linux). Refuse those too, before Waves 2 and 3 let the
+      button open files with Finder's `open` or `xdg-open`.
 - [ ] **Done when:** every test suite passes on Windows, Linux, and Mac in CI, and a Guard safety
       review of Wave 1 finds nothing open.
 

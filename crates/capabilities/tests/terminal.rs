@@ -257,7 +257,13 @@ async fn plan_the_owners_terminal_on_this_pc() {
     assert!(settings.servers_switched_on);
     let screen = Shared::default();
     let info = h.open(&TerminalPlace::ThisPc, &screen).await;
-    assert_eq!(info.title, "This PC");
+    assert_eq!(
+        info.title,
+        plenipo_core::words::sentence_start(plenipo_core::WORDS.this_computer)
+    );
+    if cfg!(windows) {
+        assert_eq!(info.title, "This PC");
+    }
     assert!(!info.detail.is_empty());
     assert_eq!(h.broker.open_terminals(), std::slice::from_ref(&info));
 

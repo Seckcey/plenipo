@@ -11,11 +11,12 @@ import {
 import { Toggle } from "../components/SwitchSettings";
 import { PhoneNotices } from "../remote/PhoneNotices";
 import { useLive } from "../pages/useLive";
+import { systemWords } from "../system/words";
 
 type Kind = Exclude<keyof NoticeSettings, "onlyWhenAway">;
 
-/** Each kind of notice, in plain words. */
-const KINDS: readonly { key: Kind; label: string; hint: string }[] = [
+/** Each kind of notice, in plain words (the system's own, ADR-155). */
+const kinds = (): readonly { key: Kind; label: string; hint: string }[] => [
   {
     key: "approvals",
     label: "Waiting for your OK",
@@ -44,7 +45,7 @@ const KINDS: readonly { key: Kind; label: string; hint: string }[] = [
   {
     key: "plenipo",
     label: "Plenipo itself",
-    hint: "Plenipo closed unexpectedly or Windows closed it, or a new version is ready.",
+    hint: `Plenipo closed unexpectedly or ${systemWords().theSystem} closed it, or a new version is ready.`,
   },
   {
     key: "spending",
@@ -108,8 +109,7 @@ export function NotificationSettings() {
       await sendTestNotice();
       setTest({
         state: "sent",
-        words:
-          "Sent. If no notice appeared, check that Windows allows Plenipo's notifications (Windows Settings → System → Notifications).",
+        words: `Sent. If no notice appeared, check that ${systemWords().theSystem} allows Plenipo's notifications (${systemWords().noticeSettings}).`,
       });
     } catch (reason) {
       setTest({ state: "failed", words: toCommandError(reason).message });
@@ -120,7 +120,7 @@ export function NotificationSettings() {
     <div className="settings-notices">
       <section aria-labelledby="notices-kinds">
         <h3 id="notices-kinds">Tell me when</h3>
-        {KINDS.map((k) => (
+        {kinds().map((k) => (
           <Toggle
             key={k.key}
             label={k.label}

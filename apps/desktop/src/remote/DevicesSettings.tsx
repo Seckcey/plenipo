@@ -24,6 +24,7 @@ import type { Go } from "../components/views";
 import { when } from "../pages/words";
 import { useRemote } from "./useRemote";
 import { minutesLeft } from "./words";
+import { sentenceStart, systemWords } from "../system/words";
 
 /** The picture code (QR code): dark squares on a light ground, with its quiet border. */
 export function PictureCode({ qr, label }: { qr: Qr; label: string }) {
@@ -309,7 +310,7 @@ export function DevicesSettings({ go }: { go: Go }) {
         </p>
       )}
       <section aria-labelledby="devices-status">
-        <h3 id="devices-status">Your phone and this PC</h3>
+        <h3 id="devices-status">Your phone and {systemWords().thisComputer}</h3>
         <p>
           {r.switchedOn ? (
             <>
@@ -335,9 +336,10 @@ export function DevicesSettings({ go }: { go: Go }) {
           </p>
         )}
         <p className="muted">
-          Your phone talks to this PC through 8 West&rsquo;s relay, sealed so the relay cannot read
-          or change anything. Your PC stays in charge: Guard checks every request, and Activity
-          shows each one with the phone that sent it.
+          Your phone talks to {systemWords().thisComputer} through 8 West&rsquo;s relay, sealed so
+          the relay cannot read or change anything. {sentenceStart(systemWords().thisComputer)}{" "}
+          stays in charge: Guard checks every request, and Activity shows each one with the phone
+          that sent it.
         </p>
       </section>
       <section aria-labelledby="devices-add">

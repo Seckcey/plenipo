@@ -3,6 +3,11 @@
 export type { AgentAttribution } from "./generated/AgentAttribution";
 export type { AppInfo } from "./generated/AppInfo";
 export type { BuildProfile } from "./generated/BuildProfile";
+export type { System } from "./generated/System";
+export type { SystemWords } from "./generated/SystemWords";
+// Each system's own words on screen (Phase 23, ADR-155): the one value here, written by
+// `pnpm bindings` from crates/core/src/words.rs.
+export { SYSTEM_WORDS } from "./generated/everySystemsWords";
 export type { CommandError } from "./generated/CommandError";
 export type { CommandErrorKind } from "./generated/CommandErrorKind";
 export type { ExecutionOutput } from "./generated/ExecutionOutput";

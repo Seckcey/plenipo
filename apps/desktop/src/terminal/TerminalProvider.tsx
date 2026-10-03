@@ -26,6 +26,7 @@ import {
   type TerminalTab,
 } from "./panel";
 import { applyWatchEvent, applyWatchEvents, type WatchTab } from "./watch";
+import { sentenceStart, systemWords } from "../system/words";
 
 /** A moment after an AI tool looks free: Plenipo may still be finishing the task's step. */
 const FREE_MS = 500;
@@ -495,7 +496,12 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
       setActive(id);
       setUnseen(0);
     },
-    openHere: () => openOwner({ place: { kind: "thisPc" }, title: "This PC", environment: null }),
+    openHere: () =>
+      openOwner({
+        place: { kind: "thisPc" },
+        title: sentenceStart(systemWords().thisComputer),
+        environment: null,
+      }),
     openServer: (serverId: string, name: string, environment: Environment) =>
       openOwner({ place: { kind: "server", serverId }, title: name, environment }),
     openWatch,

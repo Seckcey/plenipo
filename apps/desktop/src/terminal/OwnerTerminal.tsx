@@ -15,6 +15,7 @@ import {
 import { usePanelWindow } from "../workspace/context";
 import type { OwnerTab } from "./panel";
 import { endedLine, fromBase64, pieces, screenReaderWanted } from "./words";
+import { systemWords } from "../system/words";
 
 type Status =
   | { kind: "opening" }
@@ -253,7 +254,7 @@ export function OwnerTerminal({
     if (activeNow.current && visible) term.current?.focus();
   }, [visible, focusToken]);
 
-  const where = tab.place.kind === "thisPc" ? "this PC" : tab.title;
+  const where = tab.place.kind === "thisPc" ? systemWords().thisComputer : tab.title;
   // An AI tool's sign-in tab is named by what it runs: "Sign in · Codex".
   const signIn = tab.place.kind === "aiTool";
   return (

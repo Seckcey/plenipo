@@ -945,9 +945,12 @@ impl Connections {
                         .join(", ")
                 )
             })?,
-            _ => Listener::open()
-                .await
-                .map_err(|e| format!("Plenipo could not wait for the sign-in on this PC ({e})"))?,
+            _ => Listener::open().await.map_err(|e| {
+                format!(
+                    "Plenipo could not wait for the sign-in on {} ({e})",
+                    plenipo_core::WORDS.this_computer
+                )
+            })?,
         };
         let pkce = Pkce::new();
         let redirect = match service {
