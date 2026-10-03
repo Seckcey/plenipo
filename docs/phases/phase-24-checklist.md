@@ -1,8 +1,9 @@
 # Phase 24 — Implementation Checklist
 
-**Status: part 24A in progress** (started 2026-10-02), beside Phase 23. The owner answered the
-thirteen questions and the five follow-up questions on 2026-10-02. Builds on v1.19.4. Below,
-"[x]" is done. Plenipo is made by 8 West Ventures, LLC.
+**Status: part 24C in progress** (started 2026-10-02), beside Phase 23. Parts 24A and 24B are done
+(24B's last items wait for the owner). The owner answered the thirteen questions and the five
+follow-up questions on 2026-10-02, and part 24C's five questions the same day (ADR-170 to ADR-172).
+Builds on v1.19.4. Below, "[x]" is done. Plenipo is made by 8 West Ventures, LLC.
 
 Source: `ROLLOUT_PLAN.md`, Phase 24 — Community, and the records written for it:
 
@@ -16,8 +17,11 @@ Source: `ROLLOUT_PLAN.md`, Phase 24 — Community, and the records written for i
 - [ADR-167 (block, report, and leave, and who handles reports)](../adr/ADR-167-block-report-leave.md)
 - [ADR-168 (what Community keeps, where, and for how long)](../adr/ADR-168-what-is-kept-and-for-how-long.md)
 - [ADR-169 (rewards for taking part: points, a leaderboard, badges, thanks, and a free month for invitations)](../adr/ADR-169-rewards-for-taking-part.md)
+- [ADR-170 (Community follows 8 West's switch: Coming soon until it opens, no new release to turn it on)](../adr/ADR-170-community-follows-8-wests-switch.md)
+- [ADR-171 (switching Community on part by part)](../adr/ADR-171-switching-on-part-by-part.md)
+- [ADR-172 (what part 24C changes: no stickers yet, Delete for me on this PC, email invitations, one release)](../adr/ADR-172-what-part-24c-changes.md)
 
-**Numbers:** ADR-160 to ADR-169. Dates are Pacific time. The app uses the plain words in
+**Numbers:** ADR-160 to ADR-179 (the owner gave Phase 24 ADR-170 to ADR-179 on 2026-10-02). Dates are Pacific time. The app uses the plain words in
 [`docs/design/vocabulary.md`](../design/vocabulary.md).
 
 **Goal (plan):** "Let Plenipo owners find each other, talk, and work together — without anyone
@@ -30,6 +34,10 @@ reaching into anyone else's PC, files, sign-ins, or keys."
   find each other and take part. Then five follow-up answers: protections for teens, **GIFs and
   stickers**, everyone **listed in the directory by default** (with **Appear offline** to hide),
   **points and a leaderboard**, and a free month of Pro for invitations.
+- **Coming soon until 8 West opens it** (ADR-170): Plenipo follows the account service's own
+  switch, so the release people already have starts working the moment the owner switches Community
+  on. Each part is switched on when it is ready: people first, then linked organizations, then
+  collaborators (ADR-171).
 - **Then the attorney.** The drafts in [`docs/legal/phase-24/`](../legal/phase-24/README.md) go to
   an attorney. Community reaches real people only after the attorney approves them and a security
   review passes.
@@ -46,7 +54,11 @@ reaching into anyone else's PC, files, sign-ins, or keys."
       service can hold its key (ADR-164 §4)
 - [ ] Send the attorney the drafts in `docs/legal/phase-24/` (the owner: the night of 2026-10-02)
 - [x] Decide who reads reports at launch: the owner, "until it gets to be too much" (ADR-167)
-- [ ] After the review and the attorney: say when Community may reach real people (24F).
+- [x] Answer part 24C's five questions (2026-10-02): follow 8 West's switch, switch on part by
+      part, ADR-170 to ADR-179 for Phase 24, no stickers for now, and the rest as recommended
+      (ADR-170 to ADR-172)
+- [ ] After the attorney and each part's review: switch that part on at the account service
+      (ADR-171), and set the lowest version of Plenipo allowed (ADR-170 §5)
 
 ## Part 24A — records and drafts (documents only)
 
@@ -101,9 +113,16 @@ are written and tested; they reach the live service, still switched off, when th
 - [x] **Delete my account** removes Community too (ADR-168 §5)
 - [ ] Switched off on the live service until 24F (off by default: `COMMUNITY_ENABLED` unset; ticked
       once the merged service is deployed and checked off)
+- [ ] The changes for ADR-170 and ADR-171, in a session of its own: "not open" as its own answer,
+      **Is Community open?**, the lowest version of Plenipo, and a switch for linked organizations and
+      one for collaborators ([the list](phase-24-account-service-changes.md))
 
 ## Part 24C — people: profile, messages, block, report, leave
 
+- [x] ADR-170 to ADR-172, and [the list of changes for the account service](phase-24-account-service-changes.md)
+- [ ] The contract's change, as its own reviewed change: **Is Community open?**, `not_open`,
+      `update_needed`, closed parts, the safety code's recipe, and a worked seal (ADR-170 §7,
+      ADR-172 §6)
 - [ ] `Limit::CommunityStart` in `Entitlements::check` (ADR-162 §5)
 - [ ] Guard's outbound purpose **Community**: only `account.getplenipo.com`, only while signed in
       (ADR-162 §7)
@@ -118,17 +137,19 @@ are written and tested; they reach the live service, still switched off, when th
       computers changed**", **Delete for me** (ADR-164)
 - [ ] Every letter, number, symbol, and emoji, emoji reactions, and hidden control characters shown
       as visible marks (ADR-164 §4)
-- [ ] **GIF** (a GIF's ID in the sealed message; Guard's **GIFs** purpose allows only the library's
-      picture address) and **Stickers** (Plenipo's own sets, built in); a pasted photo is refused
-      (ADR-164 §4)
-- [ ] Points, the leaderboard, badges, **Thanks**, **Getting started**, and **Invite someone**
-      (ADR-169)
+- [ ] A pasted or dropped photo is refused (ADR-164 §4). The **GIF** button stays hidden until the
+      owner chooses the library (then a release adds Guard's **GIFs** purpose, ADR-170 §8); stickers
+      are left out for now (ADR-172 §1)
+- [ ] Points, the leaderboard, badges, "**Thanked by**", **Getting started** (its first three
+      steps), and **Invite someone** (ADR-169, ADR-172 §3, §4). The **Thanks** button comes with
+      parts 24D and 24E
 - [ ] **Give to a worker**, fenced as outside words (a new `fence::Source` kind) (ADR-164 §9)
 - [ ] Block, report (with the proof), and leave, everywhere (ADR-167)
 - [ ] **Delete my Community data from this PC** (ADR-168 §3)
 - [ ] Ledger events `community.*`, never a message's words
 - [ ] New desktop commands, main window only, with IPC tests
-- [ ] **Coming soon** until 24F
+- [ ] **Coming soon** while the account service says Community is not open, **Check again**,
+      **Update Plenipo to use Community**, and **Community is closed for now** (ADR-170)
 - [ ] Words added to `docs/design/vocabulary.md`
 
 ## Part 24D — linked organizations (pull requests #136 and #138 merged)
@@ -158,10 +179,11 @@ are written and tested; they reach the live service, still switched off, when th
 
 ## Part 24F — launch
 
-- [ ] The security review at the highest effort, of this repository and the account service
-      (ADR-160 §7)
+- [ ] The security review at the highest effort, of this repository and the account service, before
+      **each** part is switched on (ADR-160 §7, ADR-171)
 - [ ] The attorney's approved texts go into `apps/website/legal/` and the account site's legal pages
-- [ ] Community switched on, on the live service and in a release
+- [ ] Each part switched on at the live service when it is ready, with no release needed for it
+      (ADR-170, ADR-171): the people part, then linked organizations, then collaborators
 - [ ] The acceptance scenario on two test accounts, then the acceptance report
 - [ ] The order of work, the roadmap, and `docs/editions.md` updated
 

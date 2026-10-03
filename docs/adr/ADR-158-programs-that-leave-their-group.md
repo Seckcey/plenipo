@@ -1,7 +1,8 @@
 # ADR-158: On a Mac and Linux, a program that leaves its group still ends with its work
 
-- **Status:** Proposed by the builder in the Wave 1 Guard safety review (2026-10-02). Merging the
-  pull request that adds it accepts it.
+- **Status:** Accepted (by the owner, 2026-10-03: "Yes, merge when green", for pull request
+  #153, which said that merging it accepts this record). Proposed by the builder in the Wave 1
+  Guard safety review.
 - **Date:** 2026-10-02
 - **Phase:** 23
 - **Part of:** [ADR-150 (Phase 23 starts)](ADR-150-phase-23-starts.md)

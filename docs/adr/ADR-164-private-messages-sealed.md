@@ -10,6 +10,8 @@
 - **Builds on:** [ADR-143 (the relay and the lock)](ADR-143-the-relay-and-the-lock.md), which seals
   everything between your PC and your phone, and [ADR-162 (your account in Plenipo)](ADR-162-your-account-in-plenipo.md)
   for each PC's Community key
+- **Amended by:** [ADR-172 (what part 24C changes)](ADR-172-what-part-24c-changes.md): stickers are
+  left out for now (§4), and **Delete for me** deletes from this PC only (§10).
 
 > **On screen** (ADR-010, plain words and rank names): **Messages**, **New message**, **Requests**
 > (from people you have not talked with), **Accept**, **Block**, **Report**, **Sealed: only you and

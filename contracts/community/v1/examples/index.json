@@ -3,6 +3,9 @@
   "examples": {
     "error-not-delivered.json": "Error",
     "error-proof-failed.json": "Error",
+    "error-not-open.json": "Error",
+    "error-update-needed.json": "Error",
+    "open.json": "Open",
     "sign-in-start.json": "SignInStart",
     "sign-in-started.json": "SignInStarted",
     "sign-in-token.json": "SignInToken",

@@ -140,14 +140,17 @@ architecture must be recorded here.
 | [155](ADR-155-each-systems-own-words.md)                 | Each system's own words on screen                                                                   | Accepted |
 | [156](ADR-156-refuse-unchecked-tool-calls.md)            | When Plenipo cannot tell which program sent a tool call, it refuses (amends 034)                    | Accepted |
 | [157](ADR-157-a-keeper-ends-programs-after-a-crash.md)   | On a Mac and Linux, a keeper ends a worker's programs after a crash (amends 005)                    | Accepted |
-| [158](ADR-158-programs-that-leave-their-group.md)        | On a Mac and Linux, a program that leaves its group still ends with its work (amends 157)           | Proposed |
-| [160](ADR-160-phase-24-alongside-phase-23.md)            | Building Phase 24 (Community) alongside Phase 23 (Mac and Linux)                                    | Accepted |
-| [161](ADR-161-phase-24-starts.md)                        | Phase 24 starts: what the check found, six parts, the owner's answers                               | Accepted |
+| [158](ADR-158-programs-that-leave-their-group.md)        | On a Mac and Linux, a program that leaves its group still ends with its work (amends 157)           | Accepted |
+| [160](ADR-160-phase-24-alongside-phase-23.md)            | Building Phase 24 (Community) alongside Phase 23 (Mac and Linux) (amended by 171)                   | Accepted |
+| [161](ADR-161-phase-24-starts.md)                        | Phase 24 starts: what the check found, six parts, the owner's answers (amended by 170 to 172)       | Accepted |
 | [162](ADR-162-your-account-in-plenipo.md)                | Your 8 West account in Plenipo: sign in with a code, 13 and older, who needs Pro (amends 115)       | Accepted |
 | [163](ADR-163-profiles-and-finding-people.md)            | Your profile, and finding people: the directory, an exact name, or an email                         | Accepted |
-| [164](ADR-164-private-messages-sealed.md)                | Private messages, sealed end to end, everything a phone's keyboard types, reports with a proof      | Accepted |
+| [164](ADR-164-private-messages-sealed.md)                | Private messages, sealed end to end, any keyboard text, reports with a proof (amended by 172)       | Accepted |
 | [165](ADR-165-linked-organizations.md)                   | Linked organizations: link, objectives, the answer you send back, unlink                            | Accepted |
 | [166](ADR-166-collaborators.md)                          | Collaborators: viewer, approver, manager; removed at once                                           | Accepted |
 | [167](ADR-167-block-report-leave.md)                     | Block, report, and leave; 8 West handles reports                                                    | Accepted |
 | [168](ADR-168-what-is-kept-and-for-how-long.md)          | What Community keeps, where, and for how long                                                       | Accepted |
 | [169](ADR-169-rewards-for-taking-part.md)                | Rewards for taking part: points, a leaderboard, badges, thanks, a free month of Pro for invitations | Accepted |
+| [170](ADR-170-community-follows-8-wests-switch.md)       | Community follows 8 West's switch: Coming soon until it opens, no release to turn it on             | Accepted |
+| [171](ADR-171-switching-on-part-by-part.md)              | Switching Community on part by part: people, then linked organizations, then collaborators          | Accepted |
+| [172](ADR-172-what-part-24c-changes.md)                  | What part 24C changes: no stickers yet, Delete for me on this PC, email invitations (amends 169)    | Accepted |

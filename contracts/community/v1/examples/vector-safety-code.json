@@ -1,0 +1,63 @@
+{
+  "note": "A worked safety code (contract §7). TEST ONLY. Both people's PCs, as GET /v1/community/people/{member_id}/devices lists them, give the same 12 digits whichever side works it out. changed is the same but for one new sealing key on Pat's second PC, and gives a different code.",
+  "people": [
+    {
+      "member_id": "cm_01JA2B3C4D5E6F7G8H9J0K1M2N",
+      "devices": [
+        {
+          "device_id": "cd_01JA2B3C4D5E6F7G8H9J0K1M2P",
+          "signing_key": "xe_jgIYrQn6t0W7rcVM5e7rpDeL3T5DYvgZcCxx2u_c",
+          "sealing_key": "OiE6hKkS2a_Ou-lhmKouWbwHoAxdXBAO35dQXlKL5zo"
+        }
+      ]
+    },
+    {
+      "member_id": "cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B",
+      "devices": [
+        {
+          "device_id": "cd_01JB7Q8R9S0T1V2W3X4Y5Z6A7C",
+          "signing_key": "QenqOIwkBe9UdH-52nv5EwhEP7UDOhRc-WOPH9XrFbY",
+          "sealing_key": "LHdYVmMG4Zgg44uev0LIRCUlcIl6UfH0px_621sPt3c"
+        },
+        {
+          "device_id": "cd_01JB7Q8R9S0T1V2W3X4Y5Z6A7E",
+          "signing_key": "I45hOGc3SPwseYBjnICAsewdbmlPhh2YUkt2psRL0ic",
+          "sealing_key": "ai8VyfWuCndqlxUxCdL35NDTWXh5FWLDSwbOHezKLkc"
+        }
+      ]
+    }
+  ],
+  "text": "cm_01JA2B3C4D5E6F7G8H9J0K1M2N:xe_jgIYrQn6t0W7rcVM5e7rpDeL3T5DYvgZcCxx2u_c.OiE6hKkS2a_Ou-lhmKouWbwHoAxdXBAO35dQXlKL5zo\ncm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B:I45hOGc3SPwseYBjnICAsewdbmlPhh2YUkt2psRL0ic.ai8VyfWuCndqlxUxCdL35NDTWXh5FWLDSwbOHezKLkc,QenqOIwkBe9UdH-52nv5EwhEP7UDOhRc-WOPH9XrFbY.LHdYVmMG4Zgg44uev0LIRCUlcIl6UfH0px_621sPt3c",
+  "sha256_hex": "df466126a2962af00a3210929dcbb1a0dd4200af4f28c3ae2a6e4f2a70d8fcd8",
+  "code": "5373 9207 7552",
+  "changed": {
+    "people": [
+      {
+        "member_id": "cm_01JA2B3C4D5E6F7G8H9J0K1M2N",
+        "devices": [
+          {
+            "device_id": "cd_01JA2B3C4D5E6F7G8H9J0K1M2P",
+            "signing_key": "xe_jgIYrQn6t0W7rcVM5e7rpDeL3T5DYvgZcCxx2u_c",
+            "sealing_key": "OiE6hKkS2a_Ou-lhmKouWbwHoAxdXBAO35dQXlKL5zo"
+          }
+        ]
+      },
+      {
+        "member_id": "cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B",
+        "devices": [
+          {
+            "device_id": "cd_01JB7Q8R9S0T1V2W3X4Y5Z6A7C",
+            "signing_key": "QenqOIwkBe9UdH-52nv5EwhEP7UDOhRc-WOPH9XrFbY",
+            "sealing_key": "LHdYVmMG4Zgg44uev0LIRCUlcIl6UfH0px_621sPt3c"
+          },
+          {
+            "device_id": "cd_01JB7Q8R9S0T1V2W3X4Y5Z6A7E",
+            "signing_key": "I45hOGc3SPwseYBjnICAsewdbmlPhh2YUkt2psRL0ic",
+            "sealing_key": "Xy4KwX__pxTWNKfjHlvQX4WJItU0dkY8brmbdeGphUM"
+          }
+        ]
+      }
+    ],
+    "code": "5187 1466 8807"
+  }
+}

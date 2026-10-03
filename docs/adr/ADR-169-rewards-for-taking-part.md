@@ -13,6 +13,9 @@
 - **Builds on:** [ADR-163 (your profile, and finding people)](ADR-163-profiles-and-finding-people.md),
   where points and badges show; [ADR-111 (refunds and the terms of sale)](ADR-111-refunds-and-terms-of-sale.md),
   whose 14-day refund window a free month waits for; [ADR-119 (editions and prices)](ADR-119-editions-and-prices-revised.md)
+- **Amended by:** [ADR-172 (what part 24C changes)](ADR-172-what-part-24c-changes.md): the **Thanks**
+  button comes with linked organizations and collaborators (§4), **Getting started** grows with them
+  (§5), and only **Invite by email** counts as an invitation (§6).
 
 > **On screen** (ADR-010, plain words and rank names): **Points**, **Leaderboard**, **This week**,
 > **All time**, **How to earn points**, **Top helper this week**, **Badges**, **Founding member**,

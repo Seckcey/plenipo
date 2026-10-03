@@ -18,6 +18,12 @@
 - **Number:** Phase 24 uses ADR-160 to ADR-169 (ADR-160). This record is 161; ADR-162 to ADR-169
   follow. ADR-169 (rewards for taking part) answers question 9, so Phase 24 has no free number left;
   a later change amends one of these records, or the owner gives the phase more numbers.
+- **Amended by:** [ADR-170 (Community follows 8 West's switch)](ADR-170-community-follows-8-wests-switch.md):
+  Coming soon while the account service says Community is not open, and no release to switch it on
+  (§4, 24F); [ADR-171 (switching on part by part)](ADR-171-switching-on-part-by-part.md): people,
+  linked organizations, and collaborators each switched on when ready (24F);
+  [ADR-172 (what part 24C changes)](ADR-172-what-part-24c-changes.md): one release for part 24C (§2).
+  The owner gave Phase 24 ADR-170 to ADR-179 (2026-10-02).
 
 > **On screen** (ADR-010, plain words and rank names): nothing yet. Each record below names its
 > words, and they go into `docs/design/vocabulary.md` when they are built. Proposed: **Community**
