@@ -1,0 +1,13 @@
+{
+  "link_id": "cl_01JD5E6F7G8H9J0K1M2N3P4Q5R",
+  "other": "cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B",
+  "asked_by": "me",
+  "my_org_ref": "co_01JG7H8J9K0M1N2P3Q4R5S6T7V",
+  "their_org_ref": "co_01JH1J2K3M4N5P6Q7R8S9T0V1W",
+  "state": "active",
+  "paused_by_me": false,
+  "paused_by_them": false,
+  "created_at": 1789222400,
+  "accepted_at": 1789308800,
+  "ended_at": null
+}

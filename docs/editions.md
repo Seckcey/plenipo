@@ -13,30 +13,31 @@ business departments you can create.
 
 ## What you get
 
-| What                                                                                    | Free           | Pro                                |
-| --------------------------------------------------------------------------------------- | -------------- | ---------------------------------- |
-| Organizations (Phase 21: yours and a client's, each in its own window)                  | 1              | 3 (Partner: 10, 25, or any number) |
-| Departments                                                                             | 1              | Unlimited                          |
-| Projects                                                                                | 1              | Unlimited                          |
-| Workers on the job at the same time (the next one waits its turn)                       | 3              | 4 in each organization             |
-| Development department (developer, reviewer, QA, docs)                                  | Yes            | Yes                                |
-| Sales department on HubSpot, and business departments after it (planned, Phase 9)       | No             | Yes                                |
-| AI tools: Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, GitHub Copilot           | All            | All                                |
-| Your own sign-ins, or your own paid AI keys; spending caps optional (Phase 16)          | Yes            | Yes                                |
-| Which AI model each role gets, and how hard it thinks                                   | Yes            | Yes                                |
-| Permissions, Guard, folder limits, and your approval                                    | Yes            | Yes                                |
-| Plenipo's own browser, and the screen, mouse, and keyboard                              | Yes            | Yes                                |
-| Switches in Settings: what workers may use, and when they ask                           | Yes            | Yes                                |
-| Workers that learn from their work (lessons)                                            | No             | Yes                                |
-| Connections: Microsoft 365, Slack, Google, HubSpot, Stripe, and your website (Phase 20) | No             | Yes                                |
-| Add-on tools you set up (Phase 20)                                                      | No             | Yes                                |
-| GitHub's tools for the Development department                                           | Yes            | Yes                                |
-| Your servers over SSH, and the Operations Engineer role                                 | Yes            | Yes                                |
-| Plenipo on your phone, with notices (Phase 14, from v1.19.0; notices from v1.19.2)      | No             | Yes                                |
-| Ledger, Activity trail, and screenshots of every step                                   | Yes            | Yes                                |
-| Ranks, titles, and the rest of Personalization                                          | Yes            | Yes                                |
-| Full source code, and the right to change it for your own use                           | Yes            | Yes                                |
-| Support                                                                                 | Issues on here | Priority                           |
+| What                                                                                    | Free                                  | Pro                                |
+| --------------------------------------------------------------------------------------- | ------------------------------------- | ---------------------------------- |
+| Organizations (Phase 21: yours and a client's, each in its own window)                  | 1                                     | 3 (Partner: 10, 25, or any number) |
+| Departments                                                                             | 1                                     | Unlimited                          |
+| Projects                                                                                | 1                                     | Unlimited                          |
+| Workers on the job at the same time (the next one waits its turn)                       | 3                                     | 4 in each organization             |
+| Development department (developer, reviewer, QA, docs)                                  | Yes                                   | Yes                                |
+| Sales department on HubSpot, and business departments after it (planned, Phase 9)       | No                                    | Yes                                |
+| AI tools: Claude Code, Codex, Grok, Kimi, Ollama, Antigravity, GitHub Copilot           | All                                   | All                                |
+| Your own sign-ins, or your own paid AI keys; spending caps optional (Phase 16)          | Yes                                   | Yes                                |
+| Which AI model each role gets, and how hard it thinks                                   | Yes                                   | Yes                                |
+| Permissions, Guard, folder limits, and your approval                                    | Yes                                   | Yes                                |
+| Plenipo's own browser, and the screen, mouse, and keyboard                              | Yes                                   | Yes                                |
+| Switches in Settings: what workers may use, and when they ask                           | Yes                                   | Yes                                |
+| Workers that learn from their work (lessons)                                            | No                                    | Yes                                |
+| Connections: Microsoft 365, Slack, Google, HubSpot, Stripe, and your website (Phase 20) | No                                    | Yes                                |
+| Add-on tools you set up (Phase 20)                                                      | No                                    | Yes                                |
+| GitHub's tools for the Development department                                           | Yes                                   | Yes                                |
+| Your servers over SSH, and the Operations Engineer role                                 | Yes                                   | Yes                                |
+| Plenipo on your phone, with notices (Phase 14, from v1.19.0; notices from v1.19.2)      | No                                    | Yes                                |
+| Community: profiles, messages, linked organizations, helpers (Phase 24, being built)    | Answering, with a free 8 West account | Yes                                |
+| Ledger, Activity trail, and screenshots of every step                                   | Yes                                   | Yes                                |
+| Ranks, titles, and the rest of Personalization                                          | Yes                                   | Yes                                |
+| Full source code, and the right to change it for your own use                           | Yes                                   | Yes                                |
+| Support                                                                                 | Issues on here                        | Priority                           |
 
 ## What stays free, always
 
@@ -104,7 +105,10 @@ your workers did, which models they used, or anything from the Ledger. Your work
 computer ([ADR-002](adr/ADR-002-local-first-architecture.md), local-first architecture). A test
 checks the contents of that request byte for byte, and you can read it in the source.
 
-**A Free copy never checks in at all.** If you have not paid, Plenipo never contacts 8 West.
+**A Free copy never checks in at all.** If you have not paid, Plenipo never contacts 8 West. The
+one exception, once Community is built (Phase 24): a Free copy whose owner signs in to Community
+on purpose contacts 8 West for Community only, while signed in
+([ADR-162](adr/ADR-162-your-account-in-plenipo.md), your 8 West account in Plenipo).
 
 ## Plenipo on your phone, and what it sends to 8 West's relay
 
@@ -140,6 +144,30 @@ needs you" instead.
 
 **A Free copy never connects to the relay**, even with the switch saved on. When Pro ends, phone
 access pauses: your phones stay on the list, and work again when Pro is back.
+
+## Plenipo Community, and what it sends to 8 West
+
+**Being built** (Phase 24, ADR-161 to ADR-169). Community lets owners find each other, talk, link
+their organizations, and invite people to help. It is off until you turn it on, and it reaches
+people only after an attorney approves its terms and a security review passes. **Starting** a
+conversation, inviting a helper, and linking need Pro; **answering** needs only a free 8 West
+account ([ADR-162](adr/ADR-162-your-account-in-plenipo.md), your 8 West account in Plenipo).
+
+Exactly what Plenipo sends to 8 West for Community, and nothing else (the written contract is
+[`contracts/community/v1`](../contracts/community/v1/README.md); a test will check it):
+
+- a pass for your PC, and your PC's public keys (the private halves stay in the Vault);
+- your Community name, your birth month and year (never the day), and that you accepted the terms;
+- your profile, unless you choose **Appear offline**: the parts you leave on;
+- sealed messages and who they are for (8 West carries them and cannot read them), and the
+  envelopes' report tags;
+- the people you block, reports you make (with the messages you choose to send as proof), thanks,
+  links, invitations, and the email addresses you invite;
+- GIF searches, which 8 West passes to the GIF library and never keeps.
+
+It never sends your projects, files, folder names, tasks, workers' answers, keys, or anything from
+the Ledger, unless you send something on purpose (like the answer to a linked organization's
+objective).
 
 **Checking for a new version is separate, and the same for Free and Pro** (from v1.9.0,
 [ADR-038](adr/ADR-038-updates.md), updates). Every copy asks GitHub once a day whether a newer

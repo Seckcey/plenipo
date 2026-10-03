@@ -1,0 +1,13 @@
+{
+  "about": "cm_01JA2B3C4D5E6F7G8H9J0K1M2N",
+  "reason": "spam",
+  "note": "Keeps asking to link.",
+  "what": "items",
+  "items": [
+    {
+      "stamp": "eyJ2IjoxLCJpdGVtX2lkIjoiY2lfMDFKQzBEMUUyRjNHNEg1SjZLN004TjlQMFEiLCJmcm9tIjoiY21fMDFKQTJCM0M0RDVFNkY3RzhIOUowSzFNMk4iLCJ0byI6ImNtXzAxSkI3UThSOVMwVDFWMlczWDRZNVo2QTdCIiwia2luZCI6Im1lc3NhZ2UiLCJyZWYiOm51bGwsInRhZyI6IlNPbzFLZ3J1VlVlTEV4UHN1dWFuTmFOU2tISE1zUjBjWVJYdWU4dnY3WFUiLCJhdCI6MTc5MDAwMDAwMiwic2lnbmVyIjoidGVzdC1zdGFtcC0xIn0.L3-PrHBGfqfVxDvqb-3jiNfOqq6k98f7oiQKwh_FtXrwECyDJYde8n1-4Ojuq91QQHWXhbmTTBo05yEUb0YMCg",
+      "payload": "eyJ2IjoxLCJpdGVtX2lkIjoiY2lfMDFKQzBEMUUyRjNHNEg1SjZLN004TjlQMFEiLCJraW5kIjoibWVzc2FnZSIsImZyb20iOiJjbV8wMUpBMkIzQzRENUU2RjdHOEg5SjBLMU0yTiIsImZyb21fZGV2aWNlIjoiY2RfMDFKQTJCM0M0RDVFNkY3RzhIOUowSzFNMlAiLCJ0byI6ImNtXzAxSkI3UThSOVMwVDFWMlczWDRZNVo2QTdCIiwicmVmIjpudWxsLCJzZW50X2F0IjoxNzkwMDAwMDAwLCJib2R5Ijp7InRleHQiOiJIaSBQYXQhIFdhbnQgdG8gbGluayBvdXIgb3JnYW5pemF0aW9ucz8g8J-RiyIsImdpZiI6bnVsbCwic3RpY2tlciI6bnVsbCwicmVwbHlfdG8iOm51bGx9fQ",
+      "fk": "cGxlbmlwby1jb21tdW5pdHktdGVzdC1yZXBvcnQtazE"
+    }
+  ]
+}

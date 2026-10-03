@@ -1,0 +1,20 @@
+{
+  "period": "week",
+  "since": 1789740800,
+  "top": [
+    {
+      "place": 1,
+      "member_id": "cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B",
+      "name": "pat-acme",
+      "display_name": "Pat Lee",
+      "has_picture": false,
+      "picture_version": null,
+      "badges": ["founding_member", "connector"],
+      "points": 61
+    }
+  ],
+  "me": {
+    "place": 4,
+    "points": 23
+  }
+}

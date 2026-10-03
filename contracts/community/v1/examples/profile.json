@@ -1,0 +1,10 @@
+{
+  "display_name": "Frank Gonzalez",
+  "status": "available",
+  "mood": "focused",
+  "message": "Building something new!",
+  "company": "8 West IT",
+  "business_kinds": ["it_services", "security"],
+  "business_line": "Managed IT and security for small businesses",
+  "region": "US-CA"
+}

@@ -1,0 +1,10 @@
+{
+  "member_id": "cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B",
+  "devices": [
+    {
+      "device_id": "cd_01JB7Q8R9S0T1V2W3X4Y5Z6A7C",
+      "signing_key": "I45hOGc3SPwseYBjnICAsewdbmlPhh2YUkt2psRL0ic",
+      "sealing_key": "db_QoRWWy-WMKyIhL3jr6rDdClVqLi24ffubsTIRixo"
+    }
+  ]
+}

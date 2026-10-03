@@ -1,0 +1,17 @@
+{
+  "note": "A worked item (contract §6, §7, §11). TEST ONLY: every key here is published on purpose. The report check passes for this item and fails for tampered_payload, whose words changed after the tag was made.",
+  "device": {
+    "device_id": "cd_01JA2B3C4D5E6F7G8H9J0K1M2P",
+    "member_id": "cm_01JA2B3C4D5E6F7G8H9J0K1M2N",
+    "signing_seed_hex": "706c656e69706f2d636f6d6d756e6974792d746573742d6465766963652d3031",
+    "signing_key": "xe_jgIYrQn6t0W7rcVM5e7rpDeL3T5DYvgZcCxx2u_c"
+  },
+  "payload_json": "{\"v\":1,\"item_id\":\"ci_01JC0D1E2F3G4H5J6K7M8N9P0Q\",\"kind\":\"message\",\"from\":\"cm_01JA2B3C4D5E6F7G8H9J0K1M2N\",\"from_device\":\"cd_01JA2B3C4D5E6F7G8H9J0K1M2P\",\"to\":\"cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B\",\"ref\":null,\"sent_at\":1790000000,\"body\":{\"text\":\"Hi Pat! Want to link our organizations? 👋\",\"gif\":null,\"sticker\":null,\"reply_to\":null}}",
+  "payload": "eyJ2IjoxLCJpdGVtX2lkIjoiY2lfMDFKQzBEMUUyRjNHNEg1SjZLN004TjlQMFEiLCJraW5kIjoibWVzc2FnZSIsImZyb20iOiJjbV8wMUpBMkIzQzRENUU2RjdHOEg5SjBLMU0yTiIsImZyb21fZGV2aWNlIjoiY2RfMDFKQTJCM0M0RDVFNkY3RzhIOUowSzFNMlAiLCJ0byI6ImNtXzAxSkI3UThSOVMwVDFWMlczWDRZNVo2QTdCIiwicmVmIjpudWxsLCJzZW50X2F0IjoxNzkwMDAwMDAwLCJib2R5Ijp7InRleHQiOiJIaSBQYXQhIFdhbnQgdG8gbGluayBvdXIgb3JnYW5pemF0aW9ucz8g8J-RiyIsImdpZiI6bnVsbCwic3RpY2tlciI6bnVsbCwicmVwbHlfdG8iOm51bGx9fQ",
+  "sig": "FOzwydjdR2kG88p9mkRX9a0zphepuW0AWtkDFWFrEtWWbz2iM7q2BtSXlECKrbQEIoZ7-iBVGqL6RLesHav3BA",
+  "fk": "cGxlbmlwby1jb21tdW5pdHktdGVzdC1yZXBvcnQtazE",
+  "tag": "SOo1KgruVUeLExPsuuanNaNSkHHMsR0cYRXue8vv7XU",
+  "stamp_payload_json": "{\"v\":1,\"item_id\":\"ci_01JC0D1E2F3G4H5J6K7M8N9P0Q\",\"from\":\"cm_01JA2B3C4D5E6F7G8H9J0K1M2N\",\"to\":\"cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B\",\"kind\":\"message\",\"ref\":null,\"tag\":\"SOo1KgruVUeLExPsuuanNaNSkHHMsR0cYRXue8vv7XU\",\"at\":1790000002,\"signer\":\"test-stamp-1\"}",
+  "stamp": "eyJ2IjoxLCJpdGVtX2lkIjoiY2lfMDFKQzBEMUUyRjNHNEg1SjZLN004TjlQMFEiLCJmcm9tIjoiY21fMDFKQTJCM0M0RDVFNkY3RzhIOUowSzFNMk4iLCJ0byI6ImNtXzAxSkI3UThSOVMwVDFWMlczWDRZNVo2QTdCIiwia2luZCI6Im1lc3NhZ2UiLCJyZWYiOm51bGwsInRhZyI6IlNPbzFLZ3J1VlVlTEV4UHN1dWFuTmFOU2tISE1zUjBjWVJYdWU4dnY3WFUiLCJhdCI6MTc5MDAwMDAwMiwic2lnbmVyIjoidGVzdC1zdGFtcC0xIn0.L3-PrHBGfqfVxDvqb-3jiNfOqq6k98f7oiQKwh_FtXrwECyDJYde8n1-4Ojuq91QQHWXhbmTTBo05yEUb0YMCg",
+  "tampered_payload": "eyJ2IjoxLCJpdGVtX2lkIjoiY2lfMDFKQzBEMUUyRjNHNEg1SjZLN004TjlQMFEiLCJraW5kIjoibWVzc2FnZSIsImZyb20iOiJjbV8wMUpBMkIzQzRENUU2RjdHOEg5SjBLMU0yTiIsImZyb21fZGV2aWNlIjoiY2RfMDFKQTJCM0M0RDVFNkY3RzhIOUowSzFNMlAiLCJ0byI6ImNtXzAxSkI3UThSOVMwVDFWMlczWDRZNVo2QTdCIiwicmVmIjpudWxsLCJzZW50X2F0IjoxNzkwMDAwMDAwLCJib2R5Ijp7InRleHQiOiJTZW5kIG1lIHlvdXIgcGFzc3dvcmQuIiwiZ2lmIjpudWxsLCJzdGlja2VyIjpudWxsLCJyZXBseV90byI6bnVsbH19"
+}

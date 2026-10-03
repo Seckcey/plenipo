@@ -104,8 +104,11 @@ month of Pro free**. Sending lots of messages earns nothing, so spamming can nev
 6. **A free month of Pro for invitations** (question 18, as recommended):
    - **Invite someone** gives you your share link and picture code (ADR-163 §6) and **Invite by
      email**; each carries your invitation, so the account service knows who invited a new member.
-   - When a person you invited **buys Pro and keeps it past the 14-day refund window**, **you both
-     get one month of Pro free**: one month's price as a credit on your next bill, through Stripe.
+   - When a person you invited **buys Pro within 120 days of making their account, and keeps it
+     past the 14-day refund window**, **you both get one month of Pro free**: one month's price as
+     a credit on your next bill, through Stripe. For an email invitation, it counts only when they
+     made their account with the address you invited. Who invited whom is kept 150 days at most
+     when they don't buy Pro (ADR-168).
    - **At most 12 free months a year** for one person. **Your free months: 2 of 12 this year** shows
      in Settings → Community and on the account site.
    - **Adults only** (buying Pro needs 18). **Not for yourself:** the account service refuses a
