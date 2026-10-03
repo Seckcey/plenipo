@@ -142,10 +142,10 @@ Ships first, in small releases. About 2 to 3 build sessions.
         (`org_commands::open`).
   - [x] A **Check plan** button on cards whose AI tool Plenipo can ask (Codex, GitHub Copilot).
         Claude Code reports its plan only during a task, so it has none.
-  - [ ] Tell the open page when a background plan check saves a new report. **Moved to 4.3**
-        (better plan numbers), which reworks the plan report.
-  - [ ] On a subscription card, show its paid key's usage as a second line. **Moved to 2.1**, which
-        folds the key into the subscription card.
+  - [x] Tell the open page when a background plan check saves a new report. **Moved to 4.3**
+        (better plan numbers), which reworks the plan report; done there.
+  - [x] On a subscription card, show its paid key's usage as a second line. **Moved to 2.1**, which
+        folds the key into the subscription card; done there.
   - [x] Say on the Usage tab that it counts the tasks Plenipo ran, in every organization, and not
         your own use outside Plenipo.
 - **Tests:**
@@ -168,13 +168,13 @@ Ships first, in small releases. About 2 to 3 build sessions.
       connected" when either one works.
     - **Yellow** with the reason when neither works but something is set up.
     - **Red** when nothing is installed and no key is saved.
-  - [ ] Fold the company key cards (Anthropic, OpenAI, xAI, and the rest) into their subscription
+  - [x] Fold the company key cards (Anthropic, OpenAI, xAI, and the rest) into their subscription
         card. OpenRouter keeps its own card, because it has no subscription. **Moved to 2.1**,
-        which rebuilds the cards.
+        which rebuilds the cards; done there.
   - [x] When a key is saved but switched off or blocked, the reason shows: the card's notice says
         it once (unchanged).
-  - [ ] Say on the card that a key is only used for jobs where its model is on the list. **Moved to
-        4.4**, which makes it automatic instead.
+  - [x] Say on the card that a key is only used for jobs where its model is on the list. **Moved to
+        4.4**, which makes it automatic instead; done there.
 - **Tests:** [x] the three green lights, in `aiTools.test.tsx`.
 
 ### 1.4 Paid keys work in every organization — M
@@ -219,7 +219,7 @@ Ships first, in small releases. About 2 to 3 build sessions.
   - [x] The error text points to "the AI tools page", not "Settings → AI tools".
   - [x] Settings → AI tools: a signed-out AI tool's row says **Sign in →** and opens its card,
         where the Sign in button is. The button itself moves to the card's header in 2.1.
-  - [ ] The full fix, a subscription with its company's key as a backup, is item 4.4.
+  - [x] The full fix, a subscription with its company's key as a backup, is item 4.4; done there.
 - **Tests:** [x] picker groups, the hint, and the Sign in rows.
 
 ### 1.6 Copilot as code reviewer: "who made it is not known" — S
