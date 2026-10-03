@@ -1709,6 +1709,7 @@ async fn a_usage_limit_holds_work_back_or_moves_it_on_as_the_owner_chose() {
     h.router
         .set_options(RoutingOptions {
             on_usage_limit: LimitBehavior::NextChoice,
+            ..RoutingOptions::default()
         })
         .unwrap();
     let moved = h

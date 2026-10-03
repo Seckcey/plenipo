@@ -95,7 +95,9 @@ function LimitChoice({ snapshot, onApply }: { snapshot: RoutingSnapshot; onApply
               type="radio"
               name="on-usage-limit"
               checked={current === b}
-              onChange={() => void run(() => setRoutingOptions({ onUsageLimit: b }))}
+              onChange={() =>
+                void run(() => setRoutingOptions({ ...snapshot.options, onUsageLimit: b }))
+              }
             />
             <span>{LIMIT_LABEL[b]}</span>
           </label>

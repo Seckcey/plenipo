@@ -243,11 +243,30 @@ pub struct AgentRuleView {
 }
 
 /// Choices that apply to every role.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 #[ts(export)]
 pub struct RoutingOptions {
     pub on_usage_limit: LimitBehavior,
+    /// Step down instead of stopping (Phase 25, item 4.5; ADR-255): when an AI tool's plan is
+    /// past `step_down_at`, new work runs at a lower effort, then on a smaller model from the same
+    /// company. On to start with (the owner's answer 6, ADR-190).
+    pub step_down: bool,
+    /// How much of a plan is used (percent) when work starts to step down: 80 to start with.
+    pub step_down_at: u8,
+}
+
+/// The line work steps down from, to start with (Phase 25, item 4.5).
+pub const STEP_DOWN_AT: u8 = 80;
+
+impl Default for RoutingOptions {
+    fn default() -> Self {
+        Self {
+            on_usage_limit: LimitBehavior::default(),
+            step_down: true,
+            step_down_at: STEP_DOWN_AT,
+        }
+    }
 }
 
 /// An AI tool reached its usage limit and is not given new work until `until`.
@@ -417,6 +436,11 @@ pub struct RouteDecision {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub on_key_for: Option<String>,
+    /// How the work stepped down because its AI tool's plan is running low, in plain words
+    /// (Phase 25, item 4.5; ADR-255). `None`: it did not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub stepped_down: Option<String>,
 }
 
 /// A role's policy with the model its next worker would get.

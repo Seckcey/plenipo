@@ -625,7 +625,11 @@ describe("Settings → AI models", () => {
     const wait = await screen.findByRole("radio", { name: /Wait for the limit to reset/ });
     expect(wait).toBeChecked();
     await user.click(screen.getByRole("radio", { name: /Use the role's next choice/ }));
-    expect(api.setRoutingOptions).toHaveBeenCalledWith({ onUsageLimit: "nextChoice" });
+    expect(api.setRoutingOptions).toHaveBeenCalledWith({
+      onUsageLimit: "nextChoice",
+      stepDown: true,
+      stepDownAt: 80,
+    });
     // A turn result (a usage limit, a model seen) reloads the settings.
     api.getRouting.mockClear();
     emitLedger({

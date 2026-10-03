@@ -344,8 +344,14 @@ function describeRouterEvent(type: string, p: Record<string, unknown>): string |
       return `Model choices changed for ${str(p.role) ?? "a role"}`;
     case "router.policies_added":
       return "Built-in roles got their starting model choices";
-    case "router.options_changed":
+    case "router.options_changed": {
+      // Phase 25, item 4.5: the step-down setting is kept with the usage-limit one.
+      const o = (p.options ?? {}) as { stepDown?: unknown; stepDownAt?: unknown };
+      if (o.stepDown === false) return "Usage-limit setting changed · Step down is off";
+      if (o.stepDown === true && typeof o.stepDownAt === "number")
+        return `Usage-limit setting changed · Step down from ${o.stepDownAt}% used`;
       return "Usage-limit setting changed";
+    }
     case "router.limit_cleared":
       return `You asked to try ${str(p.label) ?? "an AI tool"} again after its usage limit`;
     case "router.rule_changed":

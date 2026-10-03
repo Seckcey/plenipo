@@ -364,6 +364,16 @@ describe("describeEvent (Phase 10 browser and desktop events)", () => {
     expect(describeEvent(event("work.allowed_again", {}))).toBe(
       "You pressed Allow again: work can start again",
     );
+    expect(
+      describeEvent(
+        event("router.options_changed", {
+          options: { onUsageLimit: "wait", stepDown: true, stepDownAt: 90 },
+        }),
+      ),
+    ).toBe("Usage-limit setting changed · Step down from 90% used");
+    expect(describeEvent(event("router.options_changed", { options: { stepDown: false } }))).toBe(
+      "Usage-limit setting changed · Step down is off",
+    );
     expect(describeEvent(event("work.picked_up", { label: "Claude Code" }))).toBe(
       "Plenipo picked this work back up after Claude Code's usage limit",
     );

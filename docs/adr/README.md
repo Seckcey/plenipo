@@ -173,3 +173,4 @@ architecture must be recorded here.
 | [252](ADR-252-prompt-caching-for-anthropic-models.md)                | Prompt caching for Anthropic models on your key and through OpenRouter (amends 085 §3.5)                               | Accepted |
 | [253](ADR-253-when-a-plan-runs-out.md)                               | When a plan runs out: a notice with your choices, and the work picked back up after the reset (amends 037)             | Accepted |
 | [254](ADR-254-your-subscription-first-then-the-same-companys-key.md) | Your subscription first, then the same model on the same company's key (amends 085 §6, §8)                             | Accepted |
+| [255](ADR-255-step-down-instead-of-stopping.md)                      | Step down instead of stopping: lower effort, then a smaller model, then your key, then wait; on to start with          | Accepted |

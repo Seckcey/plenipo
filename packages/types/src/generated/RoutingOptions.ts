@@ -4,4 +4,14 @@ import type { LimitBehavior } from "./LimitBehavior";
 /**
  * Choices that apply to every role.
  */
-export type RoutingOptions = { onUsageLimit: LimitBehavior, };
+export type RoutingOptions = { onUsageLimit: LimitBehavior, 
+/**
+ * Step down instead of stopping (Phase 25, item 4.5; ADR-255): when an AI tool's plan is
+ * past `step_down_at`, new work runs at a lower effort, then on a smaller model from the same
+ * company. On to start with (the owner's answer 6, ADR-190).
+ */
+stepDown: boolean, 
+/**
+ * How much of a plan is used (percent) when work starts to step down: 80 to start with.
+ */
+stepDownAt: number, };

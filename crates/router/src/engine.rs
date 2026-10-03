@@ -84,6 +84,11 @@ pub struct RouteInput<'a> {
     /// The work this worker reviews: each AI tool and the model it ran (cross-company review).
     pub reviewed: &'a [WorkDoneBy],
     pub on_limit: LimitBehavior,
+    /// Step down from this share of a plan used (percent), when stepping down is on and the
+    /// work is not a review (Phase 25, item 4.5; ADR-255). `None`: never.
+    pub step_down_at: Option<u8>,
+    /// How much of each AI tool's plan is used now (percent), as it last reported.
+    pub plan_used: &'a std::collections::HashMap<String, u8>,
     pub now: u64,
     /// What is left this month under the spending caps covering this work (ADR-085): a paid
     /// route is skipped when nothing is. None: not known, or no paid route can run anyway.
@@ -455,6 +460,96 @@ fn key_blocked(
     None
 }
 
+/// Claude's models, largest first, by the short name each shares on every AI tool that runs it:
+/// stepping down is the next one (Phase 25, item 4.5; ADR-255).
+const SMALLER_IN_TURN: &[&str] = &[
+    "claude-fable-5-1",
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-haiku-4-5",
+];
+
+/// The next smaller model from the same company on the same AI tool, and its label, when
+/// `name` is on a ladder (an alias through the exact model it points to).
+fn smaller_model(tool: &ToolState, name: Option<&str>) -> Option<(String, String)> {
+    let known = &tool.info.capabilities.known_models;
+    let entry = known.iter().find(|k| Some(k.name.as_str()) == name)?;
+    let entry = entry
+        .points_to
+        .as_ref()
+        .and_then(|exact| known.iter().find(|k| &k.name == exact))
+        .unwrap_or(entry);
+    let at = SMALLER_IN_TURN
+        .iter()
+        .position(|l| Some(*l) == entry.same.as_deref())?;
+    let next = SMALLER_IN_TURN.get(at + 1)?;
+    let smaller = known.iter().find(|k| k.same.as_deref() == Some(*next))?;
+    Some((smaller.name.clone(), smaller.label.clone()))
+}
+
+/// One effort level lower than `effort`, among the levels the model takes; for the AI tool's own
+/// default (`None`), medium. `None` for a model that takes no effort setting.
+fn lower_effort(effort: Option<Effort>, levels: &[Effort]) -> Option<Effort> {
+    if levels.is_empty() {
+        return None;
+    }
+    match effort {
+        Some(e) => levels.iter().copied().filter(|l| *l < e).max().or(Some(e)),
+        None => levels.contains(&Effort::Medium).then_some(Effort::Medium),
+    }
+}
+
+/// How a chosen model steps down because its AI tool's plan is past the owner's line (Phase 25,
+/// item 4.5; ADR-255): past the line, one effort level lower; halfway from the line to the
+/// limit, also the next smaller model from the same company. Never a paid route, nor a model an
+/// agent was set to use by its own rule. `None`: no step down.
+fn step_down(
+    input: &RouteInput<'_>,
+    listing: Option<&Layer<'_>>,
+    t: &ToolState,
+    m: &ModelInfo,
+    label: &str,
+    effort: Option<Effort>,
+) -> Option<(Option<String>, Option<Effort>, String, String)> {
+    let line = input.step_down_at?;
+    if t.paid || listing.is_some_and(|l| l.source.layer == RuleLayer::Agent) {
+        return None;
+    }
+    let used = *input.plan_used.get(&t.info.id)?;
+    if used < line {
+        return None;
+    }
+    let deep = used >= line + (100u8.saturating_sub(line)) / 2;
+    let smaller = deep.then(|| smaller_model(t, m.name.as_deref())).flatten();
+    let model = smaller
+        .as_ref()
+        .map_or_else(|| m.name.clone(), |(n, _)| Some(n.clone()));
+    let levels = t.info.capabilities.effort_levels_for(model.as_deref());
+    let lowered = lower_effort(effort, levels);
+    let mut what: Vec<String> = Vec::new();
+    let new_label = match &smaller {
+        Some((_, l)) => {
+            what.push(format!("{l} instead of {}", m.label));
+            format!("{l} ({})", t.info.label)
+        }
+        None => label.to_owned(),
+    };
+    if lowered != effort {
+        if let Some(e) = lowered {
+            what.push(format!("{} effort", e.label()));
+        }
+    }
+    if what.is_empty() {
+        return None;
+    }
+    let words = format!(
+        "{}'s plan is {used}% used (your line is {line}%), so it steps down: {}",
+        t.info.label,
+        what.join(", at ")
+    );
+    Some((model, lowered, new_label, words))
+}
+
 pub fn route(input: &RouteInput<'_>) -> RouteDecision {
     let policy = input.policy;
     let layers = layers(input);
@@ -571,6 +666,8 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
     // The subscription whose usage limit moved the work to the same company's key, and its
     // limit in words (Phase 25, item 4.4; ADR-254).
     let mut on_key: Option<(String, String)> = None;
+    // How the chosen model stepped down, in words (Phase 25, item 4.5; ADR-255).
+    let mut stepped: Option<String> = None;
     for c in &candidates {
         let Some(m) = c.model else {
             notes.push(CandidateNote {
@@ -746,16 +843,28 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 // Only a level the model (or, for a model the AI tool does not list, the AI
                 // tool) takes.
                 let levels = info.capabilities.effort_levels_for(m.name.as_deref());
-                let (effort, from, passed) = effort_for(&layers, &m.id, m.effort, levels);
+                let (mut effort, mut from, passed) = effort_for(&layers, &m.id, m.effort, levels);
+                let mut model = m.name.clone();
+                let mut chosen_label = label.clone();
+                if let Some((down_model, down_effort, down_label, words)) =
+                    step_down(input, listing, t, m, &label, effort)
+                {
+                    model = down_model;
+                    effort = down_effort;
+                    chosen_label = down_label;
+                    // The effort is the step down's, not a rule's.
+                    from = None;
+                    stepped = Some(words);
+                }
                 chosen = Some((
                     RouteChoice {
                         model_id: m.id.clone(),
                         runtime_id: info.id.clone(),
                         runtime_label: info.label.clone(),
                         company: info.provider.clone(),
-                        model: m.name.clone(),
+                        model,
                         effort,
-                        label: label.clone(),
+                        label: chosen_label,
                         maker: made_by.clone(),
                         paid: t.paid,
                     },
@@ -821,6 +930,9 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 effort_passed.as_ref(),
                 &choice.label,
             ));
+            if let Some(words) = &stepped {
+                reason.push_str(&format!(" {words}."));
+            }
             // Whether it costs money, and what a worker on it can do (ADR-085).
             if let Some(t) = tool(&choice.runtime_id) {
                 if choice.paid {
@@ -869,6 +981,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 model_from: listing.map(|l| l.source.clone()),
                 effort_from,
                 on_key_for: on_key.map(|(sub, _)| sub),
+                stepped_down: stepped,
             }
         }
         None => {
@@ -910,6 +1023,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 model_from: None,
                 effort_from: None,
                 on_key_for: None,
+                stepped_down: None,
             }
         }
     }
@@ -1033,6 +1147,8 @@ mod tests {
             project,
             reviewed: &reviewed,
             on_limit,
+            step_down_at: None,
+            plan_used: &std::collections::HashMap::new(),
             now: NOW,
             spending_room: None,
         })
@@ -1441,6 +1557,8 @@ mod tests {
             project: None,
             reviewed: &[],
             on_limit: LimitBehavior::Wait,
+            step_down_at: None,
+            plan_used: &std::collections::HashMap::new(),
             now: NOW,
             spending_room: None,
         })
@@ -1617,6 +1735,8 @@ mod tests {
             project: None,
             reviewed,
             on_limit: LimitBehavior::Wait,
+            step_down_at: None,
+            plan_used: &std::collections::HashMap::new(),
             now: NOW,
             spending_room: None,
         })
@@ -1877,6 +1997,8 @@ mod tests {
             project: None,
             reviewed: &[],
             on_limit: LimitBehavior::NextChoice,
+            step_down_at: None,
+            plan_used: &std::collections::HashMap::new(),
             now: NOW,
             spending_room: room,
         })
@@ -1933,6 +2055,8 @@ mod tests {
             project: None,
             reviewed: &[],
             on_limit: LimitBehavior::Wait,
+            step_down_at: None,
+            plan_used: &std::collections::HashMap::new(),
             now: NOW,
             spending_room: room,
         })
@@ -2021,6 +2145,120 @@ mod tests {
         assert!(waiting_for_limits(&own, &prefer(&["own"]), None)
             .choice
             .is_none());
+    }
+
+    /// Claude Code with Fable, Opus, Sonnet, and Haiku linked by their short names (Phase 25,
+    /// item 4.5).
+    fn claude_ladder() -> World {
+        let mut claude = tool("claude-code", "anthropic");
+        claude.info.label = "Claude Code".into();
+        let levels = [Effort::Low, Effort::Medium, Effort::High];
+        claude.info.capabilities.known_models = vec![
+            KnownModel::new("opus", "Opus", &levels).now("claude-opus-5-5"),
+            KnownModel::new("claude-fable-5-1", "Fable 5.1", &levels).same("claude-fable-5-1"),
+            KnownModel::new("claude-opus-5-5", "Opus 5.5", &levels).same("claude-opus-5-5"),
+            KnownModel::new("claude-sonnet-5-5", "Sonnet 5.5", &levels).same("claude-sonnet-5-5"),
+            KnownModel::new("claude-haiku-4-5-20251001", "Haiku 4.5", &[]).same("claude-haiku-4-5"),
+        ];
+        World {
+            models: vec![ModelInfo {
+                name: Some("opus".into()),
+                effort: Some(Effort::High),
+                ..model("opus-cc", "claude-code", "Opus")
+            }],
+            tools: vec![claude],
+        }
+    }
+
+    fn stepping(
+        w: &World,
+        agent: Option<&ModelRule>,
+        policy: &RolePolicy,
+        line: Option<u8>,
+        used: u8,
+    ) -> RouteDecision {
+        let plan_used = std::collections::HashMap::from([("claude-code".to_owned(), used)]);
+        route(&RouteInput {
+            role: "Senior Developer",
+            role_id: "dev",
+            policy,
+            agent: agent.map(|r| ("pos-1", r)),
+            department: None,
+            organization: None,
+            models: &w.models,
+            tools: &w.tools,
+            project: None,
+            reviewed: &[],
+            on_limit: LimitBehavior::Wait,
+            step_down_at: line,
+            plan_used: &plan_used,
+            now: NOW,
+            spending_room: None,
+        })
+    }
+
+    /// Phase 25, item 4.5 (ADR-255): each rung of the ladder, shown in the reason and recorded
+    /// with the decision; an agent set to its own model, and the switch turned off, hold.
+    #[test]
+    fn work_steps_down_as_a_plan_runs_low() {
+        let w = claude_ladder();
+        let policy = prefer(&["opus-cc"]);
+        let pick = |d: &RouteDecision| {
+            let c = d.choice.as_ref().unwrap();
+            (c.model.clone(), c.effort)
+        };
+        // Under the line: as chosen.
+        let d = stepping(&w, None, &policy, Some(80), 79);
+        assert_eq!(pick(&d), (Some("opus".into()), Some(Effort::High)));
+        assert_eq!(d.stepped_down, None);
+        // Past the line: one effort level lower, the same model.
+        let d = stepping(&w, None, &policy, Some(80), 84);
+        assert_eq!(pick(&d), (Some("opus".into()), Some(Effort::Medium)));
+        assert_eq!(
+            d.stepped_down.as_deref(),
+            Some("Claude Code's plan is 84% used (your line is 80%), so it steps down: medium effort")
+        );
+        assert!(
+            d.reason.ends_with("so it steps down: medium effort."),
+            "{}",
+            d.reason
+        );
+        assert_eq!(d.effort_from, None, "the effort is the step down's");
+        // Halfway from the line to the limit: the next smaller model too.
+        let d = stepping(&w, None, &policy, Some(80), 92);
+        assert_eq!(
+            pick(&d),
+            (Some("claude-sonnet-5-5".into()), Some(Effort::Medium))
+        );
+        assert_eq!(d.choice.as_ref().unwrap().label, "Sonnet 5.5 (Claude Code)");
+        assert!(
+            d.stepped_down
+                .as_deref()
+                .unwrap()
+                .ends_with("so it steps down: Sonnet 5.5 instead of Opus, at medium effort"),
+            "{:?}",
+            d.stepped_down
+        );
+        // The owner's model stays the decision's model: the step down is for now.
+        assert_eq!(d.choice.as_ref().unwrap().model_id, "opus-cc");
+        // A smaller model with no effort setting: Haiku after Sonnet.
+        let sonnet = World {
+            models: vec![ModelInfo {
+                name: Some("claude-sonnet-5-5".into()),
+                ..model("sonnet-cc", "claude-code", "Sonnet")
+            }],
+            tools: w.tools.clone(),
+        };
+        let d = stepping(&sonnet, None, &prefer(&["sonnet-cc"]), Some(80), 95);
+        assert_eq!(pick(&d), (Some("claude-haiku-4-5-20251001".into()), None));
+
+        // An agent set to its own model holds it; so does everything with the switch off.
+        let own = rule(&["opus-cc"], Some(Effort::High));
+        let d = stepping(&w, Some(&own), &policy, Some(80), 95);
+        assert_eq!(pick(&d), (Some("opus".into()), Some(Effort::High)));
+        assert_eq!(d.stepped_down, None);
+        let d = stepping(&w, None, &policy, None, 95);
+        assert_eq!(pick(&d), (Some("opus".into()), Some(Effort::High)));
     }
 
     fn limited() -> Option<UsageLimit> {

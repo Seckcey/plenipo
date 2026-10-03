@@ -61,6 +61,9 @@ pub struct Planner {
     pub now: u64,
     /// The spending caps, for paid routes (ADR-085).
     ledger: Option<Arc<plenipo_ledger::Ledger>>,
+    /// How much of each AI tool's plan is used now, in percent, as it last reported (Phase 25,
+    /// item 4.5): the fullest window that has not started again, 100 when it said it is limited.
+    pub plan_used: HashMap<String, u8>,
 }
 
 impl Planner {
@@ -92,6 +95,11 @@ impl Planner {
             project: request.project,
             reviewed: request.reviewed,
             on_limit: self.config.options.on_usage_limit,
+            // Reviewers never step down (Phase 25, item 4.5): their model is chosen for the
+            // review.
+            step_down_at: (self.config.options.step_down && request.reviewed.is_empty())
+                .then_some(self.config.options.step_down_at),
+            plan_used: &self.plan_used,
             now: self.now,
             spending_room: self.ledger.as_ref().and_then(|l| {
                 l.spending_room(
@@ -252,6 +260,7 @@ impl Planner {
                 model_from: Some(fixed_by),
                 effort_from: None,
                 on_key_for: None,
+                stepped_down: None,
             };
         }
         let levels: Vec<plenipo_runtime::agent::Effort> = self
@@ -310,7 +319,24 @@ impl Planner {
             model_from: Some(fixed_by),
             effort_from,
             on_key_for: None,
+            stepped_down: None,
         }
+    }
+}
+
+/// How much of a plan is used now (percent): the fullest window that has not started again, 100
+/// when the AI tool said it is limited; `None` when it reported no share.
+fn plan_used(plan: &plenipo_runtime::agent::PlanReport, now: u64) -> Option<u8> {
+    let fullest = plan
+        .windows
+        .iter()
+        .filter(|w| w.resets_at.is_none_or(|r| r > now))
+        .filter_map(|w| w.used_percent)
+        .max();
+    if plan.limited {
+        Some(100)
+    } else {
+        fullest
     }
 }
 
@@ -507,7 +533,7 @@ impl Router {
         let reported = move |runtime: &str, at: u64| plans(runtime).and_then(|p| p.reset_after(at));
         let mut active = limits::active(&outcomes, &config.cleared_limits, now, &reported);
         let paid = crate::engine::paid_tool_ids();
-        let tools = self
+        let tools: Vec<ToolState> = self
             .tools()
             .into_iter()
             .map(|info| ToolState {
@@ -522,12 +548,20 @@ impl Router {
             .into_iter()
             .map(|r| (r.id, r.name))
             .collect();
+        let plan_used = tools
+            .iter()
+            .filter_map(|t: &ToolState| {
+                let plan = (self.inner.plans)(&t.info.id)?;
+                plan_used(&plan, now).map(|used| (t.info.id.clone(), used))
+            })
+            .collect();
         Ok(Planner {
             config,
             tools,
             roles,
             now,
             ledger: Some(Arc::clone(&self.inner.ledger)),
+            plan_used,
         })
     }
 
@@ -794,6 +828,11 @@ impl Router {
     }
 
     pub fn set_options(&self, options: RoutingOptions) -> Result<RoutingSnapshot> {
+        if !(50..=99).contains(&options.step_down_at) {
+            return Err(RouterError::Invalid(
+                "work steps down from 50% to 99% of a plan used".into(),
+            ));
+        }
         self.update("router.options_changed", OWNER, |c| {
             c.options = options;
             Ok(Some(json!({ "options": options })))
@@ -1108,6 +1147,7 @@ mod tests {
         let s = router
             .set_options(RoutingOptions {
                 on_usage_limit: LimitBehavior::NextChoice,
+                ..RoutingOptions::default()
             })
             .unwrap();
         assert_eq!(next(&s, &dev), Some(gpt.clone()));

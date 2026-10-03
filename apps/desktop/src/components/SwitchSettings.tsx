@@ -1,8 +1,15 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
-import type { AiToolsPage, PermissionsSnapshot, Switches } from "@plenipo/types";
+import type { AiToolsPage, PermissionsSnapshot, RoutingSnapshot, Switches } from "@plenipo/types";
 import { Switch } from "@plenipo/ui";
 
-import { getAiTools, setAiToolsAutoUpdate, setSwitches, toCommandError } from "../api/commands";
+import {
+  getAiTools,
+  getRouting,
+  setAiToolsAutoUpdate,
+  setRoutingOptions,
+  setSwitches,
+  toCommandError,
+} from "../api/commands";
 import { usePermissions } from "../guard/usePermissions";
 import { useRun } from "../guard/useRun";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_LABEL } from "./aiTools/words";
@@ -95,6 +102,78 @@ function AiToolsUpdateSwitch() {
         disabled={pending}
         onChange={(on) => void run(() => setAiToolsAutoUpdate(on))}
       />
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** The lines work can step down from, in percent of a plan used. */
+const STEP_DOWN_LINES = [70, 80, 90] as const;
+
+/**
+ * Step down instead of stopping (Phase 25, item 4.5; ADR-255): a choice kept with the AI
+ * models settings, shown here with the other switches. On to start with, from 80% used.
+ */
+function StepDownSwitch() {
+  const [snapshot, setSnapshot] = useState<RoutingSnapshot | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const { pending, error, run } = useRun<RoutingSnapshot>(setSnapshot);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve()
+      .then(getRouting)
+      .then(
+        (s) => {
+          if (live) setSnapshot(s);
+        },
+        (reason: unknown) => {
+          if (live) setLoadError(toCommandError(reason).message);
+        },
+      );
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (!snapshot) {
+    return (
+      <p className={loadError ? "form-error" : "muted"}>
+        {loadError ? `Couldn't read Step down: ${loadError}` : "Loading Step down…"}
+      </p>
+    );
+  }
+  const options = snapshot.options;
+  return (
+    <>
+      <Toggle
+        label="Step down instead of stopping"
+        hint={`On to start with. When a plan passes ${options.stepDownAt}% used, new work runs at a lower effort; closer to the limit, on a smaller model from the same company; at the limit, on your key for the same company if paid keys are on. Each step is shown on the worker and recorded. Reviewers, and agents you set to their own model, never step down. Off: work keeps its model until the limit.`}
+        checked={options.stepDown}
+        disabled={pending}
+        onChange={(on) => void run(() => setRoutingOptions({ ...options, stepDown: on }))}
+      />
+      <label className="field field--inline">
+        <span>Start stepping down at</span>
+        <select
+          value={options.stepDownAt}
+          disabled={pending || !options.stepDown}
+          onChange={(e) =>
+            void run(() => setRoutingOptions({ ...options, stepDownAt: Number(e.target.value) }))
+          }
+        >
+          {(STEP_DOWN_LINES as readonly number[]).includes(options.stepDownAt) ? null : (
+            <option value={options.stepDownAt}>{options.stepDownAt}% used</option>
+          )}
+          {STEP_DOWN_LINES.map((line) => (
+            <option key={line} value={line}>
+              {line}% used
+            </option>
+          ))}
+        </select>
+      </label>
       {error && (
         <p className="form-error" role="alert">
           {error}
@@ -220,6 +299,7 @@ export function SwitchSettings({
       <section aria-labelledby="switches-ai-tools">
         <h3 id="switches-ai-tools">AI tools</h3>
         <AiToolsUpdateSwitch />
+        <StepDownSwitch />
       </section>
       {phone && (
         <section aria-labelledby="switches-phone">

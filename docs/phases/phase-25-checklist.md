@@ -801,17 +801,26 @@ About 6 to 8 build sessions.
 - **Why:** effort already reaches every AI tool that has it. Nothing lowers it, or moves to a
   smaller model, when a plan runs low.
 - **Do:**
-  - [ ] A step-down ladder for each role:
-    1. lower the effort
-    2. use a smaller model from the same company (Fable → Opus → Sonnet → Haiku)
-    3. use the same model on your key (4.4)
-    4. wait for the reset
-  - [ ] Reviewers and anything you pinned by name never step down without asking.
-  - [ ] It starts when a plan passes a line you set (default 80% used). Every step is shown and
-        written in the Ledger.
-  - [ ] **On by default**, with a switch in Settings → Switches to turn it off
+  - [x] A step-down ladder for each role
+        ([ADR-255 (step down instead of stopping)](../adr/ADR-255-step-down-instead-of-stopping.md)):
+    1. lower the effort (past the line)
+    2. use a smaller model from the same company (Fable → Opus → Sonnet → Haiku), halfway from
+       the line to the limit. Codex steps down by effort only: OpenAI does not rank its models
+       by size.
+    3. use the same model on your key (4.4), at the limit
+    4. wait for the reset (4.2)
+  - [x] Reviewers and agents you set to their own model never step down. (Asking first is not
+        built: they simply hold, as the owner's answer 6 has stepping down on by default.)
+  - [x] It starts when a plan passes a line you set (default 80% used; 70% or 90% in Settings →
+        Switches). Every step is shown in the worker's reason and recorded with the worker; the
+        setting's changes are recorded too.
+  - [x] **On by default**, with a switch in Settings → Switches to turn it off
         ([answer 6](../adr/ADR-190-phase-25-starts.md#the-owners-answers-2026-10-03)).
 - **Tests:** each rung of the ladder. Pinned and reviewer roles hold their model.
+  - [x] router `work_steps_down_as_a_plan_runs_low` (effort, smaller model, Haiku with no
+        effort, an agent's own model, the switch off); the key and the wait are 4.4's and 4.2's
+        tests. Reviewers: the Router is given no line for a review.
+  - [x] desktop `SwitchSettings.test.tsx` (on to start with, the line, off), `format.test.ts`
 
 ### 4.6 Spread use across the week and the month — L
 

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as commands from "../api/commands";
 import { aiPage, aiTool } from "../test/aiToolFixtures";
 import { samplePermissions } from "../test/permissionFixtures";
+import { sampleRouting } from "../test/routingFixtures";
 import { SwitchSettings } from "./SwitchSettings";
 
 vi.mock("../api/commands", async (importOriginal) => {
@@ -15,6 +16,8 @@ vi.mock("../api/commands", async (importOriginal) => {
     setSwitches: vi.fn(),
     getAiTools: vi.fn(),
     setAiToolsAutoUpdate: vi.fn(),
+    getRouting: vi.fn(),
+    setRoutingOptions: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -26,6 +29,7 @@ const api = vi.mocked(commands);
 beforeEach(() => {
   api.getPermissions.mockResolvedValue(samplePermissions());
   api.getAiTools.mockResolvedValue(aiPage([aiTool("grok")]));
+  api.getRouting.mockResolvedValue(sampleRouting());
 });
 
 afterEach(() => {
@@ -124,6 +128,30 @@ describe("Settings → Switches", () => {
     render(<SwitchSettings />);
     await screen.findByRole("heading", { name: "What workers may use" });
     expect(screen.queryByRole("heading", { name: "Community" })).toBeNull();
+  });
+
+  it("steps down instead of stopping: on to start with, from a line you choose (Phase 25, item 4.5)", async () => {
+    const user = userEvent.setup();
+    const base = sampleRouting();
+    api.setRoutingOptions.mockImplementation((options) => Promise.resolve({ ...base, options }));
+    render(<SwitchSettings />);
+    const stepDown = await screen.findByRole("switch", { name: "Step down instead of stopping" });
+    expect(stepDown).toHaveAttribute("aria-checked", "true");
+    const line = screen.getByRole("combobox", { name: "Start stepping down at" });
+    expect(line).toHaveValue("80");
+    await user.selectOptions(line, "90");
+    expect(api.setRoutingOptions).toHaveBeenLastCalledWith({
+      onUsageLimit: "wait",
+      stepDown: true,
+      stepDownAt: 90,
+    });
+    await user.click(stepDown);
+    expect(api.setRoutingOptions).toHaveBeenLastCalledWith({
+      onUsageLimit: "wait",
+      stepDown: false,
+      stepDownAt: 90,
+    });
+    expect(await screen.findByRole("combobox", { name: "Start stepping down at" })).toBeDisabled();
   });
 
   it("shows a refusal", async () => {

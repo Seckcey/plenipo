@@ -186,7 +186,7 @@ export function sampleRouting(): RoutingSnapshot {
       },
     ],
     companies: [ANTHROPIC, OPENAI],
-    options: { onUsageLimit: "wait" },
+    options: { onUsageLimit: "wait", stepDown: true, stepDownAt: 80 },
     apiBilling: false,
     notices: [],
     generatedAt: T0,

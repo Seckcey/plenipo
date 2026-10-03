@@ -44,380 +44,381 @@ On a Mac and on Linux, rows that name Windows (where keys are kept, Start Plenip
 shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 [Words that change with the system](#words-that-change-with-the-system) instead (ADR-155).
 
-| Say                                                                            | Not                                                                                        |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| AI tool (Claude Code, Codex)                                                   | runtime, agent runtime, provider                                                           |
-| full-time (one agent holds the position)                                       | persistent                                                                                 |
-| on call (a new worker for each task)                                           | on-demand, ephemeral                                                                       |
-| brought in (a worker)                                                          | spawned                                                                                    |
-| rank                                                                           | class, kind                                                                                |
-| supervisor, manager, VP                                                        | coordinator, superintendent, head                                                          |
-| you                                                                            | the owner (in text written to the owner)                                                   |
-| conversation                                                                   | session                                                                                    |
-| task (one objective and its answer)                                            | turn                                                                                       |
-| run (of a program)                                                             | execution                                                                                  |
-| approved program                                                               | launch profile                                                                             |
-| program                                                                        | process                                                                                    |
-| time limit                                                                     | maximum runtime                                                                            |
-| this version of Plenipo                                                        | this build                                                                                 |
-| permissions                                                                    | capabilities                                                                               |
-| permission set                                                                 | capability profile                                                                         |
-| Allowed / Ask me / Blocked                                                     | allow / require approval / deny                                                            |
-| permission limit (of a project, department)                                    | project policy, department policy                                                          |
-| permissions in use (a worker's, now)                                           | runtime grant                                                                              |
-| waiting for your approval                                                      | pending approval, awaiting approval                                                        |
-| Approve / Deny                                                                 | accept / reject                                                                            |
-| Not approved (a request)                                                       | rejected                                                                                   |
-| Revoke (a worker's permissions)                                                | revoke grant                                                                               |
-| approved (programs that run without asking)                                    | allowlisted commands                                                                       |
-| Never run / never open                                                         | deny rules, denylist                                                                       |
-| sensitive action                                                               | high-risk action, risk class                                                               |
-| project folder                                                                 | workspace, working directory                                                               |
-| Plenipo's tools                                                                | MCP server, tool server, broker                                                            |
-| secret                                                                         | credential, secret reference                                                               |
-| Windows Credential Manager (where it's kept)                                   | Vault, keyring, credential store                                                           |
-| hidden by Plenipo                                                              | redacted                                                                                   |
-| Blocked: … tried to …                                                          | denied, policy violation                                                                   |
-| what it can do                                                                 | capabilities (of an AI tool)                                                               |
-| AI model, model                                                                | model (fine as is)                                                                         |
-| model choices (of a role)                                                      | model policy                                                                               |
-| first choice                                                                   | preferred model                                                                            |
-| backups (tried in order)                                                       | fallback models                                                                            |
-| Automatic (follows the role's choices)                                         | policy-routed, routing: policy                                                             |
-| fixed (an AI tool you set)                                                     | pinned                                                                                     |
-| AI company (OpenAI, Anthropic)                                                 | provider (when the company is meant)                                                       |
-| a different AI company                                                         | cross-provider                                                                             |
-| usage limit                                                                    | usage cap, rate limit, capacity                                                            |
-| pay-per-use API billing                                                        | API fallback, API billing                                                                  |
-| sees images / makes images / uses a computer                                   | vision / image generation / computer use                                                   |
-| context size (tokens are pieces of words)                                      | context window                                                                             |
-| why this model                                                                 | routing explanation                                                                        |
-| effort (how hard the model thinks)                                             | reasoning effort, thinking budget                                                          |
-| the AI tool's models (e.g. Claude Code's)                                      | known models, model aliases, presets                                                       |
-| Who made it (the AI company that made a model)                                 | maker, vendor, provider (for a model)                                                      |
-| made by DeepSeek                                                               | vendor: deepseek, provider: deepseek                                                       |
-| Group by: Who made it / AI tool                                                | group by maker, group by provider, group by runtime                                        |
-| not known (who made a model)                                                   | unknown maker, null provider                                                               |
-| now Opus 5.5 (what a name like "opus" points to now)                           | alias target, resolves to, snapshot                                                        |
-| exact version (of a model, e.g. claude-opus-5-5)                               | pinned model, snapshot, model ID                                                           |
-| Antigravity (Google's AI tool)                                                 | agy, Antigravity CLI, Jetski                                                               |
-| paid AI credits                                                                | G1 credits, overage                                                                        |
-| Antigravity's own settings folder                                              | isolated home, HOME override, sandbox profile                                              |
-| GitHub Copilot (GitHub's AI tool)                                              | copilot, Copilot CLI, GH Copilot                                                           |
-| Copilot sign-in, GitHub CLI sign-in                                            | OAuth token, gh token, authType, user auth                                                 |
-| paid extra use (GitHub may charge once your allowance runs out)                | overage, premium request overage, additional usage, BYOK                                   |
-| allowance (what your plan includes each month)                                 | quota, entitlement, premium interactions, quota snapshot                                   |
-| the check before each task                                                     | preflight, headless probe, JSON-RPC handshake                                              |
-| Copilot's own settings folder                                                  | COPILOT_HOME, config dir override                                                          |
-| Auto (Copilot picks the model itself)                                          | auto mode, model router, auto routing                                                      |
-| Cursor's agent (not an AI tool in Plenipo yet)                                 | cursor-agent, Cursor CLI                                                                   |
-| on-demand use (Cursor's paid use past the plan)                                | usage-based pricing, hard limit, spend limit                                               |
-| Ultra (effort)                                                                 | ultra                                                                                      |
-| Extra high (effort)                                                            | xhigh                                                                                      |
-| working copy (of the project folder)                                           | worktree, git worktree                                                                     |
-| branch                                                                         | branch (fine as is)                                                                        |
-| pull request                                                                   | PR                                                                                         |
-| result (of an objective)                                                       | outcome report, objective report                                                           |
-| open findings (from a review)                                                  | unresolved findings                                                                        |
-| Changes requested / Approved (a review)                                        | request-changes / approve                                                                  |
-| Committed / Not committed (a file)                                             | staged, dirty, working tree                                                                |
-| Pushed (a branch, to the server)                                               | published, upstream                                                                        |
-| Projects (the page)                                                            | project dashboard                                                                          |
-| hands it to (a lead to its team)                                               | delegates, dispatches                                                                      |
-| its job / what it hands back / what it must not do / when it asks for help     | duties / deliverables / constraints / escalation (role prompt)                             |
-| Plenipo's browser (its own profile)                                            | managed browser, browser runtime                                                           |
-| Visit websites / Use websites                                                  | browser navigation / browser automation                                                    |
-| See the screen / Use the mouse and keyboard                                    | computer observe / computer control, computer use                                          |
-| Screen, mouse, and keyboard (the permission set)                               | Computer use                                                                               |
-| website lists: Allowed / Blocked / Other websites                              | domain policy, allowlist, denylist                                                         |
-| the sign (a worker is using the browser)                                       | session indicator                                                                          |
-| Take over (you take control; the worker stops)                                 | user takes control, handover, preempt                                                      |
-| Stop all / Allow again                                                         | emergency stop, kill switch, re-enable                                                     |
-| signing in                                                                     | authentication, login                                                                      |
-| screenshot (of the page or the screen)                                         | screen capture, vision pipeline                                                            |
-| terms of use (of a website)                                                    | terms of service, ToS                                                                      |
-| Switches (Settings), on / off                                                  | feature flags, toggles, enabled / disabled                                                 |
-| without asking you (on your allowed websites)                                  | auto-approve, bypass approval                                                              |
-| a check that a person is using a website (CAPTCHA, said once)                  | CAPTCHA challenge, bot check, human verification                                           |
-| Hand me checks (you solve it; the worker waits)                                | CAPTCHA hand-off, human-in-the-loop                                                        |
-| lesson / what it has learned                                                   | agent memory (for lessons), learned knowledge                                              |
-| Keep / Discard (a lesson)                                                      | accept / reject, persist                                                                   |
-| Learn on its own (a role)                                                      | auto-accept lessons, autonomous learning                                                   |
-| Worker learning                                                                | continual learning, agent memory                                                           |
-| server, remote computer (in Settings → Servers)                                | host, remote host, host registry                                                           |
-| Connect to servers (the permission)                                            | SSH capability, ssh.connect                                                                |
-| server ID / pin it (Check the server ID)                                       | host key, host key fingerprint / host key pinning                                          |
-| This server's ID changed                                                       | host key mismatch, REMOTE HOST IDENTIFICATION HAS CHANGED                                  |
-| sign in as (a user on the server)                                              | SSH user, login                                                                            |
-| How Plenipo signs in: a private key / a password / my SSH agent                | credential reference, auth method                                                          |
-| Test / Staging / PRODUCTION (what a server is)                                 | environment classification, development environment                                        |
-| Remote computers (SSH) (the switch in Settings → Switches)                     | SSH feature flag                                                                           |
-| the kinds of commands (Look around, Start, stop, and restart services, …)      | command classes                                                                            |
-| Run as administrator                                                           | sudo, privilege escalation                                                                 |
-| When to ask you (every command / anything that changes / only as allowed)      | approval policy                                                                            |
-| folders (on a server)                                                          | remote working directory policy                                                            |
-| forwarded port                                                                 | SSH local port forward, direct-tcpip tunnel                                                |
-| Disconnect (you stop a worker's server work)                                   | Take over (for server sessions), terminate session                                         |
-| Showing (where you are: everything, a department, or a project)                | scope selector, context switcher                                                           |
-| Notifications (the bell: what waits for you)                                   | notification badge, alert center                                                           |
-| notices (above the page)                                                       | banners, banner slot, advisories                                                           |
-| Switch to the light theme / dark theme                                         | theme toggle, color scheme                                                                 |
-| Gallery (every building block of the screens)                                  | component gallery, storybook                                                               |
-| activity (a strip of the last 24 hours)                                        | activity strip, sparkline, time series                                                     |
-| Cards / List (how a list is shown)                                             | card/list view toggle                                                                      |
-| Columns (choose which ones show)                                               | column customization                                                                       |
-| Rows per page                                                                  | page size                                                                                  |
-| Filters / Clear filters                                                        | facets, facet panel, reset                                                                 |
-| Live / Back to live (a timeline)                                               | live mode, scrubber                                                                        |
-| Home (the first page: how your company is doing, and what needs you)           | dashboard, overview, landing page                                                          |
-| Waiting for you / What's stuck / Who's working / Just finished (Home)          | pending approvals / blocked tasks / active agents / recent completions                     |
-| Current objectives                                                             | active objectives, open workflows                                                          |
-| a department's health: Working / Quiet / Someone can't work / N stuck          | department health status, health score                                                     |
-| page (of a department, project, worker, or task)                               | detail view, entity page                                                                   |
-| Back (to the page before)                                                      | navigate back, history pop                                                                 |
-| History (a department's, project's, or worker's events) / Show older           | event log, audit history / load more, pagination                                           |
-| Task tree / Delegation tree (who handed what to whom)                          | delegation graph, DAG                                                                      |
-| Done when (what counts as done)                                                | acceptance criteria                                                                        |
-| Decisions (approvals answered, refusals, lessons kept, stops)                  | decision log                                                                               |
-| Terminal (the panel at the bottom or on the right)                             | console, TTY, shell panel                                                                  |
-| New terminal / This PC / a server's name                                       | spawn a shell, local host / remote host                                                    |
-| shell (Windows PowerShell, PowerShell 7, Command Prompt) — fine as is          | command interpreter                                                                        |
-| watch tab ("Operations Engineer · Shop": a worker's server work, read-only)    | session mirror, read-only PTY                                                              |
-| Stop (the command running now) / Disconnect (the worker from the server)       | SIGTERM/SIGKILL / terminate session                                                        |
-| notice (a pop-up from Windows)                                                 | toast, push notification                                                                   |
-| Notifications (Settings: which notices you get)                                | notification preferences                                                                   |
-| Send a test notice                                                             | test notification                                                                          |
-| Only while Plenipo's window is not in front                                    | focus-aware notifications, suppress when focused                                           |
-| Local paths (where Plenipo keeps its files)                                    | data directory, app data folder                                                            |
-| sections (of Settings, the list on the left)                                   | settings tabs, navigation pane                                                             |
-| About Plenipo                                                                  | about dialog                                                                               |
-| Pip (Plenipo's helper, the character in the logo)                              | mascot                                                                                     |
-| Keep Plenipo in the tray (closing hides the window; the work goes on)          | background daemon, service, minimize to tray                                               |
-| Start Plenipo with Windows                                                     | autostart, launch at login, Run key                                                        |
-| Start and close (Settings)                                                     | lifecycle settings, startup behavior                                                       |
-| Plenipo closed unexpectedly / Windows closed Plenipo (restart, sign-out)       | crash, unclean shutdown, reboot detected                                                   |
-| Plenipo was stopped while updating the Ledger                                  | interrupted migration                                                                      |
-| the window stopped responding and was reloaded / opened again                  | WebView crash, renderer process failure                                                    |
-| Run again / Leave stopped (a task Plenipo's closing stopped)                   | resume, retry, re-enqueue / discard                                                        |
-| update / a new version / Install now                                           | OTA update, patch, updater                                                                 |
-| Update ready (the top bar)                                                     | update available badge                                                                     |
-| signed by 8 West (an update Plenipo trusts)                                    | minisign signature, updater public key                                                     |
-| backup (of the Ledger): daily, before a new version, before an update          | snapshot, pre-upgrade/pre-migration dump                                                   |
-| Restore (a backup) / Restore and restart                                       | rollback DB, recover snapshot                                                              |
-| log files (what Plenipo did, kept to five)                                     | log rotation, trace output                                                                 |
-| diagnostics file (one file to send when something went wrong)                  | support bundle, diagnostics bundle, crash dump                                             |
-| Reset to starting settings                                                     | factory reset, reset config                                                                |
-| rule (models and effort: the organization's, a department's, a role's)         | layer, policy layer, precedence                                                            |
-| its own rule (one agent's); the closest rule wins                              | cascade, inheritance, override chain                                                       |
-| effort for any other model                                                     | default effort, fallback effort                                                            |
-| AI companies never to use (they add up across the rules)                       | provider denylist, blocked providers                                                       |
-| specialty (a role's area of work: Senior Developer (Database))                 | sub-role, variant, role profile                                                            |
-| Archived (the list) / Archive / Bring back                                     | restore (an agent), unarchive, soft delete                                                 |
-| Delete for good                                                                | purge, hard delete, permanent delete                                                       |
-| short record (what stays in the Ledger after Delete for good)                  | tombstone                                                                                  |
-| Experience (a score: how much an agent has learned and done)                   | XP, rating                                                                                 |
-| experienced (above your organization's average experience)                     | senior agent, high performer                                                               |
-| Workforce (agents you saved to hire again) / Save to my Workforce              | talent pool, bench, agent library                                                          |
-| full instructions / short reminder (what a worker is sent with a task)         | full brief, system prompt, context re-injection                                            |
-| shortened its memory (an AI tool left out older parts of a conversation)       | compaction, context compaction                                                             |
-| tabs (of the details: Overview, Job, AI model, Work, Team, Manage)             | panes, property sheet                                                                      |
-| Plenipo's own text (its size, with a task)                                     | prompt overhead, token overhead                                                            |
-| tile (one box on the canvas: you, the organization, an agent, a live worker)   | node, card, vertex                                                                         |
-| Arrange (place tiles by hand) / Tidy up (back in neat rows)                    | layout, auto-layout, re-layout                                                             |
-| Select / Move the view (drag to move around the canvas)                        | pan, hand tool, viewport                                                                   |
-| line end (the round handle you drag to rewire a line)                          | edge endpoint, connector, anchor                                                           |
-| Move here / Lend for one objective / Lend until I send it home / Send home     | reassign, loan, borrow, secondment                                                         |
-| lent (helping another team for now)                                            | on loan, seconded, borrowed                                                                |
-| trash can (drop an agent to archive it)                                        | recycle bin, delete zone                                                                   |
-| Filters / Legend / Guide to the canvas                                         | facets, key, onboarding                                                                    |
-| Where / thinks in Anthropic's cloud / runs on this PC / touching a folder      | compute location, data locality, host, workload placement                                  |
-| hand-off (moving along a line)                                                 | message, event, RPC                                                                        |
-| Watch (see a worker write code as it happens)                                  | live diff, code stream, file watcher                                                       |
-| being written — not saved yet / saved / refused / not saved                    | streaming, partial tool input, pending write, committed                                    |
-| new / changed lines, lines removed here                                        | diff, hunks, additions, deletions                                                          |
-| Follow along / Pin this file                                                   | auto-scroll, lock, tail                                                                    |
-| Your picture / status (Available, Busy, Away, Do not disturb) / mood / message | avatar, presence, profile                                                                  |
-| Sign in / Reconnect / Sign out (an AI tool, from its card)                     | login, logout, re-auth, OAuth flow                                                         |
-| sign-in tab ("Sign in · Codex": the AI tool's own sign-in program)             | login shell, auth terminal, device flow                                                    |
-| Usage / tokens (pieces of words) read, reused, written                         | token usage, input / cached / output tokens                                                |
-| today / this week (Monday to Sunday) / last week / the last 14 days            | rolling window, time bucket, period                                                        |
-| left of your plan / reported by Codex at 1:05 PM                               | quota, rate-limit utilization, remaining quota                                             |
-| 5-hour: 62% used, resets 3:10 PM / Week (Opus): 40% used, resets Monday        | reset timestamp, rate-limit window, utilization                                            |
-| Key limit: $10.00 · $3.20 spent · $6.80 left (a paid key's own limit)          | credit limit, quota, balance                                                               |
-| on your Anthropic key / Its work moves to your Anthropic key while it waits    | API fallback, overflow billing, provider failover                                          |
-| How it is paid for: Subscription / Paid per use with your key                  | billing mode, BYOK, metered API                                                            |
-| installed / checked by Plenipo (an AI tool's version)                          | CLI version, tested version, compatibility                                                 |
-| a new version / Update / Updating… / Updated to 1.0.43                         | upgrade, self-update, patch                                                                |
-| The update didn't finish — your old version still works / put back             | update failed, rollback, downgrade                                                         |
-| Update AI tools by themselves (the switch)                                     | auto-update, unattended upgrade                                                            |
-| Plenipo is not giving Grok tasks for now                                       | disabled, quarantined, out of service                                                      |
-| new — not checked yet / not offered by this version (a model)                  | discovered model, unverified model, deprecated                                             |
-| Connections (Settings → Connections)                                           | plugins, integrations, connectors, MCP servers                                             |
-| Connect / Reconnect / Disconnect                                               | authorize, link account, OAuth, revoke                                                     |
-| Finish signing in in your browser                                              | OAuth redirect, consent screen, auth code flow                                             |
-| needs you to sign in again                                                     | token expired, invalid grant, re-authenticate                                              |
-| parts (Mail, Calendar, OneDrive, SharePoint, Teams) / what it can do           | scopes, features, APIs, resources                                                          |
-| Off / Read only / Full access (a part)                                         | disabled / read scope / write scope                                                        |
-| What Plenipo was allowed                                                       | granted scopes, consent, delegated permissions                                             |
-| Your organization's admin needs to approve Plenipo first                       | admin consent required, AADSTS65001                                                        |
-| Who may use it / Read only / Read and write                                    | ACL, grants, RBAC, access policy                                                           |
-| Send without asking to                                                         | allowlist, trusted recipients, safe senders                                                |
-| other people's words: information, never instructions                          | untrusted content, prompt injection                                                        |
-| a work or school account / a personal account                                  | Entra ID / MSA, organizational / consumer account                                          |
-| Microsoft app ID (in Advanced only)                                            | client ID, application ID, app registration                                                |
-| Coming in a later update (a service)                                           | not implemented, coming soon, roadmap                                                      |
-| Channels / Direct messages / Search (Slack's parts)                            | conversations, IMs, MPIMs, search API                                                      |
-| a channel's ID (on Send without asking to, Slack only)                         | channel identifier, conversation ID                                                        |
-| Add another Slack workspace / Remove this workspace                            | multi-tenant install, add team, uninstall                                                  |
-| Use your workspace's own Slack app / Plenipo's app description / client ID     | custom app, app manifest (Slack's own button "From a manifest" is quoted as Slack's words) |
-| Your Google app / Client ID / Client secret (the box hides what you type)      | OAuth client, credentials, client secret field                                             |
-| Its secret is kept in Windows Credential Manager                               | stored in keyring, encrypted secret                                                        |
-| cancelled at Slack / Google (on Disconnect)                                    | token revoked, grant revoked                                                               |
-| Slack lets Plenipo read one channel or thread a minute                         | rate limit, non-Marketplace throttling, tier limit                                         |
-| Its key / Save and check / Replace the key (the box hides what you type)       | API key field, credentials, validate token, rotate key                                     |
-| Needs a new key                                                                | 401 Unauthorized, key revoked, invalid API key                                             |
-| Contacts / Companies / Deals (HubSpot's parts)                                 | CRM objects, object types, scopes                                                          |
-| Payments / Customers / Invoices (Stripe's parts)                               | Stripe resources, restricted-key permissions                                               |
-| Test mode / Live mode: moves real money (Stripe)                               | sandbox, livemode, test environment                                                        |
-| waiting for your approval in Stripe's Dashboard                                | approval_required, agent approval rule                                                     |
-| Posts and pages / Store (the website's parts)                                  | wp/v2, wc/v3, REST namespaces                                                              |
-| Your site's address / WordPress user name / Application Password               | site URL, base URL, REST credentials, basic auth                                           |
-| WooCommerce key (optional) / Consumer key / Consumer secret                    | REST API key, ck/cs pair                                                                   |
-| everyone who visits the site (who publishing reaches)                          | public audience, anonymous users                                                           |
-| WooCommerce asks the payment company to send the money back                    | api_refund, gateway refund                                                                 |
-| Add-on tools / Add a program / Look at its tools                               | MCP servers, custom MCP, tools/list                                                        |
-| Switch on / Switch off (an add-on)                                             | enable / disable server                                                                    |
-| Off / Reading / Changing (an add-on's tool)                                    | tool annotations, readOnlyHint, destructiveHint                                            |
-| Changed — look again (an add-on's tool)                                        | tool drift, schema change, rug pull                                                        |
-| the program's words (what an add-on says)                                      | tool description, untrusted tool output                                                    |
-| Stored secrets to give it (an add-on)                                          | environment variables, secret injection                                                    |
-| panel (Terminal, Files) / Move to the left, right, bottom                      | pane, dock zone, drawer, sidebar                                                           |
-| Pop out / Put back (a panel in its own window)                                 | detach, undock, reattach, webview, window label                                            |
-| Reset layout                                                                   | restore defaults, clear layout state                                                       |
-| Files (the file view) / Project folder / working copy                          | file explorer, tree view, repository root, worktree                                        |
-| Open in Plenipo / Open in another program / Show in folder                     | open with default handler, shell open, reveal in Explorer                                  |
-| Save anyway (the file changed on disk)                                         | overwrite, force write, conflict, hash mismatch                                            |
-| Senior Developer is writing in this working copy / Wait / Stop the worker      | file lock, write lease, locked by another process, cancel turn                             |
-| organization / Your organizations                                              | tenant, workspace, instance, profile, database                                             |
-| New organization / Use a template / Copy from one of your organizations        | provision, clone, fork, seed                                                               |
-| Switch to / Open in a new window / Show its window                             | change context, rebind window, new webview                                                 |
-| Archive organization / Bring back / Delete for good                            | deactivate, restore, purge, hard delete                                                    |
-| Spending caps / a monthly cap / the business's cap                             | budget, spend limit, quota, billing threshold                                              |
-| Let workers use paid AI keys (the switch)                                      | enable BYOK, metered API access, API billing                                               |
-| set aside (the most a paid task could cost, before it starts)                  | reservation, hold, pre-authorization, escrow                                               |
-| not priced yet (counted at the most it could have cost)                        | unpriced, cost unknown, null cost                                                          |
-| 80% of a cap is used / Paid AI work stopped                                    | soft limit, budget alert, hard limit, quota exceeded                                       |
-| the month starts over (the 1st, Pacific time)                                  | billing cycle reset, period rollover                                                       |
-| Paid per use with your key, within your spending caps                          | BYOK, metered API, pay-as-you-go billing                                                   |
-| Key check / Your key works / No key yet / Key not in use                       | auth status, credential validated, missing credential                                      |
-| Save and check / Replace key / Remove key (a paid AI tool's key)               | validate API key, rotate key, revoke credential                                            |
-| Comes with Plenipo (an AI tool that is Plenipo's own helper)                   | built-in runtime, bundled adapter, bridge                                                  |
-| Anthropic (the card for an AI company's own service, with your key)            | Anthropic API, direct integration, API provider                                            |
-| Plenipo has not checked … with a real key yet                                  | unverified integration, untested endpoint                                                  |
-| $3.00 a million tokens read, $15.00 a million written                          | $/Mtok, input/output pricing, per-token rate                                               |
-| also on Ollama, OpenRouter (the same model on other AI tools)                  | model alias, provider route, model mapping                                                 |
-| It costs money (a paid route) / A worker on it answers in text only            | metered route, paid fallback, no tool use                                                  |
-| Free / Plenipo Pro (Phase 11A)                                                 | edition, tier, entitlement, SKU                                                            |
-| Plenipo Partner (for companies that run Plenipo for clients)                   | MSP tier, reseller SKU, multi-tenant plan                                                  |
-| part of Pro / Part of Plenipo Pro                                              | blocked, gated, entitlement denied, upgrade required                                       |
-| license key / the key's ID                                                     | token, license token, JWT                                                                  |
-| the weekly check with 8 West                                                   | check-in, license ping, phone home, heartbeat, validation call                             |
-| Pro keeps working for 30 days between checks                                   | grace period, offline grace, fail-open                                                     |
-| Paid / Cancelled (Pro until the paid period ends) / Ended                      | subscription state, active, past_due, canceled, lapsed                                     |
-| waits its turn (Free runs 3 workers at a time)                                 | concurrency limit, slot, queued for capacity                                               |
-| paused (Connections, add-on tools, and lessons on Free)                        | disabled, deactivated, revoked                                                             |
-| Use Plenipo from another device (the switch, Phase 14)                         | remote access, remote control, mobile client                                               |
-| Settings → Devices / your phones                                               | paired devices, endpoints, clients                                                         |
-| Add a phone / Pair this phone                                                  | enroll device, register client, provision                                                  |
-| picture code (QR code) / typed code                                            | QR payload, pairing token, PSK, one-time secret                                            |
-| Is this your phone? / Add / Cancel                                             | confirm device fingerprint, approve enrollment                                             |
-| your face, fingerprint, or passcode / Check it's you                           | passkey, WebAuthn, biometric assertion, user verification                                  |
-| Signed in / Sign out (a phone)                                                 | session, authenticated, token expiry                                                       |
-| 8 West's relay / sealed end to end                                             | relay server, WebSocket tunnel, end-to-end encryption, Noise                               |
-| Your PC can't be reached. Nothing was changed.                                 | host offline, 503, connection refused                                                      |
-| This phone is no longer on your PC's list                                      | device revoked, unauthorized, 401                                                          |
-| Approve on your PC (an approval kept on the PC)                                | remote approval disabled, policy-restricted action                                         |
-| Paused after 3 failed checks / Un-pause                                        | locked out, rate limited, lockout                                                          |
-| Coming soon (phone access before 8 West's relay is ready)                      | feature flag off, not provisioned                                                          |
-| notice (on your phone) / Notices on this phone / Notices on my phones          | push notification, web push, subscription                                                  |
-| On the lock screen: Show what it is / Show only “Something needs you”          | notification privacy, redacted payload                                                     |
-| Already answered                                                               | stale notification, conflict, 409                                                          |
-| Add Plenipo to your Home Screen (iPhone)                                       | install the PWA, A2HS                                                                      |
-| Community (the switch) / Turn on Community                                     | social network, community feature, opt-in                                                  |
-| Sign in to your 8 West account / Enter this code / Open the sign-in page       | device authorization grant, OAuth device flow, account linking, verification URI           |
-| Signed in as … / Sign out of your account                                      | authenticated as, session, logout                                                          |
-| Leave Community                                                                | delete account, deactivate, opt out                                                        |
-| Coming soon (Community before 8 West opens it) / Check again                   | feature flag, disabled, maintenance mode                                                   |
-| Update Plenipo to use Community                                                | minimum version, deprecated client, 426                                                    |
-| Community is closed for now                                                    | service outage, kill switch                                                                |
-| Your name in Community                                                         | handle, username                                                                           |
-| Your birth month and year / Community is for people 13 and older               | date of birth, DOB, age gate, COPPA                                                        |
-| What people see (your card, with a box for each part of it)                    | profile preview, public profile, visibility settings                                       |
-| Appear offline (you leave the directory; people you talk with see Offline)     | invisible mode, ghost mode, go dark, hide presence                                         |
-| What your business does (up to 3 kinds, and one line in your words)            | industry code, business vertical, business category, tags                                  |
-| Where (a state or a country, never a town)                                     | geolocation, location data, street address                                                 |
-| Your profile (your card in Community)                                          | account details, bio, user profile                                                         |
-| Community (the section on the strip: find people who use Plenipo)              | social network feed, community hub, people portal                                          |
-| Directory (everyone listed in Community, searched by name or business)         | member list, user index, address book                                                      |
-| New this week (people who joined in the last 7 days)                           | recent signups, newest accounts, new member feed                                           |
-| Find someone (an exact Community name)                                         | user lookup, handle search, member lookup                                                  |
-| Invite by email (8 West emails the address a link to join)                     | referral email, send invite link, email lookup                                             |
-| Share my profile (a link and a picture code that say how to find you)          | public profile link, vanity link, profile QR code                                          |
-| Messages (private messages between two people, in Community)                   | direct messages, chat room, inbox                                                          |
-| Requests (first messages from people you have not talked with)                 | message requests queue, pending contacts, friend requests                                  |
-| Accept (a message request, so you can talk)                                    | approve sender, allow contact, add contact                                                 |
-| Leave this conversation (deleted from this PC; their new messages stop)        | delete thread, archive chat, mute conversation                                             |
-| Delete for me (a message leaves this PC; other people keep their copies)       | delete for everyone, unsend message, remove message                                        |
-| Check the safety code (12 digits to compare with the person)                   | verify fingerprint, key verification, identity key                                         |
-| Sealed: only you and Pat can read this                                         | end-to-end encrypted, encrypted chat, secure channel                                       |
-| Pat's computers changed (their safety code changed)                            | new device key, safety number changed, key change alert                                    |
-| Waiting to be delivered / Delivered / Not delivered (a message you sent)       | message queued, delivery failed, delivery receipt                                          |
-| Give to a worker (a message's words go to a worker as outside words)           | forward to agent, send to bot, assign message                                              |
-| Photos can't be sent in Community                                              | attachments not supported, image upload blocked, file upload error                         |
-| Open this link in your web browser?                                            | follow this link, navigate to URL, external link warning                                   |
-| Block (they can't message you or find your card; they aren't told)             | ban user, mute user, restrict account                                                      |
-| Unblock (take a block back, in the conversation or in Settings)                | unban user, lift restriction, restore access                                               |
-| Blocked (the people you blocked, in Settings → Community)                      | block list, ban list, muted users                                                          |
-| Report (tell 8 West about a person, a profile, or messages you tick)           | flag content, file a complaint, abuse ticket                                               |
-| What is wrong? (the reason you pick for a report: Spam, A scam, Hate, …)       | violation category, abuse type, policy breach                                              |
-| Report first (offered before Leave this conversation)                          | escalate first, flag before leaving                                                        |
-| Thanks. 8 West will look at this. (after a report is sent)                     | ticket created, case opened, report submitted                                              |
-| Delete my Community data from this PC (others keep their copies)               | wipe local cache, purge local data, factory reset                                          |
-| Points (what you earn when other people agree you helped; no money value)      | reward points, karma points, reputation score                                              |
-| How to earn points (the eight ways, and what each is worth)                    | earning rules, points schedule, reward table                                               |
-| Leaderboard (the top 50 by points, and your own place)                         | high-score table, ranking table, top users list                                            |
-| This week / All time (the two lists; a week starts Monday, Pacific time)       | weekly period, lifetime total, rolling total                                               |
-| Top helper this week (the badge for the most points last week)                 | weekly winner, top contributor, leaderboard champion                                       |
-| Badges (small marks on your card; each says why you have it)                   | achievements unlocked, trophies earned, reputation tiers                                   |
-| Founding member / Helper / Connector / Good neighbor / Trusted (the badges)    | achievement names, trust levels, status ranks                                              |
-| Thanked by 12 people (different people, not presses)                           | thanks count, kudos total, upvotes received                                                |
-| Getting started (Fill in your profile, Find someone, Send a message)           | onboarding checklist, first-run wizard, setup tour                                         |
-| Only people you invite by email count (for points)                             | referral link, invite code, share-link referral                                            |
-| Subscription connected / API key connected (Phase 25)                          | authenticated, credentials valid                                                           |
-| Claude Code: its own choice                                                    | (default model), provider default                                                          |
-| Who uses what                                                                  | routing matrix, model policy table                                                         |
-| Use Senior Developer / Hire new / Hire one?                                    | reuse instance, spawn agent, provision                                                     |
-| Use a template / Save this organization as a template                          | scaffold, preset, blueprint                                                                |
-| Take the setup tour / Pick up the setup tour / Skip this step                  | onboarding flow, walkthrough, wizard                                                       |
-| Stop (one worker's task) / Keep working                                        | cancel turn, abort, kill                                                                   |
-| Stop all (all work) / Allow again / All work is stopped.                       | kill switch, global halt, resume dispatch                                                  |
-| Live conversation / now: Running `npm test` / Step 3 of 7 · 4 min              | token stream, agent log, telemetry, trace                                                  |
-| Ask a question / Side chat with Alex / made by a command                       | fork session, sub-agent, side channel, shell side effects                                  |
-| Claude Code is out until 3:00 PM / Wait / Use a reset / Pick it up now         | rate limited, quota exhausted, 429, redeem credit, retry                                   |
-| Chat (a live conversation with an agent, ADR-200)                              | session view, transcript pane, agent console                                               |
-| Side by side (up to four chats at once)                                        | split view, multi-pane, tiling                                                             |
-| What it is doing now, with a timer ("Saving a file · 12 s")                    | thinking…, loading, spinner text, status: busy                                             |
-| Thought for 6 s (Claude's thinking, one line you can open)                     | reasoning tokens, chain of thought, extended thinking                                      |
-| Claude's servers are busy. Trying again in 4 s (try 2 of 10).                  | API retry, 529 overloaded, exponential backoff                                             |
-| Waits its turn / goes when it finishes (a message sent while it works)         | queued message, message queue, pending send                                                |
-| Files saved / Open folder (under an answer)                                    | artifacts, output directory, workspace path                                                |
-| Plenipo's folder (Documents → Plenipo → your organization → the agent)         | files_dir, default working directory, sandbox folder                                       |
-| Safety: Light / Careful / Strict (Settings → Safety, ADR-201)                  | permission mode, sandbox level, bypass permissions, YOLO mode                              |
-| Everyday work (the leads' starting permission set)                             | default capability profile, standard grant                                                 |
-| writes answers only (an AI tool that cannot save files or run programs)        | text-only model, no tool use, no function calling                                          |
-| Chain of command / You asked … directly / Plenipo told … (ADR-202)             | escalation path, skip-level order, notify upstream, chain.order                            |
-| Reported: … (a result passed up one level)                                     | upward report, roll-up, status propagation, chain.report                                   |
-| through its lead (an on-call worker's order)                                   | routed via coordinator, delegated proxy, forwarded handoff                                 |
+| Say                                                                                                            | Not                                                                                        |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| AI tool (Claude Code, Codex)                                                                                   | runtime, agent runtime, provider                                                           |
+| full-time (one agent holds the position)                                                                       | persistent                                                                                 |
+| on call (a new worker for each task)                                                                           | on-demand, ephemeral                                                                       |
+| brought in (a worker)                                                                                          | spawned                                                                                    |
+| rank                                                                                                           | class, kind                                                                                |
+| supervisor, manager, VP                                                                                        | coordinator, superintendent, head                                                          |
+| you                                                                                                            | the owner (in text written to the owner)                                                   |
+| conversation                                                                                                   | session                                                                                    |
+| task (one objective and its answer)                                                                            | turn                                                                                       |
+| run (of a program)                                                                                             | execution                                                                                  |
+| approved program                                                                                               | launch profile                                                                             |
+| program                                                                                                        | process                                                                                    |
+| time limit                                                                                                     | maximum runtime                                                                            |
+| this version of Plenipo                                                                                        | this build                                                                                 |
+| permissions                                                                                                    | capabilities                                                                               |
+| permission set                                                                                                 | capability profile                                                                         |
+| Allowed / Ask me / Blocked                                                                                     | allow / require approval / deny                                                            |
+| permission limit (of a project, department)                                                                    | project policy, department policy                                                          |
+| permissions in use (a worker's, now)                                                                           | runtime grant                                                                              |
+| waiting for your approval                                                                                      | pending approval, awaiting approval                                                        |
+| Approve / Deny                                                                                                 | accept / reject                                                                            |
+| Not approved (a request)                                                                                       | rejected                                                                                   |
+| Revoke (a worker's permissions)                                                                                | revoke grant                                                                               |
+| approved (programs that run without asking)                                                                    | allowlisted commands                                                                       |
+| Never run / never open                                                                                         | deny rules, denylist                                                                       |
+| sensitive action                                                                                               | high-risk action, risk class                                                               |
+| project folder                                                                                                 | workspace, working directory                                                               |
+| Plenipo's tools                                                                                                | MCP server, tool server, broker                                                            |
+| secret                                                                                                         | credential, secret reference                                                               |
+| Windows Credential Manager (where it's kept)                                                                   | Vault, keyring, credential store                                                           |
+| hidden by Plenipo                                                                                              | redacted                                                                                   |
+| Blocked: … tried to …                                                                                          | denied, policy violation                                                                   |
+| what it can do                                                                                                 | capabilities (of an AI tool)                                                               |
+| AI model, model                                                                                                | model (fine as is)                                                                         |
+| model choices (of a role)                                                                                      | model policy                                                                               |
+| first choice                                                                                                   | preferred model                                                                            |
+| backups (tried in order)                                                                                       | fallback models                                                                            |
+| Automatic (follows the role's choices)                                                                         | policy-routed, routing: policy                                                             |
+| fixed (an AI tool you set)                                                                                     | pinned                                                                                     |
+| AI company (OpenAI, Anthropic)                                                                                 | provider (when the company is meant)                                                       |
+| a different AI company                                                                                         | cross-provider                                                                             |
+| usage limit                                                                                                    | usage cap, rate limit, capacity                                                            |
+| pay-per-use API billing                                                                                        | API fallback, API billing                                                                  |
+| sees images / makes images / uses a computer                                                                   | vision / image generation / computer use                                                   |
+| context size (tokens are pieces of words)                                                                      | context window                                                                             |
+| why this model                                                                                                 | routing explanation                                                                        |
+| effort (how hard the model thinks)                                                                             | reasoning effort, thinking budget                                                          |
+| the AI tool's models (e.g. Claude Code's)                                                                      | known models, model aliases, presets                                                       |
+| Who made it (the AI company that made a model)                                                                 | maker, vendor, provider (for a model)                                                      |
+| made by DeepSeek                                                                                               | vendor: deepseek, provider: deepseek                                                       |
+| Group by: Who made it / AI tool                                                                                | group by maker, group by provider, group by runtime                                        |
+| not known (who made a model)                                                                                   | unknown maker, null provider                                                               |
+| now Opus 5.5 (what a name like "opus" points to now)                                                           | alias target, resolves to, snapshot                                                        |
+| exact version (of a model, e.g. claude-opus-5-5)                                                               | pinned model, snapshot, model ID                                                           |
+| Antigravity (Google's AI tool)                                                                                 | agy, Antigravity CLI, Jetski                                                               |
+| paid AI credits                                                                                                | G1 credits, overage                                                                        |
+| Antigravity's own settings folder                                                                              | isolated home, HOME override, sandbox profile                                              |
+| GitHub Copilot (GitHub's AI tool)                                                                              | copilot, Copilot CLI, GH Copilot                                                           |
+| Copilot sign-in, GitHub CLI sign-in                                                                            | OAuth token, gh token, authType, user auth                                                 |
+| paid extra use (GitHub may charge once your allowance runs out)                                                | overage, premium request overage, additional usage, BYOK                                   |
+| allowance (what your plan includes each month)                                                                 | quota, entitlement, premium interactions, quota snapshot                                   |
+| the check before each task                                                                                     | preflight, headless probe, JSON-RPC handshake                                              |
+| Copilot's own settings folder                                                                                  | COPILOT_HOME, config dir override                                                          |
+| Auto (Copilot picks the model itself)                                                                          | auto mode, model router, auto routing                                                      |
+| Cursor's agent (not an AI tool in Plenipo yet)                                                                 | cursor-agent, Cursor CLI                                                                   |
+| on-demand use (Cursor's paid use past the plan)                                                                | usage-based pricing, hard limit, spend limit                                               |
+| Ultra (effort)                                                                                                 | ultra                                                                                      |
+| Extra high (effort)                                                                                            | xhigh                                                                                      |
+| working copy (of the project folder)                                                                           | worktree, git worktree                                                                     |
+| branch                                                                                                         | branch (fine as is)                                                                        |
+| pull request                                                                                                   | PR                                                                                         |
+| result (of an objective)                                                                                       | outcome report, objective report                                                           |
+| open findings (from a review)                                                                                  | unresolved findings                                                                        |
+| Changes requested / Approved (a review)                                                                        | request-changes / approve                                                                  |
+| Committed / Not committed (a file)                                                                             | staged, dirty, working tree                                                                |
+| Pushed (a branch, to the server)                                                                               | published, upstream                                                                        |
+| Projects (the page)                                                                                            | project dashboard                                                                          |
+| hands it to (a lead to its team)                                                                               | delegates, dispatches                                                                      |
+| its job / what it hands back / what it must not do / when it asks for help                                     | duties / deliverables / constraints / escalation (role prompt)                             |
+| Plenipo's browser (its own profile)                                                                            | managed browser, browser runtime                                                           |
+| Visit websites / Use websites                                                                                  | browser navigation / browser automation                                                    |
+| See the screen / Use the mouse and keyboard                                                                    | computer observe / computer control, computer use                                          |
+| Screen, mouse, and keyboard (the permission set)                                                               | Computer use                                                                               |
+| website lists: Allowed / Blocked / Other websites                                                              | domain policy, allowlist, denylist                                                         |
+| the sign (a worker is using the browser)                                                                       | session indicator                                                                          |
+| Take over (you take control; the worker stops)                                                                 | user takes control, handover, preempt                                                      |
+| Stop all / Allow again                                                                                         | emergency stop, kill switch, re-enable                                                     |
+| signing in                                                                                                     | authentication, login                                                                      |
+| screenshot (of the page or the screen)                                                                         | screen capture, vision pipeline                                                            |
+| terms of use (of a website)                                                                                    | terms of service, ToS                                                                      |
+| Switches (Settings), on / off                                                                                  | feature flags, toggles, enabled / disabled                                                 |
+| without asking you (on your allowed websites)                                                                  | auto-approve, bypass approval                                                              |
+| a check that a person is using a website (CAPTCHA, said once)                                                  | CAPTCHA challenge, bot check, human verification                                           |
+| Hand me checks (you solve it; the worker waits)                                                                | CAPTCHA hand-off, human-in-the-loop                                                        |
+| lesson / what it has learned                                                                                   | agent memory (for lessons), learned knowledge                                              |
+| Keep / Discard (a lesson)                                                                                      | accept / reject, persist                                                                   |
+| Learn on its own (a role)                                                                                      | auto-accept lessons, autonomous learning                                                   |
+| Worker learning                                                                                                | continual learning, agent memory                                                           |
+| server, remote computer (in Settings → Servers)                                                                | host, remote host, host registry                                                           |
+| Connect to servers (the permission)                                                                            | SSH capability, ssh.connect                                                                |
+| server ID / pin it (Check the server ID)                                                                       | host key, host key fingerprint / host key pinning                                          |
+| This server's ID changed                                                                                       | host key mismatch, REMOTE HOST IDENTIFICATION HAS CHANGED                                  |
+| sign in as (a user on the server)                                                                              | SSH user, login                                                                            |
+| How Plenipo signs in: a private key / a password / my SSH agent                                                | credential reference, auth method                                                          |
+| Test / Staging / PRODUCTION (what a server is)                                                                 | environment classification, development environment                                        |
+| Remote computers (SSH) (the switch in Settings → Switches)                                                     | SSH feature flag                                                                           |
+| the kinds of commands (Look around, Start, stop, and restart services, …)                                      | command classes                                                                            |
+| Run as administrator                                                                                           | sudo, privilege escalation                                                                 |
+| When to ask you (every command / anything that changes / only as allowed)                                      | approval policy                                                                            |
+| folders (on a server)                                                                                          | remote working directory policy                                                            |
+| forwarded port                                                                                                 | SSH local port forward, direct-tcpip tunnel                                                |
+| Disconnect (you stop a worker's server work)                                                                   | Take over (for server sessions), terminate session                                         |
+| Showing (where you are: everything, a department, or a project)                                                | scope selector, context switcher                                                           |
+| Notifications (the bell: what waits for you)                                                                   | notification badge, alert center                                                           |
+| notices (above the page)                                                                                       | banners, banner slot, advisories                                                           |
+| Switch to the light theme / dark theme                                                                         | theme toggle, color scheme                                                                 |
+| Gallery (every building block of the screens)                                                                  | component gallery, storybook                                                               |
+| activity (a strip of the last 24 hours)                                                                        | activity strip, sparkline, time series                                                     |
+| Cards / List (how a list is shown)                                                                             | card/list view toggle                                                                      |
+| Columns (choose which ones show)                                                                               | column customization                                                                       |
+| Rows per page                                                                                                  | page size                                                                                  |
+| Filters / Clear filters                                                                                        | facets, facet panel, reset                                                                 |
+| Live / Back to live (a timeline)                                                                               | live mode, scrubber                                                                        |
+| Home (the first page: how your company is doing, and what needs you)                                           | dashboard, overview, landing page                                                          |
+| Waiting for you / What's stuck / Who's working / Just finished (Home)                                          | pending approvals / blocked tasks / active agents / recent completions                     |
+| Current objectives                                                                                             | active objectives, open workflows                                                          |
+| a department's health: Working / Quiet / Someone can't work / N stuck                                          | department health status, health score                                                     |
+| page (of a department, project, worker, or task)                                                               | detail view, entity page                                                                   |
+| Back (to the page before)                                                                                      | navigate back, history pop                                                                 |
+| History (a department's, project's, or worker's events) / Show older                                           | event log, audit history / load more, pagination                                           |
+| Task tree / Delegation tree (who handed what to whom)                                                          | delegation graph, DAG                                                                      |
+| Done when (what counts as done)                                                                                | acceptance criteria                                                                        |
+| Decisions (approvals answered, refusals, lessons kept, stops)                                                  | decision log                                                                               |
+| Terminal (the panel at the bottom or on the right)                                                             | console, TTY, shell panel                                                                  |
+| New terminal / This PC / a server's name                                                                       | spawn a shell, local host / remote host                                                    |
+| shell (Windows PowerShell, PowerShell 7, Command Prompt) — fine as is                                          | command interpreter                                                                        |
+| watch tab ("Operations Engineer · Shop": a worker's server work, read-only)                                    | session mirror, read-only PTY                                                              |
+| Stop (the command running now) / Disconnect (the worker from the server)                                       | SIGTERM/SIGKILL / terminate session                                                        |
+| notice (a pop-up from Windows)                                                                                 | toast, push notification                                                                   |
+| Notifications (Settings: which notices you get)                                                                | notification preferences                                                                   |
+| Send a test notice                                                                                             | test notification                                                                          |
+| Only while Plenipo's window is not in front                                                                    | focus-aware notifications, suppress when focused                                           |
+| Local paths (where Plenipo keeps its files)                                                                    | data directory, app data folder                                                            |
+| sections (of Settings, the list on the left)                                                                   | settings tabs, navigation pane                                                             |
+| About Plenipo                                                                                                  | about dialog                                                                               |
+| Pip (Plenipo's helper, the character in the logo)                                                              | mascot                                                                                     |
+| Keep Plenipo in the tray (closing hides the window; the work goes on)                                          | background daemon, service, minimize to tray                                               |
+| Start Plenipo with Windows                                                                                     | autostart, launch at login, Run key                                                        |
+| Start and close (Settings)                                                                                     | lifecycle settings, startup behavior                                                       |
+| Plenipo closed unexpectedly / Windows closed Plenipo (restart, sign-out)                                       | crash, unclean shutdown, reboot detected                                                   |
+| Plenipo was stopped while updating the Ledger                                                                  | interrupted migration                                                                      |
+| the window stopped responding and was reloaded / opened again                                                  | WebView crash, renderer process failure                                                    |
+| Run again / Leave stopped (a task Plenipo's closing stopped)                                                   | resume, retry, re-enqueue / discard                                                        |
+| update / a new version / Install now                                                                           | OTA update, patch, updater                                                                 |
+| Update ready (the top bar)                                                                                     | update available badge                                                                     |
+| signed by 8 West (an update Plenipo trusts)                                                                    | minisign signature, updater public key                                                     |
+| backup (of the Ledger): daily, before a new version, before an update                                          | snapshot, pre-upgrade/pre-migration dump                                                   |
+| Restore (a backup) / Restore and restart                                                                       | rollback DB, recover snapshot                                                              |
+| log files (what Plenipo did, kept to five)                                                                     | log rotation, trace output                                                                 |
+| diagnostics file (one file to send when something went wrong)                                                  | support bundle, diagnostics bundle, crash dump                                             |
+| Reset to starting settings                                                                                     | factory reset, reset config                                                                |
+| rule (models and effort: the organization's, a department's, a role's)                                         | layer, policy layer, precedence                                                            |
+| its own rule (one agent's); the closest rule wins                                                              | cascade, inheritance, override chain                                                       |
+| effort for any other model                                                                                     | default effort, fallback effort                                                            |
+| AI companies never to use (they add up across the rules)                                                       | provider denylist, blocked providers                                                       |
+| specialty (a role's area of work: Senior Developer (Database))                                                 | sub-role, variant, role profile                                                            |
+| Archived (the list) / Archive / Bring back                                                                     | restore (an agent), unarchive, soft delete                                                 |
+| Delete for good                                                                                                | purge, hard delete, permanent delete                                                       |
+| short record (what stays in the Ledger after Delete for good)                                                  | tombstone                                                                                  |
+| Experience (a score: how much an agent has learned and done)                                                   | XP, rating                                                                                 |
+| experienced (above your organization's average experience)                                                     | senior agent, high performer                                                               |
+| Workforce (agents you saved to hire again) / Save to my Workforce                                              | talent pool, bench, agent library                                                          |
+| full instructions / short reminder (what a worker is sent with a task)                                         | full brief, system prompt, context re-injection                                            |
+| shortened its memory (an AI tool left out older parts of a conversation)                                       | compaction, context compaction                                                             |
+| tabs (of the details: Overview, Job, AI model, Work, Team, Manage)                                             | panes, property sheet                                                                      |
+| Plenipo's own text (its size, with a task)                                                                     | prompt overhead, token overhead                                                            |
+| tile (one box on the canvas: you, the organization, an agent, a live worker)                                   | node, card, vertex                                                                         |
+| Arrange (place tiles by hand) / Tidy up (back in neat rows)                                                    | layout, auto-layout, re-layout                                                             |
+| Select / Move the view (drag to move around the canvas)                                                        | pan, hand tool, viewport                                                                   |
+| line end (the round handle you drag to rewire a line)                                                          | edge endpoint, connector, anchor                                                           |
+| Move here / Lend for one objective / Lend until I send it home / Send home                                     | reassign, loan, borrow, secondment                                                         |
+| lent (helping another team for now)                                                                            | on loan, seconded, borrowed                                                                |
+| trash can (drop an agent to archive it)                                                                        | recycle bin, delete zone                                                                   |
+| Filters / Legend / Guide to the canvas                                                                         | facets, key, onboarding                                                                    |
+| Where / thinks in Anthropic's cloud / runs on this PC / touching a folder                                      | compute location, data locality, host, workload placement                                  |
+| hand-off (moving along a line)                                                                                 | message, event, RPC                                                                        |
+| Watch (see a worker write code as it happens)                                                                  | live diff, code stream, file watcher                                                       |
+| being written — not saved yet / saved / refused / not saved                                                    | streaming, partial tool input, pending write, committed                                    |
+| new / changed lines, lines removed here                                                                        | diff, hunks, additions, deletions                                                          |
+| Follow along / Pin this file                                                                                   | auto-scroll, lock, tail                                                                    |
+| Your picture / status (Available, Busy, Away, Do not disturb) / mood / message                                 | avatar, presence, profile                                                                  |
+| Sign in / Reconnect / Sign out (an AI tool, from its card)                                                     | login, logout, re-auth, OAuth flow                                                         |
+| sign-in tab ("Sign in · Codex": the AI tool's own sign-in program)                                             | login shell, auth terminal, device flow                                                    |
+| Usage / tokens (pieces of words) read, reused, written                                                         | token usage, input / cached / output tokens                                                |
+| today / this week (Monday to Sunday) / last week / the last 14 days                                            | rolling window, time bucket, period                                                        |
+| left of your plan / reported by Codex at 1:05 PM                                                               | quota, rate-limit utilization, remaining quota                                             |
+| 5-hour: 62% used, resets 3:10 PM / Week (Opus): 40% used, resets Monday                                        | reset timestamp, rate-limit window, utilization                                            |
+| Key limit: $10.00 · $3.20 spent · $6.80 left (a paid key's own limit)                                          | credit limit, quota, balance                                                               |
+| on your Anthropic key / Its work moves to your Anthropic key while it waits                                    | API fallback, overflow billing, provider failover                                          |
+| Step down instead of stopping / Start stepping down at 80% used / so it steps down: Sonnet 5.5 instead of Opus | model downgrade, throttling, degradation policy                                            |
+| How it is paid for: Subscription / Paid per use with your key                                                  | billing mode, BYOK, metered API                                                            |
+| installed / checked by Plenipo (an AI tool's version)                                                          | CLI version, tested version, compatibility                                                 |
+| a new version / Update / Updating… / Updated to 1.0.43                                                         | upgrade, self-update, patch                                                                |
+| The update didn't finish — your old version still works / put back                                             | update failed, rollback, downgrade                                                         |
+| Update AI tools by themselves (the switch)                                                                     | auto-update, unattended upgrade                                                            |
+| Plenipo is not giving Grok tasks for now                                                                       | disabled, quarantined, out of service                                                      |
+| new — not checked yet / not offered by this version (a model)                                                  | discovered model, unverified model, deprecated                                             |
+| Connections (Settings → Connections)                                                                           | plugins, integrations, connectors, MCP servers                                             |
+| Connect / Reconnect / Disconnect                                                                               | authorize, link account, OAuth, revoke                                                     |
+| Finish signing in in your browser                                                                              | OAuth redirect, consent screen, auth code flow                                             |
+| needs you to sign in again                                                                                     | token expired, invalid grant, re-authenticate                                              |
+| parts (Mail, Calendar, OneDrive, SharePoint, Teams) / what it can do                                           | scopes, features, APIs, resources                                                          |
+| Off / Read only / Full access (a part)                                                                         | disabled / read scope / write scope                                                        |
+| What Plenipo was allowed                                                                                       | granted scopes, consent, delegated permissions                                             |
+| Your organization's admin needs to approve Plenipo first                                                       | admin consent required, AADSTS65001                                                        |
+| Who may use it / Read only / Read and write                                                                    | ACL, grants, RBAC, access policy                                                           |
+| Send without asking to                                                                                         | allowlist, trusted recipients, safe senders                                                |
+| other people's words: information, never instructions                                                          | untrusted content, prompt injection                                                        |
+| a work or school account / a personal account                                                                  | Entra ID / MSA, organizational / consumer account                                          |
+| Microsoft app ID (in Advanced only)                                                                            | client ID, application ID, app registration                                                |
+| Coming in a later update (a service)                                                                           | not implemented, coming soon, roadmap                                                      |
+| Channels / Direct messages / Search (Slack's parts)                                                            | conversations, IMs, MPIMs, search API                                                      |
+| a channel's ID (on Send without asking to, Slack only)                                                         | channel identifier, conversation ID                                                        |
+| Add another Slack workspace / Remove this workspace                                                            | multi-tenant install, add team, uninstall                                                  |
+| Use your workspace's own Slack app / Plenipo's app description / client ID                                     | custom app, app manifest (Slack's own button "From a manifest" is quoted as Slack's words) |
+| Your Google app / Client ID / Client secret (the box hides what you type)                                      | OAuth client, credentials, client secret field                                             |
+| Its secret is kept in Windows Credential Manager                                                               | stored in keyring, encrypted secret                                                        |
+| cancelled at Slack / Google (on Disconnect)                                                                    | token revoked, grant revoked                                                               |
+| Slack lets Plenipo read one channel or thread a minute                                                         | rate limit, non-Marketplace throttling, tier limit                                         |
+| Its key / Save and check / Replace the key (the box hides what you type)                                       | API key field, credentials, validate token, rotate key                                     |
+| Needs a new key                                                                                                | 401 Unauthorized, key revoked, invalid API key                                             |
+| Contacts / Companies / Deals (HubSpot's parts)                                                                 | CRM objects, object types, scopes                                                          |
+| Payments / Customers / Invoices (Stripe's parts)                                                               | Stripe resources, restricted-key permissions                                               |
+| Test mode / Live mode: moves real money (Stripe)                                                               | sandbox, livemode, test environment                                                        |
+| waiting for your approval in Stripe's Dashboard                                                                | approval_required, agent approval rule                                                     |
+| Posts and pages / Store (the website's parts)                                                                  | wp/v2, wc/v3, REST namespaces                                                              |
+| Your site's address / WordPress user name / Application Password                                               | site URL, base URL, REST credentials, basic auth                                           |
+| WooCommerce key (optional) / Consumer key / Consumer secret                                                    | REST API key, ck/cs pair                                                                   |
+| everyone who visits the site (who publishing reaches)                                                          | public audience, anonymous users                                                           |
+| WooCommerce asks the payment company to send the money back                                                    | api_refund, gateway refund                                                                 |
+| Add-on tools / Add a program / Look at its tools                                                               | MCP servers, custom MCP, tools/list                                                        |
+| Switch on / Switch off (an add-on)                                                                             | enable / disable server                                                                    |
+| Off / Reading / Changing (an add-on's tool)                                                                    | tool annotations, readOnlyHint, destructiveHint                                            |
+| Changed — look again (an add-on's tool)                                                                        | tool drift, schema change, rug pull                                                        |
+| the program's words (what an add-on says)                                                                      | tool description, untrusted tool output                                                    |
+| Stored secrets to give it (an add-on)                                                                          | environment variables, secret injection                                                    |
+| panel (Terminal, Files) / Move to the left, right, bottom                                                      | pane, dock zone, drawer, sidebar                                                           |
+| Pop out / Put back (a panel in its own window)                                                                 | detach, undock, reattach, webview, window label                                            |
+| Reset layout                                                                                                   | restore defaults, clear layout state                                                       |
+| Files (the file view) / Project folder / working copy                                                          | file explorer, tree view, repository root, worktree                                        |
+| Open in Plenipo / Open in another program / Show in folder                                                     | open with default handler, shell open, reveal in Explorer                                  |
+| Save anyway (the file changed on disk)                                                                         | overwrite, force write, conflict, hash mismatch                                            |
+| Senior Developer is writing in this working copy / Wait / Stop the worker                                      | file lock, write lease, locked by another process, cancel turn                             |
+| organization / Your organizations                                                                              | tenant, workspace, instance, profile, database                                             |
+| New organization / Use a template / Copy from one of your organizations                                        | provision, clone, fork, seed                                                               |
+| Switch to / Open in a new window / Show its window                                                             | change context, rebind window, new webview                                                 |
+| Archive organization / Bring back / Delete for good                                                            | deactivate, restore, purge, hard delete                                                    |
+| Spending caps / a monthly cap / the business's cap                                                             | budget, spend limit, quota, billing threshold                                              |
+| Let workers use paid AI keys (the switch)                                                                      | enable BYOK, metered API access, API billing                                               |
+| set aside (the most a paid task could cost, before it starts)                                                  | reservation, hold, pre-authorization, escrow                                               |
+| not priced yet (counted at the most it could have cost)                                                        | unpriced, cost unknown, null cost                                                          |
+| 80% of a cap is used / Paid AI work stopped                                                                    | soft limit, budget alert, hard limit, quota exceeded                                       |
+| the month starts over (the 1st, Pacific time)                                                                  | billing cycle reset, period rollover                                                       |
+| Paid per use with your key, within your spending caps                                                          | BYOK, metered API, pay-as-you-go billing                                                   |
+| Key check / Your key works / No key yet / Key not in use                                                       | auth status, credential validated, missing credential                                      |
+| Save and check / Replace key / Remove key (a paid AI tool's key)                                               | validate API key, rotate key, revoke credential                                            |
+| Comes with Plenipo (an AI tool that is Plenipo's own helper)                                                   | built-in runtime, bundled adapter, bridge                                                  |
+| Anthropic (the card for an AI company's own service, with your key)                                            | Anthropic API, direct integration, API provider                                            |
+| Plenipo has not checked … with a real key yet                                                                  | unverified integration, untested endpoint                                                  |
+| $3.00 a million tokens read, $15.00 a million written                                                          | $/Mtok, input/output pricing, per-token rate                                               |
+| also on Ollama, OpenRouter (the same model on other AI tools)                                                  | model alias, provider route, model mapping                                                 |
+| It costs money (a paid route) / A worker on it answers in text only                                            | metered route, paid fallback, no tool use                                                  |
+| Free / Plenipo Pro (Phase 11A)                                                                                 | edition, tier, entitlement, SKU                                                            |
+| Plenipo Partner (for companies that run Plenipo for clients)                                                   | MSP tier, reseller SKU, multi-tenant plan                                                  |
+| part of Pro / Part of Plenipo Pro                                                                              | blocked, gated, entitlement denied, upgrade required                                       |
+| license key / the key's ID                                                                                     | token, license token, JWT                                                                  |
+| the weekly check with 8 West                                                                                   | check-in, license ping, phone home, heartbeat, validation call                             |
+| Pro keeps working for 30 days between checks                                                                   | grace period, offline grace, fail-open                                                     |
+| Paid / Cancelled (Pro until the paid period ends) / Ended                                                      | subscription state, active, past_due, canceled, lapsed                                     |
+| waits its turn (Free runs 3 workers at a time)                                                                 | concurrency limit, slot, queued for capacity                                               |
+| paused (Connections, add-on tools, and lessons on Free)                                                        | disabled, deactivated, revoked                                                             |
+| Use Plenipo from another device (the switch, Phase 14)                                                         | remote access, remote control, mobile client                                               |
+| Settings → Devices / your phones                                                                               | paired devices, endpoints, clients                                                         |
+| Add a phone / Pair this phone                                                                                  | enroll device, register client, provision                                                  |
+| picture code (QR code) / typed code                                                                            | QR payload, pairing token, PSK, one-time secret                                            |
+| Is this your phone? / Add / Cancel                                                                             | confirm device fingerprint, approve enrollment                                             |
+| your face, fingerprint, or passcode / Check it's you                                                           | passkey, WebAuthn, biometric assertion, user verification                                  |
+| Signed in / Sign out (a phone)                                                                                 | session, authenticated, token expiry                                                       |
+| 8 West's relay / sealed end to end                                                                             | relay server, WebSocket tunnel, end-to-end encryption, Noise                               |
+| Your PC can't be reached. Nothing was changed.                                                                 | host offline, 503, connection refused                                                      |
+| This phone is no longer on your PC's list                                                                      | device revoked, unauthorized, 401                                                          |
+| Approve on your PC (an approval kept on the PC)                                                                | remote approval disabled, policy-restricted action                                         |
+| Paused after 3 failed checks / Un-pause                                                                        | locked out, rate limited, lockout                                                          |
+| Coming soon (phone access before 8 West's relay is ready)                                                      | feature flag off, not provisioned                                                          |
+| notice (on your phone) / Notices on this phone / Notices on my phones                                          | push notification, web push, subscription                                                  |
+| On the lock screen: Show what it is / Show only “Something needs you”                                          | notification privacy, redacted payload                                                     |
+| Already answered                                                                                               | stale notification, conflict, 409                                                          |
+| Add Plenipo to your Home Screen (iPhone)                                                                       | install the PWA, A2HS                                                                      |
+| Community (the switch) / Turn on Community                                                                     | social network, community feature, opt-in                                                  |
+| Sign in to your 8 West account / Enter this code / Open the sign-in page                                       | device authorization grant, OAuth device flow, account linking, verification URI           |
+| Signed in as … / Sign out of your account                                                                      | authenticated as, session, logout                                                          |
+| Leave Community                                                                                                | delete account, deactivate, opt out                                                        |
+| Coming soon (Community before 8 West opens it) / Check again                                                   | feature flag, disabled, maintenance mode                                                   |
+| Update Plenipo to use Community                                                                                | minimum version, deprecated client, 426                                                    |
+| Community is closed for now                                                                                    | service outage, kill switch                                                                |
+| Your name in Community                                                                                         | handle, username                                                                           |
+| Your birth month and year / Community is for people 13 and older                                               | date of birth, DOB, age gate, COPPA                                                        |
+| What people see (your card, with a box for each part of it)                                                    | profile preview, public profile, visibility settings                                       |
+| Appear offline (you leave the directory; people you talk with see Offline)                                     | invisible mode, ghost mode, go dark, hide presence                                         |
+| What your business does (up to 3 kinds, and one line in your words)                                            | industry code, business vertical, business category, tags                                  |
+| Where (a state or a country, never a town)                                                                     | geolocation, location data, street address                                                 |
+| Your profile (your card in Community)                                                                          | account details, bio, user profile                                                         |
+| Community (the section on the strip: find people who use Plenipo)                                              | social network feed, community hub, people portal                                          |
+| Directory (everyone listed in Community, searched by name or business)                                         | member list, user index, address book                                                      |
+| New this week (people who joined in the last 7 days)                                                           | recent signups, newest accounts, new member feed                                           |
+| Find someone (an exact Community name)                                                                         | user lookup, handle search, member lookup                                                  |
+| Invite by email (8 West emails the address a link to join)                                                     | referral email, send invite link, email lookup                                             |
+| Share my profile (a link and a picture code that say how to find you)                                          | public profile link, vanity link, profile QR code                                          |
+| Messages (private messages between two people, in Community)                                                   | direct messages, chat room, inbox                                                          |
+| Requests (first messages from people you have not talked with)                                                 | message requests queue, pending contacts, friend requests                                  |
+| Accept (a message request, so you can talk)                                                                    | approve sender, allow contact, add contact                                                 |
+| Leave this conversation (deleted from this PC; their new messages stop)                                        | delete thread, archive chat, mute conversation                                             |
+| Delete for me (a message leaves this PC; other people keep their copies)                                       | delete for everyone, unsend message, remove message                                        |
+| Check the safety code (12 digits to compare with the person)                                                   | verify fingerprint, key verification, identity key                                         |
+| Sealed: only you and Pat can read this                                                                         | end-to-end encrypted, encrypted chat, secure channel                                       |
+| Pat's computers changed (their safety code changed)                                                            | new device key, safety number changed, key change alert                                    |
+| Waiting to be delivered / Delivered / Not delivered (a message you sent)                                       | message queued, delivery failed, delivery receipt                                          |
+| Give to a worker (a message's words go to a worker as outside words)                                           | forward to agent, send to bot, assign message                                              |
+| Photos can't be sent in Community                                                                              | attachments not supported, image upload blocked, file upload error                         |
+| Open this link in your web browser?                                                                            | follow this link, navigate to URL, external link warning                                   |
+| Block (they can't message you or find your card; they aren't told)                                             | ban user, mute user, restrict account                                                      |
+| Unblock (take a block back, in the conversation or in Settings)                                                | unban user, lift restriction, restore access                                               |
+| Blocked (the people you blocked, in Settings → Community)                                                      | block list, ban list, muted users                                                          |
+| Report (tell 8 West about a person, a profile, or messages you tick)                                           | flag content, file a complaint, abuse ticket                                               |
+| What is wrong? (the reason you pick for a report: Spam, A scam, Hate, …)                                       | violation category, abuse type, policy breach                                              |
+| Report first (offered before Leave this conversation)                                                          | escalate first, flag before leaving                                                        |
+| Thanks. 8 West will look at this. (after a report is sent)                                                     | ticket created, case opened, report submitted                                              |
+| Delete my Community data from this PC (others keep their copies)                                               | wipe local cache, purge local data, factory reset                                          |
+| Points (what you earn when other people agree you helped; no money value)                                      | reward points, karma points, reputation score                                              |
+| How to earn points (the eight ways, and what each is worth)                                                    | earning rules, points schedule, reward table                                               |
+| Leaderboard (the top 50 by points, and your own place)                                                         | high-score table, ranking table, top users list                                            |
+| This week / All time (the two lists; a week starts Monday, Pacific time)                                       | weekly period, lifetime total, rolling total                                               |
+| Top helper this week (the badge for the most points last week)                                                 | weekly winner, top contributor, leaderboard champion                                       |
+| Badges (small marks on your card; each says why you have it)                                                   | achievements unlocked, trophies earned, reputation tiers                                   |
+| Founding member / Helper / Connector / Good neighbor / Trusted (the badges)                                    | achievement names, trust levels, status ranks                                              |
+| Thanked by 12 people (different people, not presses)                                                           | thanks count, kudos total, upvotes received                                                |
+| Getting started (Fill in your profile, Find someone, Send a message)                                           | onboarding checklist, first-run wizard, setup tour                                         |
+| Only people you invite by email count (for points)                                                             | referral link, invite code, share-link referral                                            |
+| Subscription connected / API key connected (Phase 25)                                                          | authenticated, credentials valid                                                           |
+| Claude Code: its own choice                                                                                    | (default model), provider default                                                          |
+| Who uses what                                                                                                  | routing matrix, model policy table                                                         |
+| Use Senior Developer / Hire new / Hire one?                                                                    | reuse instance, spawn agent, provision                                                     |
+| Use a template / Save this organization as a template                                                          | scaffold, preset, blueprint                                                                |
+| Take the setup tour / Pick up the setup tour / Skip this step                                                  | onboarding flow, walkthrough, wizard                                                       |
+| Stop (one worker's task) / Keep working                                                                        | cancel turn, abort, kill                                                                   |
+| Stop all (all work) / Allow again / All work is stopped.                                                       | kill switch, global halt, resume dispatch                                                  |
+| Live conversation / now: Running `npm test` / Step 3 of 7 · 4 min                                              | token stream, agent log, telemetry, trace                                                  |
+| Ask a question / Side chat with Alex / made by a command                                                       | fork session, sub-agent, side channel, shell side effects                                  |
+| Claude Code is out until 3:00 PM / Wait / Use a reset / Pick it up now                                         | rate limited, quota exhausted, 429, redeem credit, retry                                   |
+| Chat (a live conversation with an agent, ADR-200)                                                              | session view, transcript pane, agent console                                               |
+| Side by side (up to four chats at once)                                                                        | split view, multi-pane, tiling                                                             |
+| What it is doing now, with a timer ("Saving a file · 12 s")                                                    | thinking…, loading, spinner text, status: busy                                             |
+| Thought for 6 s (Claude's thinking, one line you can open)                                                     | reasoning tokens, chain of thought, extended thinking                                      |
+| Claude's servers are busy. Trying again in 4 s (try 2 of 10).                                                  | API retry, 529 overloaded, exponential backoff                                             |
+| Waits its turn / goes when it finishes (a message sent while it works)                                         | queued message, message queue, pending send                                                |
+| Files saved / Open folder (under an answer)                                                                    | artifacts, output directory, workspace path                                                |
+| Plenipo's folder (Documents → Plenipo → your organization → the agent)                                         | files_dir, default working directory, sandbox folder                                       |
+| Safety: Light / Careful / Strict (Settings → Safety, ADR-201)                                                  | permission mode, sandbox level, bypass permissions, YOLO mode                              |
+| Everyday work (the leads' starting permission set)                                                             | default capability profile, standard grant                                                 |
+| writes answers only (an AI tool that cannot save files or run programs)                                        | text-only model, no tool use, no function calling                                          |
+| Chain of command / You asked … directly / Plenipo told … (ADR-202)                                             | escalation path, skip-level order, notify upstream, chain.order                            |
+| Reported: … (a result passed up one level)                                                                     | upward report, roll-up, status propagation, chain.report                                   |
+| through its lead (an on-call worker's order)                                                                   | routed via coordinator, delegated proxy, forwarded handoff                                 |
 
 ## Words that change with the system
 
