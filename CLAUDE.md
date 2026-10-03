@@ -15,6 +15,13 @@
 - **Name decisions, never just number them.** When you mention an ADR to the owner, say what it
   is and what accepting it means — for example, "ADR-010 (plain words and rank names)". People
   don't remember records by number.
+- **A Development Coordinator runs the work.** Several sessions may build at once, so follow
+  [`docs/development/coordination.md`](docs/development/coordination.md): work only on your own
+  branch (in your own worktree on a PC), check in with the Coordinator before you start, report
+  by the kinds listed there, and never merge or deploy. **Only the Coordinator edits**
+  `ROLLOUT_PLAN.md`, `docs/roadmap.md`, the ADR index, `docs/releases/`,
+  `docs/development/versioning.md`, `README.md`, `CLAUDE.md`, and every version number. ADR
+  numbers come from the Coordinator.
 - **Work the plan:** `ROLLOUT_PLAN.md` phase by phase, with a checklist and an acceptance report
   in `docs/phases/`, and an ADR in `docs/adr/` for any deviation.
 - **The final push (ADR-132, the owner's order, 2026-10-01).** After Phase 22's go-live (done in
