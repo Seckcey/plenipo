@@ -235,10 +235,15 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       Terminal does, as a login shell. Settings says who the terminal runs as in the system's own
       words ("as yourself — never as root"), and a choice made on another system falls back to
       this system's first one.
-- [ ] **One Plenipo at a time** on every system (the single-instance switch is Windows only today
-      because Linux test runs start several copies; give tests their own switch instead).
-- [ ] **Updates know which system they are on** (today the update check always asks for
-      `windows-x86_64`). Installing an update on each system comes in Waves 2 and 3.
+- [x] **One Plenipo at a time** on every system (the single-instance switch is Windows only today
+      because Linux test runs start several copies; give tests their own switch instead). Done: on
+      every system. The end-to-end tests start one copy after another, so they need no switch. On
+      Linux the copies find each other over the desktop's session bus, and the plugin stops
+      Plenipo when there is none, so it is used only where one is there.
+- [x] **Updates know which system they are on** (today the update check always asks for
+      `windows-x86_64`). Installing an update on each system comes in Waves 2 and 3. Done: each copy
+      asks for its own (`darwin-aarch64`, `linux-x86_64`, and so on), and a release with no download
+      for it is simply not offered, instead of the check failing every day.
 - [x] **Screen words** come from the new vocabulary table: the system's own name for the password
       store, "Start Plenipo when you sign in", Cmd and Option on a Mac, no "Windows" where it does not
       apply. Done: one list of each system's words in Rust (`crates/core/src/words.rs`), sent to the
