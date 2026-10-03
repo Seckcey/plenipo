@@ -699,6 +699,11 @@ async fn after_an_update_the_version_sign_in_and_models_are_checked_again() {
     let updated = h.events("ai_tool.updated");
     assert_eq!(updated[0]["from"], "1.0.99");
     assert_eq!(updated[0]["to"], "1.0.100");
+    // P-DESK-3: the trail keeps the maker's command Plenipo started, and who asked.
+    let started = h.events("ai_tool.update_started");
+    assert_eq!(started[0]["command"], "grok update");
+    assert_eq!(started[0]["from"], "1.0.99");
+    assert_eq!(started[0]["by"], "owner");
     // Asked with no task: no conversation.
     assert!(h.rt.overview().await.unwrap().sessions.is_empty());
     // A tool installed another way says what to type.

@@ -1367,12 +1367,18 @@ impl AiTools {
                 ..base.clone()
             },
         );
+        let args = adapter.update_command().unwrap_or_default();
+        // The maker's own updater runs, and Plenipo cannot check what it downloads: the trail
+        // keeps the exact command, so a bad update can be traced (P-DESK-3).
+        let command = std::iter::once(adapter.executable_name())
+            .chain(args.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(" ");
         self.record(
             if automatic { PLENIPO } else { OWNER },
             "ai_tool.update_started",
-            json!({ "runtime": runtime_id, "from": from, "by": by.word() }),
+            json!({ "runtime": runtime_id, "from": from, "by": by.word(), "command": command }),
         );
-        let args = adapter.update_command().unwrap_or_default();
         let ran = self
             .run_own(adapter.as_ref(), &format!("Update {label}"), args, true)
             .await;
