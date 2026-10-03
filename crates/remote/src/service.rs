@@ -959,12 +959,32 @@ impl Remote {
         }
     }
 
-    /// Is there room for one more connection of this kind? The relay says who joined and is
-    /// trusted for nothing else (ADR-143): one that keeps saying a phone joined, and never that
-    /// it left, would otherwise grow this table without end.
-    fn room_for(st: &State, kind: &Kind) -> bool {
-        let same = st.conns.values().filter(|c| c.kind == *kind).count();
-        same < CONNS_PER_DEVICE && st.conns.len() < MAX_CONNS
+    /// Make room for one more connection of this kind, or say there is none. The relay says who
+    /// joined and is trusted for nothing else (ADR-143), so the table has a ceiling: a relay
+    /// that keeps saying phones joined, and never that they left, cannot grow it without end.
+    /// Below the ceiling, a phone at its own limit gives up its oldest connection for the new
+    /// one: an honest phone that changes networks comes back before the relay reports its old
+    /// connections gone, and the new one is the one it is using. The mailbox gets no such
+    /// favour: an honest relay never sends more mailbox joins than the mailbox takes.
+    fn make_room(&self, st: &mut State, kind: &Kind) -> bool {
+        if st.conns.len() >= MAX_CONNS {
+            return false;
+        }
+        let same = st.conns.iter().filter(|(_, c)| c.kind == *kind);
+        let oldest = same
+            .clone()
+            .min_by_key(|(_, c)| c.since)
+            .map(|(conn, _)| conn.clone());
+        if same.count() < CONNS_PER_DEVICE {
+            return true;
+        }
+        match (kind, oldest) {
+            (Kind::Phone(_), Some(conn)) => {
+                self.close(st, &conn);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// A connection the relay announced that there is no room for: closed, and counted as a
@@ -1059,7 +1079,7 @@ impl Remote {
                 return;
             }
         };
-        if !Self::room_for(&st, &Kind::Mailbox) {
+        if !self.make_room(&mut st, &Kind::Mailbox) {
             self.no_room(st, conn);
             return;
         }
@@ -1124,7 +1144,7 @@ impl Remote {
             return;
         };
         let kind = Kind::Phone(id);
-        if !Self::room_for(&st, &kind) {
+        if !self.make_room(&mut st, &kind) {
             self.no_room(st, conn);
             return;
         }

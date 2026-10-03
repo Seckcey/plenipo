@@ -936,18 +936,23 @@ fn relay_by_hand(w: &World) -> tokio::sync::mpsc::UnboundedReceiver<ToRelay> {
     commands
 }
 
-fn closes(commands: &mut tokio::sync::mpsc::UnboundedReceiver<ToRelay>) -> usize {
-    let mut closed = 0;
+/// The connections the PC asked the relay to close, in order.
+fn closed_conns(commands: &mut tokio::sync::mpsc::UnboundedReceiver<ToRelay>) -> Vec<String> {
+    let mut closed = Vec::new();
     while let Ok(command) = commands.try_recv() {
-        if matches!(command, ToRelay::Close { .. }) {
-            closed += 1;
+        if let ToRelay::Close { conn } = command {
+            closed.push(conn);
         }
     }
     closed
 }
 
+fn closes(commands: &mut tokio::sync::mpsc::UnboundedReceiver<ToRelay>) -> usize {
+    closed_conns(commands).len()
+}
+
 #[tokio::test(flavor = "multi_thread")]
-async fn a_relay_that_keeps_saying_a_phone_joined_is_cut_off() {
+async fn a_relay_that_keeps_saying_a_phone_joined_keeps_the_newest_and_does_not_stop_the_pc() {
     let mut w = World::new().await;
     let phone = w.paired_phone("Mine").await;
     let id = phone.paired.as_ref().unwrap().phone.clone();
@@ -962,13 +967,40 @@ async fn a_relay_that_keeps_saying_a_phone_joined_is_cut_off() {
             mailbox: false,
         });
     }
-    // The PC keeps a few and closes the rest, and stops answering meetings (ADR-143 §8).
+    // The PC keeps the phone's newest few and closes the rest, one old one for each new one.
+    // That is not a failed meeting: the same thing happens to an honest phone that changes
+    // networks, whose old connections the relay reports gone only after its idle time.
     assert_eq!(
         closes(&mut commands),
         1000 - plenipo_remote::limits::CONNS_PER_DEVICE
     );
-    assert!(w.remote.view().meetings_stopped_until.is_some());
-    assert_eq!(w.app.records("remote.meetings_stopped").len(), 1);
+    assert!(w.remote.view().meetings_stopped_until.is_none());
+    assert!(w.app.records("remote.meetings_stopped").is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_that_reconnects_with_stale_connections_is_kept() {
+    let mut w = World::new().await;
+    let phone = w.paired_phone("Mine").await;
+    let id = phone.paired.as_ref().unwrap().phone.clone();
+    w.disconnect().await;
+    let mut commands = relay_by_hand(&w);
+    // Four connections from before a network change, which the relay has not yet reported
+    // gone (a page and a notice line, twice).
+    let mut n = 0;
+    for _ in 0..4 {
+        silent_join(&w, &mut n, Some(&id));
+        w.clock.advance(1);
+    }
+    assert_eq!(closes(&mut commands), 0);
+    // The phone comes back twice more: each new connection is kept, and the oldest goes.
+    silent_join(&w, &mut n, Some(&id));
+    w.clock.advance(1);
+    silent_join(&w, &mut n, Some(&id));
+    assert_eq!(closed_conns(&mut commands), ["c000001", "c000002"]);
+    assert!(w.remote.view().meetings_stopped_until.is_none());
+    assert!(w.app.records("remote.meetings_stopped").is_empty());
+    assert_eq!(w.remote.view().devices.len(), 1, "still paired");
 }
 
 /// Say a phone joined, by hand, on a fresh connection; the phone then says nothing.
@@ -1031,7 +1063,7 @@ async fn a_stolen_pass_cannot_hold_a_phones_slots_past_the_deadline() {
     for _ in 0..4 {
         silent_join(&w, &mut n, Some(&id));
     }
-    // The fifth is over the cap: closed at once (and that one counts, as before).
+    // The fifth is over the phone's cap: the oldest held one is closed to make room for it.
     silent_join(&w, &mut n, Some(&id));
     assert_eq!(closes(&mut commands), 1);
     // A minute on, the four held slots are closed and the real phone gets in.
