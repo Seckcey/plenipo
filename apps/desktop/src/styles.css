@@ -4710,6 +4710,18 @@ body.popout {
   opacity: 0.8;
 }
 
+/* A card that opens and closes (Phase 25, item 2.2): the list item draws the frame and its
+   colored edge; the open/close part inside draws none of its own. */
+.connection--opens {
+  padding: 0;
+}
+
+.connection--opens > .ui-disclosure {
+  border: 0;
+  border-radius: inherit;
+  background: none;
+}
+
 .connection__header {
   display: flex;
   flex-wrap: wrap;

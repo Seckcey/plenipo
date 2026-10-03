@@ -321,13 +321,17 @@ simpler screens.
   boxes, and the same safety text repeated on every card (`settings/connections/`).
   `packages/ui` has no open/close part.
 - **Do:**
-  - [ ] A shared **Disclosure** part in `packages/ui`, with a Gallery entry and a test, used by 2.1
-        and here.
-  - [ ] Each Connections card and add-on card starts closed and shows one line: connected or not,
-        which account, "3 of 5 parts on", and "2 people may use it". A card that needs you starts
-        open.
-  - [ ] Show the repeated safety text once at the top. Each card keeps a short "Learn more" link.
-- **Tests:** `connections.test.tsx` (29 tests open the card first).
+  - [x] A shared **Disclosure** part in `packages/ui`, with a Gallery entry and a test, used by 2.1
+        and here. It remembers a card you opened, and opens by itself when the card needs you. Its
+        Gallery samples join the design test's look snapshots once one is taken on Windows.
+  - [x] Each Connections card and add-on card starts closed and shows one line: connected or not,
+        which account, "3 of 5 parts on", and "2 roles or agents may use it". A card that needs you
+        (signing in, a new sign-in or key, a problem, the admin's approval, a reconnect, or a
+        changed add-on tool) starts open.
+  - [x] Show the repeated safety text once at the top. Each card keeps a short "Learn more" link.
+- **Tests:** [x] `disclosure.test.tsx`; `connections.test.tsx` (the tests open the card first, and a
+  new test checks closed cards, their line, and a card that needs you); the real-app Connections
+  test opens the cards.
 
 ### 2.3 Remove context size — S
 

@@ -1,0 +1,95 @@
+/* A card that opens and closes (Phase 25, item 2.2): the header always shows, the rest while open. */
+
+.ui-disclosure {
+  min-width: 0;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface);
+}
+
+.ui-disclosure__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-2) var(--ui-space-4);
+  padding: var(--ui-space-3) var(--ui-space-5);
+}
+
+.ui-disclosure__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ui-font-md);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.ui-disclosure__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  width: 100%;
+  padding: var(--ui-space-1) 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-disclosure__toggle:focus-visible {
+  border-radius: var(--ui-radius-sm);
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 2px;
+}
+
+/* The arrow: points right while closed, down while open. */
+.ui-disclosure__chevron {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--ui-text-muted);
+  border-bottom: 2px solid var(--ui-text-muted);
+  transform: rotate(-45deg);
+  transition: transform var(--ui-motion-fast) ease;
+}
+
+.ui-disclosure--open .ui-disclosure__chevron {
+  transform: rotate(45deg);
+}
+
+.ui-disclosure__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ui-disclosure__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3);
+}
+
+.ui-disclosure__summary {
+  flex: 1 0 100%;
+  padding-left: calc(8px + var(--ui-space-3) + var(--ui-space-1));
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.ui-disclosure__body {
+  display: grid;
+  gap: var(--ui-space-5);
+  min-width: 0;
+  padding: var(--ui-space-5);
+  border-top: 1px solid var(--ui-border);
+}
+
+.ui-disclosure__body[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-disclosure__chevron {
+    transition: none;
+  }
+}

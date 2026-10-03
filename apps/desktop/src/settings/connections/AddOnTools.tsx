@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { AddOn, AddOnTool, ConnectionsPage, ToolMark } from "@plenipo/types";
-import { Button, Segmented, StatusPill, TextField } from "@plenipo/ui";
+import { Button, Disclosure, Segmented, StatusPill, TextField } from "@plenipo/ui";
 
 import {
   addAddOn,
@@ -12,6 +12,7 @@ import {
 import { Refusal } from "../../components/models/shared";
 import { useRun } from "../../guard/useRun";
 import { WhoMayUse } from "./WhoMayUse";
+import { whoMayUseWords } from "./words";
 
 const MARKS: readonly ToolMark[] = ["off", "reading", "changing"];
 const MARK_LABEL: Record<ToolMark, string> = {
@@ -165,120 +166,134 @@ function AddOnCard({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const titleId = `add-on-${a.id}`;
   const changed = a.tools.filter((t) => t.changed).length;
+  const marked = a.tools.filter((t) => t.mark !== "off").length;
+  // One line while closed (Phase 25, item 2.2): its tools in use, and who may use it.
+  const summary = [
+    a.tools.length > 0
+      ? `${marked} of ${a.tools.length} tools in use`
+      : "Its tools not looked at yet",
+    whoMayUseWords(a.access.length),
+  ].join(" · ");
   return (
     <li
-      className={`connection connection--${a.on ? "connected" : "notConnected"}`}
+      className={`connection connection--opens connection--${a.on ? "connected" : "notConnected"}`}
       aria-labelledby={titleId}
     >
-      <div className="connection__header">
-        <h4 id={titleId}>{a.name}</h4>
-        <StatusPill status={a.on ? "ok" : "offline"} label={a.on ? "On" : "Off"} />
-      </div>
-      <p className="muted">
-        Program: <span className="path">{a.program}</span>
-        {a.args.length > 0 && (
-          <>
-            {" "}
-            with <span className="path">{a.args.join(" ")}</span>
-          </>
-        )}
-        {a.secrets.length > 0 && <> · given the stored secrets {a.secrets.join(", ")}</>}
-      </p>
-      {changed > 0 && (
-        <p className="notice-box" role="alert">
-          <strong>
-            {changed === 1 ? "1 tool changed" : `${changed} tools changed`} — look again.
-          </strong>{" "}
-          Its description or what it takes changed in the program since you marked it, so it is Off
-          until you mark it again.
-        </p>
-      )}
-      <div className="actions">
-        <Button
-          variant={a.on ? "secondary" : "primary"}
-          size="sm"
-          disabled={busy}
-          onClick={() => void run(() => changeAddOn(a.id, { on: !a.on }))}
-        >
-          {a.on ? "Switch off" : "Switch on"}
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={busy}
-          onClick={() => void look.run(() => checkAddOnTools(a.id))}
-        >
-          {look.pending ? "Starting it…" : "Look at its tools"}
-        </Button>
-        {confirmRemove ? (
-          <>
-            <span className="muted">Remove {a.name}? Its marks and its list go with it.</span>
-            <Button
-              variant="danger"
-              size="sm"
-              disabled={pending}
-              onClick={() => void run(() => removeAddOn(a.id))}
-            >
-              Yes, remove
-            </Button>
-            <Button variant="quiet" size="sm" onClick={() => setConfirmRemove(false)}>
-              Keep it
-            </Button>
-          </>
-        ) : (
-          <Button variant="danger" size="sm" onClick={() => setConfirmRemove(true)}>
-            Remove
-          </Button>
-        )}
-      </div>
-      <Refusal error={error ?? look.error} />
-      <section className="connection__section" aria-labelledby={`${a.id}-tools`}>
-        <h5 id={`${a.id}-tools`}>Its tools</h5>
-        {a.tools.length === 0 ? (
-          <p className="empty">
-            Not looked at yet. Switch it on, or press Look at its tools: Plenipo starts it once,
-            lists its tools, and stops it.
-          </p>
-        ) : (
-          <ul className="connection-parts">
-            {a.tools.map((t) => (
-              <li key={t.name} className="connection-part">
-                <div className="connection-part__head">
-                  <strong>{t.name}</strong>
-                  {t.changed && <StatusPill status="warn" label="Changed — look again" />}
-                  <Segmented<ToolMark>
-                    label={`${t.name}: what it may do`}
-                    value={t.mark}
-                    options={MARKS.map((m) => ({ value: m, label: MARK_LABEL[m] }))}
-                    onChange={(mark) => {
-                      if ((mark !== t.mark || t.changed) && !pending) {
-                        void run(() => setAddOnTools(a.id, { [t.name]: mark }));
-                      }
-                    }}
-                  />
-                </div>
-                <p className="connection-part__words">
-                  The program&apos;s words: <q>{t.description || "(no description)"}</q>{" "}
-                  {hintWords(t)}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
+      <Disclosure
+        title={a.name}
+        headingId={titleId}
+        headingLevel={4}
+        status={{ status: a.on ? "ok" : "offline", label: a.on ? "On" : "Off" }}
+        summary={summary}
+        openWhen={changed > 0}
+        rememberAs={`add-on:${a.id}`}
+      >
         <p className="muted">
-          Reading goes ahead for workers at Read only or more. Changing asks you every time, for
-          workers at Read and write. Off: nobody sees it.
+          Program: <span className="path">{a.program}</span>
+          {a.args.length > 0 && (
+            <>
+              {" "}
+              with <span className="path">{a.args.join(" ")}</span>
+            </>
+          )}
+          {a.secrets.length > 0 && <> · given the stored secrets {a.secrets.join(", ")}</>}
         </p>
-      </section>
-      <WhoMayUse
-        id={`add-on-${a.id}`}
-        access={a.access}
-        people={page.people}
-        onApply={onApply}
-        onSave={(next) => changeAddOn(a.id, { access: next })}
-        levelWords="Read only uses its Reading tools; Read and write adds its Changing tools."
-        headingLevel={5}
-      />
+        {changed > 0 && (
+          <p className="notice-box" role="alert">
+            <strong>
+              {changed === 1 ? "1 tool changed" : `${changed} tools changed`} — look again.
+            </strong>{" "}
+            Its description or what it takes changed in the program since you marked it, so it is
+            Off until you mark it again.
+          </p>
+        )}
+        <div className="actions">
+          <Button
+            variant={a.on ? "secondary" : "primary"}
+            size="sm"
+            disabled={busy}
+            onClick={() => void run(() => changeAddOn(a.id, { on: !a.on }))}
+          >
+            {a.on ? "Switch off" : "Switch on"}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={busy}
+            onClick={() => void look.run(() => checkAddOnTools(a.id))}
+          >
+            {look.pending ? "Starting it…" : "Look at its tools"}
+          </Button>
+          {confirmRemove ? (
+            <>
+              <span className="muted">Remove {a.name}? Its marks and its list go with it.</span>
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={pending}
+                onClick={() => void run(() => removeAddOn(a.id))}
+              >
+                Yes, remove
+              </Button>
+              <Button variant="quiet" size="sm" onClick={() => setConfirmRemove(false)}>
+                Keep it
+              </Button>
+            </>
+          ) : (
+            <Button variant="danger" size="sm" onClick={() => setConfirmRemove(true)}>
+              Remove
+            </Button>
+          )}
+        </div>
+        <Refusal error={error ?? look.error} />
+        <section className="connection__section" aria-labelledby={`${a.id}-tools`}>
+          <h5 id={`${a.id}-tools`}>Its tools</h5>
+          {a.tools.length === 0 ? (
+            <p className="empty">
+              Not looked at yet. Switch it on, or press Look at its tools: Plenipo starts it once,
+              lists its tools, and stops it.
+            </p>
+          ) : (
+            <ul className="connection-parts">
+              {a.tools.map((t) => (
+                <li key={t.name} className="connection-part">
+                  <div className="connection-part__head">
+                    <strong>{t.name}</strong>
+                    {t.changed && <StatusPill status="warn" label="Changed — look again" />}
+                    <Segmented<ToolMark>
+                      label={`${t.name}: what it may do`}
+                      value={t.mark}
+                      options={MARKS.map((m) => ({ value: m, label: MARK_LABEL[m] }))}
+                      onChange={(mark) => {
+                        if ((mark !== t.mark || t.changed) && !pending) {
+                          void run(() => setAddOnTools(a.id, { [t.name]: mark }));
+                        }
+                      }}
+                    />
+                  </div>
+                  <p className="connection-part__words">
+                    The program&apos;s words: <q>{t.description || "(no description)"}</q>{" "}
+                    {hintWords(t)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="muted">
+            Reading goes ahead for workers at Read only or more. Changing asks you every time, for
+            workers at Read and write. Off: nobody sees it.
+          </p>
+        </section>
+        <WhoMayUse
+          id={`add-on-${a.id}`}
+          access={a.access}
+          people={page.people}
+          onApply={onApply}
+          onSave={(next) => changeAddOn(a.id, { access: next })}
+          levelWords="Read only uses its Reading tools; Read and write adds its Changing tools."
+          headingLevel={5}
+        />
+      </Disclosure>
     </li>
   );
 }

@@ -9,11 +9,7 @@ import type {
 import { Button, StatusPill } from "@plenipo/ui";
 
 import { setRolePolicy } from "../../api/commands";
-import {
-  COST_PREFERENCE_LABEL,
-  CROSS_COMPANY_LABEL,
-  choiceLabel,
-} from "../../routing/format";
+import { COST_PREFERENCE_LABEL, CROSS_COMPANY_LABEL, choiceLabel } from "../../routing/format";
 import { useChange, type Apply } from "../../routing/useChange";
 import { PILL_TONE } from "../tones";
 import { AnyEffort, ModelOrder, NeverCompanies } from "./RuleEditor";

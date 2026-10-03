@@ -1,11 +1,5 @@
 import { useState, type FormEvent } from "react";
-import type {
-  CostClass,
-  Effort,
-  ModelInfo,
-  ModelInput,
-  RoutingSnapshot,
-} from "@plenipo/types";
+import type { CostClass, Effort, ModelInfo, ModelInput, RoutingSnapshot } from "@plenipo/types";
 import { Button, Segmented, useStoredState } from "@plenipo/ui";
 
 import { removeModel, saveModel } from "../../api/commands";

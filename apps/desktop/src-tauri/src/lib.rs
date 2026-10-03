@@ -2109,10 +2109,11 @@ mod ipc_boundary_tests {
         assert_eq!(labels, defaults);
         assert!(s.tools.iter().all(|t| !t.available));
         assert!(!s.api_billing);
+        // The Designer asks for nothing special (Phase 25, item 2.4); nothing is signed in, so
+        // nothing is chosen yet.
         let designer = s.roles.iter().find(|r| r.role_name == "Designer").unwrap();
-        assert_eq!(
-            designer.policy.needs.len(),
-            2,
+        assert!(
+            designer.policy.needs.is_empty(),
             "the template's starting policy"
         );
         assert!(designer.next.choice.is_none());

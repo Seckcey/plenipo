@@ -3,6 +3,7 @@ import type {
   Account,
   AccountKind,
   Connection,
+  ConnectionCard,
   ConnectionState,
   PartLevel,
   Service,
@@ -96,6 +97,38 @@ export function keyedAccountLine(c: Connection): string {
     default:
       return name;
   }
+}
+
+/** The ID of the warning about the "Send without asking to" lists, said once on the page. */
+export const SEND_LIST_NOTE = "send-list-note";
+
+/** How many roles or agents may use something, in plain words. */
+export function whoMayUseWords(count: number): string {
+  if (count === 0) return "Nobody may use it yet";
+  return count === 1 ? "1 role or agent may use it" : `${count} roles or agents may use it`;
+}
+
+/**
+ * One line for a card while it is closed (Phase 25, item 2.2): who it is connected as, how many
+ * of its parts are on, and how many roles or agents may use it.
+ */
+export function cardSummary(card: ConnectionCard): string {
+  const c = card.connection;
+  const parts = card.parts.filter((p) => p.available);
+  const on = parts.filter((p) => p.level !== "off").length;
+  const account =
+    c.state === "connected" && c.account
+      ? card.usesKey
+        ? keyedAccountLine(c)
+        : accountLine(c.account, c.accountKind)
+      : null;
+  return [
+    account,
+    parts.length > 0 ? `${on} of ${parts.length} parts on` : null,
+    whoMayUseWords(c.access.length),
+  ]
+    .filter((x): x is string => !!x)
+    .join(" · ");
 }
 
 /** What Disconnect does for a keyed connection, in plain words. */
