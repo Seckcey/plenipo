@@ -478,12 +478,15 @@ mod tests {
 
     #[test]
     fn a_check_that_ends_while_installing_leaves_the_install_alone() {
-        let u = Updates::new(
+        // A copy that installs updates (on Linux's test machines, a copy that is not an AppImage
+        // would be updated by hand and never install).
+        let u = Updates::new_with(
             "1.9.0",
             UpdateSource {
                 endpoint: RELEASES_ENDPOINT.into(),
                 public_key: Some("key".into()),
             },
+            InstallWay::Installer,
         );
         u.lock().available = Some(release("1.10.0"));
         u.set(UpdateState::Installing, None);
