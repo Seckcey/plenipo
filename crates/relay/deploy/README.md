@@ -3,17 +3,23 @@
 Plenipo on your phone (Phase 14) needs a **relay**: the small server in the middle that passes
 sealed messages between your PC and your phones. Plenipo runs its own
 ([ADR-149](../../../docs/adr/ADR-149-plenipo-runs-its-own-relay.md), Plenipo runs its own relay).
-Its code is `crates/relay` in this repository, and each release carries it, already built and
-checked: `plenipo-relay-<version>-linux-x86_64` and its `.sha256` (release 1.19.3 and later). It
-runs on the server 8 West already has (the one that runs Milepost's realtime service and other
-apps), behind that server's Nginx Proxy Manager. Made by 8 West Ventures, LLC.
+Its code is `crates/relay` in this repository, and each release carries it, already built,
+checked, and signed: `plenipo-relay-<version>-linux-x86_64`, its `.sig` (the signature, made with
+8 West's server key;
+[ADR-210](../../../docs/adr/ADR-210-the-page-and-the-relay-are-signed-like-the-installer.md), the
+page and the relay are signed like the installer), and its `.sha256` (release 1.19.3 and later
+carry the relay; the `.sig` came later). It runs on the server 8 West already has (the one that
+runs Milepost's realtime service and other apps), behind that server's Nginx Proxy Manager. Made
+by 8 West Ventures, LLC.
 
 **In short:** one small program, as its own unprivileged user, in a systemd sandbox, listening on
 this machine only. The proxy brings `relay.getplenipo.com` to it with TLS and WebSockets. Every
-15 minutes, `update-relay.sh` checks GitHub for a new release, checks the checksum and the
-program's own version, switches to it, checks `/healthz`, and goes back if anything is wrong. The
-relay keeps nothing on disk and holds no secret: it checks a PC's signature and 8 West's public
-license keys, and passes sealed messages it cannot read.
+15 minutes, `update-relay.sh` checks GitHub for a new release, **checks its signature first** (8
+West's server key, this file, this version), then the checksum and the program's own version (as
+the relay's own user, never as root), switches to it, checks `/healthz`, and goes back if anything
+is wrong. It never steps back to an older release on its own. The relay keeps nothing on disk and
+holds no secret: it checks a PC's signature and 8 West's public license keys, and passes sealed
+messages it cannot read.
 
 **What it never does:** it never stops or changes another service on the machine, never touches
 the firewall, DNS, or the proxy's other hosts, and never writes a message, a key, a pass, a
@@ -44,13 +50,40 @@ ls -la
 
 You should see six files and no `FAILED` line.
 
-### 2. Look first (changes nothing)
+### 2. The server key
+
+The updater installs only a release that 8 West's **server key** signed (ADR-210). The key's
+public half goes on the server once, by hand, in a folder only root may write. Never fetch it
+from GitHub: take it from the owner's own `plenipo-server.key.pub` (its text is the repository
+variable `PLENIPO_SERVER_SIGNING_PUBLIC_KEY`; how the owner makes it is in
+[code signing → the server key](../../../docs/development/code-signing.md#the-server-key-adr-210)).
+
+```sh
+apt install -y minisign
+install -d -m 0755 -o root -g root /etc/plenipo-relay/trusted-keys.d
+nano /etc/plenipo-relay/trusted-keys.d/8west-server-2026.pub
+```
+
+Paste the public key's one line (the owner reads it to you, or sends it: it is not secret), save,
+then:
+
+```sh
+chmod 0644 /etc/plenipo-relay/trusted-keys.d/8west-server-2026.pub
+ls -la /etc/plenipo-relay/trusted-keys.d
+```
+
+The file is root's, `-rw-r--r--`. The folder may hold more than one key (`*.pub`): to change
+keys, add the new one next to the old, release, then remove the old one. A key is accepted as the
+owner's tool prints it (one base64 line) or as a minisign public key file.
+
+### 3. Look first (changes nothing)
 
 ```sh
 ./install-relay.sh --check
 ```
 
 If it stops with `jq is not installed` (or another tool), run `apt install -y jq` and check again.
+It says whether the server key is in place; without it, the install refuses to start.
 
 Read two parts of what it prints:
 
@@ -64,19 +97,33 @@ Read two parts of what it prints:
     address: only this machine and its containers can reach it. (The relay refuses any address the
     internet could reach.)
 
-### 3. Install
+### 4. Install
 
-Use the address from step 2:
+Use the address from step 3:
 
 ```sh
 ./install-relay.sh --listen 172.17.0.1:8790
 ```
 
 It adds the system user `plenipo-relay`, `/opt/plenipo-relay`, `/etc/plenipo-relay/relay.env`, and
-the services, downloads the newest release's relay, checks it, and starts it. The last line starts
-with `Done. The relay runs as plenipo-relay on …`.
+the services, downloads the newest release's relay, checks its signature and the rest, and starts
+it. The last line starts with `Done. The relay runs as plenipo-relay on …`.
 
-### 4. Check it, on the server and from the proxy
+**Already installed before the signatures (ADR-210)?** Put the key in place (step 2), then copy
+the new updater and its service file over the old ones and reload:
+
+```sh
+cp update-relay.sh /opt/plenipo-relay/deploy/update-relay.sh && chmod 0755 /opt/plenipo-relay/deploy/update-relay.sh
+cp plenipo-relay-update.service /etc/systemd/system/plenipo-relay-update.service
+systemctl daemon-reload
+/opt/plenipo-relay/deploy/update-relay.sh --check
+```
+
+The check says `… is signed with 8 West's server key` for the newest release, or why it would
+stop. Until a release carries the signatures, it stops with `has no … .sig attached`, and the
+relay running now keeps running.
+
+### 5. Check it, on the server and from the proxy
 
 ```sh
 systemctl status plenipo-relay --no-pager      # active (running)
@@ -96,7 +143,7 @@ sed -i '/^SystemCallFilter=/d' /etc/systemd/system/plenipo-relay.service
 systemctl daemon-reload && systemctl restart plenipo-relay
 ```
 
-### 5. The name, in Cloudflare
+### 6. The name, in Cloudflare
 
 **getplenipo.com → DNS → Records → Add record:** type `A`, name `relay`, the server's public IPv4
 address (`curl -4 -s ifconfig.me` on the server prints it). Save, and wait about a minute.
@@ -113,7 +160,7 @@ Either cloud works:
 
 - **Gray cloud (DNS only):** nothing to change; the default (`proxy`) is right.
 
-### 6. The proxy host, in Nginx Proxy Manager
+### 7. The proxy host, in Nginx Proxy Manager
 
 **Hosts → Proxy Hosts → Add Proxy Host.**
 
@@ -128,7 +175,7 @@ Either cloud works:
   seconds, which keeps connections open.
 - **Save.** If the certificate fails, wait a minute for the Cloudflare record and save again.
 
-### 7. Check from outside
+### 8. Check from outside
 
 - In a browser: `https://relay.getplenipo.com/healthz` says `ok`, with a padlock.
 - With Plenipo's own PC code (needs this repository and Rust on the computer that runs it):
@@ -141,7 +188,7 @@ Either cloud works:
   contract's test key (the path works, and the lock on Pro is on), and `mailbox_closed` to a phone
   at a mailbox nobody opened.
 
-### 8. Turn phone access on for everyone
+### 9. Turn phone access on for everyone
 
 On GitHub: the repository's **Settings → Secrets and variables → Actions → Variables** tab → **New
 repository variable**: name `PLENIPO_RELAY_LIVE`, value `true`. The next release's switch says
@@ -150,9 +197,12 @@ that release.)
 
 ## Every day
 
-- **Updates:** the timer runs `update-relay.sh` every 15 minutes. A new release restarts the
-  relay for a second or two: PCs reconnect by themselves; a phone reconnects when its page is
-  opened. `journalctl -u plenipo-relay-update -n 30` shows what it did.
+- **Updates:** the timer runs `update-relay.sh` every 15 minutes. It installs a release only
+  when its signature passes (`… is signed with 8 West's server key`), and stops, leaving the
+  running relay alone, when it does not (`STOPPED: … is not signed with 8 West's server key`, or
+  a signature for another file or version). A new release restarts the relay for a second or
+  two: PCs reconnect by themselves; a phone reconnects when its page is opened.
+  `journalctl -u plenipo-relay-update -n 30` shows what it did.
 - **Health:** `curl -s http://127.0.0.1:8790/healthz` (or the address you chose) says `ok`. The
   relay logs its counts every 10 minutes: connections, PCs, phones, refusals, and connections
   turned away.
@@ -165,9 +215,11 @@ that release.)
 ## Going back
 
 `/opt/plenipo-relay/deploy/update-relay.sh --version 1.19.3` installs that release's relay and
-switches to it (1.19.3 is the first with the relay). Each release stays in its own folder under
+switches to it (1.19.3 is the first with the relay; a release with no `.sig` is refused by the
+updater of ADR-210 and later). Each release stays in its own folder under
 `/opt/plenipo-relay/releases/`; nothing is deleted. The updater itself goes back on its own when
-a new release fails its health check.
+a new release fails its health check, and never to an older release than the one installed
+unless you ask with `--version`.
 
 ## Settings
 

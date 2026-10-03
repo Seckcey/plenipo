@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Plenipo's relay: set it up on a Linux server, once (Phase 14, ADR-149, Plenipo runs its own
-# relay). Made by 8 West Ventures, LLC.
+# relay; ADR-210, the page and the relay are signed like the installer). Made by 8 West Ventures,
+# LLC.
 #
 # It looks first and writes down what it saw, then adds only Plenipo's own things: a system user,
 # /opt/plenipo-relay, /etc/plenipo-relay, the systemd units, and the newest release's program. It
-# stops nothing, changes no other service, and touches neither the firewall nor the proxy.
+# stops nothing, changes no other service, and touches neither the firewall nor the proxy. 8
+# West's server key must already be in /etc/plenipo-relay/trusted-keys.d (README, "the server
+# key"): the updater installs nothing it did not sign.
 #
 # Usage (as root, from a checkout of this repository, or with these files copied next to it):
 #   install-relay.sh --check                    look only; change nothing
@@ -19,6 +22,7 @@ umask 022
 APP_DIR="${APP_DIR:-/opt/plenipo-relay}"
 ETC_DIR="${ETC_DIR:-/etc/plenipo-relay}"
 UNIT_DIR="${UNIT_DIR:-/etc/systemd/system}"
+KEYS_DIR="${TRUSTED_KEYS_DIR:-$ETC_DIR/trusted-keys.d}"
 USER_NAME="plenipo-relay"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -38,7 +42,7 @@ log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 fail() { log "STOPPED: $*"; exit 1; }
 
 [[ "$(id -u)" == 0 ]] || fail "Run this as root"
-for tool in curl jq sha256sum flock systemctl ss useradd; do
+for tool in curl jq sha256sum flock systemctl ss useradd minisign runuser; do
   command -v "$tool" > /dev/null || fail "$tool is not installed (apt install $tool)"
 done
 for f in plenipo-relay.service plenipo-relay-update.service plenipo-relay-update.timer relay.env.example update-relay.sh; do
@@ -75,6 +79,9 @@ looked="$(mktemp)"
   id "$USER_NAME" 2> /dev/null || echo "no user $USER_NAME"
   ls -la "$APP_DIR" 2> /dev/null || echo "no $APP_DIR"
   ls -la "$ETC_DIR" 2> /dev/null || echo "no $ETC_DIR"
+  echo
+  echo "## 8 West's server key (ADR-210): the updater installs nothing it did not sign"
+  ls -la "$KEYS_DIR" 2> /dev/null || echo "no $KEYS_DIR"
   if command -v docker > /dev/null && docker ps > /dev/null 2>&1; then
     echo
     echo "## Containers"
@@ -101,10 +108,25 @@ echo
 if ss -ltn | awk '{print $4}' | grep -Eq "(^|:)$port\$"; then
   fail "Port $port is already in use on this machine (see the listening ports above); pick another with --listen"
 fi
+# 8 West's server key must be there before anything is set up: without it the updater refuses
+# every release, so the setup would stop half way.
+has_key=false
+for key in "$KEYS_DIR"/*.pub; do
+  [[ -f "$key" ]] && has_key=true
+done
 if [[ "$check_only" == true ]]; then
+  if [[ "$has_key" == true ]]; then
+    log "8 West's server key is in $KEYS_DIR."
+  else
+    log "No server key in $KEYS_DIR yet: do the README's step \"the server key\" before installing."
+  fi
   log "Check only: would add user $USER_NAME, $APP_DIR, $ETC_DIR/relay.env (PLENIPO_RELAY_LISTEN=$listen), the units, and the newest release. Nothing was changed."
   rm -f "${looked:?}"
   exit 0
+fi
+if [[ "$has_key" != true ]]; then
+  rm -f "${looked:?}"
+  fail "No server key in $KEYS_DIR: do the README's step \"the server key\" first, then run this again"
 fi
 
 # --- Set it up -----------------------------------------------------------------------------------
@@ -133,5 +155,5 @@ systemctl daemon-reload
 systemctl enable plenipo-relay.service > /dev/null 2>&1 || true
 APP_DIR="$APP_DIR" ENV_FILE="$ETC_DIR/relay.env" "$APP_DIR/deploy/update-relay.sh" --force
 systemctl enable --now plenipo-relay-update.timer
-log "Done. The relay runs as $USER_NAME on $listen; the timer checks GitHub every 15 minutes."
+log "Done. The relay runs as $USER_NAME on $listen; the timer checks GitHub every 15 minutes and installs only what 8 West's server key signed."
 log "Next: the proxy host for relay.getplenipo.com in Nginx Proxy Manager, then the Cloudflare record (README)."

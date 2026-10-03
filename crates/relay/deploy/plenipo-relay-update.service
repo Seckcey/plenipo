@@ -1,4 +1,5 @@
-# Plenipo's relay: fetch the newest release's relay program and switch to it (Phase 14, ADR-149).
+# Plenipo's relay: fetch the newest release's relay program and switch to it (Phase 14, ADR-149;
+# ADR-210, the page and the relay are signed like the installer).
 # Started by plenipo-relay-update.timer; see crates/relay/deploy/README.md.
 [Unit]
 Description=Plenipo's relay: install the newest release's relay program
@@ -12,3 +13,18 @@ TimeoutStartSec=10min
 Nice=10
 IOSchedulingClass=idle
 PrivateTmp=yes
+# It runs as root (it restarts a system service), so it sees as little as it can: no home folders,
+# nothing of the kernel's, and /usr, /boot, and /etc read-only (it writes under /opt only). The
+# downloaded program itself runs as the relay's own user, after its signature passed (ADR-210).
+ProtectSystem=full
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
