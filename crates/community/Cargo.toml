@@ -21,6 +21,7 @@ getrandom = "0.3"
 hmac = "0.13"
 # Sealing for each PC: HPKE (RFC 9180) with X25519, HKDF-SHA256, and AES-256-GCM (ADR-164 §1).
 # Only the parts this suite needs; pinned, because the seal must never change under us.
+log = "0.4"
 hpke = { version = "=0.14.1", default-features = false, features = ["x25519", "aes", "alloc"] }
 # The operating system's random bytes, in the form HPKE asks for.
 rand_core = { version = "0.10", default-features = false }
@@ -28,6 +29,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
 thiserror = "2"
+# Settings → Community's view, for the screen (`pnpm bindings`).
+ts-rs = "11"
 # Only the stand-in service uses it: its sockets, its clock for waiting, and its pick-up wake-up.
 tokio = { version = "1", features = ["net", "time", "sync", "rt", "macros", "io-util"], optional = true }
 

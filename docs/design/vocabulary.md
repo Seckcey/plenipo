@@ -341,6 +341,15 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | On the lock screen: Show what it is / Show only “Something needs you”          | notification privacy, redacted payload                                                     |
 | Already answered                                                               | stale notification, conflict, 409                                                          |
 | Add Plenipo to your Home Screen (iPhone)                                       | install the PWA, A2HS                                                                      |
+| Community (the switch) / Turn on Community                                     | social network, community feature, opt-in                                                  |
+| Sign in to your 8 West account / Enter this code / Open the sign-in page       | device authorization grant, OAuth device flow, account linking, verification URI           |
+| Signed in as … / Sign out of your account                                      | authenticated as, session, logout                                                          |
+| Leave Community                                                                | delete account, deactivate, opt out                                                        |
+| Coming soon (Community before 8 West opens it) / Check again                   | feature flag, disabled, maintenance mode                                                   |
+| Update Plenipo to use Community                                                | minimum version, deprecated client, 426                                                    |
+| Community is closed for now                                                    | service outage, kill switch                                                                |
+| Your name in Community                                                         | handle, username                                                                           |
+| Your birth month and year / Community is for people 13 and older               | date of birth, DOB, age gate, COPPA                                                        |
 
 ## Words that change with the system
 

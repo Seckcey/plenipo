@@ -420,3 +420,6 @@ export type { RemoteView } from "./generated/RemoteView";
 export type { SensitiveChoice } from "./generated/SensitiveChoice";
 export type { SignedIn } from "./generated/SignedIn";
 export type { SignedOutWhy } from "./generated/SignedOutWhy";
+export type { CommunityView } from "./generated/CommunityView";
+export type { MemberView } from "./generated/MemberView";
+export type { Stage } from "./generated/Stage";

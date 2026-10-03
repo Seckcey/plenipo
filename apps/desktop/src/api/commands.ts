@@ -4,6 +4,7 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  CommunityView,
   KeptOnPc,
   RemoteSettings,
   LiveView,
@@ -1438,4 +1439,52 @@ export function setKeptOnPc(kept: KeptOnPc): Promise<RemoteSettings> {
 /** Settings → Notifications → **Notices on my phones** (Phase 14 part 14C). */
 export function setPhoneNotices(on: boolean): Promise<RemoteSettings> {
   return call<RemoteSettings>("set_phone_notices", { on });
+}
+
+// ---- Settings → Community: your 8 West account in Plenipo (Phase 24, ADR-162, ADR-170) ------
+
+/** Community as it is: the switch, where signing in stands, and who you are in it. */
+export function getCommunity(): Promise<CommunityView> {
+  return call<CommunityView>("get_community");
+}
+
+/**
+ * Settings → Switches → Community. On asks 8 West whether Community is open and, if it is, shows
+ * a code to sign in with. Off is Leave Community.
+ */
+export function setCommunitySwitch(on: boolean): Promise<CommunityView> {
+  return call<CommunityView>("set_community_switch", { on });
+}
+
+/** Check again (after Coming soon) and Sign in (after signing out): the same as turning it on. */
+export function checkCommunityAgain(): Promise<CommunityView> {
+  return call<CommunityView>("check_community_again");
+}
+
+/** Stop signing in: nothing was kept. */
+export function cancelCommunitySignIn(): Promise<CommunityView> {
+  return call<CommunityView>("cancel_community_sign_in");
+}
+
+/**
+ * Join Community: your Community name, your birth month and year (asked once, never the day), and
+ * the terms version you agreed to on screen.
+ */
+export function joinCommunity(
+  name: string,
+  birthMonth: number,
+  birthYear: number,
+  terms: string,
+): Promise<CommunityView> {
+  return call<CommunityView>("join_community", { name, birthMonth, birthYear, terms });
+}
+
+/** Sign out of your 8 West account on this computer. You stay a member. */
+export function signOutOfCommunity(): Promise<CommunityView> {
+  return call<CommunityView>("sign_out_of_community");
+}
+
+/** Open the sign-in page, or the Community terms, in your own web browser. */
+export function openCommunityPage(page: "signIn" | "terms"): Promise<void> {
+  return call<void>("open_community_page", { page });
 }

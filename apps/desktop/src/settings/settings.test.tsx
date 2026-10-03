@@ -53,6 +53,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     setAiToolsAutoUpdate: vi.fn(),
     getOrganizations: vi.fn(),
     getRemote: vi.fn(),
+    getCommunity: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -62,6 +63,7 @@ vi.mock("../api/events", () => ({
   subscribeAgentUpdates: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeOrganizations: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeRemote: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeCommunity: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 const api = vi.mocked(commands);
@@ -181,6 +183,21 @@ beforeEach(() => {
       phoneNotices: true,
     },
   });
+  // Community (Phase 24): off, and nothing about anyone.
+  api.getCommunity.mockResolvedValue({
+    stage: "off",
+    switchedOn: false,
+    comingSoon: false,
+    code: null,
+    codeExpiresAt: null,
+    accountName: null,
+    terms: null,
+    member: null,
+    pro: false,
+    linksOpen: false,
+    collaboratorsOpen: false,
+    problem: null,
+  });
   api.getLocalPaths.mockResolvedValue([
     {
       label: "Everything that happened (the Ledger)",
@@ -210,6 +227,7 @@ describe("Settings in one place", () => {
       "Connections",
       "Switches",
       "Devices",
+      "Community",
       "Notifications",
       "Terminal",
       "Start and close",

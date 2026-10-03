@@ -214,6 +214,13 @@
     "allow-remove-device",
     "allow-unpause-device",
     "allow-set-kept-on-pc",
-    "allow-set-phone-notices"
+    "allow-set-phone-notices",
+    "allow-get-community",
+    "allow-set-community-switch",
+    "allow-check-community-again",
+    "allow-cancel-community-sign-in",
+    "allow-join-community",
+    "allow-sign-out-of-community",
+    "allow-open-community-page"
   ]
 }

@@ -95,7 +95,7 @@ impl PcKeys {
     /// Keys read back from the Vault.
     pub fn read(text: &str) -> Result<Self> {
         let unreadable =
-            || CommunityError::Invalid("This PC's Community keys can't be read.".into());
+            || CommunityError::Invalid("Community's keys on this computer can't be read.".into());
         let kept: Kept = serde_json::from_str(text).map_err(|_| unreadable())?;
         if kept.v != 1 {
             return Err(unreadable());

@@ -108,7 +108,15 @@ function AiToolsUpdateSwitch() {
  * Settings → Switches (ADR-023): turn whole features on or off, and choose what workers may do on
  * your allowed websites without asking. The rules that keep you in charge have no switch.
  */
-export function SwitchSettings({ learning, phone }: { learning?: ReactNode; phone?: ReactNode }) {
+export function SwitchSettings({
+  learning,
+  phone,
+  community,
+}: {
+  learning?: ReactNode;
+  phone?: ReactNode;
+  community?: ReactNode;
+}) {
   const permissions = usePermissions();
   const { pending, error, run } = useRun((s: PermissionsSnapshot) => permissions.apply(s));
   const s = permissions.snapshot?.settings.switches;
@@ -210,6 +218,12 @@ export function SwitchSettings({ learning, phone }: { learning?: ReactNode; phon
         <section aria-labelledby="switches-phone">
           <h3 id="switches-phone">Your phone</h3>
           {phone}
+        </section>
+      )}
+      {community && (
+        <section aria-labelledby="switches-community">
+          <h3 id="switches-community">Community</h3>
+          {community}
         </section>
       )}
       <p className="muted switches__always">

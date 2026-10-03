@@ -112,6 +112,20 @@ describe("Settings → Switches", () => {
     ).toHaveAttribute("aria-checked", "true");
   });
 
+  it("puts Community in a part of its own, right after your phone (Phase 24)", async () => {
+    render(
+      <SwitchSettings phone={<p>The phone switch</p>} community={<p>The Community switch</p>} />,
+    );
+    const phone = await screen.findByRole("heading", { name: "Your phone" });
+    const community = screen.getByRole("heading", { name: "Community" });
+    expect(phone.compareDocumentPosition(community)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByText("The Community switch")).toBeInTheDocument();
+    cleanup();
+    render(<SwitchSettings />);
+    await screen.findByRole("heading", { name: "What workers may use" });
+    expect(screen.queryByRole("heading", { name: "Community" })).toBeNull();
+  });
+
   it("shows a refusal", async () => {
     api.setSwitches.mockRejectedValue(new commands.PlenipoCommandError("internal", "Ledger busy"));
     render(<SwitchSettings />);
