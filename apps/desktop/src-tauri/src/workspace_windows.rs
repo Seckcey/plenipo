@@ -423,7 +423,25 @@ fn allow_pop_outs<R: Runtime>(window: &WebviewWindow<R>) {
     });
 }
 
-#[cfg(not(target_os = "linux"))]
+/// The same on a Mac (Phase 23): WKWebView never asks Plenipo about a window the page opens
+/// after waiting (Pop out waits for Plenipo first) unless pages may open windows by themselves.
+/// Plenipo's own handler (`on_new_window`) still decides each window.
+#[cfg(target_os = "macos")]
+fn allow_pop_outs<R: Runtime>(window: &WebviewWindow<R>) {
+    let _ = window.with_webview(|webview| {
+        // SAFETY: `inner()` is this window's own WKWebView, alive for this call, which Tauri
+        // runs on the main thread as WebKit requires. The configuration it returns shares the
+        // web view's live preferences.
+        unsafe {
+            let view = &*webview.inner().cast::<objc2_web_kit::WKWebView>();
+            view.configuration()
+                .preferences()
+                .setJavaScriptCanOpenWindowsAutomatically(true);
+        }
+    });
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn allow_pop_outs<R: Runtime>(_window: &WebviewWindow<R>) {}
 
 #[cfg(test)]
