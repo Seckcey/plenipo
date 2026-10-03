@@ -1027,6 +1027,20 @@ impl Broker {
         Some(path.display().to_string())
     }
 
+    /// A lead (a VP, Manager, or Supervisor) working in its team's project folder (ADR-016):
+    /// its team's workers change the files and run the programs there, and the lead reads, plans,
+    /// and hands each change on. A project with no folder of its own is worked in Plenipo's own
+    /// folder instead, where the lead's own permissions apply.
+    fn lead_in_team_folder(&self, scope: &plenipo_guard::engine::Scope) -> Result<bool> {
+        if !scope.project.as_ref().is_some_and(|p| p.folder.is_some()) {
+            return Ok(false);
+        }
+        Ok(self
+            .ledger()
+            .role(&scope.role_id)?
+            .is_some_and(|r| r.role_type != plenipo_ledger::RoleType::Worker))
+    }
+
     fn try_open(&self, step: &StepInfo<'_>) -> Result<Option<StepTools>> {
         let workforce = self.workforce_of(step);
         let workforce = &workforce;
@@ -1034,7 +1048,22 @@ impl Broker {
             return Ok(None);
         };
         let config = self.inner.guard.config()?;
-        let levels = levels_for(&config, &scope);
+        let mut levels = levels_for(&config, &scope);
+        // In its team's project folder (and its working copies), the worker making a change is
+        // the one writer (ADR-016): a lead there reads and hands the work on, as before ADR-201.
+        // Its Everyday work applies to its own work, in Plenipo's own folder.
+        let coordinates = self.lead_in_team_folder(&scope)?;
+        if coordinates {
+            for c in [
+                Capability::FilesystemWrite,
+                Capability::ShellExec,
+                Capability::PowershellExec,
+                Capability::GitWrite,
+                Capability::GithubWrite,
+            ] {
+                levels.insert(c, Level::Blocked);
+            }
+        }
         let permitted =
             |c: Capability| levels.get(&c).copied().unwrap_or_default() != Level::Blocked;
         // Only a worker whose permissions use files, programs, or git needs the project folder
@@ -1242,6 +1271,7 @@ impl Broker {
             NoteExtras {
                 own_folder: own,
                 light,
+                coordinates,
             },
         );
         if !offers.note.is_empty() {
@@ -1275,6 +1305,7 @@ impl Broker {
             note_extras: NoteExtras {
                 own_folder: own,
                 light,
+                coordinates,
             },
             workspace,
             place,
@@ -3309,6 +3340,8 @@ struct NoteExtras {
     own_folder: bool,
     /// Safety is Light: programs that are on no list run without asking.
     light: bool,
+    /// A lead in its team's project folder: its workers change the files (ADR-016).
+    coordinates: bool,
 }
 
 /// What the worker is told about its tools.
@@ -3404,6 +3437,14 @@ fn note_for(
     }
     if !allowed.is_empty() {
         lines.push(format!("You may: {}.", allowed.join("; ")));
+    }
+    if extras.coordinates && workspace.is_some() {
+        lines.push(
+            "In this project's folder your team's workers change the files and run the programs: \
+             read what you need, plan, hand each change to the right worker on your team, and \
+             check what they did."
+                .into(),
+        );
     }
     if uses_folder && workspace.is_some() && permitted(Capability::FilesystemWrite) {
         lines.push(
@@ -4112,6 +4153,42 @@ fn prepare(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR-201: a lead in its team's project folder is told that its workers change the files
+    /// there, so it hands the change on instead of saying it cannot do the job.
+    #[test]
+    fn a_lead_in_its_teams_folder_is_told_to_hand_changes_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = Workspace::open(&dir.path().display().to_string()).unwrap();
+        let scope = Scope {
+            role_id: "supervisor".into(),
+            role_name: "Supervisor".into(),
+            position_id: None,
+            project: Some(plenipo_guard::engine::ScopeProject {
+                id: "p".into(),
+                name: "Website".into(),
+                ..Default::default()
+            }),
+            department: None,
+        };
+        let levels = BTreeMap::from([(Capability::FilesystemRead, Level::Allowed)]);
+        let told = |coordinates| {
+            note_for(
+                &scope,
+                Some(&folder),
+                None,
+                &levels,
+                None,
+                NoteExtras {
+                    own_folder: false,
+                    light: true,
+                    coordinates,
+                },
+            )
+        };
+        assert!(told(true).contains("your team's workers change the files"));
+        assert!(!told(false).contains("your team's workers"));
+    }
 
     /// B6: three of a grant's requests may wait for the owner at once. A place held for a card
     /// being made counts as waiting, and a fourth is refused with the count.

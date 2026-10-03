@@ -2595,11 +2595,21 @@ async fn guard_and_permissions_behave_the_same_on_free_and_pro() {
 // ---- Light by default (ADR-201) ---------------------------------------------------------------
 
 /// The owner's order of 2026-10-03: an agent can save a file and run a program without asking.
-/// A Supervisor with Everyday work saves a script and runs a program that is on no list; the
-/// never-run list and a file outside its folder still stop it, and nothing waited for approval.
+/// The Manager, whose work belongs to no project, saves a script in Plenipo's own folder and runs
+/// a program that is on no list; the never-run list, a file outside its folder, and a blocked
+/// file still stop it, and nothing waited for approval.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn plenipo_starts_light_a_supervisor_saves_a_file_and_runs_a_program() {
+async fn plenipo_starts_light_an_agent_saves_a_file_and_runs_a_program() {
     let h = harness_light().await;
+    let manager = h
+        .workforce
+        .snapshot()
+        .unwrap()
+        .positions
+        .into_iter()
+        .find(|p| p.title == "Development Manager")
+        .unwrap()
+        .id;
     let work = [
         tool(
             "write_file",
@@ -2620,7 +2630,12 @@ async fn plenipo_starts_light_a_supervisor_saves_a_file_and_runs_a_program() {
         tool("read_file", serde_json::json!({ "path": ".env" })),
     ]
     .join(" ");
-    let task = h.objective(&format!("[tools-list] {work}")).await;
+    let detail = h
+        .workforce
+        .give_objective(&manager, &format!("[tools-list] {work}"), None)
+        .await
+        .unwrap();
+    let task = detail.turns.last().unwrap().task_id.clone();
     assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
     let text = h.text(&task);
     let tools = lines_of(&text, "Tools:");
@@ -2632,8 +2647,14 @@ async fn plenipo_starts_light_a_supervisor_saves_a_file_and_runs_a_program() {
         text.contains("Tool write_file: Created clear-temp.ps1"),
         "{text}"
     );
+    let folder = h
+        .dir
+        .path()
+        .join("files")
+        .join("Organization")
+        .join("Development Manager");
     assert_eq!(
-        std::fs::read_to_string(h.folder.join("clear-temp.ps1")).unwrap(),
+        std::fs::read_to_string(folder.join("clear-temp.ps1")).unwrap(),
         "Get-ChildItem"
     );
     assert!(
@@ -2650,8 +2671,8 @@ async fn plenipo_starts_light_a_supervisor_saves_a_file_and_runs_a_program() {
             .clone()
     };
     assert!(refusal("curl").contains("blocked commands list"));
-    assert!(refusal("plenipo-escape").contains("outside the project folder"));
-    assert!(refusal(".env").contains("is a blocked file"));
+    assert!(refusal("plenipo-escape").contains("outside"));
+    assert!(refusal(".env").contains("blocked file"));
     assert!(!Path::new("/tmp/plenipo-escape.txt").exists());
     // Nothing waited for the owner.
     assert!(h.events(&task, "approval.requested").is_empty());
@@ -2659,12 +2680,41 @@ async fn plenipo_starts_light_a_supervisor_saves_a_file_and_runs_a_program() {
     let opened = h.events(&task, "guard.grant_opened");
     assert_eq!(opened[0]["permissions"]["shell.exec"], "allowed");
     assert_eq!(opened[0]["permissions"]["powershell.exec"], "allowed");
-    // "Open folder" finds the project's folder: the file is there, not in Plenipo's own folder.
     let found = h.broker.work_folder(&task).unwrap().unwrap();
-    assert!(!found.plenipo_files);
-    assert_eq!(found.project.as_deref(), Some("Website"));
-    assert!(found.exists);
+    assert!(found.plenipo_files);
     assert!(Path::new(&found.path).join("clear-temp.ps1").is_file());
+}
+
+/// In its team's project folder, a lead reads, plans, and hands each change on (ADR-016, kept by
+/// ADR-201): the worker making a change is the folder's one writer, so the owner is never locked
+/// out while a lead only thinks. It is told why.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_lead_reads_in_its_teams_project_folder_and_hands_changes_on() {
+    let h = harness_light().await;
+    let task = h
+        .objective(&format!(
+            "[tools-list] {}",
+            tool(
+                "write_file",
+                serde_json::json!({ "path": "clear-temp.ps1", "content": "x" })
+            )
+        ))
+        .await;
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    let text = h.text(&task);
+    let tools = lines_of(&text, "Tools:");
+    assert!(tools[0].contains("read_file"), "{text}");
+    for withheld in ["write_file", "run_command", "run_powershell", "git_commit"] {
+        assert!(!tools[0].contains(withheld), "{withheld}: {text}");
+    }
+    assert!(!h.folder.join("clear-temp.ps1").exists());
+    // The record lists what was given: reading, not changing or running.
+    let opened = h.events(&task, "guard.grant_opened");
+    assert_eq!(opened[0]["permissions"]["filesystem.read"], "allowed");
+    for kept in ["filesystem.write", "shell.exec", "powershell.exec", "git.write"] {
+        assert!(opened[0]["permissions"][kept].is_null(), "{kept}");
+    }
+    assert!(opened[0]["workspace"].is_null() || opened[0]["workspace"]["changesFiles"] == false);
 }
 
 /// Work that belongs to no project is done in a folder of Plenipo's own (ADR-201): the Manager
