@@ -9,8 +9,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use plenipo_core::{
-    CommandError, DiagnosticsFile, RecoveryStatus, StartAndClose, StartAndCloseInput, UpdateState,
-    UpdateStatus,
+    CommandError, DiagnosticsFile, InstallWay, RecoveryStatus, StartAndClose, StartAndCloseInput,
+    UpdateState, UpdateStatus,
 };
 use plenipo_guard::Guard;
 use plenipo_ledger::{Ledger, LedgerBackups, NewEvent, NewTask, TaskState};
@@ -613,11 +613,21 @@ async fn install<R: Runtime>(
             "Work is running. Installing the update stops it; say so to go ahead.",
         ));
     }
-    if !cfg!(windows) {
-        let message = "Updates are installed on Windows only.".to_owned();
-        updates.install_failed(&ledger, message.clone());
-        return Err(CommandError::invalid_input(message));
+    let how = updates.how();
+    if how == InstallWay::ByHand {
+        return Err(CommandError::invalid_input(update_host::BY_HAND));
     }
+    let appimage = match how {
+        InstallWay::ReplacesItself => match update_host::own_appimage() {
+            Some(path) => Some(path),
+            None => {
+                let message = "Plenipo could not find its own AppImage to replace.".to_owned();
+                updates.install_failed(&ledger, message.clone());
+                return Err(CommandError::invalid_input(message));
+            }
+        },
+        _ => None,
+    };
     let (release, bytes) = updates
         .download(&guard)
         .await
@@ -629,8 +639,9 @@ async fn install<R: Runtime>(
         .join(update_host::FOLDER);
     let version = app.package_info().version.to_string();
     let (l, v, r) = (Arc::clone(&ledger), version.clone(), release.clone());
+    let target = appimage.clone();
     let prepared = tauri::async_runtime::spawn_blocking(move || {
-        update_host::prepare(&l, &dir, &v, &r, &bytes)
+        update_host::prepare(&l, &dir, &v, &r, &bytes, target.as_deref())
     })
     .await
     .map_err(|e| CommandError::internal(e.to_string()))?;
@@ -644,15 +655,25 @@ async fn install<R: Runtime>(
     log::warn!("installing Plenipo {} (from {version})", release.version);
     crate::stop_work(app).await;
     crate::mark_stopped(app);
-    match update_host::start_installer(&path) {
+    let started = match &appimage {
+        Some(appimage) => update_host::replace_itself(&path, appimage)
+            .and_then(|()| update_host::start_again(appimage)),
+        None => update_host::start_installer(&path),
+    };
+    match started {
         Ok(()) => {
             app.exit(0);
             Ok(updates.status())
         }
         Err(e) => {
+            let what = if appimage.is_some() {
+                "The new version could not be put in place"
+            } else {
+                "The installer could not be started"
+            };
             let message = format!(
-                "The installer could not be started ({e}). Plenipo {version} is still installed; \
-                 the work that was running was stopped. Plenipo restarts now."
+                "{what} ({e}). Plenipo {version} is still installed; the work that was running \
+                 was stopped. Plenipo restarts now."
             );
             updates.install_failed(&ledger, message.clone());
             // (Not in a launch test, which reports the failure and ends instead.)
@@ -664,6 +685,25 @@ async fn install<R: Runtime>(
             }
             Err(CommandError::internal(message))
         }
+    }
+}
+
+/// Open GitHub's page for the newest version in the owner's browser, for a copy updated by
+/// hand (Phase 23, ADR-152: a `.deb`). Takes nothing: it opens only that fixed page.
+#[tauri::command]
+pub async fn open_releases_page() -> Result<(), CommandError> {
+    #[cfg(unix)]
+    {
+        let page = format!("{}/latest", plenipo_capabilities::updates::RELEASES_PAGE);
+        plenipo_capabilities::programs::open_for_owner(vec![page.into()])
+            .await
+            .map_err(CommandError::invalid_input)
+    }
+    #[cfg(not(unix))]
+    {
+        Err(CommandError::invalid_input(
+            "Plenipo installs new versions itself here: choose Install now.",
+        ))
     }
 }
 

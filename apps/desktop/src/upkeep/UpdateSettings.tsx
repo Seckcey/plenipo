@@ -2,7 +2,13 @@ import { useEffect, useState } from "react";
 import type { UpdateStatus } from "@plenipo/types";
 import { Button, ErrorState, LoadingState, PropertyList, StatusPill } from "@plenipo/ui";
 
-import { checkForUpdates, getUpdateStatus, installUpdate, toCommandError } from "../api/commands";
+import {
+  checkForUpdates,
+  getUpdateStatus,
+  installUpdate,
+  openReleasesPage,
+  toCommandError,
+} from "../api/commands";
 import type { Go } from "../components/views";
 import { useLive } from "../pages/useLive";
 import { when } from "../pages/words";
@@ -45,7 +51,7 @@ export function UpdateMark({ go }: { go: Go }) {
       type="button"
       className="shell__update"
       aria-label={`Update ready: Plenipo ${s.available.version}. Open Settings → Updates.`}
-      title={`Plenipo ${s.available.version} is ready to install`}
+      title={`Plenipo ${s.available.version} is ready to ${s.how === "byHand" ? "download" : "install"}`}
       onClick={() => go({ view: "settings", id: "updates" })}
     >
       <StatusPill status="pending" label="Update ready" />
@@ -56,12 +62,13 @@ export function UpdateMark({ go }: { go: Go }) {
 /**
  * Settings → Updates (ADR-038): this version, when Plenipo last checked, Check now, and a
  * newer version's notes with Install now. Checking is always on (once a day); installing only
- * when you say so, and only a version 8 West signed.
+ * when you say so, and only a version 8 West signed. A copy your computer's own installer put
+ * there (Linux's `.deb`) is updated the same way: Download the new version (Phase 23, ADR-152).
  */
 export function UpdateSettings() {
   const live = useUpdates();
   const [current, setShown] = useShown(live);
-  const [busy, setBusy] = useState<"check" | "install" | null>(null);
+  const [busy, setBusy] = useState<"check" | "install" | "download" | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Installing would stop running work: ask first. */
   const [confirm, setConfirm] = useState<string | null>(null);
@@ -101,6 +108,21 @@ export function UpdateSettings() {
     }
   };
 
+  const download = async () => {
+    setBusy("download");
+    setError(null);
+    try {
+      await openReleasesPage();
+    } catch (reason) {
+      setError(toCommandError(reason).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const byHand = s.how === "byHand";
+  const replacesItself = s.how === "replacesItself";
+
   return (
     <div className="settings-section__body settings-updates">
       <PropertyList
@@ -126,7 +148,7 @@ export function UpdateSettings() {
           ) : (
             <p className="muted">No notes came with it.</p>
           )}
-          {s.canInstall && (
+          {s.canInstall && !byHand && (
             <div className="settings-section__actions">
               <Button
                 size="sm"
@@ -137,6 +159,24 @@ export function UpdateSettings() {
                 {busy === "install" ? "Installing…" : "Install now"}
               </Button>
             </div>
+          )}
+          {s.canInstall && byHand && (
+            <>
+              <div className="settings-section__actions">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={busy !== null}
+                  onClick={() => void download()}
+                >
+                  {busy === "download" ? "Opening…" : "Download the new version"}
+                </Button>
+              </div>
+              <p className="muted">
+                It opens GitHub in your browser. Download the new version there, then install it the
+                way you installed this one.
+              </p>
+            </>
           )}
           {confirm && (
             <div className="notice-box" role="note">
@@ -168,13 +208,22 @@ export function UpdateSettings() {
           Plenipo checks GitHub for a new version a few minutes after it starts, then once a day,
           for Free and Pro alike. The check sends nothing about you or your work.
         </li>
+        {byHand ? (
+          <li>
+            Plenipo tells you when a new version is ready, and never changes itself: you download it
+            and install it the way you installed this one. Your Ledger and settings are kept.
+          </li>
+        ) : (
+          <li>
+            Nothing is downloaded or installed until you choose <strong>Install now</strong>.
+            Plenipo {replacesItself ? "puts in place" : "installs"} only a version signed by 8 West,
+            and backs up the Ledger first.
+          </li>
+        )}
         <li>
-          Nothing is downloaded or installed until you choose <strong>Install now</strong>. Plenipo
-          installs only a version signed by 8 West, and backs up the Ledger first.
-        </li>
-        <li>
-          To go back to an older version, run its installer from {s.releasesPage}. Your Ledger and
-          settings are kept; Diagnostics can restore the backup made before an update.
+          To go back to an older version, {s.how === "installer" ? "run its installer" : "get it"}{" "}
+          from {s.releasesPage}. Your Ledger and settings are kept; Diagnostics can restore the
+          backup made before an update.
         </li>
       </ul>
     </div>

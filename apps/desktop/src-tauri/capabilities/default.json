@@ -179,6 +179,7 @@
     "allow-get-update-status",
     "allow-check-for-updates",
     "allow-install-update",
+    "allow-open-releases-page",
     "allow-prepare-pop-out",
     "allow-focus-pop-out",
     "allow-reset-pop-outs",

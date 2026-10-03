@@ -719,6 +719,7 @@ pub fn configure<R: Runtime>(
             upkeep_commands::get_update_status,
             upkeep_commands::check_for_updates,
             upkeep_commands::install_update,
+            upkeep_commands::open_releases_page,
             workspace_commands::prepare_pop_out,
             workspace_commands::focus_pop_out,
             workspace_commands::reset_pop_outs,
@@ -3675,6 +3676,7 @@ mod ipc_boundary_tests {
             ("get_update_status", serde_json::json!({})),
             ("check_for_updates", serde_json::json!({})),
             ("install_update", serde_json::json!({ "stopWork": true })),
+            ("open_releases_page", serde_json::json!({})),
         ] {
             // Refused by the permissions (not by the command itself, which would say something
             // else about these arguments).

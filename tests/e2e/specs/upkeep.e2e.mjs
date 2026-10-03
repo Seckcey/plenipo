@@ -206,7 +206,7 @@ describe("Phase 13 keeping Plenipo dependable (real app)", () => {
     assert.ok(!readFileSync(logs, "utf8").includes(typed), "the log holds nothing typed");
   });
 
-  it("finds a new version, says so, and a failed install leaves this version working", async (t) => {
+  it("finds a new version and says so; a copy not in an AppImage downloads it by hand", async (t) => {
     if (!UPDATER_KEY) {
       t.skip("needs a copy built with a throwaway updater key (PLENIPO_E2E_UPDATER_KEY)");
       return;
@@ -263,17 +263,21 @@ describe("Phase 13 keeping Plenipo dependable (real app)", () => {
     await openSettings(browser, "Updates");
     await waitForText(browser, ".settings-updates", `This version ${VERSION}`);
     await clickButton(browser, "Check now");
-    await waitForText(browser, ".settings-updates", `Plenipo ${next} is ready to install`, 30_000);
+    // Not in an AppImage: a copy updated by hand (Phase 23, ADR-152).
+    await waitForText(browser, ".settings-updates", `Plenipo ${next} is ready to download`, 30_000);
     await waitForText(browser, ".settings-updates__notes", "One fix.");
     // The top bar follows the Ledger's "a new version is ready" event.
     await waitUntil(() => exists(browser, "button.shell__update"), "Update ready in the top bar");
     await screenshot(browser, "settings-updates-ready");
 
-    await clickButton(browser, "Install now");
-    // The terminal opened above is work going: Plenipo asks before stopping it.
-    await waitForText(browser, ".settings-updates", "Work is running.");
-    await clickButton(browser, "Stop the work and install");
-    await waitForText(browser, ".settings-updates", "Updates are installed on Windows only.");
+    const button = async (label) =>
+      (
+        await browser.$(
+          `//*[contains(@class, "settings-updates")]//button[normalize-space()="${label}"]`,
+        )
+      ).isExisting();
+    await waitUntil(() => button("Download the new version"), "the Download button");
+    assert.equal(await button("Install now"), false);
     // This version keeps working.
     await waitForText(browser, '[aria-label="Application version"]', `v${VERSION}`);
     await nav(browser, "Home");
