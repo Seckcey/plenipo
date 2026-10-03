@@ -19,4 +19,8 @@ canStart: boolean,
 /**
  * `ok`, `paused`, or `ended`.
  */
-standing: string, pausedUntil: number | null, appearOffline: boolean, };
+standing: string, pausedUntil: number | null, appearOffline: boolean, 
+/**
+ * Parts of the profile 8 West hid (ADR-167 §9): they stay hidden until 8 West shows them.
+ */
+hiddenParts: Array<string>, };

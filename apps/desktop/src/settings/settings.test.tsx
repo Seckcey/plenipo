@@ -13,6 +13,7 @@ import { AgentsProvider } from "../agents/AgentsProvider";
 import { RuntimeProvider } from "../runtime/RuntimeProvider";
 import { runtime } from "../test/agentFixtures";
 import { aiPage, aiTool } from "../test/aiToolFixtures";
+import { communityView } from "../test/communityFixtures";
 import { emptyOrganization, sampleOrganization } from "../test/orgFixtures";
 import { sampleRouting } from "../test/routingFixtures";
 import { a11yProblems } from "../test/a11y";
@@ -184,20 +185,7 @@ beforeEach(() => {
     },
   });
   // Community (Phase 24): off, and nothing about anyone.
-  api.getCommunity.mockResolvedValue({
-    stage: "off",
-    switchedOn: false,
-    comingSoon: false,
-    code: null,
-    codeExpiresAt: null,
-    accountName: null,
-    terms: null,
-    member: null,
-    pro: false,
-    linksOpen: false,
-    collaboratorsOpen: false,
-    problem: null,
-  });
+  api.getCommunity.mockResolvedValue(communityView());
   api.getLocalPaths.mockResolvedValue([
     {
       label: "Everything that happened (the Ledger)",

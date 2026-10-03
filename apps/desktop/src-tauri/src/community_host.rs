@@ -20,11 +20,12 @@ use plenipo_capabilities::connections::Opener;
 use plenipo_capabilities::vault::{self, SecretStore};
 use plenipo_community::client::{Answer, Request, Transport};
 use plenipo_community::keys::KEYS_ID;
+use plenipo_community::profile::{self, Tile, TileStatus};
 use plenipo_community::service::{
     Clock, Community, CommunityView, Recorder, Settings, Stage, Store,
 };
 use plenipo_guard::{OutboundRules, OWNER, PLENIPO};
-use plenipo_ledger::NewEvent;
+use plenipo_ledger::{LedgerEvent, NewEvent};
 use plenipo_licensing::Limit;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
@@ -42,6 +43,8 @@ pub const ACCOUNT_ORIGIN: &str = "https://account.getplenipo.com";
 /// them once the attorney approves (`docs/legal/phase-24`); the approved text lives there, never
 /// in Plenipo (ADR-170 §8).
 pub const TERMS_PAGE: &str = "https://getplenipo.com/terms/";
+/// The Ledger event of a change to your tile (ADR-056).
+const TILE_CHANGED: &str = "owner.profile_changed";
 /// How often a closed Community is checked again, while the switch is on (ADR-170 §4).
 const CLOSED_LOOK_EVERY: Duration = Duration::from_secs(60 * 60);
 
@@ -208,6 +211,32 @@ impl Recorder for HostRecorder {
     }
 }
 
+/// Your tile (ADR-056), as Community uses it: from the first organization's Ledger, where it is
+/// kept. An empty tile before that organization opens.
+fn tile_of(ledger: Option<&plenipo_ledger::Ledger>) -> Tile {
+    let kept = ledger
+        .and_then(|l| plenipo_workforce::owner::profile(l).ok())
+        .unwrap_or_default();
+    let word = |value: serde_json::Result<Value>| {
+        value
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .unwrap_or_default()
+    };
+    Tile {
+        status: TileStatus::from_word(&word(serde_json::to_value(kept.status))),
+        mood: kept
+            .mood
+            .map(|m| word(serde_json::to_value(m)))
+            .filter(|w| !w.is_empty()),
+        message: kept.message,
+        picture: kept
+            .picture
+            .as_deref()
+            .and_then(profile::picture_from_base64),
+    }
+}
+
 struct SystemClock;
 
 impl Clock for SystemClock {
@@ -223,6 +252,7 @@ impl Clock for SystemClock {
 pub struct CommunityState {
     pub community: Arc<Community<HostTransport>>,
     pub built: Built,
+    sources: Sources,
     license: Arc<LicenseHost>,
     /// Opens the account site's sign-in page and the terms in the owner's own browser.
     pub opener: Arc<dyn Opener>,
@@ -238,6 +268,11 @@ impl CommunityState {
         } else {
             format!("{}/community/connect", self.built.origin)
         }
+    }
+
+    /// Your tile, as it is now.
+    pub fn tile(&self) -> Tile {
+        tile_of((self.sources.ledger)().as_deref())
     }
 
     /// Settings → Community, as the screen shows it.
@@ -295,7 +330,9 @@ pub(crate) fn create_with(
             file: data.as_ref().map(|d| d.join(CONFIG_FILE)),
             memory: Mutex::new(None),
         }),
-        Arc::new(HostRecorder { sources }),
+        Arc::new(HostRecorder {
+            sources: sources.clone(),
+        }),
         Arc::new(SystemClock),
         version,
         &crate::remote_host::pc_name(),
@@ -303,6 +340,7 @@ pub(crate) fn create_with(
     Arc::new(CommunityState {
         community: Arc::new(community),
         built,
+        sources,
         license,
         opener,
         asking: Mutex::new(None),
@@ -314,13 +352,38 @@ pub fn changed<R: Runtime>(app: &AppHandle<R>) {
     let _ = app.emit(COMMUNITY_EVENT, "changed");
 }
 
-/// Once the app is up: if this PC is signed in, ask who it is, and look again now and then while
-/// 8 West has Community closed. A PC that is not signed in asks nothing (ADR-115, ADR-170 §2).
+/// Send your tile again whenever it changes (ADR-163 §1). [`Community::tile_changed`] sends
+/// nothing unless this PC is signed in with a profile saved, and nothing while you appear offline.
+fn send_the_tile_when_it_changes(state: &Arc<CommunityState>) {
+    let Some(ledger) = (state.sources.ledger)() else {
+        return;
+    };
+    let state = Arc::downgrade(state);
+    ledger.add_listener(Arc::new(move |event: &LedgerEvent| {
+        if event.event_type != TILE_CHANGED {
+            return;
+        }
+        let Some(state) = state.upgrade() else {
+            return;
+        };
+        tauri::async_runtime::spawn(async move {
+            let tile = state.tile();
+            state.community.tile_changed(&tile).await;
+        });
+    }));
+}
+
+/// Once the app is up: if this PC is signed in, ask who it is and send your tile, and look again
+/// now and then while 8 West has Community closed. A PC that is not signed in asks nothing
+/// (ADR-115, ADR-170 §2).
 pub fn start<R: Runtime>(app: &AppHandle<R>, state: Arc<CommunityState>) {
+    send_the_tile_when_it_changes(&state);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if state.community.signed_in_pc().is_some() {
             state.community.refresh().await;
+            // Your tile may have changed while 8 West could not be reached.
+            state.community.tile_changed(&state.tile()).await;
             changed(&app);
         }
         loop {

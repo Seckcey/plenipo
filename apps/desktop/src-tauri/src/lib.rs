@@ -753,6 +753,8 @@ pub fn configure<R: Runtime>(
             community_commands::join_community,
             community_commands::sign_out_of_community,
             community_commands::open_community_page,
+            community_commands::save_community_profile,
+            community_commands::set_community_appear_offline,
         ])
 }
 
@@ -3836,7 +3838,7 @@ mod ipc_boundary_tests {
 
     /// Settings → Community: turning it on and signing in reach 8 West for the owner, so they are
     /// the main window's alone (ADR-162 §8).
-    const COMMUNITY: [&str; 7] = [
+    const COMMUNITY: [&str; 9] = [
         "get_community",
         "set_community_switch",
         "check_community_again",
@@ -3844,6 +3846,8 @@ mod ipc_boundary_tests {
         "join_community",
         "sign_out_of_community",
         "open_community_page",
+        "save_community_profile",
+        "set_community_appear_offline",
     ];
 
     #[test]
@@ -3854,7 +3858,7 @@ mod ipc_boundary_tests {
         let sign = window(&app, crate::indicator::LABEL);
         let args = serde_json::json!({
             "on": false, "name": "pat-lee", "birthMonth": 3, "birthYear": 1980,
-            "terms": "2026-10-01", "page": "terms",
+            "terms": "2026-10-01", "page": "terms", "profile": {}, "offline": true,
         });
         for cmd in COMMUNITY {
             let refused = |answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
@@ -3900,10 +3904,27 @@ mod ipc_boundary_tests {
         let err = invoke_json(
             &main,
             "join_community",
-            serde_json::json!({ "name": "pat-lee", "birthMonth": 3, "birthYear": 1980, "terms": "2026-10-01" }),
+            serde_json::json!({
+                "name": "pat-lee", "birthMonth": 3, "birthYear": 1980, "terms": "2026-10-01",
+                "profile": { "displayName": "Pat Lee" },
+            }),
         )
         .unwrap_err();
         assert_eq!(err["kind"], "invalidInput");
+        // So are saving a profile and appearing offline.
+        for (cmd, args) in [
+            (
+                "save_community_profile",
+                serde_json::json!({ "profile": {} }),
+            ),
+            (
+                "set_community_appear_offline",
+                serde_json::json!({ "offline": true }),
+            ),
+        ] {
+            let err = invoke_json(&main, cmd, args).unwrap_err();
+            assert_eq!(err["kind"], "invalidInput", "{cmd}");
+        }
     }
 
     #[test]

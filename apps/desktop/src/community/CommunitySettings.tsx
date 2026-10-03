@@ -1,5 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
-import type { CommunityView } from "@plenipo/types";
+import type { CommunityView, MemberView, ProfileDraft } from "@plenipo/types";
 import { Button, Checkbox, ErrorState, LoadingState, Select } from "@plenipo/ui";
 
 import {
@@ -7,6 +7,8 @@ import {
   checkCommunityAgain,
   joinCommunity,
   openCommunityPage,
+  saveCommunityProfile,
+  setCommunityAppearOffline,
   setCommunitySwitch,
   signOutOfCommunity,
   toCommandError,
@@ -14,8 +16,10 @@ import {
 import type { Go } from "../components/views";
 import { sentenceStart, systemWords } from "../system/words";
 import { LeaveCommunityDialog } from "./LeaveCommunity";
+import { sameProfile } from "./profileWords";
 import { oneLine } from "./safeText";
 import { useCommunity } from "./useCommunity";
+import { WhatPeopleSee } from "./WhatPeopleSee";
 
 const NOT_REACHED = "Community can't be reached right now. Nothing was changed.";
 
@@ -58,14 +62,17 @@ function cleanName(typed: string): string {
  */
 function JoinForm({
   terms,
+  profile,
   busy,
   onJoin,
   onTerms,
 }: {
   /** The terms version to agree to, as 8 West names it. */
   terms: string | null;
+  /** Your profile to begin with, every box ticked (ADR-163 §2). */
+  profile: ProfileDraft;
   busy: boolean;
-  onJoin: (name: string, month: number, year: number, terms: string) => void;
+  onJoin: (name: string, month: number, year: number, terms: string, profile: ProfileDraft) => void;
   onTerms: () => void;
 }) {
   const nameId = useId();
@@ -73,13 +80,14 @@ function JoinForm({
   const [month, setMonth] = useState("");
   const [year, setYear] = useState("");
   const [agreed, setAgreed] = useState(false);
+  const [draft, setDraft] = useState(profile);
   const thisYear = new Date().getFullYear();
   const years = Array.from({ length: thisYear - 1900 + 1 }, (_, i) => String(thisYear - i));
   const ready =
     name.length >= LEAST_NAME && month !== "" && year !== "" && agreed && terms !== null;
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (ready && terms !== null) onJoin(name, Number(month), Number(year), terms);
+    if (ready && terms !== null) onJoin(name, Number(month), Number(year), terms, draft);
   };
   return (
     <form className="community-join" aria-label="Join Community" onSubmit={submit}>
@@ -130,6 +138,7 @@ function JoinForm({
         You&apos;ll be listed in the Community directory, so people can find you. Choose Appear
         offline at any time to not be shown.
       </p>
+      <WhatPeopleSee draft={draft} onChange={setDraft} disabled={busy} />
       <div className="settings-section__actions">
         <Button onClick={onTerms}>Read the Community terms</Button>
       </div>
@@ -140,6 +149,84 @@ function JoinForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * **Your profile**: what people see, with Save. It starts from the profile as kept, follows a
+ * change made in another window (when you have not changed anything here yet or have saved), and
+ * Save stays off until something is different.
+ */
+function YourProfile({
+  saved,
+  hiddenParts,
+  busy,
+  onSave,
+}: {
+  /** The profile as kept. */
+  saved: ProfileDraft;
+  /** Parts 8 West hid. */
+  hiddenParts: readonly string[];
+  busy: boolean;
+  onSave: (profile: ProfileDraft) => void;
+}) {
+  const [draft, setDraft] = useState(saved);
+  // The kept profile changed (saved here, or in another window): start again from it.
+  const [seen, setSeen] = useState(saved);
+  if (!sameProfile(seen, saved)) {
+    setSeen(saved);
+    setDraft(saved);
+  }
+  return (
+    <section className="community-profile" aria-labelledby="community-profile">
+      <h3 id="community-profile">Your profile</h3>
+      <WhatPeopleSee
+        draft={draft}
+        onChange={setDraft}
+        disabled={busy}
+        hiddenParts={hiddenParts}
+        level={4}
+      />
+      <div className="settings-section__actions">
+        <Button
+          variant="primary"
+          disabled={busy || sameProfile(draft, saved)}
+          onClick={() => onSave(draft)}
+        >
+          Save
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * **Appear offline**: you leave the directory, New this week, and the leaderboard. People you talk
+ * with see you as Offline, and your messages keep working (ADR-163 §5).
+ */
+function AppearOffline({
+  member,
+  busy,
+  onChange,
+}: {
+  member: MemberView;
+  busy: boolean;
+  onChange: (offline: boolean) => void;
+}) {
+  return (
+    <div className="community-offline">
+      <Checkbox
+        label="Appear offline"
+        checked={member.appearOffline}
+        disabled={busy}
+        onChange={onChange}
+      />
+      <p className="muted">
+        You leave the directory, New this week, and the leaderboard. People you talk with see you as
+        Offline. Your messages keep working.
+      </p>
+      {member.appearOffline && <p>You appear offline in Community.</p>}
+    </div>
   );
 }
 
@@ -259,9 +346,10 @@ export function CommunitySettings({ go }: { go: Go }) {
           </p>
           <JoinForm
             terms={view.terms}
+            profile={view.profile}
             busy={busy}
-            onJoin={(name, month, year, terms) =>
-              run(() => joinCommunity(name, month, year, terms))
+            onJoin={(name, month, year, terms, profile) =>
+              run(() => joinCommunity(name, month, year, terms, profile))
             }
             onTerms={() => open("terms")}
           />
@@ -288,6 +376,17 @@ export function CommunitySettings({ go }: { go: Go }) {
                   8 West ended your Community.
                 </p>
               )}
+              <YourProfile
+                saved={view.profile}
+                hiddenParts={member.hiddenParts}
+                busy={busy}
+                onSave={(profile) => run(() => saveCommunityProfile(profile))}
+              />
+              <AppearOffline
+                member={member}
+                busy={busy}
+                onChange={(offline) => run(() => setCommunityAppearOffline(offline))}
+              />
             </>
           )}
           <div className="settings-section__actions">

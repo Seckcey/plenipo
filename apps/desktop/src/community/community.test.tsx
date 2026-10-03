@@ -8,6 +8,7 @@ import * as commands from "../api/commands";
 import { SETTINGS_SECTIONS } from "../settings/sections";
 import { setSystemWords } from "../system/words";
 import { a11yProblems } from "../test/a11y";
+import { communityView, profileDraft } from "../test/communityFixtures";
 import { CommunitySettings } from "./CommunitySettings";
 import { CommunitySwitch } from "./CommunitySwitch";
 
@@ -36,23 +37,9 @@ vi.mock("../api/events", () => ({
 const api = vi.mocked(commands);
 const go = vi.fn();
 
-/** Community as the app gives it: off to begin with, and nothing about anyone yet. */
+/** Community as the app gives it, with the account's name as the name on the card. */
 function community(patch: Partial<CommunityView> = {}): CommunityView {
-  return {
-    stage: "off",
-    switchedOn: false,
-    comingSoon: false,
-    code: null,
-    codeExpiresAt: null,
-    accountName: null,
-    terms: null,
-    member: null,
-    pro: false,
-    linksOpen: false,
-    collaboratorsOpen: false,
-    problem: null,
-    ...patch,
-  };
+  return communityView({ profile: profileDraft({ displayName: "Frank Gonzalez" }), ...patch });
 }
 
 const signingIn = community({ stage: "signingIn", code: "4KQ-7TD", codeExpiresAt: 1_790_000_000 });
@@ -68,6 +55,7 @@ const member = {
   standing: "ok",
   pausedUntil: null,
   appearOffline: false,
+  hiddenParts: [] as string[],
 };
 const signedIn = community({
   stage: "signedIn",
@@ -406,10 +394,9 @@ describe("Settings → Community", () => {
 
     it("shows who is signed in, and the words of the form", async () => {
       const { container } = await openForm();
-      expect(screen.getByText("Frank Gonzalez").tagName).toBe("STRONG");
-      expect(screen.getByText("Frank Gonzalez").parentElement).toHaveTextContent(
-        "Signed in as Frank Gonzalez.",
-      );
+      // The card below shows the name too, so ask for the one in the sentence.
+      const who = screen.getByText("Frank Gonzalez", { selector: "strong" });
+      expect(who.parentElement).toHaveTextContent("Signed in as Frank Gonzalez.");
       const name = screen.getByRole("textbox", { name: "Your name in Community" });
       expect(name).toHaveAttribute("maxLength", "30");
       expect(name).toHaveAccessibleDescription(
@@ -504,7 +491,13 @@ describe("Settings → Community", () => {
       api.joinCommunity.mockResolvedValue(signedIn);
       await fillIn(user, "Pat-Lee", "1990");
       await user.click(join);
-      expect(api.joinCommunity).toHaveBeenCalledExactlyOnceWith("pat-lee", 4, 1990, "2026-10-01");
+      expect(api.joinCommunity).toHaveBeenCalledExactlyOnceWith(
+        "pat-lee",
+        4,
+        1990,
+        "2026-10-01",
+        profileDraft({ displayName: "Frank Gonzalez" }),
+      );
       expect(await screen.findByText("@pat-lee")).toBeInTheDocument();
     });
 
@@ -546,10 +539,8 @@ describe("Settings → Community", () => {
     api.setCommunitySwitch.mockResolvedValue(community());
     const user = userEvent.setup();
     const { container } = inPage(<CommunitySettings go={go} />);
-    expect(await screen.findByText("Frank Gonzalez")).toBeInTheDocument();
-    expect(screen.getByText("Frank Gonzalez").parentElement).toHaveTextContent(
-      "Signed in as Frank Gonzalez.",
-    );
+    const who = await screen.findByText("Frank Gonzalez", { selector: "strong" });
+    expect(who.parentElement).toHaveTextContent("Signed in as Frank Gonzalez.");
     expect(screen.getByText("@pat-lee").parentElement).toHaveTextContent(
       "Your name in Community: @pat-lee",
     );

@@ -6,11 +6,34 @@ use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use plenipo_community::profile::{ProfileDraft, ProfileShown, Tile, TileStatus};
 use plenipo_community::service::{Clock, Community, Recorder, Settings, Stage, Store};
 use plenipo_community::stand_in::{AccountId, Openness, StandIn};
 
 const START: i64 = 1_790_000_000;
 const PC_NAME: &str = "FRANKIE-DESKTOP";
+
+/// The owner's tile.
+fn tile() -> Tile {
+    Tile {
+        status: TileStatus::DoNotDisturb,
+        mood: Some("focused".into()),
+        message: "Feeling great!".into(),
+        picture: Some(plenipo_community::stand_in::tiny_png(16, 16)),
+    }
+}
+
+/// What the owner added, every part shown.
+fn draft() -> ProfileDraft {
+    ProfileDraft {
+        display_name: "Frank Gonzalez".into(),
+        company: "8 West Ventures, LLC".into(),
+        business_kinds: vec!["it_services".into()],
+        business_line: "IT help for small businesses".into(),
+        region: "US-CA".into(),
+        shown: ProfileShown::default(),
+    }
+}
 
 /// The Vault and the settings file, in memory.
 #[derive(Default)]
@@ -131,7 +154,10 @@ impl World {
 
     async fn join(&self, community: &Community<StandIn>, name: &str) {
         let terms = community.view(true).terms.expect("the terms version");
-        community.join(name, 3, 1980, &terms).await.unwrap();
+        community
+            .join(name, 3, 1980, &terms, &draft(), &tile())
+            .await
+            .unwrap();
     }
 }
 
@@ -245,7 +271,11 @@ async fn signing_in_shows_a_code_waits_for_allow_and_then_asks_for_the_age_name_
     assert!(member.adult && member.can_start);
     assert_eq!(
         world.events.names(),
-        ["community.signed_in", "community.joined"]
+        [
+            "community.signed_in",
+            "community.joined",
+            "community.profile_changed"
+        ]
     );
 
     // Plenipo starts again: signed in, and it asks only who it is.
@@ -269,7 +299,7 @@ async fn under_13_sends_nothing_keeps_nothing_and_signs_this_pc_out() {
 
     // Born in March 2015: 11 in September 2026.
     let refused = community
-        .join("young-one", 3, 2015, &terms)
+        .join("young-one", 3, 2015, &terms, &draft(), &tile())
         .await
         .unwrap_err();
     assert_eq!(refused.0, "Community is for people 13 and older.");
@@ -306,7 +336,7 @@ async fn under_13_sends_nothing_keeps_nothing_and_signs_this_pc_out() {
     let terms = community.view(true).terms.unwrap();
     let count = world.service.seen().len();
     let refused = community
-        .join("frank-g", 13, 1980, &terms)
+        .join("frank-g", 13, 1980, &terms, &draft(), &tile())
         .await
         .unwrap_err();
     assert_eq!(refused.0, "Choose your birth month and year.");
@@ -321,12 +351,15 @@ async fn a_name_the_service_refuses_is_said_in_its_words_and_can_be_changed() {
     world.sign_in(&community).await;
     let terms = community.view(true).terms.unwrap();
     let refused = community
-        .join("plenipo-help", 3, 1980, &terms)
+        .join("plenipo-help", 3, 1980, &terms, &draft(), &tile())
         .await
         .unwrap_err();
     assert!(!refused.0.is_empty());
     assert_eq!(community.view(true).stage, Stage::Joining);
-    community.join("frank-g", 3, 1980, &terms).await.unwrap();
+    community
+        .join("frank-g", 3, 1980, &terms, &draft(), &tile())
+        .await
+        .unwrap();
     assert_eq!(community.view(true).stage, Stage::SignedIn);
 }
 
@@ -468,6 +501,17 @@ async fn what_plenipo_sends_is_exactly_what_the_contract_names() {
             }
             ("POST", "/v1/community/sign-in/token") => set(&["device_code", "proof"]),
             ("POST", "/v1/community/join") => set(&["name", "birth_month", "birth_year", "terms"]),
+            ("PUT", "/v1/community/me/profile") => set(&[
+                "display_name",
+                "status",
+                "mood",
+                "message",
+                "company",
+                "business_kinds",
+                "business_line",
+                "region",
+            ]),
+            ("PUT", "/v1/community/me/picture") => set(&["png"]),
             ("GET", "/v1/community/me") | ("POST", "/v1/community/sign-out") => set(&[]),
             other => panic!("Plenipo sent something the contract doesn't name here: {other:?}"),
         };
@@ -504,4 +548,130 @@ async fn what_plenipo_sends_is_exactly_what_the_contract_names() {
             }
         }
     }
+}
+
+/// The member as 8 West has them now.
+async fn member(community: &Community<StandIn>) -> plenipo_community::wire::Member {
+    let pc = community.signed_in_pc().expect("signed in");
+    plenipo_community::session::me(community.transport(), &pc)
+        .await
+        .unwrap()
+        .member
+        .expect("a member")
+}
+
+#[tokio::test]
+async fn joining_sends_the_profile_as_what_people_see_showed_it() {
+    use plenipo_community::wire::{BusinessKind, Mood, ProfileStatus};
+    let world = World::new();
+    let community = world.community();
+    world.sign_in(&community).await;
+    world.join(&community, "frank-g").await;
+    let m = member(&community).await;
+    assert_eq!(m.profile.display_name.as_deref(), Some("Frank Gonzalez"));
+    assert_eq!(
+        m.profile.status,
+        Some(ProfileStatus::Busy),
+        "Do not disturb shows as Busy"
+    );
+    assert_eq!(m.profile.mood, Some(Mood::Focused));
+    assert_eq!(m.profile.message.as_deref(), Some("Feeling great!"));
+    assert_eq!(m.profile.business_kinds, [BusinessKind::ItServices]);
+    assert_eq!(m.profile.region.as_deref(), Some("US-CA"));
+    assert!(m.has_picture);
+    // The Ledger names the parts shown, never the words or the picture.
+    let events = world.events.all_text();
+    assert!(events.contains("community.profile_changed"));
+    assert!(!events.contains("Feeling great"));
+    assert!(!events.contains("IT help"));
+}
+
+#[tokio::test]
+async fn an_unticked_part_is_hidden_at_once_and_the_picture_removed() {
+    let world = World::new();
+    let community = world.community();
+    world.sign_in(&community).await;
+    world.join(&community, "frank-g").await;
+    let mut d = draft();
+    d.shown.picture = false;
+    d.shown.message = false;
+    d.shown.region = false;
+    community.save_profile(&d, &tile()).await.unwrap();
+    let m = member(&community).await;
+    assert!(!m.has_picture);
+    assert_eq!(m.profile.message, None);
+    assert_eq!(m.profile.region, None);
+    assert_eq!(m.profile.company.as_deref(), Some("8 West Ventures, LLC"));
+    assert_eq!(
+        community.view(true).profile,
+        d,
+        "the boxes are kept on this computer"
+    );
+
+    // The same picture is not sent twice.
+    d.shown.picture = true;
+    community.save_profile(&d, &tile()).await.unwrap();
+    let pictures = |w: &World| {
+        w.service
+            .seen()
+            .iter()
+            .filter(|s| s.method == "PUT" && s.path == "/v1/community/me/picture")
+            .count()
+    };
+    let before = pictures(&world);
+    community.save_profile(&d, &tile()).await.unwrap();
+    assert_eq!(pictures(&world), before);
+}
+
+#[tokio::test]
+async fn appearing_offline_stops_sending_the_tile_until_online_again() {
+    let world = World::new();
+    let community = world.community();
+    world.sign_in(&community).await;
+    world.join(&community, "frank-g").await;
+    community.set_appear_offline(true).await.unwrap();
+    assert!(community.view(true).member.unwrap().appear_offline);
+    assert!(world
+        .events
+        .names()
+        .contains(&"community.appeared_offline".to_owned()));
+
+    let before = world.service.seen().len();
+    let mut changed = tile();
+    changed.message = "On holiday".into();
+    community.tile_changed(&changed).await;
+    assert_eq!(
+        world.service.seen().len(),
+        before,
+        "nothing is sent while offline"
+    );
+
+    community.set_appear_offline(false).await.unwrap();
+    community.tile_changed(&changed).await;
+    assert_eq!(
+        member(&community).await.profile.message.as_deref(),
+        Some("On holiday")
+    );
+    assert!(world
+        .events
+        .names()
+        .contains(&"community.appeared_online".to_owned()));
+}
+
+#[tokio::test]
+async fn a_profile_that_cannot_be_on_a_card_stops_the_join_before_anything_is_sent() {
+    let world = World::new();
+    let community = world.community();
+    world.sign_in(&community).await;
+    let terms = community.view(true).terms.unwrap();
+    let before = world.service.seen().len();
+    let mut d = draft();
+    d.region = "Somewhere".into();
+    let refused = community
+        .join("frank-g", 3, 1980, &terms, &d, &tile())
+        .await
+        .unwrap_err();
+    assert_eq!(refused.0, "Choose a state or a country.");
+    assert_eq!(world.service.seen().len(), before);
+    assert_eq!(community.view(true).stage, Stage::Joining);
 }

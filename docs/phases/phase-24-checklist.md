@@ -128,8 +128,9 @@ are written and tested; they reach the live service, still switched off, when th
       (ADR-162 §7)
 - [x] The **Community** switch, signing in with a code, the age box, signing out (ADR-162)
 - [x] Each PC's Community key in the Vault (ADR-162 §3)
-- [ ] Your profile: hidden to begin with, each part's box, **What people see** (ADR-163)
-- [ ] Turning Community on says "**You'll be listed in the Community directory**", and **Appear
+- [x] Your profile: each part's box, all ticked to begin with (the owner's answer to question 16),
+      and **What people see** (ADR-163)
+- [x] Turning Community on says "**You'll be listed in the Community directory**", and **Appear
       offline** sits beside your status (ADR-163 §1, §5)
 - [ ] The directory, **Find someone**, **Invite by email**, and **Share my profile** (ADR-163 §4,
       §6), with the share page on the website (the same page for every name)

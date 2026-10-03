@@ -23,6 +23,7 @@ pub mod client;
 pub mod ids;
 pub mod item;
 pub mod keys;
+pub mod profile;
 pub mod safety;
 pub mod seal;
 pub mod service;

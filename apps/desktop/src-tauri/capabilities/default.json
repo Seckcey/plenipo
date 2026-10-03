@@ -221,6 +221,8 @@
     "allow-cancel-community-sign-in",
     "allow-join-community",
     "allow-sign-out-of-community",
-    "allow-open-community-page"
+    "allow-open-community-page",
+    "allow-save-community-profile",
+    "allow-set-community-appear-offline"
   ]
 }

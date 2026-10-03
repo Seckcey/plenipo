@@ -228,6 +228,8 @@ const COMMANDS: &[&str] = &[
     "join_community",
     "sign_out_of_community",
     "open_community_page",
+    "save_community_profile",
+    "set_community_appear_offline",
 ];
 
 fn main() {
