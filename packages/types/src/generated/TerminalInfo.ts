@@ -7,7 +7,7 @@ import type { TerminalPlace } from "./TerminalPlace";
  */
 export type TerminalInfo = { id: string, 
 /**
- * "This PC" or the server's name.
+ * "This PC" ("This Mac", "This computer") or the server's name.
  */
 title: string, place: TerminalPlace, 
 /**
