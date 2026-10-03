@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn words_this_copy_does_not_know_are_left_off_a_card() {
         let card: wire::Card = serde_json::from_value(serde_json::json!({
-            "member_id": "mb_01J9Z8Y7X6W5V4T3S2R1Q0P9N8",
+            "member_id": "cm_01J9Z8Y7X6W5V4T3S2R1Q0P9N8",
             "name": "pat-lee",
             "display_name": "Pat Lee",
             "status": "on_the_moon",
