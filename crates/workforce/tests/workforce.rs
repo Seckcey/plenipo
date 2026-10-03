@@ -1712,9 +1712,17 @@ async fn a_full_time_member_keeps_its_conversation_when_its_lead_stops_its_task(
         .find(|t| t.objective.contains("[slow]"))
         .expect("the coordinator's task");
     assert_eq!(h.finished(&stopped.id).await.state, TaskState::Cancelled);
-    assert!(h
-        .types(&stopped.id)
-        .contains(&"liaison.work_stopped".to_owned()));
+    let by = h
+        .ledger
+        .last_task_event(&stopped.id, "liaison.work_stopped")
+        .unwrap()
+        .expect("recorded")
+        .payload["by"]
+        .clone();
+    assert_eq!(
+        by, "Development Manager",
+        "the lead is named by its position"
+    );
     let conversation = stopped.metadata["sessionId"].clone();
     // Its conversation stays: its next objective goes on in it.
     let next = h.objective(&o.coordinator, "Plan the release.").await;

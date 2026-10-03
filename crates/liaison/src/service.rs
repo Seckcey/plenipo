@@ -1022,7 +1022,11 @@ impl Liaison {
         let mut stops = Vec::new();
         let mut ignored = 0_u32;
         if end.result.outcome == TurnOutcome::Completed {
-            let by = self.worker_of(l, &task);
+            // The lead by its position's title when it has one, as the owner knows it.
+            let by = task.metadata["workforce"]["positionId"]
+                .as_str()
+                .and_then(|id| l.position(id).ok().flatten())
+                .map_or_else(|| self.worker_of(l, &task), |p| p.title);
             let text = end.result.text.as_deref().unwrap_or_default();
             for block in protocol::extract(text).blocks {
                 let refuse = |task_id: Option<&str>, why: String| {
