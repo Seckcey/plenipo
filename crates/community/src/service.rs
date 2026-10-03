@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use ts_rs::TS;
 
-use crate::client::{self, ErrorCode, Failure, Transport};
+use crate::client::{self, Answer, ErrorCode, Failure, Request, Transport};
 use crate::profile::{self, ProfileDraft, Tile};
 use crate::session::{self, AgeCheck, Finish, Opening, SignedInPc, SigningIn};
 use crate::wire;
@@ -171,9 +171,10 @@ const NOT_REACHED: &str = "Community can't be reached right now. Nothing was cha
 const TOO_YOUNG: &str = "Community is for people 13 and older.";
 
 /// Plain words for a failure the person sees.
-fn words(failure: &Failure) -> String {
+pub(crate) fn words(failure: &Failure) -> String {
     match failure {
         Failure::Service(e) if !e.message.trim().is_empty() => e.message.clone(),
+        Failure::NotSignedIn => "Sign in to Community first.".into(),
         _ => NOT_REACHED.into(),
     }
 }
@@ -282,6 +283,37 @@ impl<T: Transport> Community<T> {
     /// The transport, for the app's other Community work.
     pub fn transport(&self) -> &T {
         &self.transport
+    }
+
+    /// Send one request as this member, for the app's other Community work (people, messages,
+    /// rewards): only while signed in and joined. The answer comes back when its status is `ok`.
+    /// An answer that says this PC's sign-in ended signs it out here; one that says Community
+    /// closed, or that Plenipo must be updated, shows on Settings → Community.
+    pub async fn as_member(&self, request: &Request, ok: u16) -> Result<Answer, Failure> {
+        let pc = {
+            let s = lock(&self.state);
+            (s.stage == Stage::SignedIn).then(|| s.pc.clone()).flatten()
+        };
+        let Some(pc) = pc else {
+            return Err(Failure::NotSignedIn);
+        };
+        let result = client::send(&self.transport, request, Some(pc.pass()))
+            .await
+            .and_then(|answer| client::check(answer, ok));
+        if let Err(failure) = &result {
+            match failure.code() {
+                Some(ErrorCode::Unauthorized) => self.forget_here("removed"),
+                Some(ErrorCode::NotOpen) => lock(&self.state).stage = Stage::Closed,
+                Some(ErrorCode::UpdateNeeded) => lock(&self.state).stage = Stage::UpdateNeeded,
+                _ => {}
+            }
+        }
+        result
+    }
+
+    /// The Ledger's shared record, for the app's other Community work.
+    pub(crate) fn record(&self, event: &str, payload: serde_json::Value) {
+        self.recorder.record(event, payload);
     }
 
     fn save_settings(&self, s: &mut State) {

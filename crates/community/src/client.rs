@@ -212,6 +212,8 @@ pub enum Failure {
     Unreachable(String),
     /// An answer that is not what the contract says.
     BadAnswer,
+    /// This PC is not signed in to Community, so nothing was sent.
+    NotSignedIn,
 }
 
 impl Failure {
@@ -245,6 +247,14 @@ pub async fn send(
 pub fn read<T: DeserializeOwned>(answer: Answer, ok: u16) -> Result<T, Failure> {
     if answer.status == ok {
         return serde_json::from_slice(&answer.body).map_err(|_| Failure::BadAnswer);
+    }
+    Err(error_of(answer))
+}
+
+/// The answer when its status is `ok`; the service's error otherwise.
+pub fn check(answer: Answer, ok: u16) -> Result<Answer, Failure> {
+    if answer.status == ok {
+        return Ok(answer);
     }
     Err(error_of(answer))
 }
