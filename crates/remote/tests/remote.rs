@@ -971,6 +971,109 @@ async fn a_relay_that_keeps_saying_a_phone_joined_is_cut_off() {
     assert_eq!(w.app.records("remote.meetings_stopped").len(), 1);
 }
 
+/// Say a phone joined, by hand, on a fresh connection; the phone then says nothing.
+fn silent_join(w: &World, n: &mut u32, phone: Option<&str>) {
+    *n += 1;
+    w.remote.from_relay(RelayToPc::Joined {
+        conn: format!("c{n:06}"),
+        phone: phone.map(str::to_owned),
+        mailbox: phone.is_none(),
+    });
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_meeting_that_never_finishes_is_closed_after_the_deadline_and_not_counted() {
+    let mut w = World::new().await;
+    let first = w.paired_phone("Mine").await;
+    let second = w.paired_phone("Second").await;
+    let (first, second) = (
+        first.paired.as_ref().unwrap().phone.clone(),
+        second.paired.as_ref().unwrap().phone.clone(),
+    );
+    w.disconnect().await;
+    w.remote.start_pairing().unwrap();
+    let mut commands = relay_by_hand(&w);
+    // Twelve connections join (the mailbox's four, and four for each phone, as with a stolen
+    // pass) and never send a word: each holds a slot.
+    let mut n = 0;
+    for _ in 0..4 {
+        silent_join(&w, &mut n, None);
+        silent_join(&w, &mut n, Some(&first));
+        silent_join(&w, &mut n, Some(&second));
+    }
+    assert_eq!(closes(&mut commands), 0);
+    w.clock.advance(30_000);
+    w.remote.tick();
+    assert_eq!(closes(&mut commands), 0, "half a minute is not too long");
+    // A minute on, every one of them is closed...
+    w.clock
+        .advance(plenipo_remote::limits::MEETING_DEADLINE_MS - 30_000 + 1000);
+    w.remote.tick();
+    assert_eq!(closes(&mut commands), 12);
+    // ...and none counts as a failed meeting: twelve would have stopped the PC (ADR-143 §8),
+    // which is exactly what a stranger holding slots must not be able to do.
+    assert!(w.remote.view().meetings_stopped_until.is_none());
+    assert!(w.app.records("remote.meetings_stopped").is_empty());
+    // The slots are free: the owner's phone joins and is kept.
+    silent_join(&w, &mut n, Some(&first));
+    silent_join(&w, &mut n, None);
+    assert_eq!(closes(&mut commands), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stolen_pass_cannot_hold_a_phones_slots_past_the_deadline() {
+    let mut w = World::new().await;
+    let phone = w.paired_phone("Mine").await;
+    let id = phone.paired.as_ref().unwrap().phone.clone();
+    w.disconnect().await;
+    let mut commands = relay_by_hand(&w);
+    let mut n = 0;
+    for _ in 0..4 {
+        silent_join(&w, &mut n, Some(&id));
+    }
+    // The fifth is over the cap: closed at once (and that one counts, as before).
+    silent_join(&w, &mut n, Some(&id));
+    assert_eq!(closes(&mut commands), 1);
+    // A minute on, the four held slots are closed and the real phone gets in.
+    w.clock
+        .advance(plenipo_remote::limits::MEETING_DEADLINE_MS + 1000);
+    w.remote.tick();
+    assert_eq!(closes(&mut commands), 4);
+    silent_join(&w, &mut n, Some(&id));
+    assert_eq!(closes(&mut commands), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_code_closes_the_old_mailbox_connections() {
+    let mut w = World::new().await;
+    w.disconnect().await;
+    w.remote.start_pairing().unwrap();
+    let mut commands = relay_by_hand(&w);
+    let mut n = 0;
+    for _ in 0..4 {
+        silent_join(&w, &mut n, None);
+    }
+    assert_eq!(closes(&mut commands), 0);
+    // A new code: the old mailbox's connections can never pair on it, so they go...
+    w.remote.start_pairing().unwrap();
+    assert_eq!(closes(&mut commands), 4);
+    assert!(w.remote.view().meetings_stopped_until.is_none());
+    // ...and the owner's phone joins the new mailbox with room to spare.
+    silent_join(&w, &mut n, None);
+    assert_eq!(closes(&mut commands), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_code_leaves_a_signed_in_phone_alone() {
+    let w = World::new().await;
+    let mut phone = w.paired_phone("Mine").await;
+    phone.meet(false).await.unwrap();
+    assert!(phone.ask(Ask::ReadControl).await.unwrap().ok.is_some());
+    w.remote.start_pairing().unwrap();
+    w.remote.start_pairing().unwrap();
+    assert!(phone.ask(Ask::ReadControl).await.unwrap().ok.is_some());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_relay_that_keeps_saying_a_phone_joined_the_mailbox_is_cut_off() {
     let mut w = World::new().await;
