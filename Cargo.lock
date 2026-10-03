@@ -4481,6 +4481,7 @@ dependencies = [
  "tokio",
  "uuid",
  "webkit2gtk",
+ "zbus 5.19.0",
  "zip",
 ]
 

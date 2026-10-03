@@ -34,6 +34,7 @@ import { isActive } from "../runtime/store";
 import { useRuntime } from "../runtime/useRuntime";
 import { systemWords } from "../system/words";
 import { DiagnosticsFileButton } from "../upkeep/BackupsPanel";
+import { DeletePlenipoData } from "./DeletePlenipoData";
 
 const TONE: Record<ReturnType<typeof runtimeStatus>["tone"], Status> = {
   ok: "ok",
@@ -266,6 +267,7 @@ export function LocalPathsSettings() {
         Plenipo keeps everything on this computer. Back up the Ledger&apos;s folder to keep your
         company&apos;s history; Diagnostics makes a backup or an export on request.
       </p>
+      <DeletePlenipoData />
     </div>
   );
 }

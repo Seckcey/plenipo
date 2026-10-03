@@ -50,6 +50,7 @@ export function upToDate(): UpdateStatus {
     available: null,
     message: null,
     releasesPage: "https://github.com/Seckcey/plenipo/releases",
+    how: "installer",
   };
 }
 

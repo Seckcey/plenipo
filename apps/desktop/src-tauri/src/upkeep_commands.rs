@@ -9,8 +9,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use plenipo_core::{
-    CommandError, DiagnosticsFile, RecoveryStatus, StartAndClose, StartAndCloseInput, UpdateState,
-    UpdateStatus,
+    CommandError, DiagnosticsFile, InstallWay, RecoveryStatus, StartAndClose, StartAndCloseInput,
+    UpdateState, UpdateStatus,
 };
 use plenipo_guard::Guard;
 use plenipo_ledger::{Ledger, LedgerBackups, NewEvent, NewTask, TaskState};
@@ -613,11 +613,21 @@ async fn install<R: Runtime>(
             "Work is running. Installing the update stops it; say so to go ahead.",
         ));
     }
-    if !cfg!(windows) {
-        let message = "Updates are installed on Windows only.".to_owned();
-        updates.install_failed(&ledger, message.clone());
-        return Err(CommandError::invalid_input(message));
+    let how = updates.how();
+    if how == InstallWay::ByHand {
+        return Err(CommandError::invalid_input(update_host::BY_HAND));
     }
+    let appimage = match how {
+        InstallWay::ReplacesItself => match update_host::own_appimage() {
+            Some(path) => Some(path),
+            None => {
+                let message = "Plenipo could not find its own AppImage to replace.".to_owned();
+                updates.install_failed(&ledger, message.clone());
+                return Err(CommandError::invalid_input(message));
+            }
+        },
+        _ => None,
+    };
     let (release, bytes) = updates
         .download(&guard)
         .await
@@ -629,8 +639,9 @@ async fn install<R: Runtime>(
         .join(update_host::FOLDER);
     let version = app.package_info().version.to_string();
     let (l, v, r) = (Arc::clone(&ledger), version.clone(), release.clone());
+    let target = appimage.clone();
     let prepared = tauri::async_runtime::spawn_blocking(move || {
-        update_host::prepare(&l, &dir, &v, &r, &bytes)
+        update_host::prepare(&l, &dir, &v, &r, &bytes, target.as_deref())
     })
     .await
     .map_err(|e| CommandError::internal(e.to_string()))?;
@@ -644,15 +655,44 @@ async fn install<R: Runtime>(
     log::warn!("installing Plenipo {} (from {version})", release.version);
     crate::stop_work(app).await;
     crate::mark_stopped(app);
-    match update_host::start_installer(&path) {
+    // `in_place`: the AppImage is already the new version, though it could not start by itself.
+    let (started, in_place) = match &appimage {
+        Some(appimage) => match update_host::replace_itself(&path, appimage) {
+            Ok(()) => (update_host::start_again(appimage), true),
+            Err(e) => (Err(e), false),
+        },
+        None => (update_host::start_installer(&path), false),
+    };
+    match started {
         Ok(()) => {
             app.exit(0);
             Ok(updates.status())
         }
-        Err(e) => {
+        // Restarting starts the AppImage, which is now the new version.
+        Err(e) if in_place => {
+            log::warn!("the new version is in place but did not start by itself ({e})");
             let message = format!(
-                "The installer could not be started ({e}). Plenipo {version} is still installed; \
-                 the work that was running was stopped. Plenipo restarts now."
+                "Plenipo {} is in place, but it did not start by itself ({e}). The work that was \
+                 running was stopped. Plenipo restarts now, as the new version.",
+                release.version
+            );
+            if !app.try_state::<SmokeTest>().is_some_and(|s| s.is_enabled()) {
+                if let Ok(data) = app.path().app_local_data_dir() {
+                    start_close::show_after_restart(&data);
+                }
+                app.request_restart();
+            }
+            Err(CommandError::internal(message))
+        }
+        Err(e) => {
+            let what = if appimage.is_some() {
+                "The new version could not be put in place"
+            } else {
+                "The installer could not be started"
+            };
+            let message = format!(
+                "{what} ({e}). Plenipo {version} is still installed; the work that was running \
+                 was stopped. Plenipo restarts now."
             );
             updates.install_failed(&ledger, message.clone());
             // (Not in a launch test, which reports the failure and ends instead.)
@@ -664,6 +704,143 @@ async fn install<R: Runtime>(
             }
             Err(CommandError::internal(message))
         }
+    }
+}
+
+/// Delete my Plenipo data (Phase 23, a Mac and Linux; Windows' uninstaller has its own tick box):
+/// forget every key Plenipo saved, then stop the work (`stop_work`: the owner agreed), turn
+/// off starting at sign-in, delete Plenipo's own folders, and quit. When the password store does
+/// not let the keys go, nothing is deleted.
+#[tauri::command]
+pub async fn delete_plenipo_data<R: Runtime>(
+    app: AppHandle<R>,
+    stop_work: bool,
+) -> Result<(), CommandError> {
+    if cfg!(windows) {
+        return Err(CommandError::invalid_input(
+            "On Windows, remove Plenipo in Settings → Apps and tick \"Also delete my Plenipo data\".",
+        ));
+    }
+    // Never in a test copy, which keeps its Ledger in memory: the folders and keys it would find
+    // are a real computer's.
+    if !matches!(
+        app.try_state::<Persistence>().as_deref(),
+        Some(Persistence::AppData)
+    ) {
+        return Err(CommandError::invalid_input(
+            "Plenipo's data is deleted only when Plenipo keeps its files",
+        ));
+    }
+    if crate::work_going(&app) && !stop_work {
+        return Err(CommandError::invalid_input(
+            "Work is running. Deleting your data stops it; say so to go ahead.",
+        ));
+    }
+    let paths = app.path();
+    let data = paths
+        .app_local_data_dir()
+        .map_err(|e| CommandError::internal(e.to_string()))?;
+    // Its data (with the logs), settings, and cache, and on a Mac the web pages' own folders.
+    let mac_library = paths
+        .home_dir()
+        .ok()
+        .filter(|_| cfg!(target_os = "macos"))
+        .map(|home| home.join("Library"));
+    let mac_web_pages = ["WebKit", "HTTPStorages"].map(|kind| {
+        mac_library
+            .as_ref()
+            .map(|library| library.join(kind).join(crate::uninstall::IDENTIFIER))
+    });
+    let mut folders: Vec<std::path::PathBuf> = Vec::new();
+    for dir in [
+        paths.app_local_data_dir().ok(),
+        paths.app_data_dir().ok(),
+        paths.app_cache_dir().ok(),
+        paths.app_config_dir().ok(),
+    ]
+    .into_iter()
+    .chain(mac_web_pages)
+    .flatten()
+    {
+        if !folders.contains(&dir) {
+            folders.push(dir);
+        }
+    }
+    // The keys first: if the password store says no, nothing else is touched.
+    let first = data.clone();
+    let forgotten = tauri::async_runtime::spawn_blocking(move || forget_every_key(&first))
+        .await
+        .map_err(|e| CommandError::internal(e.to_string()))?;
+    if let Err(e) = forgotten {
+        return Err(CommandError::invalid_input(format!(
+            "Plenipo could not remove the keys it saved in {} ({e}), so nothing was deleted. \
+             Unlock it, then try again.",
+            plenipo_core::WORDS.key_store
+        )));
+    }
+    log::warn!("deleting Plenipo's data, as the owner asked");
+    crate::stop_work(&app).await;
+    crate::mark_stopped(&app);
+    // Again, now that nothing runs: a sign-in renewed while the work was stopping is not left
+    // behind.
+    if let Ok(Err(e)) = tauri::async_runtime::spawn_blocking(move || forget_every_key(&data)).await
+    {
+        log::warn!("a key saved while the work stopped could not be removed: {e}");
+    }
+    if start_close::start_with_windows(&app) == Some(true) {
+        let _ = start_close::set_start_with_windows(&app, false);
+    }
+    let deleted =
+        tauri::async_runtime::spawn_blocking(move || crate::uninstall::delete_folders(&folders))
+            .await
+            .map_err(|e| CommandError::internal(e.to_string()))?;
+    match deleted {
+        Ok(()) => {
+            app.exit(0);
+            Ok(())
+        }
+        Err(e) => Err(CommandError::internal(format!(
+            "Some of Plenipo's data could not be deleted: {e}. Quit Plenipo and delete it by hand."
+        ))),
+    }
+}
+
+/// Remove every key Plenipo saved in this computer's password store, for every organization in
+/// `data` (Delete my Plenipo data). A Linux PC with no password store has none to remove, but
+/// only when no organization says it saved one: a store that is only failing for a moment must
+/// never pass for none, or its keys would be left behind with no list of their names.
+fn forget_every_key(data: &std::path::Path) -> Result<usize, String> {
+    let store_for = |id: &str| -> Box<dyn plenipo_capabilities::SecretStore> {
+        Box::new(plenipo_capabilities::OsSecretStore::new(
+            crate::orgs::vault_name(crate::uninstall::IDENTIFIER, id),
+        ))
+    };
+    if !crate::uninstall::any_saved_ids(data)
+        && store_for(crate::orgs::FIRST).check()
+            == Err(plenipo_capabilities::vault::NO_PASSWORD_STORE.to_owned())
+    {
+        log::info!("this computer has no password store, and no key was saved in one");
+        return Ok(0);
+    }
+    crate::uninstall::forget_every_organizations_secrets(data, store_for)
+}
+
+/// Open GitHub's page for the newest version in the owner's browser, for a copy updated by
+/// hand (Phase 23, ADR-152: a `.deb`). Takes nothing: it opens only that fixed page.
+#[tauri::command]
+pub async fn open_releases_page() -> Result<(), CommandError> {
+    #[cfg(unix)]
+    {
+        let page = format!("{}/latest", plenipo_capabilities::updates::RELEASES_PAGE);
+        plenipo_capabilities::programs::open_for_owner(vec![page.into()])
+            .await
+            .map_err(CommandError::invalid_input)
+    }
+    #[cfg(not(unix))]
+    {
+        Err(CommandError::invalid_input(
+            "Plenipo installs new versions itself here: choose Install now.",
+        ))
     }
 }
 

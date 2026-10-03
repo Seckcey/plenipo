@@ -139,6 +139,20 @@ pub struct DiagnosticsFile {
     pub contents: Vec<String>,
 }
 
+/// How this copy of Plenipo takes a new version (Phase 23, ADR-152).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum InstallWay {
+    /// Windows: Plenipo starts the new version's installer, which opens it again.
+    Installer,
+    /// Linux's AppImage: Plenipo puts the new version in place of itself and opens it again.
+    ReplacesItself,
+    /// Installed by the system's own installer (Linux's `.deb`), or a Mac until Wave 3: the
+    /// owner downloads the new version and installs it the same way.
+    ByHand,
+}
+
 /// Where an update check got to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -174,6 +188,8 @@ pub struct UpdateStatus {
     pub message: Option<String>,
     /// Where to download versions by hand.
     pub releases_page: String,
+    /// How this copy takes a new version (Phase 23).
+    pub how: InstallWay,
 }
 
 /// A newer version of Plenipo.

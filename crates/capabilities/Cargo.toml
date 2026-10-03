@@ -78,7 +78,7 @@ sha2 = "0.10"
 # Watch (Phase 18, ADR-055): which lines a worker's change added, changed, or removed.
 similar = "2"
 thiserror = "2"
-tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 # Tests only: a second DevTools connection to Plenipo's browser over a loopback WebSocket, as
 # the owner's own hand (Phase 10). The app talks to its browser over a pipe; no TLS.
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake"] }

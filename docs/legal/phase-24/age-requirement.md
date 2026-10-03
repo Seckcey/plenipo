@@ -1,6 +1,6 @@
 # Age requirement for Community — draft
 
-> **Draft for attorney review. Not in force.** From
+> **Approved by 8 West's attorney as written (2026-10-03). Not in force until Community launches.** From
 > [ADR-162 (your 8 West account in Plenipo)](../../adr/ADR-162-your-account-in-plenipo.md) §4. The
 > owner chose **13 and up** (2026-10-02), and accepted the protections for members 13 to 17 the
 > same day.

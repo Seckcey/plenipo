@@ -109,11 +109,19 @@ release notes exist, builds the NSIS installer signed as 8 West Ventures, LLC
 ([code signing](code-signing.md)), checks the signature, and publishes a GitHub release with the
 installer attached. From 1.9.0 it also signs the installer with the updater key and attaches
 its `.sig` and `latest.json`, which installed copies read to find the new version (ADR-038,
-updates; [code signing](code-signing.md#updates-the-updater-key-phase-13-adr-038)). `0.x` versions and SemVer pre-releases are published as GitHub pre-releases.
+updates; [code signing](code-signing.md#updates-the-updater-key-phase-13-adr-038)). From 1.23.0 a
+Linux job builds the `.deb` and the AppImage on Ubuntu 22.04 with no secret, and checks that they
+are this version's, that the `.deb` installs with `apt`, that both start and keep running, and
+that `apt` removes Plenipo cleanly (`scripts/linux-package-check.sh`, Phase 23, ADR-152). After
+the owner's one approval, the Windows job signs the AppImage with the same updater key, writes
+one `latest.json` listing both systems (`scripts/update-manifest.mjs`), and publishes the
+installer, the `.deb`, the AppImage, and its `.sig` together, so a release never has half its
+files. `0.x` versions and SemVer pre-releases are published as GitHub pre-releases.
 The signing secrets are Environment secrets of `release`, which only `main` and `v*` tags may use
 ([code signing → where the secrets live](code-signing.md#where-the-secrets-live-the-release-environment)).
 **Run workflow** with **Dry run** ticked builds an unsigned installer from any branch, needs no
-approval, touches no secret, and publishes nothing.
+approval, touches no secret, and publishes nothing; it also builds and checks the Linux files and
+a trial Mac app, kept as downloads for 7 days.
 
 The workflows (`ci.yml`, `release.yml`, `website.yml`) name each GitHub Action they use by the
 exact commit it runs, not by a tag that someone could move to other code, and Dependabot
