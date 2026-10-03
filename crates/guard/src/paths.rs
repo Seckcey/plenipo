@@ -494,6 +494,72 @@ mod tests {
         assert!(main.still_inside().is_err());
     }
 
+    /// Phase 23: a Mac's disk usually ignores upper and lower case, and Linux's does not. Either
+    /// way a name in other letters stays inside the folder: the same file where the disk ignores
+    /// case, and a new name where it does not. Blocked-file patterns catch any spelling.
+    #[test]
+    fn names_in_other_letters_stay_inside_on_every_disk() {
+        let (_d, w) = ws();
+        let ignores_case = w.root().join("SRC").join("MAIN.RS").exists();
+        let r = w.resolve("SRC/MAIN.RS").unwrap();
+        assert!(r.abs.starts_with(w.root()), "{r:?}");
+        assert!(r.rel.eq_ignore_ascii_case("src/main.rs"), "{r:?}");
+        assert_eq!(r.exists, ignores_case, "{r:?}");
+        if cfg!(target_os = "linux") {
+            assert!(!ignores_case, "Linux's own disks tell the letters apart");
+            // Two files, two names.
+            std::fs::write(w.root().join("src").join("Main.rs"), "x").unwrap();
+            assert_eq!(w.resolve("src/Main.rs").unwrap().rel, "src/Main.rs");
+            assert_eq!(w.resolve("src/main.rs").unwrap().rel, "src/main.rs");
+        }
+        let p = vec![".env".to_owned()];
+        assert_eq!(blocked_by(&p, ".ENV"), Some(".env"));
+        assert_eq!(blocked_by(&p, "app/.Env"), Some(".env"));
+    }
+
+    /// Phase 23: a project folder reached through a link (on a Mac, `/tmp` is really
+    /// `/private/tmp`) is kept as where it really is, and paths written either way resolve inside
+    /// it; a path written through the link that leaves it is still refused.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_reached_through_a_link_is_the_real_one() {
+        let (dir, _) = ws();
+        let via = dir.path().join("via");
+        std::os::unix::fs::symlink(dir.path(), &via).unwrap();
+        let w = Workspace::open(&via.join("proj").display().to_string()).unwrap();
+        let real = dunce::canonicalize(dir.path().join("proj")).unwrap();
+        assert_eq!(w.root(), real);
+        let through_link = via.join("proj/src/main.rs").display().to_string();
+        assert_eq!(w.resolve(&through_link).unwrap().rel, "src/main.rs");
+        let direct = real.join("src/main.rs").display().to_string();
+        assert_eq!(w.resolve(&direct).unwrap().rel, "src/main.rs");
+        assert_eq!(
+            w.resolve("src/new.txt").unwrap().abs,
+            real.join("src/new.txt")
+        );
+        let out = via.join("secret.txt").display().to_string();
+        assert!(matches!(w.resolve(&out), Err(PathRefusal::Outside(_))));
+    }
+
+    /// A Mac's `/tmp` is a link to `/private/tmp`: a project there is found either way.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_project_in_the_macs_tmp_folder() {
+        let dir = tempfile::Builder::new().tempdir_in("/tmp").unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/main.rs"), "").unwrap();
+        let shown = dir.path().display().to_string();
+        assert!(shown.starts_with("/tmp/"), "{shown}");
+        let w = Workspace::open(&shown).unwrap();
+        assert!(w.root().starts_with("/private/tmp"), "{:?}", w.root());
+        let r = w.resolve(&format!("{shown}/src/main.rs")).unwrap();
+        assert_eq!(r.rel, "src/main.rs");
+        assert!(matches!(
+            w.resolve("/tmp/../etc/hosts"),
+            Err(PathRefusal::Outside(_))
+        ));
+    }
+
     #[test]
     fn workspace_must_exist() {
         assert!(Workspace::open("relative/path").is_err());
