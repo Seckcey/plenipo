@@ -1063,6 +1063,84 @@ async fn a_relay_that_keeps_saying_a_phone_joined_keeps_the_newest_and_does_not_
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_stolen_pass_cannot_push_out_the_owners_open_lines() {
+    let w = World::new().await;
+    // The owner's phone, with its page and its notice line open and signed in.
+    let mut page = w.paired_phone("Mine").await;
+    page.meet(false).await.unwrap();
+    let mut notice = NetPhone::new(&w.relay.phone_address());
+    notice.paired = page.paired.clone();
+    notice.noise = page.noise;
+    notice.meet(true).await.unwrap();
+    assert!(page.ask(Ask::ReadControl).await.unwrap().ok.is_some());
+    let id = page.paired.as_ref().unwrap().phone.clone();
+    let before = w.relay.closed_by_pc().len();
+    // Four joins with the phone's pass that never say a word (a stolen pass), told to the PC
+    // straight from "the relay", one after another.
+    for n in 1..=4 {
+        w.remote.from_relay(RelayToPc::Joined {
+            conn: format!("s{n:06}"),
+            phone: Some(id.clone()),
+            mailbox: false,
+        });
+        w.clock.advance(1);
+    }
+    // The ones that give way are the silent ones, oldest first; never the owner's two.
+    wait_for(
+        || w.relay.closed_by_pc().len() == before + 2,
+        "the PC to close two connections",
+    )
+    .await;
+    assert_eq!(w.relay.closed_by_pc()[before..], ["s000001", "s000002"]);
+    assert!(page.ask(Ask::ReadControl).await.unwrap().ok.is_some());
+    // A notice line may only say no (ADR-142 §5), so it answers "refused": still open.
+    assert!(
+        notice
+            .ask(Ask::ReadControl)
+            .await
+            .unwrap()
+            .refused
+            .is_some(),
+        "the notice line still answers"
+    );
+    assert!(w.remote.view().meetings_stopped_until.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_with_four_open_lines_gives_up_the_oldest_for_a_fifth() {
+    let w = World::new().await;
+    let mut first = w.paired_phone("Mine").await;
+    first.meet(false).await.unwrap();
+    let first_conn = w.relay.newest_phone_conn().unwrap();
+    w.clock.advance(1);
+    let before = w.relay.closed_by_pc().len();
+    let mut more = Vec::new();
+    for _ in 0..4 {
+        let mut line = NetPhone::new(&w.relay.phone_address());
+        line.paired = first.paired.clone();
+        line.noise = first.noise;
+        line.meet(false).await.unwrap();
+        w.clock.advance(1);
+        more.push(line);
+    }
+    // Nothing unfinished to give way: the oldest open line (the first) went for the fifth.
+    wait_for(
+        || w.relay.closed_by_pc().len() == before + 1,
+        "the PC to close one connection",
+    )
+    .await;
+    assert_eq!(w.relay.closed_by_pc()[before..], [first_conn]);
+    assert!(
+        first.ask(Ask::ReadControl).await.is_err(),
+        "the first is gone"
+    );
+    for line in &mut more {
+        assert!(line.ask(Ask::ReadControl).await.unwrap().ok.is_some());
+    }
+    assert!(w.remote.view().meetings_stopped_until.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_phone_that_reconnects_with_stale_connections_is_kept() {
     let mut w = World::new().await;
     let phone = w.paired_phone("Mine").await;

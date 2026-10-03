@@ -967,23 +967,28 @@ impl Remote {
     /// Make room for one more connection of this kind, or say there is none. The relay says who
     /// joined and is trusted for nothing else (ADR-143), so the table has a ceiling: a relay
     /// that keeps saying phones joined, and never that they left, cannot grow it without end.
-    /// Below the ceiling, a phone at its own limit gives up its oldest connection for the new
-    /// one: an honest phone that changes networks comes back before the relay reports its old
-    /// connections gone, and the new one is the one it is using. The mailbox gets no such
+    /// Below the ceiling, a phone at its own limit gives up one connection for the new one: the
+    /// oldest that never finished its meeting, if there is one (a join that went quiet, or a
+    /// stolen pass holding slots), and only when every one of them is open, the oldest open one
+    /// (an honest phone that changed networks, whose old lines the relay has not yet reported
+    /// gone). So a stolen pass cannot push out the owner's live lines. The mailbox gets no such
     /// favour: an honest relay never sends more mailbox joins than the mailbox takes.
     fn make_room(&self, st: &mut State, kind: &Kind) -> bool {
         if st.conns.len() >= MAX_CONNS {
             return false;
         }
         let same = st.conns.iter().filter(|(_, c)| c.kind == *kind);
-        let oldest = same
-            .clone()
-            .min_by_key(|(_, c)| c.since)
-            .map(|(conn, _)| conn.clone());
-        if same.count() < CONNS_PER_DEVICE {
+        if same.clone().count() < CONNS_PER_DEVICE {
             return true;
         }
-        match (kind, oldest) {
+        let oldest = |unfinished: bool| {
+            same.clone()
+                .filter(|(_, c)| !unfinished || matches!(c.lock, Lock::Meeting(_)))
+                .min_by_key(|(_, c)| c.since)
+                .map(|(conn, _)| conn.clone())
+        };
+        let gives_way = oldest(true).or_else(|| oldest(false));
+        match (kind, gives_way) {
             (Kind::Phone(_), Some(conn)) => {
                 self.close(st, &conn);
                 true
