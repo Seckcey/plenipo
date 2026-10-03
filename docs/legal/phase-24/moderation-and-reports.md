@@ -1,6 +1,6 @@
 # Moderation and reports for Community — draft
 
-> **Draft for attorney review. Not in force.** From
+> **Approved by 8 West's attorney as written (2026-10-03). Not in force until Community launches.** From
 > [ADR-167 (block, report, and leave)](../../adr/ADR-167-block-report-leave.md). Proposed as a
 > public page linked from the Community terms. The owner accepted it on 2026-10-02, and reads
 > reports at first: "I'll read the reports until it gets to be too much." Members may be 13 and up,
