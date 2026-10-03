@@ -5204,3 +5204,118 @@ body.popout {
   flex-wrap: wrap;
   gap: var(--ui-space-3);
 }
+
+/* Your profile once you are in: the same width as the join form. */
+.community-profile {
+  display: grid;
+  gap: var(--ui-space-4);
+  max-width: 480px;
+}
+
+.community-profile h3 {
+  margin: 0;
+}
+
+/* ---- What people see: the card others will see, and the boxes for it (ADR-163) ------------- */
+
+.what-people-see {
+  display: grid;
+  gap: var(--ui-space-4);
+  min-width: 0;
+}
+
+.what-people-see p {
+  margin: 0;
+}
+
+.what-people-see__editor,
+.what-people-see__kinds,
+.what-people-see__parts {
+  display: grid;
+  gap: var(--ui-space-4);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.what-people-see legend {
+  padding: 0;
+  margin-bottom: var(--ui-space-2);
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+/* The kinds and the boxes: as many columns as fit, one on a narrow window. */
+.what-people-see__kind-list,
+.what-people-see__part-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr));
+  gap: var(--ui-space-2) var(--ui-space-4);
+}
+
+.what-people-see__where select {
+  max-width: 100%;
+}
+
+.what-people-see__preview {
+  display: grid;
+  gap: var(--ui-space-3);
+  min-width: 0;
+  padding: var(--ui-space-4) var(--ui-space-5);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface-raised);
+}
+
+.what-people-see__title {
+  margin: 0;
+  font-size: var(--ui-font-md);
+}
+
+.what-people-see__card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ui-space-4);
+  min-width: 0;
+}
+
+.what-people-see__picture {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* Long words break instead of pushing the card wider than the window. */
+.what-people-see__lines {
+  display: grid;
+  gap: var(--ui-space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.what-people-see__name {
+  color: var(--ui-text-primary);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.what-people-see__tile {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2) var(--ui-space-4);
+}
+
+.what-people-see__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+}
+
+.what-people-see__business,
+.what-people-see__line,
+.what-people-see__place {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}

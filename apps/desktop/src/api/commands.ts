@@ -71,6 +71,7 @@ import type {
   PermissionSetInput,
   PermissionsSnapshot,
   PositionPatchInput,
+  ProfileDraft,
   ProjectInput,
   ProjectWork,
   RoleInput,
@@ -1467,16 +1468,31 @@ export function cancelCommunitySignIn(): Promise<CommunityView> {
 }
 
 /**
- * Join Community: your Community name, your birth month and year (asked once, never the day), and
- * the terms version you agreed to on screen.
+ * Join Community: your Community name, your birth month and year (asked once, never the day), the
+ * terms version you agreed to on screen, and your profile with its boxes (**What people see**,
+ * ADR-163). Plenipo adds your tile's picture, status, mood, and message itself.
  */
 export function joinCommunity(
   name: string,
   birthMonth: number,
   birthYear: number,
   terms: string,
+  profile: ProfileDraft,
 ): Promise<CommunityView> {
-  return call<CommunityView>("join_community", { name, birthMonth, birthYear, terms });
+  return call<CommunityView>("join_community", { name, birthMonth, birthYear, terms, profile });
+}
+
+/** Save your profile and its boxes (**Your profile**). An unticked part is hidden at once. */
+export function saveCommunityProfile(profile: ProfileDraft): Promise<CommunityView> {
+  return call<CommunityView>("save_community_profile", { profile });
+}
+
+/**
+ * **Appear offline**, or not: you leave the directory, New this week, and the leaderboard, and
+ * people you talk with see you as Offline.
+ */
+export function setCommunityAppearOffline(offline: boolean): Promise<CommunityView> {
+  return call<CommunityView>("set_community_appear_offline", { offline });
 }
 
 /** Sign out of your 8 West account on this computer. You stay a member. */

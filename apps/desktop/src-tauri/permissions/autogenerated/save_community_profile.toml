@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-community-profile"
+description = "Enables the save_community_profile command without any pre-configured scope."
+commands.allow = ["save_community_profile"]
+
+[[permission]]
+identifier = "deny-save-community-profile"
+description = "Denies the save_community_profile command without any pre-configured scope."
+commands.deny = ["save_community_profile"]

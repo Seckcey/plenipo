@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as commands from "../api/commands";
 import * as events from "../api/events";
 import { a11yProblems } from "../test/a11y";
+import { communityView } from "../test/communityFixtures";
 import { OwnerButton } from "./OwnerButton";
 import { OwnerFace, OwnerStatusLine } from "./OwnerFace";
 import { OwnerProvider } from "./OwnerProvider";
@@ -14,9 +15,19 @@ import { describeOwner, oneLineMessage } from "./words";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
-  return { ...actual, getOwnerProfile: vi.fn(), setOwnerProfile: vi.fn() };
+  return {
+    ...actual,
+    getOwnerProfile: vi.fn(),
+    setOwnerProfile: vi.fn(),
+    getCommunity: vi.fn(),
+    setCommunityAppearOffline: vi.fn(),
+  };
 });
-vi.mock("../api/events", () => ({ subscribeLedgerEvents: vi.fn(), subscribeShared: vi.fn() }));
+vi.mock("../api/events", () => ({
+  subscribeLedgerEvents: vi.fn(),
+  subscribeShared: vi.fn(),
+  subscribeCommunity: vi.fn(() => Promise.resolve(() => undefined)),
+}));
 vi.mock("./picture", async (importOriginal) => {
   const actual = await importOriginal<typeof picture>();
   return { ...actual, shrinkToPng: vi.fn() };
@@ -91,6 +102,8 @@ async function openPanel(name: RegExp | string = /^You: Available — change you
 }
 
 beforeEach(() => {
+  // Community is off, so the panel shows nothing about it (ADR-163 §5).
+  api.getCommunity.mockResolvedValue(communityView());
   api.getOwnerProfile.mockResolvedValue(profile());
   api.setOwnerProfile.mockImplementation((input) =>
     Promise.resolve(
@@ -464,6 +477,113 @@ describe("OwnerButton", () => {
     await user.tab();
     expect(busy).toHaveFocus();
     await reading.answer(PNG);
+  });
+});
+
+describe("Appear offline in the panel", () => {
+  const member = {
+    name: "pat-lee",
+    adult: true,
+    canStart: false,
+    standing: "ok",
+    pausedUntil: null,
+    appearOffline: false,
+    hiddenParts: [] as string[],
+  };
+  const signedIn = communityView({ stage: "signedIn", switchedOn: true, member });
+  const offline = () => screen.queryByRole("checkbox", { name: "Appear offline in Community" });
+  /** Community was read: let the panel take the answer in before looking for what is not there. */
+  const read = async () => {
+    await waitFor(() => expect(api.getCommunity).toHaveBeenCalled());
+    await act(() => new Promise((done) => setTimeout(done, 0)));
+  };
+
+  it("is not there while Community is off", async () => {
+    // Off (the default in these tests).
+    renderButton();
+    const { panel } = await openPanel();
+    await read();
+    expect(offline()).toBeNull();
+    expect(within(panel).queryByText(/Appear offline/)).toBeNull();
+  });
+
+  it.each([
+    ["joining", { stage: "joining" as const }],
+    ["signed out", { stage: "signedOut" as const }],
+    ["signed in without a member", { stage: "signedIn" as const, member: null }],
+  ])("is not there when Community is %s", async (_, patch) => {
+    api.getCommunity.mockResolvedValue(communityView(patch));
+    renderButton();
+    await openPanel();
+    await read();
+    expect(offline()).toBeNull();
+  });
+
+  it("is not there, and says nothing, when Community can't be read", async () => {
+    api.getCommunity.mockRejectedValue(new commands.PlenipoCommandError("internal", "down"));
+    renderButton();
+    const { panel } = await openPanel();
+    await read();
+    expect(offline()).toBeNull();
+    expect(within(panel).queryByRole("alert")).toBeNull();
+  });
+
+  it("is right after Status when you are signed in to Community", async () => {
+    api.getCommunity.mockResolvedValue(signedIn);
+    renderButton();
+    const { panel } = await openPanel();
+    const box = await screen.findByRole("checkbox", { name: "Appear offline in Community" });
+    expect(box).not.toBeChecked();
+    expect(box).toBeEnabled();
+    const status = within(panel).getByRole("group", { name: "Status" });
+    const mood = within(panel).getByRole("group", { name: "Mood" });
+    expect(status.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(box.compareDocumentPosition(mood) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(a11yProblems(document.body)).toEqual([]);
+  });
+
+  it("changes at once, without the panel's Save, and keeps the panel open", async () => {
+    api.getCommunity.mockResolvedValue(signedIn);
+    api.setCommunityAppearOffline.mockResolvedValue({
+      ...signedIn,
+      member: { ...member, appearOffline: true },
+    });
+    renderButton();
+    const { user } = await openPanel();
+    await user.click(await screen.findByRole("checkbox", { name: "Appear offline in Community" }));
+    expect(api.setCommunityAppearOffline).toHaveBeenCalledExactlyOnceWith(true);
+    await waitFor(() => expect(offline()).toBeChecked());
+    expect(api.setOwnerProfile).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "You" })).toBeInTheDocument();
+
+    api.setCommunityAppearOffline.mockResolvedValue(signedIn);
+    await user.click(offline()!);
+    expect(api.setCommunityAppearOffline).toHaveBeenLastCalledWith(false);
+    await waitFor(() => expect(offline()).not.toBeChecked());
+  });
+
+  it("starts checked when you already appear offline", async () => {
+    api.getCommunity.mockResolvedValue({ ...signedIn, member: { ...member, appearOffline: true } });
+    renderButton();
+    await openPanel();
+    expect(
+      await screen.findByRole("checkbox", { name: "Appear offline in Community" }),
+    ).toBeChecked();
+  });
+
+  it("says in plain words when it could not change, and stays as it was", async () => {
+    api.getCommunity.mockResolvedValue(signedIn);
+    api.setCommunityAppearOffline.mockRejectedValue(
+      new commands.PlenipoCommandError("invalidInput", "Community can't be reached right now."),
+    );
+    renderButton();
+    const { user, panel } = await openPanel();
+    await user.click(await screen.findByRole("checkbox", { name: "Appear offline in Community" }));
+    expect(await within(panel).findByRole("alert")).toHaveTextContent(
+      "Couldn't change Appear offline: Community can't be reached right now.",
+    );
+    expect(offline()).not.toBeChecked();
+    expect(offline()).toBeEnabled();
   });
 });
 

@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use plenipo_community::profile::ProfileDraft;
 use plenipo_community::service::{CommunityView, Refused, Stage};
 use plenipo_core::CommandError;
 use serde::Deserialize;
@@ -76,8 +77,9 @@ pub async fn cancel_community_sign_in<R: Runtime>(
     Ok(after(&app, &state))
 }
 
-/// Join Community: the Community name, the birth month and year, and the terms version the owner
-/// accepted on screen. Under 13 sends nothing (ADR-162 §4).
+/// Join Community: the Community name, the birth month and year, the terms version the owner
+/// accepted on screen, and the profile with what people see (ADR-163 §2). Under 13 sends nothing
+/// (ADR-162 §4).
 #[tauri::command]
 pub async fn join_community<R: Runtime>(
     app: AppHandle<R>,
@@ -86,6 +88,7 @@ pub async fn join_community<R: Runtime>(
     birth_month: u8,
     birth_year: u16,
     terms: String,
+    profile: ProfileDraft,
 ) -> Result<CommunityView, CommandError> {
     let name = name.trim().to_owned();
     if name.is_empty() || name.chars().count() > MOST_NAME_CHARS {
@@ -104,11 +107,49 @@ pub async fn join_community<R: Runtime>(
     let state = state.inner().clone();
     let result = state
         .community
-        .join(&name, birth_month, birth_year, &terms)
+        .join(
+            &name,
+            birth_month,
+            birth_year,
+            &terms,
+            &profile,
+            &state.tile(),
+        )
         .await;
     community_host::changed(&app);
     result.map_err(refused)?;
     Ok(state.view())
+}
+
+/// **Save** your profile and what people see (ADR-163 §2). An unticked part is hidden at once.
+#[tauri::command]
+pub async fn save_community_profile<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, Arc<CommunityState>>,
+    profile: ProfileDraft,
+) -> Result<CommunityView, CommandError> {
+    let state = state.inner().clone();
+    let tile = state.tile();
+    let result = state.community.save_profile(&profile, &tile).await;
+    community_host::changed(&app);
+    result.map_err(refused)?;
+    Ok(state.view())
+}
+
+/// **Appear offline**, or not (ADR-163 §5).
+#[tauri::command]
+pub async fn set_community_appear_offline<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, Arc<CommunityState>>,
+    offline: bool,
+) -> Result<CommunityView, CommandError> {
+    let state = state.inner().clone();
+    state
+        .community
+        .set_appear_offline(offline)
+        .await
+        .map_err(refused)?;
+    Ok(after(&app, &state))
 }
 
 /// **Sign out of your account** on this PC. Membership stays.

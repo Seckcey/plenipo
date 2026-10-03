@@ -13,6 +13,7 @@ import { App } from "./App";
 import * as commands from "./api/commands";
 import * as events from "./api/events";
 import { runtime } from "./test/agentFixtures";
+import { communityView } from "./test/communityFixtures";
 import { emptyOrganization, sampleOrganization } from "./test/orgFixtures";
 import { samplePermissions, sampleQueue } from "./test/permissionFixtures";
 import { sampleWork } from "./test/projectFixtures";
@@ -66,6 +67,7 @@ vi.mock("./api/commands", async (importOriginal) => {
     windowAlive: vi.fn(),
     getUpdateStatus: vi.fn(),
     getOwnerProfile: vi.fn(),
+    getCommunity: vi.fn(),
     getAiTools: vi.fn(),
   };
 });
@@ -81,6 +83,7 @@ vi.mock("./api/events", () => ({
   subscribeDrops: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeOrganizations: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeWatch: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeCommunity: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 const api = vi.mocked(commands);
@@ -192,6 +195,7 @@ beforeEach(() => {
     words: SYSTEM_WORDS.windows,
   });
   api.frontendReady.mockResolvedValue(undefined);
+  api.getCommunity.mockResolvedValue(communityView());
   api.getAiTools.mockResolvedValue({
     tools: [],
     autoUpdate: false,

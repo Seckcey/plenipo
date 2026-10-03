@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use ts_rs::TS;
 
-use crate::client::{ErrorCode, Failure, Transport};
+use crate::client::{self, ErrorCode, Failure, Transport};
+use crate::profile::{self, ProfileDraft, Tile};
 use crate::session::{self, AgeCheck, Finish, Opening, SignedInPc, SigningIn};
 use crate::wire;
 
@@ -50,6 +51,12 @@ pub struct Settings {
     /// The last check found Community not open yet: the switch says **Coming soon** until a check
     /// finds it open (ADR-170 §3).
     pub coming_soon: bool,
+    /// What you add to your tile, and which parts are shown (ADR-163 §2).
+    #[serde(default)]
+    pub profile: Option<ProfileDraft>,
+    /// The picture last sent, as a SHA-256 in hex, so the same one is not sent again.
+    #[serde(default)]
+    pub picture_sent: Option<String>,
 }
 
 /// Where Community stands on this PC.
@@ -94,6 +101,8 @@ pub struct MemberView {
     #[ts(type = "number | null")]
     pub paused_until: Option<i64>,
     pub appear_offline: bool,
+    /// Parts of the profile 8 West hid (ADR-167 §9): they stay hidden until 8 West shows them.
+    pub hidden_parts: Vec<String>,
 }
 
 /// Settings → Community, and the switch, as the screen shows them.
@@ -123,6 +132,8 @@ pub struct CommunityView {
     pub collaborators_open: bool,
     /// What went wrong last, in plain words, or none.
     pub problem: Option<String>,
+    /// Your profile's parts and boxes, for **What people see** (ADR-163 §1, §2).
+    pub profile: ProfileDraft,
 }
 
 /// Why something the person asked for did not happen, in plain words.
@@ -228,7 +239,21 @@ impl<T: Transport> Community<T> {
                     .into(),
                     paused_until: m.paused_until,
                     appear_offline: m.appear_offline,
+                    hidden_parts: m
+                        .hidden_parts
+                        .iter()
+                        .filter_map(|p| serde_json::to_value(p).ok())
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect(),
                 });
+        let profile = s.settings.profile.clone().unwrap_or_else(|| ProfileDraft {
+            display_name: s
+                .me
+                .as_ref()
+                .map(|me| me.account.name.clone())
+                .unwrap_or_default(),
+            ..ProfileDraft::default()
+        });
         CommunityView {
             stage: s.stage,
             switched_on: s.settings.switched_on,
@@ -242,6 +267,7 @@ impl<T: Transport> Community<T> {
             links_open: s.open.as_ref().is_some_and(|o| o.links),
             collaborators_open: s.open.as_ref().is_some_and(|o| o.collaborators),
             problem: s.problem.clone(),
+            profile,
         }
     }
 
@@ -463,7 +489,17 @@ impl<T: Transport> Community<T> {
     /// Join Community, after the age box (ADR-162 §4): under 13, nothing is sent, nothing of the
     /// answer is kept, and this PC signs out again. `month` and `year` are the birth month and
     /// year; `terms` is the version the person accepted on screen.
-    pub async fn join(&self, name: &str, month: u8, year: u16, terms: &str) -> Result<(), Refused> {
+    pub async fn join(
+        &self,
+        name: &str,
+        month: u8,
+        year: u16,
+        terms: &str,
+        draft: &ProfileDraft,
+        tile: &Tile,
+    ) -> Result<(), Refused> {
+        // The profile is checked first, so a join never leaves a profile that can't be sent.
+        profile::profile_of(tile, draft)?;
         let pc = {
             let s = lock(&self.state);
             if s.stage != Stage::Joining {
@@ -506,12 +542,18 @@ impl<T: Transport> Community<T> {
                     .unwrap_or_default();
                 self.recorder
                     .record("community.joined", json!({ "name": name }));
-                let mut s = lock(&self.state);
-                s.me = Some(me);
-                s.stage = Stage::SignedIn;
-                s.settings.switched_on = true;
-                s.settings.coming_soon = false;
-                self.save_settings(&mut s);
+                {
+                    let mut s = lock(&self.state);
+                    s.me = Some(me);
+                    s.stage = Stage::SignedIn;
+                    s.settings.switched_on = true;
+                    s.settings.coming_soon = false;
+                    self.save_settings(&mut s);
+                }
+                // Then the profile, as What people see showed it (ADR-163 §1).
+                if let Err(refused) = self.save_profile(draft, tile).await {
+                    lock(&self.state).problem = Some(refused.0);
+                }
                 Ok(())
             }
             Err(failure) if failure.code() == Some(&ErrorCode::TooYoung) => {
@@ -521,6 +563,178 @@ impl<T: Transport> Community<T> {
             }
             Err(failure) => Err(Refused(words(&failure))),
         }
+    }
+
+    /// **Save** your profile: the parts shown, from your tile and what you added (ADR-163 §2).
+    /// Unticked parts are hidden at 8 West at once.
+    pub async fn save_profile(&self, draft: &ProfileDraft, tile: &Tile) -> Result<(), Refused> {
+        let profile = profile::profile_of(tile, draft)?;
+        let pc = {
+            let s = lock(&self.state);
+            if s.stage != Stage::SignedIn {
+                return Err(Refused("Join Community first.".into()));
+            }
+            s.pc.clone()
+        };
+        let Some(pc) = pc else {
+            return Err(Refused("Join Community first.".into()));
+        };
+        self.begin()?;
+        let result = self.send_profile(&pc, &profile, draft, tile).await;
+        self.end();
+        {
+            let mut s = lock(&self.state);
+            s.settings.profile = Some(draft.clone());
+            self.save_settings(&mut s);
+        }
+        result.map_err(|failure| Refused(words(&failure)))?;
+        let shown = draft.shown;
+        let parts: Vec<&str> = [
+            ("picture", shown.picture),
+            ("name", shown.name),
+            ("status", shown.status),
+            ("mood", shown.mood),
+            ("message", shown.message),
+            ("company", shown.company),
+            ("business", shown.business),
+            ("region", shown.region),
+        ]
+        .into_iter()
+        .filter_map(|(part, on)| on.then_some(part))
+        .collect();
+        self.recorder
+            .record("community.profile_changed", json!({ "shown": parts }));
+        Ok(())
+    }
+
+    /// Your tile changed: send it again, unless you appear offline (ADR-163 §8). Nothing is sent
+    /// before you have saved a profile, or while you are not signed in.
+    pub async fn tile_changed(&self, tile: &Tile) {
+        let (pc, draft) = {
+            let s = lock(&self.state);
+            let offline =
+                s.me.as_ref()
+                    .and_then(|me| me.member.as_ref())
+                    .is_none_or(|m| m.appear_offline);
+            if s.stage != Stage::SignedIn || offline || s.busy {
+                return;
+            }
+            (s.pc.clone(), s.settings.profile.clone())
+        };
+        let (Some(pc), Some(draft)) = (pc, draft) else {
+            return;
+        };
+        let Ok(profile) = profile::profile_of(tile, &draft) else {
+            return;
+        };
+        if let Err(failure) = self.send_profile(&pc, &profile, &draft, tile).await {
+            log::info!("Community: your tile could not be sent ({failure:?})");
+        }
+    }
+
+    /// Send the profile, then the picture if it changed (or remove it when it is not shown).
+    async fn send_profile(
+        &self,
+        pc: &SignedInPc,
+        profile: &wire::Profile,
+        draft: &ProfileDraft,
+        tile: &Tile,
+    ) -> Result<(), Failure> {
+        let answer = client::send(
+            &self.transport,
+            &client::set_profile(profile),
+            Some(pc.pass()),
+        )
+        .await?;
+        let me: wire::Me = client::read(answer, 200)?;
+        let hidden_by_8_west = me
+            .member
+            .as_ref()
+            .is_some_and(|m| m.hidden_parts.contains(&wire::HiddenPart::Picture));
+        let has_picture = me.member.as_ref().is_some_and(|m| m.has_picture);
+        lock(&self.state).me = Some(me);
+
+        let picture = tile.picture.as_ref().filter(|_| draft.shown.picture);
+        let sent = lock(&self.state).settings.picture_sent.clone();
+        match picture {
+            Some(png) if !hidden_by_8_west => {
+                use sha2::{Digest as _, Sha256};
+                let hash: String = Sha256::digest(png)
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                if sent.as_deref() != Some(hash.as_str()) || !has_picture {
+                    let upload = wire::PictureUpload {
+                        png: crate::b64::encode(png),
+                    };
+                    let answer = client::send(
+                        &self.transport,
+                        &client::set_picture(&upload),
+                        Some(pc.pass()),
+                    )
+                    .await?;
+                    let me: wire::Me = client::read(answer, 200)?;
+                    let mut s = lock(&self.state);
+                    s.me = Some(me);
+                    s.settings.picture_sent = Some(hash);
+                    self.save_settings(&mut s);
+                }
+            }
+            _ => {
+                if has_picture || sent.is_some() {
+                    let answer =
+                        client::send(&self.transport, &client::remove_picture(), Some(pc.pass()))
+                            .await?;
+                    let me: wire::Me = client::read(answer, 200)?;
+                    let mut s = lock(&self.state);
+                    s.me = Some(me);
+                    s.settings.picture_sent = None;
+                    self.save_settings(&mut s);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// **Appear offline**, or not (ADR-163 §5): out of the directory, New this week, and the
+    /// leaderboard at once, and people you know see you as Offline.
+    pub async fn set_appear_offline(&self, offline: bool) -> Result<(), Refused> {
+        let pc = {
+            let s = lock(&self.state);
+            if s.stage != Stage::SignedIn {
+                return Err(Refused("Join Community first.".into()));
+            }
+            s.pc.clone()
+        };
+        let Some(pc) = pc else {
+            return Err(Refused("Join Community first.".into()));
+        };
+        self.begin()?;
+        let body = wire::Presence {
+            appear_offline: offline,
+        };
+        let result = async {
+            let answer = client::send(
+                &self.transport,
+                &client::set_presence(&body),
+                Some(pc.pass()),
+            )
+            .await?;
+            client::read::<wire::Me>(answer, 200)
+        }
+        .await;
+        self.end();
+        let me = result.map_err(|failure| Refused(words(&failure)))?;
+        lock(&self.state).me = Some(me);
+        self.recorder.record(
+            if offline {
+                "community.appeared_offline"
+            } else {
+                "community.appeared_online"
+            },
+            json!({}),
+        );
+        Ok(())
     }
 
     /// Ask who this PC is now (contract §3): only while signed in. A pass that no longer works

@@ -422,4 +422,6 @@ export type { SignedIn } from "./generated/SignedIn";
 export type { SignedOutWhy } from "./generated/SignedOutWhy";
 export type { CommunityView } from "./generated/CommunityView";
 export type { MemberView } from "./generated/MemberView";
+export type { ProfileDraft } from "./generated/ProfileDraft";
+export type { ProfileShown } from "./generated/ProfileShown";
 export type { Stage } from "./generated/Stage";

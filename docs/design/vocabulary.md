@@ -350,6 +350,11 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Community is closed for now                                                    | service outage, kill switch                                                                |
 | Your name in Community                                                         | handle, username                                                                           |
 | Your birth month and year / Community is for people 13 and older               | date of birth, DOB, age gate, COPPA                                                        |
+| What people see (your card, with a box for each part of it)                    | profile preview, public profile, visibility settings                                       |
+| Appear offline (you leave the directory; people you talk with see Offline)     | invisible mode, ghost mode, go dark, hide presence                                         |
+| What your business does (up to 3 kinds, and one line in your words)            | industry code, business vertical, business category, tags                                  |
+| Where (a state or a country, never a town)                                     | geolocation, location data, street address                                                 |
+| Your profile (your card in Community)                                          | account details, bio, user profile                                                         |
 
 ## Words that change with the system
 
