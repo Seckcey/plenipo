@@ -50,6 +50,8 @@ const RUNS: &[&str] = &[
     "action",
     "ade",
     "adp",
+    "ahk",
+    "ahk2",
     "app",
     "appcontent-ms",
     "appimage",
@@ -93,6 +95,7 @@ const RUNS: &[&str] = &[
     "flatpakref",
     "fxp",
     "gadget",
+    "groovy",
     "grp",
     "hlp",
     "hpj",
@@ -107,6 +110,7 @@ const RUNS: &[&str] = &[
     "isp",
     "its",
     "jar",
+    "jl",
     "jnlp",
     "js",
     "jse",
@@ -147,6 +151,7 @@ const RUNS: &[&str] = &[
     "msp",
     "mst",
     "msu",
+    "nu",
     "ocx",
     "one",
     "ops",
@@ -181,7 +186,9 @@ const RUNS: &[&str] = &[
     "pyw",
     "pyz",
     "pyzw",
+    "r",
     "rb",
+    "rbw",
     "rdp",
     "reg",
     "rpm",
@@ -201,10 +208,12 @@ const RUNS: &[&str] = &[
     "slk",
     "snap",
     "sys",
+    "tcl",
     "tcsh",
     "terminal",
     "theme",
     "themepack",
+    "tk",
     "tool",
     "udl",
     "url",
@@ -237,12 +246,30 @@ const RUNS: &[&str] = &[
     "zsh",
 ];
 
-/// A file that runs when opened (a program or a script), by the end of its name.
-pub fn runs(name: &str) -> bool {
+/// File name endings of web pages and drawings that a browser opens from the disk with their
+/// scripts running. Plenipo shows them, but never opens them in another program (P-DESK-2).
+const WEB_PAGES: &[&str] = &[
+    "htm", "html", "mht", "mhtml", "shtml", "svg", "svgz", "xht", "xhtml",
+];
+
+/// `name` ends in one of `endings` (after a dot; trailing dots and spaces, which Windows drops,
+/// do not count).
+fn ends_in(name: &str, endings: &[&str]) -> bool {
     let lower = name.trim_end_matches(['.', ' ']).to_ascii_lowercase();
     lower
         .rsplit_once('.')
-        .is_some_and(|(_, ext)| RUNS.contains(&ext))
+        .is_some_and(|(_, ext)| endings.contains(&ext))
+}
+
+/// A file that runs when opened (a program or a script), by the end of its name.
+pub fn runs(name: &str) -> bool {
+    ends_in(name, RUNS)
+}
+
+/// A web page or a drawing whose scripts would run in the owner's browser, by the end of its
+/// name.
+fn web_page(name: &str) -> bool {
+    ends_in(name, WEB_PAGES)
 }
 
 /// A file that runs when opened: a program or a script by the end of its name, or, on a Mac and
@@ -941,6 +968,13 @@ impl Broker {
                     .into(),
             ));
         }
+        if to_open && web_page(&name) {
+            return Err(BrokerError::Invalid(
+                "A web page or an SVG drawing opens in Plenipo only: in your browser, its own \
+                 scripts would run. Open it in Plenipo, or show it in its folder."
+                    .into(),
+            ));
+        }
         // Windows' File Explorer reads a comma as the end of a name: such a file opens in
         // Plenipo only, so another program is never handed half a name.
         if to_open && resolved.abs.to_string_lossy().contains(',') {
@@ -1029,19 +1063,47 @@ mod tests {
             "Tool.AppImage",
             "app.desktop",
             "setup.run",
+            // P-DESK-2: interpreters a double-click starts, when they are installed.
+            "evil.ahk",
+            "evil.AHK2",
+            "evil.RB",
+            "evil.rbw",
+            "evil.tcl",
+            "evil.tk",
+            "evil.r",
+            "evil.jl",
+            "evil.nu",
+            "evil.groovy",
         ] {
             assert!(runs(name), "{name} runs");
         }
         for name in [
             "README.md",
+            "notes.md",
             "report.pdf",
             "logo.png",
             "notes.txt",
             "exe",
             "Makefile",
+            "page.html",
         ] {
             assert!(!runs(name), "{name} does not run");
         }
+        // Kept sorted and without repeats, so a missing one is easy to see.
+        for list in [RUNS, WEB_PAGES] {
+            assert!(list.windows(2).all(|w| w[0] < w[1]), "{list:?}");
+        }
+        for name in [
+            "index.html",
+            "Page.HTM",
+            "saved.mht",
+            "logo.svg",
+            "a.xhtml",
+            "x.html.",
+        ] {
+            assert!(web_page(name), "{name}");
+        }
+        assert!(!web_page("notes.md") && !web_page("html"));
     }
 
     /// Phase 23: on a Mac and Linux a file marked as a program runs whatever its name, so it is
@@ -1404,5 +1466,16 @@ mod tests {
         assert!(
             matches!(&picture.content, FileContent::Picture { mime, .. } if mime == "image/png")
         );
+        // P-DESK-2: a web page or an SVG drawing is shown in Plenipo and in its folder, but never
+        // opened in the owner's browser, where its scripts would run.
+        std::fs::write(p.folder.join("page.html"), "<script>1</script>\n").unwrap();
+        std::fs::write(p.folder.join("logo.svg"), "<svg/>\n").unwrap();
+        for name in ["page.html", "logo.svg"] {
+            let page = p.broker.read_file(&p.root, name).unwrap();
+            assert!(!page.runs, "{name}");
+            let why = p.broker.owner_file_path(&p.root, name, true).unwrap_err();
+            assert!(why.to_string().contains("opens in Plenipo only"), "{why}");
+            assert!(p.broker.owner_file_path(&p.root, name, false).is_ok());
+        }
     }
 }
