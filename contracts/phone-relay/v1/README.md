@@ -47,7 +47,10 @@ base64url.
      it ([`contracts/license-check/v1`](../../license-check/v1)). The relay checks it with 8 West's
      public license keys (the ones in `crates/licensing/src/trust.rs`): the signature is right;
      `state` is `active`, or `cancelled` with `ends_at` still ahead; and `as_of` is less than 30
-     days ago. The relay must not keep the key ID.
+     days ago. The relay must not keep the key ID. (To count the PCs on one license, it keeps a
+     salted hash of the key ID in memory while the PC is connected, with a salt made when the
+     relay starts and known to nothing else: it cannot be turned back into the key ID, and it
+     matches nothing outside that one run of the relay.)
 3. The relay answers `{"t":"welcome","pc":"<fingerprint>"}`, where the fingerprint is SHA-256 of
    the key's 32 bytes, base64url (43 characters); or `{"t":"refused","code":"…"}` and closes.
 4. From then on, the PC may send:
@@ -121,8 +124,11 @@ The relay's defaults (`crates/relay/src/limits.rs`; the operator may change them
 | New connections from one address in a minute                             | 120                       |
 | Refusals for one address in a minute (then `429` for the rest of it)     | 30                        |
 | Phone connections one PC may have at once (`too_many_tries` beyond)      | 40                        |
+| PCs one license may have connected at once (`too_many_tries` beyond)     | 10                        |
+| PCs one address may have connected at once (`too_many_tries` beyond)     | 8                         |
 | Messages one connection may send in a minute (`too_many_tries`, closed)  | 1,200                     |
 | Bytes one connection may send in a minute                                | 16 MB                     |
+| Bytes waiting to go out to one connection (over it, the peer is closed)  | 1 MB                      |
 | Time for the first message (the PC's hello, the phone's pass or mailbox) | 10 seconds                |
 | A connection quiet this long (not even a pong) is closed                 | 90 seconds (pings at 30)  |
 | A pairing mailbox stays open at most                                     | 10 minutes, 3 connections |
