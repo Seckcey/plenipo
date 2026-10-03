@@ -4,10 +4,12 @@
 //! anywhere.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
 use plenipo_relay_contract::wire::{self, codes, RelayToPc, RelayToPhone};
+use sha2::{Digest as _, Sha256};
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Notify;
 use tokio_tungstenite::tungstenite::Message;
@@ -18,16 +20,24 @@ use crate::{Config, Stats};
 pub(crate) type ConnId = String;
 
 /// How the hub reaches one connection: its outgoing queue, and a way to end it at once when the
-/// queue is full (a peer that does not read).
+/// queue is full (a peer that does not read), by messages or by bytes.
 #[derive(Clone)]
 pub(crate) struct Link {
     pub out: Sender<Message>,
     pub kill: Arc<Notify>,
+    /// Bytes queued and not yet written to the socket (the writer takes them off).
+    pub queued: Arc<AtomicUsize>,
+    /// The most `queued` may hold: over it, the peer is killed instead.
+    pub most_queued: usize,
 }
 
 impl Link {
     pub fn send_message(&self, m: Message) {
-        if self.out.try_send(m).is_err() {
+        let len = m.len();
+        let before = self.queued.fetch_add(len, Ordering::SeqCst);
+        if before.saturating_add(len) > self.most_queued || self.out.try_send(m).is_err() {
+            // The message is dropped and the count stays as it is: this connection is ending,
+            // and nothing reads the count once it has.
             self.kill.notify_one();
         }
     }
@@ -56,6 +66,9 @@ struct Pc {
     phones: HashSet<ConnId>,
     /// Which connection this is: a replaced connection must not undo its replacement.
     generation: u64,
+    /// Its license's mark ([`Hub::license_mark`]), to count the PCs on one license.
+    license: [u8; 32],
+    address: AddressKey,
 }
 
 struct Phone {
@@ -67,6 +80,8 @@ struct Phone {
 #[derive(Default)]
 struct AddressUse {
     open: usize,
+    /// PCs connected from this address.
+    pcs: usize,
     new: Window,
     tries: Window,
 }
@@ -76,6 +91,8 @@ struct State {
     pcs: HashMap<String, Pc>,
     phones: HashMap<ConnId, Phone>,
     addresses: HashMap<AddressKey, AddressUse>,
+    /// License mark → PCs connected on it. An entry goes when its count does.
+    licenses: HashMap<[u8; 32], usize>,
     connections: usize,
     next_conn: u64,
     next_generation: u64,
@@ -99,6 +116,10 @@ pub(crate) enum Turned {
 pub(crate) struct Hub {
     pub config: Config,
     state: Mutex<State>,
+    /// Random, made when the relay starts, known to nothing else: what makes a license mark
+    /// impossible to turn back into a key ID, or to match against another relay's or another
+    /// run's.
+    salt: [u8; 32],
 }
 
 fn lock(m: &Mutex<State>) -> MutexGuard<'_, State> {
@@ -110,11 +131,22 @@ impl Hub {
         Self {
             config,
             state: Mutex::new(State::default()),
+            salt: crate::random32(),
         }
     }
 
     pub fn now(&self) -> i64 {
         (self.config.clock)()
+    }
+
+    /// A license's mark: a one-way hash of its key ID with this run's salt, so the relay can
+    /// count the PCs on one license while it keeps no key ID (the contract). Never logged.
+    pub fn license_mark(&self, key_id: &str) -> [u8; 32] {
+        Sha256::new()
+            .chain_update(self.salt)
+            .chain_update(key_id.as_bytes())
+            .finalize()
+            .into()
     }
 
     pub fn stats(&self) -> Stats {
@@ -123,6 +155,7 @@ impl Hub {
             connections: st.connections,
             pcs: st.pcs.len(),
             phones: st.phones.len(),
+            addresses: st.addresses.len(),
             refused: st.refused.clone(),
             turned_away: st.turned_away,
             off: st.off,
@@ -165,7 +198,9 @@ impl Hub {
         let mut st = lock(&self.state);
         let turned = if st.off {
             Some(Turned::Off)
-        } else if st.connections >= limits.connections {
+        } else if st.connections >= limits.connections
+            || Self::no_room_for(&mut st, address, limits.addresses_remembered, now)
+        {
             Some(Turned::Full)
         } else {
             let use_ = st.addresses.entry(address).or_default();
@@ -199,13 +234,41 @@ impl Hub {
         Self::forget_idle_address(&mut st, address, now);
     }
 
-    /// An address with nothing open and nothing counted this minute takes no memory.
+    /// Forget every idle address. The relay's timer calls this ([`crate::Relay::start`]), so an
+    /// address that came once and never again takes no memory past its minute; the door calls
+    /// it too when the table is full.
+    pub fn sweep_addresses(&self) {
+        let now = self.now();
+        let mut st = lock(&self.state);
+        Self::sweep(&mut st, now);
+    }
+
+    fn sweep(st: &mut State, now: i64) {
+        st.addresses.retain(|_, u| !Self::idle(u, now));
+    }
+
+    /// Nothing open, no PC, and nothing counted this minute.
+    fn idle(u: &AddressUse, now: i64) -> bool {
+        u.open == 0 && u.pcs == 0 && u.new.count(now) == 0 && u.tries.count(now) == 0
+    }
+
+    /// Is there no room in the table for a new address? At the cap, the idle ones are forgotten
+    /// at once; only a table full of addresses with something open or counted turns one away.
+    fn no_room_for(st: &mut State, address: AddressKey, most: usize, now: i64) -> bool {
+        if st.addresses.contains_key(&address) || st.addresses.len() < most {
+            return false;
+        }
+        Self::sweep(st, now);
+        st.addresses.len() >= most
+    }
+
+    /// An idle address takes no memory once its connection or refusal is done with.
     fn forget_idle_address(st: &mut State, address: AddressKey, now: i64) {
-        let idle = st
+        if st
             .addresses
             .get(&address)
-            .is_some_and(|u| u.open == 0 && u.new.count(now) == 0 && u.tries.count(now) == 0);
-        if idle {
+            .is_some_and(|u| Self::idle(u, now))
+        {
             st.addresses.remove(&address);
         }
     }
@@ -223,17 +286,48 @@ impl Hub {
 
     // ---- PCs ---------------------------------------------------------------------------
 
-    /// A PC proved its key: know it by `fingerprint`. A connection already there for that key is
-    /// closed (its phones hear `pc_offline`). Gives this connection's generation.
-    pub fn register_pc(&self, fingerprint: &str, key: [u8; 32], link: Link) -> u64 {
+    /// A PC proved its key and its license: know it by `fingerprint`. A connection already there
+    /// for that key is closed (its phones hear `pc_offline`) and this one takes its place. Gives
+    /// this connection's generation, or the code when the license or the address already has
+    /// as many PCs as it may.
+    pub fn register_pc(
+        &self,
+        fingerprint: &str,
+        key: [u8; 32],
+        link: Link,
+        license: [u8; 32],
+        address: AddressKey,
+    ) -> Result<u64, &'static str> {
+        let limits = &self.config.limits;
         let mut st = lock(&self.state);
+        // The connection this one replaces, if any, is not counted against it.
+        let old = st.pcs.get(fingerprint);
+        let replaces_on_license = old.is_some_and(|o| o.license == license);
+        let replaces_at_address = old.is_some_and(|o| o.address == address);
+        let on_license = st
+            .licenses
+            .get(&license)
+            .copied()
+            .unwrap_or(0)
+            .saturating_sub(usize::from(replaces_on_license));
+        let at_address = st
+            .addresses
+            .get(&address)
+            .map_or(0, |u| u.pcs)
+            .saturating_sub(usize::from(replaces_at_address));
+        if on_license >= limits.pcs_per_license || at_address >= limits.pcs_per_address {
+            return Err(codes::TOO_MANY_TRIES);
+        }
         st.next_generation += 1;
         let generation = st.next_generation;
         if let Some(old) = st.pcs.remove(fingerprint) {
             log::info!("pc replaced its connection");
             Self::phones_lose_pc(&mut st, &old);
+            Self::forget_pc(&mut st, &old);
             old.link.close();
         }
+        *st.licenses.entry(license).or_default() += 1;
+        st.addresses.entry(address).or_default().pcs += 1;
         st.pcs.insert(
             fingerprint.to_owned(),
             Pc {
@@ -243,9 +337,11 @@ impl Hub {
                 dropped: HashMap::new(),
                 phones: HashSet::new(),
                 generation,
+                license,
+                address,
             },
         );
-        generation
+        Ok(generation)
     }
 
     /// This PC connection ended: its phones hear `pc_offline` and are closed.
@@ -258,7 +354,21 @@ impl Hub {
         {
             if let Some(pc) = st.pcs.remove(fingerprint) {
                 Self::phones_lose_pc(&mut st, &pc);
+                Self::forget_pc(&mut st, &pc);
             }
+        }
+    }
+
+    /// A PC is gone: its license and its address have one PC fewer.
+    fn forget_pc(st: &mut State, pc: &Pc) {
+        if let Some(n) = st.licenses.get_mut(&pc.license) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                st.licenses.remove(&pc.license);
+            }
+        }
+        if let Some(u) = st.addresses.get_mut(&pc.address) {
+            u.pcs = u.pcs.saturating_sub(1);
         }
     }
 
@@ -517,5 +627,90 @@ impl Hub {
     #[cfg(feature = "test-hooks")]
     pub fn seen(&self) -> Vec<Vec<u8>> {
         lock(&self.state).seen.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    use super::*;
+    use crate::Limits;
+
+    /// A hub with a clock the test moves (Unix seconds).
+    fn hub_with_clock(limits: Limits) -> (Hub, Arc<AtomicI64>) {
+        let time = Arc::new(AtomicI64::new(1_791_000_000));
+        let clock: crate::Clock = {
+            let time = time.clone();
+            Arc::new(move || time.load(Ordering::SeqCst))
+        };
+        let hub = Hub::new(Config {
+            limits,
+            clock,
+            ..Config::default()
+        });
+        (hub, time)
+    }
+
+    /// A distinct IPv4 address for each `n`.
+    fn address(n: u32) -> AddressKey {
+        AddressKey::V4(Ipv4Addr::from(0x0A00_0000 + n))
+    }
+
+    #[test]
+    fn idle_addresses_are_forgotten_by_the_sweep() {
+        let (hub, time) = hub_with_clock(Limits::default());
+        for n in 0..10_000 {
+            hub.enter(address(n)).unwrap();
+            hub.leave(address(n));
+        }
+        // Each came this minute: still counted, so still remembered.
+        assert_eq!(hub.stats().addresses, 10_000);
+        hub.sweep_addresses();
+        assert_eq!(hub.stats().addresses, 10_000);
+        // A minute on, nothing counts for any of them.
+        time.fetch_add(61, Ordering::SeqCst);
+        hub.sweep_addresses();
+        assert_eq!(hub.stats().addresses, 0);
+    }
+
+    #[test]
+    fn the_sweep_keeps_an_address_with_something_open_or_counted() {
+        let (hub, time) = hub_with_clock(Limits::default());
+        hub.enter(address(1)).unwrap();
+        hub.enter(address(2)).unwrap();
+        hub.leave(address(2));
+        hub.refused("bad_pass", address(2));
+        time.fetch_add(61, Ordering::SeqCst);
+        hub.refused("bad_pass", address(3));
+        hub.sweep_addresses();
+        // 1 is open; 2's refusal was last minute; 3's is this minute.
+        assert_eq!(hub.stats().addresses, 2);
+        hub.leave(address(1));
+        time.fetch_add(61, Ordering::SeqCst);
+        hub.sweep_addresses();
+        assert_eq!(hub.stats().addresses, 0);
+    }
+
+    #[test]
+    fn a_full_table_is_swept_at_once_and_then_says_full() {
+        let (hub, time) = hub_with_clock(Limits {
+            addresses_remembered: 100,
+            ..Limits::default()
+        });
+        for n in 0..100 {
+            hub.enter(address(n)).unwrap();
+            hub.leave(address(n));
+        }
+        // Full, and nothing idle to forget yet: a new address is turned away...
+        assert_eq!(hub.enter(address(100)), Err(Turned::Full));
+        // ...while one already remembered still comes in.
+        hub.enter(address(5)).unwrap();
+        hub.leave(address(5));
+        // A minute on, the table is swept on the spot and the new address fits.
+        time.fetch_add(61, Ordering::SeqCst);
+        hub.enter(address(100)).unwrap();
+        assert_eq!(hub.stats().addresses, 1);
     }
 }

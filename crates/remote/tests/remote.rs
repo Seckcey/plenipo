@@ -17,8 +17,9 @@ use plenipo_remote::link::{self, LinkHost};
 use plenipo_remote::protocol::{
     Ask, Changed, Event, NoticeAbout, PairStep, PhoneNotice, SignedOutWhy,
 };
-use plenipo_remote::service::PairingView;
+use plenipo_remote::service::{PairingView, ToRelay};
 use plenipo_remote::stand_in::{Bad, NetPhone, PhoneError, Relay};
+use plenipo_remote::wire::RelayToPc;
 use plenipo_remote::{b64, Change, Clock, Host, Phone, Remote, Settings};
 use serde_json::{json, Value};
 
@@ -926,6 +927,68 @@ async fn the_relay_cannot_read_change_replay_or_invent_a_request() {
         phone.ask(Ask::ReadControl).await.unwrap_err(),
         PhoneError::Timeout
     );
+}
+
+/// A relay by hand, in place of the stand-in: every command the PC sends lands in the receiver.
+fn relay_by_hand(w: &World) -> tokio::sync::mpsc::UnboundedReceiver<ToRelay> {
+    let (out, commands) = tokio::sync::mpsc::unbounded_channel();
+    w.remote.relay_up(out);
+    commands
+}
+
+fn closes(commands: &mut tokio::sync::mpsc::UnboundedReceiver<ToRelay>) -> usize {
+    let mut closed = 0;
+    while let Ok(command) = commands.try_recv() {
+        if matches!(command, ToRelay::Close { .. }) {
+            closed += 1;
+        }
+    }
+    closed
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_that_keeps_saying_a_phone_joined_is_cut_off() {
+    let mut w = World::new().await;
+    let phone = w.paired_phone("Mine").await;
+    let id = phone.paired.as_ref().unwrap().phone.clone();
+    w.disconnect().await;
+    let mut commands = relay_by_hand(&w);
+    // The relay knows a paired phone's ID; it says that phone joined, over and over, on a fresh
+    // connection each time, and never says it left.
+    for n in 0..1000 {
+        w.remote.from_relay(RelayToPc::Joined {
+            conn: format!("c{n:06}"),
+            phone: Some(id.clone()),
+            mailbox: false,
+        });
+    }
+    // The PC keeps a few and closes the rest, and stops answering meetings (ADR-143 §8).
+    assert_eq!(
+        closes(&mut commands),
+        1000 - plenipo_remote::limits::CONNS_PER_DEVICE
+    );
+    assert!(w.remote.view().meetings_stopped_until.is_some());
+    assert_eq!(w.app.records("remote.meetings_stopped").len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_that_keeps_saying_a_phone_joined_the_mailbox_is_cut_off() {
+    let mut w = World::new().await;
+    w.disconnect().await;
+    w.remote.start_pairing().unwrap();
+    let mut commands = relay_by_hand(&w);
+    for n in 0..1000 {
+        w.remote.from_relay(RelayToPc::Joined {
+            conn: format!("c{n:06}"),
+            phone: None,
+            mailbox: true,
+        });
+    }
+    assert_eq!(
+        closes(&mut commands),
+        1000 - plenipo_remote::limits::CONNS_PER_DEVICE
+    );
+    assert!(w.remote.view().meetings_stopped_until.is_some());
 }
 
 // ---- Guard decides every request (ADR-145) ------------------------------------------------

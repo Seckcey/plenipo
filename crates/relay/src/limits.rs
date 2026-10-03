@@ -17,8 +17,21 @@ pub struct Limits {
     /// Refusals (a bad pass, a bad hello, a closed mailbox…) for one address in a minute. Over
     /// it, the door answers `429` for the rest of the minute.
     pub tries_per_address_per_minute: u32,
+    /// Addresses the relay remembers at once (each with its open connections and this minute's
+    /// counts). Idle ones are forgotten on the timer; at the cap, they are forgotten at once, and
+    /// if the table is still full, the door answers `503`.
+    pub addresses_remembered: usize,
+    /// How often idle addresses are forgotten.
+    pub address_sweep: Duration,
     /// Phone connections one PC may have at once (`too_many_tries` beyond it).
     pub phones_per_pc: usize,
+    /// PCs one license (one weekly answer's key ID) may have connected at once
+    /// (`too_many_tries` beyond it). A subscription is one person on any of their own PCs
+    /// (ADR-110), so this is a brake on a leaked answer, not a count of a person's PCs.
+    pub pcs_per_license: usize,
+    /// PCs one address may have connected at once (`too_many_tries` beyond it). An office or a
+    /// home shares one address, so this allows several.
+    pub pcs_per_address: usize,
     /// Messages one connection may send in a minute.
     pub messages_per_minute: u32,
     /// Bytes one connection may send in a minute.
@@ -37,6 +50,9 @@ pub struct Limits {
     pub dropped_per_pc: usize,
     /// Messages waiting to go out to one connection. A peer that does not read is closed.
     pub outgoing_queue: usize,
+    /// Bytes waiting to go out to one connection, in all. Over it, the peer is closed at once:
+    /// what bounds the memory a peer that does not read can hold.
+    pub outgoing_bytes: usize,
 }
 
 impl Default for Limits {
@@ -46,7 +62,11 @@ impl Default for Limits {
             connections_per_address: 32,
             new_per_address_per_minute: 120,
             tries_per_address_per_minute: 30,
+            addresses_remembered: 100_000,
+            address_sweep: Duration::from_secs(60),
             phones_per_pc: 40,
+            pcs_per_license: 10,
+            pcs_per_address: 8,
             messages_per_minute: 1200,
             bytes_per_minute: 16 * 1024 * 1024,
             first_message: Duration::from_secs(10),
@@ -56,6 +76,7 @@ impl Default for Limits {
             mailbox_tries: 3,
             dropped_per_pc: 1000,
             outgoing_queue: 256,
+            outgoing_bytes: 1024 * 1024,
         }
     }
 }
