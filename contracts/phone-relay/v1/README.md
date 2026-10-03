@@ -87,6 +87,9 @@ its phones gets `{"t":"pc_offline"}` and is closed. Nothing is stored or queued,
 A pairing mailbox takes at most 3 phone connections in all, and only while the PC keeps it open
 (at most 10 minutes).
 
+Both sides bound a PC's phone connections: the relay allows 40 per PC (below), and the PC itself
+keeps at most 4 per phone and 96 in all, closing a phone's oldest when a newer one arrives.
+
 ## The pass
 
 `<payload>.<signature>`, both base64url:
@@ -126,7 +129,7 @@ The relay's defaults (`crates/relay/src/limits.rs`; the operator may change them
 | Addresses remembered at once (idle ones are forgotten every minute)      | 100,000                   |
 | Phone connections one PC may have at once (`too_many_tries` beyond)      | 40                        |
 | PCs one license may have connected at once (`too_many_tries` beyond)     | 10                        |
-| PCs one address may have connected at once (`too_many_tries` beyond)     | 8                         |
+| PCs one address may have connected at once (`too_many_tries` beyond)     | 32                        |
 | Messages one connection may send in a minute (`too_many_tries`, closed)  | 1,200                     |
 | Bytes one connection may send in a minute                                | 16 MB                     |
 | Bytes waiting to go out to one connection (over it, the peer is closed)  | 1 MB                      |
