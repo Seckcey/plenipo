@@ -59,6 +59,9 @@ pub struct GuardConfig {
     /// The owner's paid AI keys, by reference (Phase 16 Wave 3, ADR-085): never the keys, which
     /// only the Vault keeps. Missing in older documents: none.
     pub paid_keys: Vec<PaidKeyInfo>,
+    /// Which version of the default approved commands this document has had
+    /// (`defaults::COMMANDS_VERSION`, ADR-213). Missing in older documents: 0.
+    pub commands_version: u32,
 }
 
 fn invalid(message: impl Into<String>) -> GuardError {
@@ -150,8 +153,31 @@ impl GuardConfig {
             commands: defaults::default_commands(),
             blocked_files: defaults::default_blocked_files(),
             websites: defaults::default_websites(),
+            commands_version: defaults::COMMANDS_VERSION,
             ..Self::default()
         }
+    }
+
+    /// Once for a document from before ADR-213: the approved commands it still has exactly as
+    /// Plenipo started them, and that run a project's own code, leave the list. An entry the
+    /// owner wrote or changed stays, and so does one the owner adds back later (the document
+    /// then has this version). `None`: done before; else the entries taken off (maybe none).
+    pub fn trim_old_default_commands(&mut self) -> Option<Vec<String>> {
+        if self.commands_version >= defaults::COMMANDS_VERSION {
+            return None;
+        }
+        self.commands_version = defaults::COMMANDS_VERSION;
+        let earlier = defaults::earlier_approved_commands();
+        let now = defaults::default_commands().approved;
+        let mut removed = Vec::new();
+        self.commands.approved.retain(|r| {
+            let old_default = earlier.contains(r) && !now.contains(r);
+            if old_default {
+                removed.push(r.clone());
+            }
+            !old_default
+        });
+        Some(removed)
     }
 
     /// Read the stored document (`Null`: nothing stored yet).
@@ -1340,6 +1366,60 @@ mod tests {
             defaults::builtin_sets().len()
         );
         assert!(c.add_missing_builtins().is_empty());
+    }
+
+    /// ADR-213 (P-GUARD-1): a saved list loses, once, the approved commands it still has
+    /// exactly as Plenipo started them and that run a project's own code. The owner's own
+    /// entries, entries the owner changed, and the defaults that stay are kept, and an entry
+    /// the owner adds back afterwards is never taken off again.
+    #[test]
+    fn old_default_commands_leave_the_approved_list_once() {
+        // A document from before: no version, the old defaults and the owner's own entries.
+        let mut stored = GuardConfig::with_defaults().to_value();
+        stored.as_object_mut().unwrap().remove("commandsVersion");
+        let mut approved = defaults::earlier_approved_commands();
+        approved.push("cargo test --workspace *".into());
+        approved.push("git --version *".into());
+        approved.retain(|r| r != "make lint *");
+        stored["commands"]["approved"] = serde_json::json!(approved);
+        let mut c = GuardConfig::from_value(stored).unwrap();
+        assert_eq!(c.commands_version, 0);
+        let removed = c.trim_old_default_commands().unwrap();
+        assert!(removed.contains(&"cargo test *".to_owned()), "{removed:?}");
+        assert!(
+            removed.contains(&"./gradlew test *".to_owned()),
+            "{removed:?}"
+        );
+        assert!(!removed.contains(&"make lint *".to_owned()), "{removed:?}");
+        assert_eq!(
+            c.commands.approved,
+            [
+                "tsc *",
+                "ruff *",
+                "black *",
+                "gofmt *",
+                "cargo test --workspace *",
+                "git --version *"
+            ]
+        );
+        assert_eq!(c.commands_version, defaults::COMMANDS_VERSION);
+        // Done once: the owner adds one back, and it stays.
+        c.commands.approved.push("cargo test *".into());
+        assert_eq!(c.trim_old_default_commands(), None);
+        assert!(c.commands.approved.contains(&"cargo test *".to_owned()));
+        // Read back from the stored document, it is still done.
+        let mut again = GuardConfig::from_value(c.to_value()).unwrap();
+        assert_eq!(again.trim_old_default_commands(), None);
+        // A new installation starts with this version, so nothing is taken off.
+        let mut fresh = GuardConfig::with_defaults();
+        assert_eq!(fresh.trim_old_default_commands(), None);
+        assert_eq!(fresh.commands, defaults::default_commands());
+        // An older document whose owner had already taken them off: nothing to take, once.
+        let mut stored = GuardConfig::with_defaults().to_value();
+        stored.as_object_mut().unwrap().remove("commandsVersion");
+        let mut emptied = GuardConfig::from_value(stored).unwrap();
+        assert_eq!(emptied.trim_old_default_commands(), Some(vec![]));
+        assert_eq!(emptied.trim_old_default_commands(), None);
     }
 
     #[test]

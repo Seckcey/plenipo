@@ -61,6 +61,33 @@ commands ask every time. Review your permissions before delegating, and use **St
 **Take over** when needed. See [the security policy](../SECURITY.md) and the
 [v1.6.0 release notes](https://github.com/Seckcey/plenipo/releases/tag/v1.6.0) for known limits.
 
+## Which programs run a project's own code?
+
+Most build, test, and lint commands do. `npm test`, `pnpm build`, `yarn lint`, and `make check`
+run the scripts written in the project. `cargo build` and `cargo test` run the project's build
+scripts. `pytest`, `jest`, `vitest`, `go test`, `dotnet test`, `mvn`, and `gradle` run its tests
+and their setup files. `eslint`, `prettier`, and `mypy` load settings files that can hold code.
+`npx` starts the project's own copy of a program. A program inside the project folder, like
+`./gradlew`, is a file a worker can write itself.
+
+So a worker that can change a project's files can make any of these do whatever it likes, with
+your account. Plenipo's starting **Approved** list keeps only `tsc`, `ruff`, `black`, and `gofmt`,
+which read a project's files but never run its code.
+
+What you see depends on **Settings → Safety**:
+
+- **Light** (where Plenipo starts): every program that is not on a list runs without asking,
+  these included.
+- **Careful**: these ask you each time. To stop the asking for a project you trust, add the
+  command to **Approved** under **Settings → Permissions**. A program inside the project folder
+  (`./gradlew`) is approved only by a line that names its path, like `./gradlew test *`, never by
+  a pattern such as `* *`.
+- **Strict**: workers do not run programs at all.
+
+Earlier versions started with these build and test commands on the **Approved** list. When you
+update, Plenipo takes them off once, and only the lines you never changed. The **Activity** trail lists the ones it
+took off ([ADR-213 (build and test commands ask first)](adr/ADR-213-build-and-test-commands-ask-first.md)).
+
 ## Can Plenipo handle CAPTCHAs?
 
 Plenipo can handle some CAPTCHAs automatically and can hand checks to you. Development changes
