@@ -257,6 +257,14 @@ p.notice-box {
   gap: var(--ui-space-4);
 }
 
+/* The six digits the PC shows too (ADR-212). */
+.pair__check {
+  font-family: var(--ui-font-mono);
+  font-size: 1.4rem;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
 .scanner {
   display: grid;
   gap: var(--ui-space-3);

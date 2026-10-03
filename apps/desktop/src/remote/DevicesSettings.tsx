@@ -23,7 +23,7 @@ import { PartOfPro } from "../license/PartOfPro";
 import type { Go } from "../components/views";
 import { when } from "../pages/words";
 import { useRemote } from "./useRemote";
-import { minutesLeft } from "./words";
+import { minutesLeft, shownDigits } from "./words";
 import { sentenceStart, systemWords } from "../system/words";
 
 /** The picture code (QR code): dark squares on a light ground, with its quiet border. */
@@ -76,8 +76,14 @@ function Pairing({
         <p>
           <strong>{pairing.name}</strong> · {pairing.browser} · {when(pairing.since)}
         </p>
+        <p>
+          The phone in your hand shows the same six digits:{" "}
+          <strong className="pairing__check">{shownDigits(pairing.check)}</strong>
+        </p>
         <p className="muted">
-          Add it only if this is the phone in your hand. Nothing is added until you say yes.
+          Add it only if the digits match. A name proves nothing: if your phone shows other digits,
+          or says another phone used your code, click Cancel and start again. Nothing is added until
+          you say yes.
         </p>
         <div className="settings-section__actions">
           <Button
