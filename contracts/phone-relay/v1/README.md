@@ -123,6 +123,7 @@ The relay's defaults (`crates/relay/src/limits.rs`; the operator may change them
 | Open connections from one address (IPv6 by its /64; over it, `429`)      | 32                        |
 | New connections from one address in a minute                             | 120                       |
 | Refusals for one address in a minute (then `429` for the rest of it)     | 30                        |
+| Addresses remembered at once (idle ones are forgotten every minute)      | 100,000                   |
 | Phone connections one PC may have at once (`too_many_tries` beyond)      | 40                        |
 | PCs one license may have connected at once (`too_many_tries` beyond)     | 10                        |
 | PCs one address may have connected at once (`too_many_tries` beyond)     | 8                         |
