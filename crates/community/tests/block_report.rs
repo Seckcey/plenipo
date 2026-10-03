@@ -256,3 +256,43 @@ async fn delete_my_community_data_empties_this_pc_only() {
     // Pat keeps theirs.
     assert_eq!(messages::conversations(&pat.ledger).unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn a_report_of_words_nobody_sent_is_refused() {
+    let world = World::new();
+    let frank = world.person("Frank Gonzalez", "frank-g", 1980, true).await;
+    let pat = world.person("Pat Lee", "pat-lee", 1985, true).await;
+    let p = pat.member_id();
+    let real = pat_writes(&world, &pat, &frank, HELLO).await;
+
+    // Someone changes the words kept on Frank's PC, and keeps the real proof's key and stamp.
+    let mut kept = frank.ledger.community_item(&real).unwrap().unwrap();
+    frank.ledger.community_delete_item(&real).unwrap();
+    let proof = kept.proof.as_mut().unwrap();
+    let mut payload: serde_json::Value =
+        serde_json::from_slice(&plenipo_community::b64::decode(&proof.payload, 64 * 1024).unwrap())
+            .unwrap();
+    payload["body"]["text"] = "Pat threatened me".into();
+    proof.payload = plenipo_community::b64::encode(&serde_json::to_vec(&payload).unwrap());
+    frank.ledger.community_add_item(&kept).unwrap();
+
+    let refused = frank
+        .community
+        .report(
+            &frank.ledger,
+            &p,
+            &ReportOf::Messages {
+                item_ids: vec![real],
+            },
+            ReportReason::Harassment,
+            "",
+        )
+        .await
+        .unwrap_err();
+    assert!(!refused.0.is_empty());
+    assert!(world.service.reports().is_empty(), "8 West kept nothing");
+    assert!(!frank
+        .events
+        .names()
+        .contains(&"community.reported".to_owned()));
+}
