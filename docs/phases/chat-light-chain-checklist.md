@@ -1,6 +1,6 @@
 # A live chat with each agent, light by default, and the chain of command — Checklist
 
-**Status:** delivered in v1.23.0 ([pull request #165](https://github.com/Seckcey/plenipo/pull/165)).
+**Status:** delivered in v1.24.0 ([pull request #165](https://github.com/Seckcey/plenipo/pull/165)).
 See the [acceptance report](chat-light-chain-acceptance-report.md). The owner's check on Windows is
 at the end.
 
