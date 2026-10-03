@@ -6,7 +6,9 @@
 //! the keeper's standard input, each program group it starts (`+<group>`) and each that ends
 //! (`-<group>`). When that input closes, because Plenipo quit, crashed, or was killed, the keeper
 //! asks every group still listed to stop, waits [`GRACE`], ends what is left for certain, and
-//! exits. A normal quit has stopped the work already, so its list is empty then.
+//! exits. A normal quit has stopped the work already, so its list is empty then. Then it ends any
+//! program still carrying this Plenipo's mark, which a program that left its group keeps
+//! (ADR-158); Plenipo gives the keeper its part of the mark when it starts it.
 
 use std::collections::BTreeSet;
 use std::io::{BufRead, Write as _};
@@ -21,15 +23,22 @@ pub const SWITCH: &str = "--plenipo-keeper";
 pub const GRACE: Duration = Duration::from_secs(2);
 
 /// Keeper mode: when `args` (a program's arguments, its own name first) ask for it, run as the
-/// keeper until its input closes, and give the exit code.
+/// keeper until its input closes, and give the exit code. The argument after the switch is this
+/// Plenipo's part of the mark (ADR-158); without a usable one, only the groups are ended.
 pub fn maybe_run_from_args(args: impl IntoIterator<Item = String>) -> Option<i32> {
-    (args.into_iter().nth(1)? == SWITCH).then(|| run(std::io::stdin().lock()))
+    let mut args = args.into_iter().skip(1);
+    if args.next()? != SWITCH {
+        return None;
+    }
+    let instance = args.next().filter(|i| crate::marks::is_instance(i));
+    Some(run(std::io::stdin().lock(), instance.as_deref()))
 }
 
 /// The keeper itself: read `+<group>` and `-<group>` lines until `input` ends, then end every
-/// group still listed. A line it cannot read is skipped; group 0 and 1 (every program of this
-/// user, and the system's first program) are never listed.
-pub fn run(input: impl BufRead) -> i32 {
+/// group still listed, and every program carrying `instance`'s mark. A line it cannot read is
+/// skipped; group 0 and 1 (every program of this user, and the system's first program) are
+/// never listed.
+pub fn run(input: impl BufRead, instance: Option<&str>) -> i32 {
     let mut groups = BTreeSet::new();
     for line in input.lines() {
         let Ok(line) = line else { break };
@@ -49,6 +58,12 @@ pub fn run(input: impl BufRead) -> i32 {
         }
     }
     end_groups(&groups);
+    if let Some(instance) = instance {
+        crate::marks::end_marked(
+            |mark| crate::marks::of_instance(mark, instance),
+            crate::marks::GRACE,
+        );
+    }
     0
 }
 
@@ -116,6 +131,7 @@ fn spawn(program: &Path) -> std::io::Result<Line> {
     let mut command = Command::new(program);
     command
         .arg(SWITCH)
+        .arg(crate::marks::instance())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -203,6 +219,10 @@ mod tests {
             maybe_run_from_args(args(&["plenipo", "--plenipo-keeper-x"])),
             None
         );
+        assert_eq!(
+            maybe_run_from_args(args(&["plenipo", "--quit", SWITCH])),
+            None
+        );
     }
 
     #[test]
@@ -210,7 +230,12 @@ mod tests {
         // Nothing listed: no signal is sent and there is no wait.
         let started = std::time::Instant::now();
         let input = "+0\n+1\n+x\nhello\n+42\n-42\n-7\n\n";
-        assert_eq!(run(std::io::Cursor::new(input)), 0);
+        assert_eq!(run(std::io::Cursor::new(input), None), 0);
         assert!(started.elapsed() < GRACE);
+        // A mark nobody carries: nothing to end, no wait either.
+        let started = std::time::Instant::now();
+        let unused = "0123456789abcdef0123456789abcdef";
+        assert_eq!(run(std::io::Cursor::new(""), Some(unused)), 0);
+        assert!(started.elapsed() < crate::marks::GRACE);
     }
 }
