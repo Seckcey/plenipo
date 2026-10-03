@@ -116,24 +116,28 @@ const ANTHROPIC_MODELS: &[Sold] = &[
         "Claude Sonnet 5.5",
         m(2_000_000, 200_000, 10_000_000).with_cache_write(2_500_000),
     )
-    .thinks(TO_MAX),
+    .thinks(TO_MAX)
+    .same("claude-sonnet-5-5"),
     sold(
         "claude-opus-5-5",
         "Claude Opus 5.5",
         m(4_000_000, 200_000, 20_000_000).with_cache_write(5_000_000),
     )
-    .thinks(TO_MAX),
+    .thinks(TO_MAX)
+    .same("claude-opus-5-5"),
     sold(
         "claude-fable-5-1",
         "Claude Fable 5.1",
         m(10_000_000, 250_000, 50_000_000).with_cache_write(12_500_000),
     )
-    .thinks(TO_MAX),
+    .thinks(TO_MAX)
+    .same("claude-fable-5-1"),
     sold(
         "claude-haiku-4-5",
         "Claude Haiku 4.5",
         m(1_000_000, 100_000, 5_000_000).with_cache_write(1_250_000),
-    ),
+    )
+    .same("claude-haiku-4-5"),
 ];
 
 const OPENAI_MODELS: &[Sold] = &[
@@ -143,21 +147,24 @@ const OPENAI_MODELS: &[Sold] = &[
         m(2_000_000, 100_000, 10_000_000).with_cache_write(2_500_000),
     )
     .thinks(LOW_TO_HIGH)
-    .under(UNDER_272K),
+    .under(UNDER_272K)
+    .same("gpt-6.1-sol"),
     sold(
         "gpt-6-astra",
         "GPT-6 Astra",
         m(10_000_000, 1_000_000, 50_000_000).with_cache_write(12_500_000),
     )
     .thinks(LOW_TO_HIGH)
-    .under(UNDER_272K),
+    .under(UNDER_272K)
+    .same("gpt-6-astra"),
     sold(
         "gpt-6-luna",
         "GPT-6 Luna",
         m(100_000, 10_000, 500_000).with_cache_write(125_000),
     )
     .thinks(LOW_TO_HIGH)
-    .under(UNDER_272K),
+    .under(UNDER_272K)
+    .same("gpt-6-luna"),
 ];
 
 const XAI_MODELS: &[Sold] = &[
@@ -694,6 +701,10 @@ mod tests {
         }
         assert_eq!(ways["glm-5.3"], ["ollama", "zai-key"]);
         assert_eq!(ways["qwen3.8-flash"], ["openrouter", "alibaba-key"]);
+        // Your subscription and the same company's key (Phase 25, item 4.4).
+        assert_eq!(ways["claude-sonnet-5-5"], ["claude-code", "anthropic-key"]);
+        assert_eq!(ways["claude-haiku-4-5"], ["claude-code", "anthropic-key"]);
+        assert_eq!(ways["gpt-6.1-sol"], ["codex", "openai-key"]);
     }
 
     #[test]

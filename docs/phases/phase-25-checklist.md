@@ -761,17 +761,27 @@ About 6 to 8 build sessions.
   run the same model (`KnownModel.same`), but routing never uses it. Claude Code and the Anthropic
   key aren't linked at all.
 - **Do:**
-  - [ ] Choosing a model (for example "Claude Sonnet") means: use it on your **subscription** first,
+  - [x] Choosing a model (for example "Claude Sonnet") means: use it on your **subscription** first,
         and when the plan runs out, on the **same company's key**. The key is used only if paid
-        keys are on, a key is saved, and the spending cap has room.
-  - [ ] Link the same models across Claude Code and the Anthropic key, and across Codex and the
-        OpenAI key.
-  - [ ] **Change ADR-085 §6.**
-  - [ ] Every switch is shown on the worker and the card, and written in the Ledger. Plan rule
-        §3.2, "no silent provider switching", still holds.
+        keys are on, a key is saved, and the spending cap has room. It also needs a price and the
+        project's leave to use the key, like any paid route. Work waiting "rather than moving to
+        another AI company" still moves to the key: it is the same company.
+  - [x] Link the same models across Claude Code and the Anthropic key (Fable, Opus, Sonnet,
+        Haiku; an alias through the exact model it points to), and across Codex and the OpenAI key
+        (GPT-6.1 Sol, GPT-6 Astra, GPT-6 Luna, the three on both).
+  - [x] **Change ADR-085 §6**:
+        [ADR-204 (your subscription first, then the same company's key)](../adr/ADR-204-your-subscription-first-then-the-same-companys-key.md).
+  - [x] Every switch is shown on the worker (its Why) and the card ("Its work moves to your
+        Anthropic key while it waits"), and written in the Ledger with the worker (`onKeyFor`).
+        Plan rule §3.2, "no silent provider switching", still holds.
 - **Tests:**
-  - [ ] a subscription limit moves the same model onto the key
-  - [ ] it never does when paid keys are off or the cap is full
+  - [x] a subscription limit moves the same model onto the key (router
+        `a_subscription_limit_moves_the_same_model_to_the_same_companys_key`; desktop
+        `aiTools.test.tsx`; runtime `every_same_model_link_joins_two_ways_or_more`)
+  - [x] it never does when paid keys are off or the cap is full, nor for a model with no link or
+        "its own choice" (the same router test)
+  - [ ] a full worker on the key in the real app: needs a stand-in paid key in the workforce
+        tests, which have none yet.
 
 ### 4.5 Step down instead of stopping — M
 

@@ -31,4 +31,9 @@ modelFrom: RuleSource | null,
 /**
  * The layer that set the effort (`None`: the AI tool's default).
  */
-effortFrom: RuleSource | null, };
+effortFrom: RuleSource | null, 
+/**
+ * The subscription AI tool whose usage limit moved this work to the same model on the same
+ * company's key ("Claude Code"; Phase 25, item 4.4; ADR-204). `None` otherwise.
+ */
+onKeyFor?: string, };

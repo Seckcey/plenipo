@@ -1551,6 +1551,41 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     );
   });
 
+  it("says where the work goes while the plan is out: the same models on the key (Phase 25, item 4.4)", async () => {
+    const resets = T0 + 2 * 3_600_000;
+    const limit = {
+      available: false,
+      usageLimit: { model: null, since: T0, resetsAt: resets, until: resets, detail: "limit" },
+    };
+    api.getRouting.mockResolvedValue(routing({ "claude-code": limit, codex: limit }));
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [
+        ...runtimes(),
+        aiRuntime("anthropic-key", "1.17.0", {
+          ready: true,
+          auth: { state: "paidKey", method: "Your key", detail: null },
+        }),
+      ],
+      sessions: [],
+      notices: [],
+    });
+    api.getAiTools.mockResolvedValue(
+      aiPage([
+        ...page().tools,
+        aiTool("anthropic-key", { paidKey: { ...SAVED, runtimeId: "anthropic-key" } }),
+      ]),
+    );
+    await show();
+    await waitFor(() =>
+      expect(card("Claude Code")).toHaveTextContent(
+        "Its work moves to your Anthropic key while it waits (paid per use, within your spending caps).",
+      ),
+    );
+    // Codex has no key that works: its work waits.
+    expect(card("Codex")).toHaveTextContent("Usage limit reached");
+    expect(card("Codex")).not.toHaveTextContent("Its work moves to your");
+  });
+
   it("a subscription card is green when its subscription or its key works, and says which (Phase 25, item 1.3)", async () => {
     const keyReady = aiRuntime("anthropic-key", "1.17.0", {
       ready: true,

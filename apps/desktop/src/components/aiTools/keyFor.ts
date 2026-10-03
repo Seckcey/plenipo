@@ -29,3 +29,14 @@ export function keyToolFor(runtimeId: string): string {
 export function foldedInto(paidId: string): string | null {
   return Object.entries(KEY_FOR).find(([, key]) => key === paidId)?.[0] ?? null;
 }
+
+/**
+ * Subscription AI tools whose models are linked to the same models on their company's key, so
+ * that while the plan is out the work runs on the key (Phase 25, item 4.4; ADR-204).
+ */
+const MOVES_TO_KEY: ReadonlySet<string> = new Set(["claude-code", "codex"]);
+
+/** Whether `runtimeId`'s work moves to its company's key while its plan is out. */
+export function movesToKey(runtimeId: string): boolean {
+  return MOVES_TO_KEY.has(runtimeId);
+}

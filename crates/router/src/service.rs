@@ -251,6 +251,7 @@ impl Planner {
                 fixed: true,
                 model_from: Some(fixed_by),
                 effort_from: None,
+                on_key_for: None,
             };
         }
         let levels: Vec<plenipo_runtime::agent::Effort> = self
@@ -308,6 +309,7 @@ impl Planner {
             fixed: true,
             model_from: Some(fixed_by),
             effort_from,
+            on_key_for: None,
         }
     }
 }

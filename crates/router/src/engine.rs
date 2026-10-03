@@ -374,6 +374,87 @@ pub fn effort_words(
     out
 }
 
+/// The same model on the same company's key, for a model whose subscription AI tool reached its
+/// usage limit (Phase 25, item 4.4; ADR-204): the company's paid AI tool, its name for the model,
+/// and the model's label there ("Claude Sonnet 5.5 (Anthropic)"), when the two are linked
+/// (`KnownModel.same`; an alias through the exact model it points to). `None` without a link or
+/// such a key.
+fn key_twin<'a>(
+    tools: &'a [ToolState],
+    sub: &ToolState,
+    name: Option<&str>,
+) -> Option<(&'a ToolState, String, String)> {
+    let name = name?;
+    let known = &sub.info.capabilities.known_models;
+    let entry = known.iter().find(|k| k.name == name)?;
+    let entry = entry
+        .points_to
+        .as_ref()
+        .and_then(|exact| known.iter().find(|k| &k.name == exact))
+        .unwrap_or(entry);
+    let link = entry.same.as_deref()?;
+    let key = tools
+        .iter()
+        .find(|k| k.paid && k.info.id != sub.info.id && k.info.provider == sub.info.provider)?;
+    let linked = |k: &&plenipo_runtime::agent::KnownModel| k.same.as_deref() == Some(link);
+    let twin = key
+        .info
+        .reported_models
+        .as_ref()
+        .and_then(|r| r.models.iter().find(linked))
+        .or_else(|| key.info.capabilities.known_models.iter().find(linked))?;
+    let label = if twin
+        .label
+        .to_lowercase()
+        .contains(&key.info.label.to_lowercase())
+    {
+        twin.label.clone()
+    } else {
+        format!("{} ({})", twin.label, key.info.label)
+    };
+    Some((key, twin.name.clone(), label))
+}
+
+/// Why the same company's key cannot take the model now, if it cannot: every check a paid route
+/// the owner listed gets (ADR-085 §6), but "wait instead of moving to another AI company", since
+/// it is the same company (ADR-204).
+fn key_blocked(
+    input: &RouteInput<'_>,
+    layers: &[Layer<'_>],
+    key: &ToolState,
+    name: &str,
+) -> Option<String> {
+    let info = &key.info;
+    if let Some(who) = never_by(layers, &info.provider) {
+        return Some(format!("{who} never uses {}", info.provider_label));
+    }
+    if let Some((project, _)) = input
+        .project
+        .filter(|(_, allowed)| !allowed.contains(&info.id))
+    {
+        return Some(format!("{project} does not allow {}", info.label));
+    }
+    if let Some(limit) = &key.limit {
+        return Some(format!("{} {}", info.label, limit_words(limit, input.now)));
+    }
+    let Some(price) = paid_price(info, Some(name)) else {
+        return Some("it is not priced yet on your key".into());
+    };
+    if input.spending_room == Some(0) {
+        return Some(
+            "nothing is left this month under the spending caps covering this work".into(),
+        );
+    }
+    if input.spending_room.is_some_and(|room| {
+        price.is_some_and(|p| room < plenipo_runtime::agent::paid::smallest_step_cost(&p))
+    }) {
+        return Some(
+            "too little is left this month under the spending caps covering this work".into(),
+        );
+    }
+    None
+}
+
 pub fn route(input: &RouteInput<'_>) -> RouteDecision {
     let policy = input.policy;
     let layers = layers(input);
@@ -487,6 +568,9 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
     let mut effort_passed: Option<(Effort, RuleSource)> = None;
     // The company whose usage limit work is waiting for (LimitBehavior::Wait).
     let mut waiting: Option<(&str, String)> = None;
+    // The subscription whose usage limit moved the work to the same company's key, and its
+    // limit in words (Phase 25, item 4.4; ADR-204).
+    let mut on_key: Option<(String, String)> = None;
     for c in &candidates {
         let Some(m) = c.model else {
             notes.push(CandidateNote {
@@ -522,6 +606,8 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
         };
         let info = &t.info;
         let made_by = maker(m);
+        // Skipped only because its subscription reached its usage limit.
+        let mut limited_here = false;
         let skip = if let Some(who) = never_by(&layers, &info.provider) {
             Some(format!("{who} never uses {}", info.provider_label))
         } else if let Some((who, made)) = made_by
@@ -571,6 +657,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
             if input.on_limit == LimitBehavior::Wait && waiting.is_none() {
                 waiting = Some((info.provider.as_str(), info.label.clone()));
             }
+            limited_here = true;
             Some(format!("{} {}", info.label, limit_words(limit, input.now)))
         } else if t.paid && paid_price(info, m.name.as_deref()).is_none() {
             Some(
@@ -605,9 +692,56 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
         } else {
             None
         };
-        match skip {
-            Some(why) => note(CandidateVerdict::Skipped, why),
-            None => {
+        // Your subscription first, then the same model on the same company's key (Phase 25, item
+        // 4.4; ADR-204), only while its key can take it.
+        let twin = (limited_here && !t.paid)
+            .then(|| key_twin(input.tools, t, m.name.as_deref()))
+            .flatten()
+            .filter(|(key, _, _)| not_ready(&key.info).is_none());
+        match (skip, twin) {
+            (Some(why), Some((key, name, twin_label))) => {
+                if let Some(blocked) = key_blocked(input, &layers, key, &name) {
+                    note(
+                        CandidateVerdict::Skipped,
+                        format!(
+                            "{why}, and your {} key can't take it: {blocked}",
+                            key.info.label
+                        ),
+                    );
+                    continue;
+                }
+                note(CandidateVerdict::Skipped, why);
+                notes.push(CandidateNote {
+                    model_id: m.id.clone(),
+                    label: twin_label.clone(),
+                    verdict: CandidateVerdict::Chosen,
+                    note: String::new(),
+                });
+                let levels = key.info.capabilities.effort_levels_for(Some(&name));
+                let (effort, from, passed) = effort_for(&layers, &m.id, m.effort, levels);
+                chosen = Some((
+                    RouteChoice {
+                        model_id: m.id.clone(),
+                        runtime_id: key.info.id.clone(),
+                        runtime_label: key.info.label.clone(),
+                        company: key.info.provider.clone(),
+                        model: Some(name),
+                        effort,
+                        label: twin_label,
+                        maker: made_by.clone(),
+                        paid: true,
+                    },
+                    c.rank,
+                ));
+                effort_from = from;
+                effort_passed = passed;
+                on_key = t
+                    .limit
+                    .as_ref()
+                    .map(|l| (info.label.clone(), limit_words(l, input.now)));
+            }
+            (Some(why), None) => note(CandidateVerdict::Skipped, why),
+            (None, _) => {
                 note(CandidateVerdict::Chosen, String::new());
                 // Only a level the model (or, for a model the AI tool does not list, the AI
                 // tool) takes.
@@ -642,15 +776,29 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
         Some((choice, rank)) => {
             let whose =
                 listing.map_or_else(|| format!("{}'s", input.role), |l| possessive(&l.source));
-            let mut reason = match rank {
-                Some(1) => format!("{} is {whose} first choice and is ready.", choice.label),
-                Some(n) => format!(
+            let mut reason = match (rank, &on_key) {
+                (Some(n), Some((sub, limited))) => format!(
+                    "{} is {whose} {} choice, on your {} key: {sub} {limited}, so the same model \
+                     runs on your key until then.",
+                    choice.label,
+                    ordinal(n),
+                    choice.runtime_label
+                ),
+                (None, Some((sub, limited))) => format!(
+                    "{} runs on your {} key: {sub} {limited}, so the same model runs on your key \
+                     until then.",
+                    choice.label, choice.runtime_label
+                ),
+                (Some(1), None) => {
+                    format!("{} is {whose} first choice and is ready.", choice.label)
+                }
+                (Some(n), None) => format!(
                     "{} is {whose} {} choice: {}.",
                     choice.label,
                     ordinal(n),
                     first_skip.map_or_else(String::new, skipped)
                 ),
-                None => {
+                (None, None) => {
                     let order = match policy.cost {
                         CostPreference::Any => "",
                         CostPreference::Economical => ", economical models first",
@@ -720,6 +868,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 fixed: false,
                 model_from: listing.map(|l| l.source.clone()),
                 effort_from,
+                on_key_for: on_key.map(|(sub, _)| sub),
             }
         }
         None => {
@@ -760,6 +909,7 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
                 fixed: false,
                 model_from: None,
                 effort_from: None,
+                on_key_for: None,
             }
         }
     }
@@ -1729,6 +1879,147 @@ mod tests {
             now: NOW,
             spending_room: room,
         })
+    }
+
+    /// Claude Code (a subscription) and the Anthropic key, with Sonnet linked across both
+    /// (Phase 25, item 4.4).
+    fn subscription_and_key() -> World {
+        let mut claude = tool("claude-code", "anthropic");
+        claude.info.label = "Claude Code".into();
+        claude.info.capabilities.known_models = vec![
+            KnownModel::new("sonnet", "Sonnet", &[]).now("claude-sonnet-5-5"),
+            KnownModel::new("claude-sonnet-5-5", "Sonnet 5.5", &[]).same("claude-sonnet-5-5"),
+            KnownModel::new("unlinked", "Unlinked", &[]),
+        ];
+        let mut key = tool("anthropic-key", "anthropic");
+        key.paid = true;
+        key.info.label = "Anthropic".into();
+        key.info.auth.state = AuthState::PaidKey;
+        key.info.reported_models = Some(plenipo_runtime::agent::ReportedModels {
+            models: vec![KnownModel {
+                price: Some(plenipo_runtime::pricing::Price::per_million_dollars(2, 10)),
+                ..KnownModel::new("claude-sonnet-5-5", "Claude Sonnet 5.5", &[])
+                    .same("claude-sonnet-5-5")
+            }],
+            complete: true,
+            checked_at: NOW,
+        });
+        let mut other = tool("codex", "openai");
+        other.info.label = "Codex".into();
+        World {
+            models: vec![
+                ModelInfo {
+                    name: Some("sonnet".into()),
+                    ..model("sonnet-cc", "claude-code", "Sonnet")
+                },
+                model("unlinked", "claude-code", "Unlinked"),
+                model("gpt", "codex", "GPT"),
+            ],
+            tools: vec![claude, key, other],
+        }
+    }
+
+    fn waiting_for_limits(w: &World, policy: &RolePolicy, room: Option<u64>) -> RouteDecision {
+        route(&RouteInput {
+            role: "Senior Developer",
+            role_id: "dev",
+            policy,
+            agent: None,
+            department: None,
+            organization: None,
+            models: &w.models,
+            tools: &w.tools,
+            project: None,
+            reviewed: &[],
+            on_limit: LimitBehavior::Wait,
+            now: NOW,
+            spending_room: room,
+        })
+    }
+
+    /// Phase 25, item 4.4 (ADR-204): your subscription first, then the same model on the same
+    /// company's key, only while the key can take it, and never silently.
+    #[test]
+    fn a_subscription_limit_moves_the_same_model_to_the_same_companys_key() {
+        let mut w = subscription_and_key();
+        let policy = prefer(&["sonnet-cc", "gpt"]);
+        // Not limited: the subscription, as always.
+        let d = waiting_for_limits(&w, &policy, None);
+        let c = d.choice.as_ref().unwrap();
+        assert_eq!((c.runtime_id.as_str(), c.paid), ("claude-code", false));
+        assert_eq!(d.on_key_for, None);
+
+        // Claude Code reaches its limit: Sonnet runs on the Anthropic key (even though the role
+        // waits rather than moving to another AI company), and the reason says so.
+        w.tools[0].limit = limited();
+        let d = waiting_for_limits(&w, &policy, None);
+        let c = d.choice.as_ref().unwrap();
+        assert_eq!(c.runtime_id, "anthropic-key");
+        assert_eq!(c.model.as_deref(), Some("claude-sonnet-5-5"));
+        assert_eq!(c.model_id, "sonnet-cc", "still the owner's chosen model");
+        assert!(c.paid);
+        assert_eq!(d.rank, Some(1));
+        assert_eq!(d.on_key_for.as_deref(), Some("Claude Code"));
+        assert!(
+            d.reason.starts_with(
+                "Claude Sonnet 5.5 (Anthropic) is Senior Developer's first choice, on your \
+                 Anthropic key: Claude Code reached its usage limit (resets in about an hour), so \
+                 the same model runs on your key until then."
+            ),
+            "{}",
+            d.reason
+        );
+        assert!(d.reason.contains("It costs money"), "{}", d.reason);
+        assert_eq!(
+            verdicts(&d),
+            [
+                CandidateVerdict::Skipped,
+                CandidateVerdict::Chosen,
+                CandidateVerdict::NotNeeded
+            ]
+        );
+
+        // The spending caps have no room: it waits, and says why the key could not take it.
+        let d = waiting_for_limits(&w, &policy, Some(0));
+        assert!(d.choice.is_none(), "{d:?}");
+        assert!(
+            d.candidates[0].note.ends_with(
+                "and your Anthropic key can't take it: nothing is left this month \
+                            under the spending caps covering this work"
+            ),
+            "{}",
+            d.candidates[0].note
+        );
+
+        // Paid keys switched off (or no key): the key is not ready, and nothing moves.
+        let mut off = w.tools.clone();
+        off[1].info.ready = false;
+        off[1].info.auth = AuthStatus {
+            state: AuthState::SignedOut,
+            method: None,
+            detail: Some("Paid AI keys are switched off".into()),
+        };
+        let switched_off = World {
+            models: w.models.clone(),
+            tools: off,
+        };
+        let d = waiting_for_limits(&switched_off, &policy, None);
+        assert!(d.choice.is_none());
+        assert!(d.reason.contains("waits for it"), "{}", d.reason);
+
+        // A model with no link to the key, and "its own choice", never move.
+        let d = waiting_for_limits(&w, &prefer(&["unlinked"]), None);
+        assert!(d.choice.is_none(), "{d:?}");
+        let own = World {
+            models: vec![ModelInfo {
+                name: None,
+                ..model("own", "claude-code", "Claude Code: its own choice")
+            }],
+            tools: w.tools.clone(),
+        };
+        assert!(waiting_for_limits(&own, &prefer(&["own"]), None)
+            .choice
+            .is_none());
     }
 
     fn limited() -> Option<UsageLimit> {

@@ -412,6 +412,11 @@ pub struct RouteDecision {
     /// The layer that set the effort (`None`: the AI tool's default).
     #[serde(default)]
     pub effort_from: Option<RuleSource>,
+    /// The subscription AI tool whose usage limit moved this work to the same model on the same
+    /// company's key ("Claude Code"; Phase 25, item 4.4; ADR-204). `None` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub on_key_for: Option<String>,
 }
 
 /// A role's policy with the model its next worker would get.

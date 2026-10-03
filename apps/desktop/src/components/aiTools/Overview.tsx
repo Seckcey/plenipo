@@ -20,7 +20,7 @@ import { useTerminalIfAny } from "../../terminal/useTerminal";
 import { Refusal } from "../models/shared";
 import type { Go } from "../views";
 import type { KeyCard } from "./AiToolCard";
-import { OPENROUTER } from "./keyFor";
+import { movesToKey, OPENROUTER } from "./keyFor";
 import { PaidKey } from "./PaidKey";
 import { SignIn } from "./SignIn";
 import { useToolUsage } from "./useAiTools";
@@ -159,7 +159,7 @@ export function Overview({
       </dd>
       <dt>Usage limit</dt>
       <dd>
-        <UsageLimit route={route} onRouting={onRouting} />
+        <UsageLimit route={route} onRouting={onRouting} keyCard={keyCard} />
       </dd>
       <dt>Left of your plan</dt>
       <dd>
@@ -474,18 +474,30 @@ function nothingToUpdate(label: string, install: InstallState): string {
   }
 }
 
-/** The usage limit and when it resets, from the Router, with Try again now (ADR-060 §2). */
+/**
+ * The usage limit and when it resets, from the Router, with Try again now (ADR-060 §2), and
+ * where its work goes meanwhile: the same models on its company's key, when the key can take them
+ * (Phase 25, item 4.4; ADR-204).
+ */
 function UsageLimit({
   route,
   onRouting,
+  keyCard,
 }: {
   route: ToolInfo | undefined;
   onRouting: (snapshot: RoutingSnapshot) => void;
+  keyCard?: KeyCard | undefined;
 }) {
   const { pending, error, run } = useRun<RoutingSnapshot>(onRouting);
   if (!route) return <span className="muted">Loading…</span>;
   const limit = route.usageLimit;
   if (!limit) return <>No usage limit reached</>;
+  const onKey =
+    movesToKey(route.runtimeId) &&
+    keyCard !== undefined &&
+    keyCard.tool.paidKey !== null &&
+    keyCard.info.ready &&
+    keyCard.tool.paidBlocked === null;
   return (
     <div className="ai-tool__block">
       <div>
@@ -494,6 +506,12 @@ function UsageLimit({
           ? `resets at ${when(limit.until)} (${until(limit.until)})`
           : `Plenipo tries it again at ${when(limit.until)} (${until(limit.until)})`}
       </div>
+      {onKey && keyCard && (
+        <div>
+          Its work moves to your {keyCard.info.label} key while it waits (paid per use, within your
+          spending caps).
+        </div>
+      )}
       <div className="ai-tool__buttons">
         <Button
           size="sm"
