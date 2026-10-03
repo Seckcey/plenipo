@@ -250,6 +250,7 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Doesn't match the record / Plenipo's record                                    | hallucination, fact-check failure, verification error, grounding                           |
 | Answer sent back to check / Checking its answer again                          | verification retry, re-prompt                                                              |
 | Sent back by Website Supervisor / work sent back to fix                        | rejected, rework request, QA failure                                                       |
+| Checking in on its team / Stopped by Website Supervisor: … / Stop refused      | polling, heartbeat, interrupt, kill, abort, preempt                                        |
 | answers keep not matching the record                                           | hallucination rate                                                                         |
 | Your plans / ahead of pace / on pace / behind pace / 27% by now                | quota pacing, burn rate, rate shaping                                                      |
 | Weekly budget (estimated)                                                      | token quota, soft limit                                                                    |

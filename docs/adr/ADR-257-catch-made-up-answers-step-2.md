@@ -1,10 +1,15 @@
 # ADR-257: Catch made-up answers, step 2 — links, sending work back, and repeat failures
 
+> **Amended by [ADR-259 (leads stop their team mid-task)](ADR-259-leads-stop-their-team.md):**
+> the owner decided on 2026-10-03 that leads can stop their team while it works. "Stopping a
+> worker" below no longer holds. A waiting lead now gets short check-ins and can stop its own
+> team's work for its own requests, with the same runtime calls Liaison uses for a cancelled
+> request. Sending work back stays as written.
+
 - **Status:** Accepted (the owner, first list, kept in Phase 25: "Supervisors and up detect
   hallucinations and act accordingly."; item 4.8 of
-  [ADR-190 (Phase 25 starts)](ADR-190-phase-25-starts.md)). One part, "stop", is built
-  differently from the plan's words; see **Stopping a worker** below. It is for the owner to
-  accept at review.
+  [ADR-190 (Phase 25 starts)](ADR-190-phase-25-starts.md)). Its one open part, "stop", was
+  decided by the owner on 2026-10-03: leads stop their team mid-task (ADR-259).
 - **Date:** 2026-10-03
 - **Phase:** 25, Wave 4 (item 4.8)
 - **Number:** in the 250s with Phase 25's other later decisions (see ADR-250).
@@ -72,6 +77,9 @@ Step 1 (ADR-256) checks an answer against Plenipo's own record. Step 2 adds thre
 
 ### Stopping a worker
 
+**Replaced by [ADR-259 (leads stop their team mid-task)](ADR-259-leads-stop-their-team.md).** As
+first decided here:
+
 The plan says "supervisors can stop a worker". A lead's own turn **waits** while its team works
 (ADR-008), and it hears from them only when all its requests are answered, so it never sees a
 worker still working. There is nothing for it to stop. What a lead can do instead is what this
@@ -102,5 +110,5 @@ mid-work, that changes how leads wait (ADR-008) and is its own decision.
 - **Visit every link.** Rejected: workers' answers would make Plenipo reach any address on the
   internet. Your allowed websites are the line Guard already draws for workers.
 - **Let leads cancel a worker's running task.** Not possible while leads wait for their team
-  (above); kept for you.
+  (above); kept for you. Now done another way: check-ins while the team works (ADR-259).
 - **A notice on every answer sent back.** Rejected: one is normal. Three in a week is a pattern.
