@@ -245,6 +245,10 @@
     "allow-unblock-in-community",
     "allow-community-blocked",
     "allow-report-in-community",
-    "allow-delete-my-community-data"
+    "allow-delete-my-community-data",
+    "allow-community-points",
+    "allow-community-leaderboard",
+    "allow-community-getting-started",
+    "allow-close-community-getting-started"
   ]
 }

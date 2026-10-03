@@ -13,6 +13,7 @@ pub mod commands;
 pub mod community_commands;
 pub mod community_host;
 pub mod community_messages;
+pub mod community_rewards;
 pub mod community_safety;
 pub mod connections_commands;
 pub mod diagnostics;
@@ -781,6 +782,10 @@ pub fn configure<R: Runtime>(
             community_safety::community_blocked,
             community_safety::report_in_community,
             community_safety::delete_my_community_data,
+            community_rewards::community_points,
+            community_rewards::community_leaderboard,
+            community_rewards::community_getting_started,
+            community_rewards::close_community_getting_started,
         ])
 }
 
@@ -3864,7 +3869,7 @@ mod ipc_boundary_tests {
 
     /// Settings → Community: turning it on and signing in reach 8 West for the owner, so they are
     /// the main window's alone (ADR-162 §8).
-    const COMMUNITY: [&str; 31] = [
+    const COMMUNITY: [&str; 35] = [
         "get_community",
         "set_community_switch",
         "check_community_again",
@@ -3896,6 +3901,10 @@ mod ipc_boundary_tests {
         "community_blocked",
         "report_in_community",
         "delete_my_community_data",
+        "community_points",
+        "community_leaderboard",
+        "community_getting_started",
+        "close_community_getting_started",
     ];
 
     #[test]
@@ -3911,7 +3920,7 @@ mod ipc_boundary_tests {
             "email": "pat@example.com", "before": null, "to": "cm_x", "text": "Hi",
             "replyTo": null, "itemId": "ci_x", "emoji": null, "link": "https://example.com",
             "positionId": "p", "note": "", "of": { "kind": "person" }, "reason": "spam",
-            "block": false,
+            "block": false, "allTime": false,
         });
         for cmd in COMMUNITY {
             let refused = |answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,

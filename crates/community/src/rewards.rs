@@ -140,7 +140,7 @@ impl<T: Transport> Community<T> {
                 })
             })
             .collect();
-        recent.sort_by(|a, b| b.at.cmp(&a.at));
+        recent.sort_by_key(|c| std::cmp::Reverse(c.at));
         Ok(PointsView {
             total: points.total,
             week: points.week,
