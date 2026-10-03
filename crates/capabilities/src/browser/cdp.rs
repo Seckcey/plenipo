@@ -410,35 +410,42 @@ mod tests {
 
     #[tokio::test]
     async fn over_a_pipe_a_call_is_answered_and_the_end_of_the_pipe_closes_it() {
-        // The far end: a stand-in browser on plain pipes, in a thread.
+        // The far end: a stand-in browser on plain pipes, in a thread. It passes on each command
+        // it reads, and the test answers only once the command came: an answer sent before its
+        // call would find no one waiting for it.
         let (to_browser_read, to_browser_write) = io::pipe().unwrap();
         let (from_browser_read, from_browser_write) = io::pipe().unwrap();
         let ends = PipeEnds {
             writer: to_browser_write,
             reader: from_browser_read,
         };
+        let (got, mut commands) = mpsc::unbounded_channel();
         let browser = std::thread::spawn(move || {
-            let mut request = String::new();
-            read_messages(to_browser_read, |text| request = text.to_owned());
-            request
+            read_messages(to_browser_read, |text| {
+                let _ = got.send(text.to_owned());
+            });
         });
         let (cdp, _events) = Cdp::over_pipe(ends).unwrap();
         let mut from_browser_write = from_browser_write;
-        write_message(
-            &mut from_browser_write,
-            r#"{"id":1,"result":{"product":"Fake"}}"#,
-        )
-        .unwrap();
-        let answer = cdp
-            .call(
+        let answer_once_asked = async {
+            let request = commands.recv().await.expect("the browser got the command");
+            write_message(
+                &mut from_browser_write,
+                r#"{"id":1,"result":{"product":"Fake"}}"#,
+            )
+            .unwrap();
+            request
+        };
+        let (answer, request) = tokio::join!(
+            cdp.call(
                 None,
                 "Browser.getVersion",
                 json!({}),
                 Duration::from_secs(5),
-            )
-            .await
-            .unwrap();
-        assert_eq!(answer["product"], "Fake");
+            ),
+            answer_once_asked
+        );
+        assert_eq!(answer.unwrap()["product"], "Fake");
         assert!(!cdp.is_closed());
         // The browser goes away: its end of the pipe closes, and so does the connection.
         drop(from_browser_write);
@@ -448,7 +455,8 @@ mod tests {
         assert!(cdp.is_closed());
         // The browser saw the command as one NUL-ended JSON text on its descriptor 3's pipe.
         drop(cdp);
-        let request: Value = serde_json::from_str(&browser.join().unwrap()).unwrap();
+        browser.join().unwrap();
+        let request: Value = serde_json::from_str(&request).unwrap();
         assert_eq!(request["method"], "Browser.getVersion");
         assert_eq!(request["id"], 1);
     }
