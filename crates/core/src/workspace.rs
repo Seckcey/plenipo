@@ -13,16 +13,19 @@ pub enum PanelId {
     Terminal,
     /// The file view (ADR-093).
     Files,
+    /// Live conversations with the agents (ADR-200).
+    Chat,
 }
 
 impl PanelId {
-    pub const ALL: [PanelId; 2] = [PanelId::Terminal, PanelId::Files];
+    pub const ALL: [PanelId; 3] = [PanelId::Terminal, PanelId::Files, PanelId::Chat];
 
     /// Its name in a window's label.
     pub fn key(self) -> &'static str {
         match self {
             PanelId::Terminal => "terminal",
             PanelId::Files => "files",
+            PanelId::Chat => "chat",
         }
     }
 
@@ -35,6 +38,7 @@ impl PanelId {
         match self {
             PanelId::Terminal => "Terminal",
             PanelId::Files => "Files",
+            PanelId::Chat => "Chat",
         }
     }
 }

@@ -10,11 +10,15 @@ import type { PanelId } from "@plenipo/types";
 export type { PanelId };
 export type DockSide = "left" | "right" | "bottom";
 
-export const PANELS: readonly PanelId[] = ["terminal", "files"];
+export const PANELS: readonly PanelId[] = ["terminal", "files", "chat"];
 export const DOCKS: readonly DockSide[] = ["left", "right", "bottom"];
 
 /** Each panel's name on screen. */
-export const PANEL_TITLES: Record<PanelId, string> = { terminal: "Terminal", files: "Files" };
+export const PANEL_TITLES: Record<PanelId, string> = {
+  terminal: "Terminal",
+  files: "Files",
+  chat: "Chat",
+};
 /** Each dock's name on screen ("Move to the left"). */
 export const DOCK_WORDS: Record<DockSide, string> = {
   left: "the left",
@@ -62,11 +66,12 @@ export function defaultLayout(): Layout {
     panels: {
       terminal: { dock: "bottom", popped: false },
       files: { dock: "left", popped: false },
+      chat: { dock: "right", popped: false },
     },
-    order: ["terminal", "files"],
+    order: ["terminal", "files", "chat"],
     docks: {
       left: { open: false, size: FIRST_SIZE.left, active: "files" },
-      right: { open: false, size: FIRST_SIZE.right, active: null },
+      right: { open: false, size: FIRST_SIZE.right, active: "chat" },
       bottom: { open: false, size: FIRST_SIZE.bottom, active: "terminal" },
     },
   };
@@ -108,11 +113,30 @@ export function isLayout(v: unknown): v is Layout {
 }
 
 /**
- * The layout to start with: the one kept, or (the first time after Phase 21) the terminal panel
- * where it was (ADR-092 §14), or the default.
+ * A layout kept before a panel existed (Chat, ADR-200) gets the new panel where it starts; the
+ * others stay where the owner put them.
+ */
+function withNewPanels(kept: unknown): unknown {
+  if (typeof kept !== "object" || kept === null) return kept;
+  const l = kept as Record<string, unknown>;
+  const panels = l.panels;
+  const order = l.order;
+  if (typeof panels !== "object" || panels === null || !Array.isArray(order)) return kept;
+  const missing = PANELS.filter((p) => !(p in panels) && !order.includes(p));
+  if (missing.length === 0) return kept;
+  const first = defaultLayout();
+  const placed: Record<string, unknown> = { ...(panels as Record<string, unknown>) };
+  for (const p of missing) placed[p] = first.panels[p];
+  return { ...l, panels: placed, order: [...(order as unknown[]), ...missing] };
+}
+
+/**
+ * The layout to start with: the one kept (with any panel added since), or (the first time after
+ * Phase 21) the terminal panel where it was (ADR-092 §14), or the default.
  */
 export function startingLayout(kept: unknown, oldTerminal: unknown): Layout {
-  if (isLayout(kept)) return kept;
+  const upgraded = withNewPanels(kept);
+  if (isLayout(upgraded)) return upgraded;
   const layout = defaultLayout();
   if (typeof oldTerminal !== "object" || oldTerminal === null) return layout;
   const old = oldTerminal as Record<string, unknown>;

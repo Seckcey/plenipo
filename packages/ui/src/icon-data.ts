@@ -98,6 +98,10 @@ export const ICONS = {
   },
   refresh: { d: "M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6" },
   lesson: { d: "M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9V16h7v-2.1A6 6 0 0 0 12 3z" },
+  /** A conversation with an agent (ADR-200). */
+  chat: {
+    d: "M5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H11l-5 4v-4h-.5A1.5 1.5 0 0 1 4 14.5v-9A1.5 1.5 0 0 1 5.5 4zM8.5 10h.01M12 10h.01M15.5 10h.01",
+  },
 } satisfies Record<string, Shape>;
 
 export type IconName = keyof typeof ICONS;

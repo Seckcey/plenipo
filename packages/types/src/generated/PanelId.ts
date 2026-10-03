@@ -3,4 +3,4 @@
 /**
  * A panel that can sit in a dock or in its own window.
  */
-export type PanelId = "terminal" | "files";
+export type PanelId = "terminal" | "files" | "chat";
