@@ -8,13 +8,18 @@ import type { TerminalShell } from "./TerminalShell";
  */
 export type TerminalSettings = { 
 /**
- * The shell a new terminal on this PC starts.
+ * The shell a new terminal on this PC starts (one of `shells`).
  */
-shell: TerminalShell, shells: Array<ShellOption>, 
+shell: TerminalShell, 
 /**
- * Off Windows the choice does not apply: the shell used instead ("/bin/bash").
+ * The shells this system offers, and whether this PC has each.
  */
-otherShell?: string, 
+shells: Array<ShellOption>, 
+/**
+ * Who the terminal runs as, in this system's words ("as your own Windows user — never as
+ * administrator"; on a Mac or Linux, "as yourself — never as root"; ADR-155).
+ */
+runsAs: string, 
 /**
  * The "Remote computers (SSH)" switch: while it is off, no terminal opens on a server.
  */

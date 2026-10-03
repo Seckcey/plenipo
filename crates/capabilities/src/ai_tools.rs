@@ -1187,8 +1187,9 @@ impl AiTools {
         let adapter = self.adapter(runtime_id)?;
         if adapter.update_command().is_none() {
             return Err(BrokerError::Invalid(format!(
-                "{} updates itself: use its own icon in the tray.",
-                adapter.label()
+                "{} updates itself: use its own icon in {}.",
+                adapter.label(),
+                plenipo_core::WORDS.waits_in
             )));
         }
         let installed = self
@@ -1196,8 +1197,9 @@ impl AiTools {
             .is_some_and(|i| i.installation.state == InstallState::Installed);
         if !installed {
             return Err(BrokerError::Invalid(format!(
-                "{} is not installed on this PC, so there is nothing to update.",
-                adapter.label()
+                "{} is not installed on {}, so there is nothing to update.",
+                adapter.label(),
+                plenipo_core::WORDS.this_computer
             )));
         }
         let cancel = {

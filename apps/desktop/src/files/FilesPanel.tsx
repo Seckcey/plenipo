@@ -15,6 +15,7 @@ import type { Go } from "../components/views";
 import { usePanelWindow, useWorkspaceIfAny } from "../workspace/context";
 import { insideWindow } from "../workspace/popout";
 import { ATTACH_EVENT, DROP_ATTRIBUTE, fileKey, nameOf, sizeWords, type DraggedFile } from "./refs";
+import { systemWords } from "../system/words";
 
 /** Events after which the folders, or who writes in them, may have changed. */
 function changesTheFolders(type: string): boolean {
@@ -360,7 +361,7 @@ export function FilesPanel({ go }: { go: Go }) {
           title={
             selectedFile?.runs
               ? "Plenipo never starts programs or scripts: open it in Plenipo"
-              : "Open it with the program Windows uses for it (never a program or a script)"
+              : `Open it with the program ${systemWords().theSystem} uses for it (never a program or a script)`
           }
           onClick={() =>
             selectedFile?.rootId &&
@@ -372,7 +373,7 @@ export function FilesPanel({ go }: { go: Go }) {
         </Button>
         <IconButton
           icon="projects"
-          label="Show in folder"
+          label={systemWords().showFile}
           disabled={!selectedRow?.rootId || selectedRow.path === undefined}
           onClick={() =>
             selectedRow?.rootId &&

@@ -22,13 +22,13 @@ import { useOwnerProfile } from "./context";
 import { OwnerFace, OwnerLight } from "./OwnerFace";
 import { CANNOT_READ, PICTURE_ACCEPT, PictureError, shrinkToPng } from "./picture";
 import {
-  DO_NOT_DISTURB_HINT,
+  doNotDisturbHint,
   MAX_MESSAGE,
   MOOD_FACES,
   MOOD_ORDER,
   MOOD_WORDS,
   NO_MOOD_WORD,
-  PICTURE_NOTE,
+  pictureNote,
   READING_DETAILS,
   STATUS_ORDER,
   STATUS_WORDS,
@@ -331,7 +331,7 @@ function OwnerPanel({
               />
             </div>
           </div>
-          <p className="owner-panel__note">{PICTURE_NOTE}</p>
+          <p className="owner-panel__note">{pictureNote()}</p>
         </fieldset>
 
         <fieldset className="owner-panel__group">
@@ -356,7 +356,7 @@ function OwnerPanel({
           </div>
           {status === "doNotDisturb" && (
             <p id={hintId} className="owner-panel__hint">
-              {DO_NOT_DISTURB_HINT}
+              {doNotDisturbHint()}
             </p>
           )}
         </fieldset>

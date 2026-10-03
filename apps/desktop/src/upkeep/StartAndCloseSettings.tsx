@@ -5,19 +5,20 @@ import { ErrorState, LoadingState } from "@plenipo/ui";
 import { getStartAndClose, setStartAndClose, toCommandError } from "../api/commands";
 import { Toggle } from "../components/SwitchSettings";
 import { useLive } from "../pages/useLive";
+import { systemWords } from "../system/words";
 import { useShown } from "./useShown";
 
-/** The choices for closing the window, in plain words. */
-const CLOSE_CHOICES: readonly { value: CloseWindow; label: string; hint: string }[] = [
+/** The choices for closing the window, in plain words ("the tray": the system's own, ADR-155). */
+const closeChoices = (): readonly { value: CloseWindow; label: string; hint: string }[] => [
   {
     value: "keepWhileWorking",
-    label: "Keep Plenipo in the tray while work is going",
+    label: `Keep Plenipo in ${systemWords().waitsIn} while work is going`,
     hint: "With work going, the window hides and the work goes on. With nothing going, Plenipo quits.",
   },
   {
     value: "alwaysKeep",
-    label: "Always keep Plenipo in the tray",
-    hint: "Closing only hides the window. Quit Plenipo from the tray menu.",
+    label: `Always keep Plenipo in ${systemWords().waitsIn}`,
+    hint: `Closing only hides the window. Quit Plenipo from ${systemWords().waitsInMenu}.`,
   },
   {
     value: "quit",
@@ -28,7 +29,7 @@ const CLOSE_CHOICES: readonly { value: CloseWindow; label: string; hint: string 
 
 /**
  * Settings → Start and close (ADR-037, background work): Start with Windows (off until you
- * turn it on), and what closing the window does.
+ * turn it on), and what closing the window does. Each system says it its own way (ADR-155).
  */
 export function StartAndCloseSettings() {
   const live = useLive<StartAndClose>(
@@ -65,16 +66,17 @@ export function StartAndCloseSettings() {
     }
   };
 
+  const words = systemWords();
   return (
     <div className="settings-section__body settings-start">
       <section aria-labelledby="start-sign-in">
-        <h3 id="start-sign-in">When you sign in to Windows</h3>
+        <h3 id="start-sign-in">{words.whenYouSignIn}</h3>
         <Toggle
-          label="Start Plenipo with Windows"
+          label={words.startAtSignIn}
           hint={
             s.canStartWithWindows
-              ? "Plenipo starts in the tray, with no window, when you sign in. Windows' own Settings → Apps → Startup can turn it off too."
-              : "Only on Windows."
+              ? words.startAtSignInHint
+              : `${words.startingAtSignIn} is not available on this computer.`
           }
           checked={s.startWithWindows}
           disabled={pending || !s.canStartWithWindows}
@@ -85,7 +87,7 @@ export function StartAndCloseSettings() {
         <h3 id="start-close">When you close the window</h3>
         <fieldset className="fieldset" disabled={pending}>
           <legend className="visually-hidden">What closing the window does</legend>
-          {CLOSE_CHOICES.map((c) => (
+          {closeChoices().map((c) => (
             <label key={c.value} className="check">
               <input
                 type="radio"

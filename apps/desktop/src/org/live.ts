@@ -9,6 +9,7 @@ import type { LiveView, LiveWorker, OrgSnapshot } from "@plenipo/types";
 
 import { pathBetween, workerNodeId, type OrgLayout, type Point } from "./layout";
 import type { SymbolKey } from "./symbols";
+import { systemWords } from "../system/words";
 
 /** How long a hand-off shows on the canvas. */
 export const HANDOFF_SHOWN_MS = 60_000;
@@ -49,7 +50,7 @@ function runsOnPart(w: LiveWorker): WherePart | null {
       words: `Runs on ${r.name}${r.production ? " · PRODUCTION" : ""}`,
     };
   }
-  return { symbol: "where-this-pc", words: `Runs on this PC (${r.what})` };
+  return { symbol: "where-this-pc", words: `Runs on ${systemWords().thisComputer} (${r.what})` };
 }
 
 function touchingPart(w: LiveWorker): WherePart | null {

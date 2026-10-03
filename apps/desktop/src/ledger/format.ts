@@ -10,6 +10,7 @@ import { HANDOFF_OUTCOME_LABEL, OUTCOME_LABEL } from "../agents/format";
 import { capabilityLabel } from "../guard/format";
 import { describeLicenseEvent } from "../license/words";
 import { describeRemoteEvent } from "../remote/words";
+import { sentenceStart, systemWords } from "../system/words";
 
 export const TASK_STATE_LABEL: Record<TaskState, string> = {
   queued: "Queued",
@@ -184,11 +185,12 @@ const OWNER_PART: Record<string, string> = {
   picture: "picture",
 };
 
-const RECOVERY_WORDS: Record<string, string> = {
+/** How the last run ended ("Windows closed Plenipo": the system's own words, ADR-155). */
+const recoveryWords = (): Record<string, string> => ({
   crash: "Plenipo closed unexpectedly",
-  windowsRestart: "Windows closed Plenipo (a restart, a shutdown, or signing out)",
+  windowsRestart: `${sentenceStart(systemWords().theSystem)} closed Plenipo (a restart, a shutdown, or ${systemWords().signingOut})`,
   layoutChange: "Plenipo was stopped while updating the Ledger's layout",
-};
+});
 
 const BACKUP_WORDS: Record<string, string> = {
   manual: "made by you",
@@ -204,7 +206,7 @@ function describeUpkeepEvent(type: string, p: Record<string, unknown>): string |
   switch (type) {
     case "plenipo.recovered": {
       const stopped = Array.isArray(p.stoppedTasks) ? p.stoppedTasks.length : 0;
-      const what = RECOVERY_WORDS[str(p.cause) ?? ""] ?? "Plenipo did not close normally";
+      const what = recoveryWords()[str(p.cause) ?? ""] ?? "Plenipo did not close normally";
       return `${what}; ${stopped === 1 ? "1 task was" : `${stopped} tasks were`} stopped`;
     }
     case "plenipo.run_again":
@@ -661,7 +663,7 @@ function describeTerminalEvent(type: string, p: Record<string, unknown>): string
         return `${what} closed${typeof p.seconds === "number" ? ` after ${lasted(p.seconds)}` : ""}`;
     }
   }
-  const where = p.place === "thisPc" ? "this PC" : (str(p.title) ?? "a server");
+  const where = p.place === "thisPc" ? systemWords().thisComputer : (str(p.title) ?? "a server");
   const production = p.environment === "production" ? " (PRODUCTION)" : "";
   switch (type) {
     case "terminal.opened":

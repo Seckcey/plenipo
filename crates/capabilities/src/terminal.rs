@@ -99,8 +99,54 @@ pub fn shell_label(shell: TerminalShell) -> &'static str {
         TerminalShell::WindowsPowerShell => "Windows PowerShell",
         TerminalShell::PowerShell7 => "PowerShell 7",
         TerminalShell::CommandPrompt => "Command Prompt",
+        TerminalShell::YourShell => "Your shell",
+        TerminalShell::Zsh => "zsh",
+        TerminalShell::Bash => "bash",
+        TerminalShell::Fish => "fish",
     }
 }
+
+/// The shells this system offers, in order: Windows' three, or a Mac's and Linux's four (Phase
+/// 23, ADR-150).
+const fn offered() -> &'static [TerminalShell] {
+    if cfg!(windows) {
+        &[
+            TerminalShell::WindowsPowerShell,
+            TerminalShell::PowerShell7,
+            TerminalShell::CommandPrompt,
+        ]
+    } else {
+        &[
+            TerminalShell::YourShell,
+            TerminalShell::Zsh,
+            TerminalShell::Bash,
+            TerminalShell::Fish,
+        ]
+    }
+}
+
+/// The shell a choice means on this system: a choice no shell here answers to (a Windows one on
+/// a Mac, or the default on a Mac or Linux PC) is this system's first one.
+pub fn effective_shell(shell: TerminalShell) -> TerminalShell {
+    if offered().contains(&shell) {
+        shell
+    } else {
+        offered()[0]
+    }
+}
+
+/// Who a terminal on this PC runs as, in this system's words (ADR-155).
+pub fn runs_as() -> &'static str {
+    if cfg!(windows) {
+        "as your own Windows user — never as administrator"
+    } else {
+        "as yourself — never as root"
+    }
+}
+
+/// Shells that start as login shells with `-l`, as a Mac's Terminal starts them.
+#[cfg(target_os = "macos")]
+const LOGIN_SHELLS: &[&str] = &["zsh", "bash", "fish", "sh", "ksh", "dash", "tcsh", "csh"];
 
 fn existing(path: PathBuf) -> Option<PathBuf> {
     path.is_file().then_some(path)
@@ -134,13 +180,42 @@ fn find_shell(shell: TerminalShell) -> Option<PathBuf> {
             .filter(|p| p.is_absolute())
             .and_then(existing)
             .or_else(|| existing(system_root.join(r"System32\cmd.exe"))),
+        _ => None,
     }
 }
 
-/// Off Windows (development and the end-to-end tests) there is one shell: the user's own
-/// (`$SHELL`), or `/bin/sh`.
+/// Where each shell is on a Mac or a Linux PC (`None`: not installed). Homebrew's newer bash and
+/// fish come before the system's.
 #[cfg(not(windows))]
-pub fn other_shell() -> PathBuf {
+fn find_shell(shell: TerminalShell) -> Option<PathBuf> {
+    let first = |paths: &[&str]| paths.iter().map(PathBuf::from).find_map(existing);
+    match shell {
+        TerminalShell::YourShell => Some(own_shell()),
+        TerminalShell::Zsh => first(&[
+            "/bin/zsh",
+            "/usr/bin/zsh",
+            "/opt/homebrew/bin/zsh",
+            "/usr/local/bin/zsh",
+        ]),
+        TerminalShell::Bash => first(&[
+            "/opt/homebrew/bin/bash",
+            "/usr/local/bin/bash",
+            "/bin/bash",
+            "/usr/bin/bash",
+        ]),
+        TerminalShell::Fish => first(&[
+            "/opt/homebrew/bin/fish",
+            "/usr/local/bin/fish",
+            "/usr/bin/fish",
+            "/bin/fish",
+        ]),
+        _ => None,
+    }
+}
+
+/// The owner's own shell on a Mac or a Linux PC (`$SHELL`), or bash, or `/bin/sh`.
+#[cfg(not(windows))]
+pub fn own_shell() -> PathBuf {
     std::env::var_os("SHELL")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
@@ -149,65 +224,65 @@ pub fn other_shell() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/bin/sh"))
 }
 
-/// The shells the owner can pick, and whether this PC has each.
-pub fn shell_options() -> Vec<ShellOption> {
-    [
-        TerminalShell::WindowsPowerShell,
-        TerminalShell::PowerShell7,
-        TerminalShell::CommandPrompt,
-    ]
-    .into_iter()
-    .map(|shell| {
-        #[cfg(windows)]
-        let path = find_shell(shell);
-        #[cfg(not(windows))]
-        let path: Option<PathBuf> = None;
-        ShellOption {
-            shell,
-            label: shell_label(shell).into(),
-            installed: path.is_some(),
-            path: path.map(|p| p.display().to_string()),
-        }
-    })
-    .collect()
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
-/// The program for `shell` on this PC.
+/// The shells the owner can pick on this system, and whether this PC has each. The owner's own
+/// shell on a Mac or Linux says which it is: "Your shell (zsh)".
+pub fn shell_options() -> Vec<ShellOption> {
+    offered()
+        .iter()
+        .map(|&shell| {
+            let path = find_shell(shell);
+            let label = match &path {
+                Some(p) if shell == TerminalShell::YourShell => {
+                    format!("{} ({})", shell_label(shell), file_name(p))
+                }
+                _ => shell_label(shell).to_owned(),
+            };
+            ShellOption {
+                shell,
+                label,
+                installed: path.is_some(),
+                path: path.map(|p| p.display().to_string()),
+            }
+        })
+        .collect()
+}
+
+/// The program for `shell` on this PC (a choice another system made means this system's first
+/// shell). On a Mac it starts as a login shell, as the Mac's Terminal starts it, so it reads the
+/// settings Homebrew and others add (`~/.zprofile`).
 pub fn shell_program(shell: TerminalShell) -> Result<ShellProgram, String> {
-    #[cfg(windows)]
-    {
-        let program = find_shell(shell).ok_or_else(|| {
-            format!(
-                "{} is not installed on this PC; pick another shell in Settings → Terminal",
-                shell_label(shell)
-            )
-        })?;
-        let args = match shell {
-            TerminalShell::WindowsPowerShell | TerminalShell::PowerShell7 => vec!["-NoLogo".into()],
-            TerminalShell::CommandPrompt => Vec::new(),
-        };
-        Ok(ShellProgram {
-            label: shell_label(shell).into(),
-            program,
-            args,
-            env: None,
-        })
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = shell;
-        let program = other_shell();
-        let name = program
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "sh".into());
-        Ok(ShellProgram {
-            label: name,
-            program,
-            args: Vec::new(),
-            env: None,
-        })
-    }
+    let shell = effective_shell(shell);
+    let program = find_shell(shell).ok_or_else(|| {
+        format!(
+            "{} is not installed on {}; pick another shell in Settings → Terminal",
+            shell_label(shell),
+            plenipo_core::WORDS.this_computer
+        )
+    })?;
+    let name = file_name(&program);
+    let args = match shell {
+        TerminalShell::WindowsPowerShell | TerminalShell::PowerShell7 => vec!["-NoLogo".into()],
+        #[cfg(target_os = "macos")]
+        _ if LOGIN_SHELLS.contains(&name.as_str()) => vec!["-l".into()],
+        _ => Vec::new(),
+    };
+    let label = if shell == TerminalShell::YourShell && !name.is_empty() {
+        name
+    } else {
+        shell_label(shell).to_owned()
+    };
+    Ok(ShellProgram {
+        label,
+        program,
+        args,
+        env: None,
+    })
 }
 
 /// The owner's home folder, where a terminal on this PC starts.
@@ -329,6 +404,10 @@ pub fn start_local(
         }
         Arc::new(Mutex::new(job))
     };
+    // On a Mac and Linux the shell leads a session of its own; whatever it leaves running in it
+    // is ended when it ends (below).
+    #[cfg(unix)]
+    let leader = child.process_id();
     let killer = child.clone_killer();
     let reader = pair
         .master
@@ -413,9 +492,14 @@ pub fn start_local(
             .name("plenipo-terminal-wait".into())
             .spawn(move || {
                 let status = child.wait();
-                // Programs the shell left running end with it.
+                // Programs the shell left running end with it: on Windows through its job, on a
+                // Mac and Linux through its session (Phase 23, ADR-150).
                 #[cfg(windows)]
                 drop(lock(&job).take());
+                #[cfg(unix)]
+                if let Some(leader) = leader {
+                    end_session(leader);
+                }
                 // The way in closes first. As it starts, Windows' pseudo console asks the
                 // screen where the cursor is and waits for the answer; one closed before the
                 // screen answered would go on waiting instead of closing.
@@ -450,6 +534,58 @@ pub fn start_local(
         #[cfg(windows)]
         job,
     })
+}
+
+/// How long the programs left in a closed terminal have to stop before they are ended.
+#[cfg(unix)]
+const SESSION_GRACE: Duration = Duration::from_secs(1);
+
+/// End every program still in the session the terminal's shell led: asked to stop, then, a
+/// moment later, ended for certain, as Windows' job object ends them (Phase 23, ADR-150). A
+/// program that started a session of its own has left the terminal and is not touched, and the
+/// system lets Plenipo signal only the owner's own programs.
+#[cfg(unix)]
+fn end_session(leader: u32) {
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, Signal, System};
+
+    let own = std::process::id();
+    if leader <= 1 || leader == own {
+        return;
+    }
+    let session = Pid::from_u32(leader);
+    let members = |system: &System| -> Vec<Pid> {
+        system
+            .processes()
+            .values()
+            .filter(|p| p.session_id() == Some(session) && p.pid().as_u32() != own)
+            .map(sysinfo::Process::pid)
+            .collect()
+    };
+    let mut system = System::new();
+    let refresh = |system: &mut System| {
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing(),
+        );
+    };
+    refresh(&mut system);
+    let left = members(&system);
+    if left.is_empty() {
+        return;
+    }
+    for pid in &left {
+        if let Some(p) = system.process(*pid) {
+            let _ = p.kill_with(Signal::Term);
+        }
+    }
+    std::thread::sleep(SESSION_GRACE);
+    refresh(&mut system);
+    for pid in members(&system) {
+        if let Some(p) = system.process(pid) {
+            let _ = p.kill_with(Signal::Kill);
+        }
+    }
 }
 
 impl LocalShell {
@@ -613,13 +749,27 @@ mod tests {
     #[test]
     fn every_shell_has_a_plain_name_and_one_is_the_default() {
         let options = shell_options();
-        assert_eq!(options.len(), 3);
         assert_eq!(TerminalShell::default(), TerminalShell::WindowsPowerShell);
         let labels: Vec<_> = options.iter().map(|o| o.label.as_str()).collect();
-        assert_eq!(
-            labels,
-            ["Windows PowerShell", "PowerShell 7", "Command Prompt"]
-        );
+        if cfg!(windows) {
+            assert_eq!(
+                labels,
+                ["Windows PowerShell", "PowerShell 7", "Command Prompt"]
+            );
+        } else {
+            // Each system's own (ADR-155): the owner's shell, named, then zsh, bash, and fish.
+            assert_eq!(labels.len(), 4, "{labels:?}");
+            assert!(labels[0].starts_with("Your shell"), "{labels:?}");
+            assert_eq!(labels[1..], ["zsh", "bash", "fish"]);
+            assert!(
+                options[0].installed,
+                "the owner's own shell is always there"
+            );
+            assert_eq!(
+                effective_shell(TerminalShell::default()),
+                TerminalShell::YourShell
+            );
+        }
     }
 
     #[cfg(not(windows))]

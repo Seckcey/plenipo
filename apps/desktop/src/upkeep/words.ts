@@ -10,13 +10,15 @@ import type {
 } from "@plenipo/types";
 
 import { when } from "../pages/words";
+import { sentenceStart, systemWords } from "../system/words";
 
 /** What happened to the last run, as a title with its time. */
 export function recoveryTitle(recovery: Recovery, now: number = Date.now()): string {
   const at = recovery.lastSeenAt ? ` at ${when(recovery.lastSeenAt, now)}` : "";
   const titles: Record<RecoveryCause, string> = {
     crash: `Plenipo closed unexpectedly${at}`,
-    windowsRestart: `Windows closed Plenipo${at} (a restart, a shutdown, or signing out)`,
+    // "Windows closed Plenipo", "Your Mac closed Plenipo" (ADR-155); the cause keeps its name.
+    windowsRestart: `${sentenceStart(systemWords().theSystem)} closed Plenipo${at} (a restart, a shutdown, or ${systemWords().signingOut})`,
     layoutChange: `Plenipo was stopped${at} while updating the Ledger`,
     unknown: "Plenipo did not close normally last time",
   };

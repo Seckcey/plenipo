@@ -1,6 +1,12 @@
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ControlStatus, ExecutionRecord, RuntimeEvent, RuntimeOverview } from "@plenipo/types";
+import {
+  SYSTEM_WORDS,
+  type ControlStatus,
+  type ExecutionRecord,
+  type RuntimeEvent,
+  type RuntimeOverview,
+} from "@plenipo/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -183,6 +189,7 @@ beforeEach(() => {
     buildProfile: "release",
     os: "windows",
     arch: "x86_64",
+    words: SYSTEM_WORDS.windows,
   });
   api.frontendReady.mockResolvedValue(undefined);
   api.getAiTools.mockResolvedValue({

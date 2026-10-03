@@ -292,9 +292,7 @@ pub async fn set_start_and_close<R: Runtime>(
                     .map_err(CommandError::invalid_input)?;
             }
             None if input.start_with_windows => {
-                return Err(CommandError::invalid_input(
-                    "Starting with Windows is not available on this computer.",
-                ));
+                return Err(CommandError::invalid_input(start_close::not_available()));
             }
             _ => {}
         }

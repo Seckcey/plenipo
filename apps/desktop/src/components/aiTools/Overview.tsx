@@ -36,6 +36,7 @@ import {
   versionNotice,
   type UsageWindow,
 } from "./words";
+import { systemWords } from "../../system/words";
 
 type Apply = (page: AiToolsPage) => void;
 
@@ -381,8 +382,8 @@ function UpdateInfo({
             </p>
           )}
           <p className="muted">
-            {label} updates itself: when a new version is ready, use {label}&apos;s icon in the tray
-            to restart it.
+            {label} updates itself: when a new version is ready, use {label}&apos;s icon in{" "}
+            {systemWords().waitsIn} to restart it.
           </p>
         </>
       );

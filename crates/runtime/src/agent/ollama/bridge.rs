@@ -403,7 +403,10 @@ fn request(
 ) -> Result<Response, String> {
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
     let stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).map_err(|e| {
-        format!("Ollama is not running on this PC (connection refused: {e}). Start Ollama.")
+        format!(
+            "Ollama is not running on {} (connection refused: {e}). Start Ollama.",
+            plenipo_core::WORDS.this_computer
+        )
     })?;
     stream
         .set_read_timeout(timeout)

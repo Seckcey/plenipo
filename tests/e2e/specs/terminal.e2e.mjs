@@ -24,6 +24,8 @@ import {
   waitForShell,
   waitPidGone,
   waitUntil,
+  THIS_COMPUTER,
+  WORDS,
 } from "../lib/app.mjs";
 
 const home = makeHome();
@@ -183,8 +185,8 @@ describe("Phase 12 terminal panel (real app, synthetic SSH server)", () => {
     assert.ok(await exists(browser, `${PANEL} [data-pip="coding"]`));
     await screenshot(browser, "terminal-empty");
 
-    await clickButton(browser, "Open a terminal on this PC");
-    await waitForText(browser, `${PANEL} [role="tablist"]`, "This PC");
+    await clickButton(browser, `Open a terminal on ${WORDS.thisComputer}`);
+    await waitForText(browser, `${PANEL} [role="tablist"]`, THIS_COMPUTER);
     await waitUntil(() => exists(browser, `${PANEL} .xterm-rows`), "the terminal to draw");
     await type(browser, "echo plenipo-$((6 * 7))");
     await waitUntil(
@@ -220,7 +222,7 @@ describe("Phase 12 terminal panel (real app, synthetic SSH server)", () => {
     // The Activity trail records that a terminal opened, never what was typed.
     await nav(browser, "Activity");
     await clickButton(browser, "All events");
-    await waitForText(browser, ALL_EVENTS, "You opened a terminal on this PC");
+    await waitForText(browser, ALL_EVENTS, `You opened a terminal on ${WORDS.thisComputer}`);
     assert.ok(!(await textOf(browser, "main")).includes("plenipo-"), "nothing typed is recorded");
   });
 

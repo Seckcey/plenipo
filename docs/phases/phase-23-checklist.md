@@ -171,8 +171,11 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       the check cannot run on is refused everywhere; the Mac asks its own `/usr/sbin/lsof` (full
       path, 5-second limit; any failure refuses) and follows parents with `sysinfo`; its tests
       pass on GitHub's Mac
-- [ ] **The terminal's programs end with it.** Closing a terminal on Mac and Linux only signals the
+- [x] **The terminal's programs end with it.** Closing a terminal on Mac and Linux only signals the
       shell, so programs started in it can keep running. End its whole group, as Windows does.
+      Done: the shell leads its own session, so when it ends Plenipo asks every program still in
+      that session to stop, waits a second, then ends the rest. A test starts a program with
+      `nohup` (told to ignore the hang-up), closes the terminal, and checks the program is gone.
 - [x] **Never as root.** On Windows, Plenipo refuses to open a terminal while it runs as
       administrator. On Mac and Linux it never checks for root; add that check, for the terminal and
       for the browser (which runs without its sandbox as root on Linux).
@@ -229,8 +232,14 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       refused. A name in other letters stays inside: the same file on a Mac's disk, a new name on
       Linux's. Blocked-file patterns catch any spelling. Tests for each, run on GitHub's Mac and
       Linux machines.
-- [ ] **The terminal's shells.** Today the choice is Windows PowerShell, PowerShell 7, or Command
+- [x] **The terminal's shells.** Today the choice is Windows PowerShell, PowerShell 7, or Command
       Prompt. Add the owner's own shell on Mac and Linux (zsh, bash, fish from `/etc/shells`).
+      Done: a Mac and Linux offer "Your shell" (the owner's own, named: "Your shell (zsh)"), zsh,
+      bash, and fish, each looked for in fixed places (Homebrew's first for bash and fish) rather
+      than read from `/etc/shells`, and only one this PC has can be picked. A Mac starts them as
+      Terminal does, as a login shell. Settings says who the terminal runs as in the system's own
+      words ("as yourself — never as root"), and a choice made on another system falls back to
+      this system's first one.
 - [x] **One Plenipo at a time** on every system (the single-instance switch is Windows only today
       because Linux test runs start several copies; give tests their own switch instead). Done: on
       every system. The end-to-end tests start one copy after another, so they need no switch. On
@@ -240,9 +249,24 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       `windows-x86_64`). Installing an update on each system comes in Waves 2 and 3. Done: each copy
       asks for its own (`darwin-aarch64`, `linux-x86_64`, and so on), and a release with no download
       for it is simply not offered, instead of the check failing every day.
-- [ ] **Screen words** come from the new vocabulary table: the system's own name for the password
+- [x] **Screen words** come from the new vocabulary table: the system's own name for the password
       store, "Start Plenipo when you sign in", Cmd and Option on a Mac, no "Windows" where it does not
-      apply.
+      apply. Done: one list of each system's words in Rust (`crates/core/src/words.rs`), sent to the
+      screens with the app's information before the first paint; Plenipo's own messages use the same
+      list. "this PC" becomes "this Mac" or "this computer", the tray becomes the menu bar on a Mac,
+      "Windows closed Plenipo" becomes "Your Mac closed Plenipo", and shortcut labels read ⌘S and ⌃⇧E
+      on a Mac. `pnpm bindings` writes every system's words for the screens' tests, which check the Mac
+      and Linux words too. Names in the code and the Ledger (`windowsRestart`) stay.
+- [x] **Files that run when opened** (found 2026-10-02): "Open in another program" refuses a
+      program or a script by the end of its name, which is Windows' rule. On a Mac and Linux a file
+      with no ending can run if it is marked as a program, and some kinds run or open something else
+      (`.command`, `.app`, `.terminal`, `.scpt`, `.workflow`, `.fileloc`, `.webloc` on a Mac;
+      `.desktop`, `.AppImage`, `.run` on Linux). Refuse those too, before Waves 2 and 3 let the
+      button open files with Finder's `open` or `xdg-open`.
+      Done: on a Mac and Linux a file marked as a program counts as one whatever its name, and the
+      Mac's and Linux's kinds (`.command`, `.pkg`, `.dmg`, `.webloc`, `.fileloc`, `.scpt`, `.workflow`,
+      `.AppImage`, `.desktop`, `.run`, and others) join the list. "Open in another program" refuses
+      them, and the Files list marks them as programs; tests on GitHub's Mac and Linux machines.
 - [ ] **Done when:** every test suite passes on Windows, Linux, and Mac in CI, and a Guard safety
       review of Wave 1 finds nothing open.
 
