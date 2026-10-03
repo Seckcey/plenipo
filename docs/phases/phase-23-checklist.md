@@ -1,6 +1,6 @@
 # Phase 23 — Implementation Checklist
 
-**Status: Wave 0 delivered (2026-10-02); Wave 1 in progress** (started 2026-10-02). Builds on v1.19.3. Below, "[x]" is done.
+**Status: Wave 0 delivered (2026-10-02); Wave 1 in progress, its first part in v1.20.0** (started 2026-10-02). Builds on v1.19.3. Below, "[x]" is done.
 Plenipo is made by 8 West Ventures, LLC.
 
 Source: `ROLLOUT_PLAN.md`, Phase 23 — Mac and Linux, and the records written for it:
