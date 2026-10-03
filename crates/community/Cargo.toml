@@ -1,0 +1,28 @@
+[package]
+name = "plenipo-community"
+description = "Community (Phase 24): the contract with 8 West's account service in code (contracts/community/v1), each PC's Community keys, sealing and opening items, the report proof, the stamp, and the safety code."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+base64 = "0.22"
+# Each PC's signing key (ADR-162 §3, contract §7).
+ed25519-dalek = "3"
+getrandom = "0.3"
+# The report proof's tag (ADR-164 §6, contract §7).
+hmac = "0.13"
+# Sealing for each PC: HPKE (RFC 9180) with X25519, HKDF-SHA256, and AES-256-GCM (ADR-164 §1).
+# Only the parts this suite needs; pinned, because the seal must never change under us.
+hpke = { version = "=0.14.1", default-features = false, features = ["x25519", "aes", "alloc"] }
+# The operating system's random bytes, in the form HPKE asks for.
+rand_core = { version = "0.10", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+thiserror = "2"
+
+[lints]
+workspace = true

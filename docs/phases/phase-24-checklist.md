@@ -104,7 +104,7 @@ are written and tested; they reach the live service, still switched off, when th
 
 ## Part 24C — people: profile, messages, block, report, leave
 
-- [ ] `Limit::CommunityStart` in `Entitlements::check` (ADR-162 §5)
+- [x] `Limit::CommunityStart` in `Entitlements::check` (ADR-162 §5)
 - [ ] Guard's outbound purpose **Community**: only `account.getplenipo.com`, only while signed in
       (ADR-162 §7)
 - [ ] The **Community** switch, signing in with a code, the age box, signing out (ADR-162)

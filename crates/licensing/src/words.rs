@@ -20,6 +20,9 @@ pub fn free_has(limit: Limit) -> &'static str {
         Limit::AddOnTools => "Add-on tools are part of Pro.",
         Limit::Lessons => "Workers that learn from their work are part of Pro.",
         Limit::PhoneAccess => "Using Plenipo from your phone is part of Pro.",
+        Limit::CommunityStart => {
+            "Starting a conversation, a link, or an invitation in Community is part of Pro."
+        }
     }
 }
 
@@ -45,6 +48,10 @@ pub fn pro_adds(limit: Limit) -> &'static str {
         Limit::PhoneAccess => {
             "Plenipo Pro lets you see your work, answer approvals, and give objectives from your \
              phone, while your PC stays in charge."
+        }
+        Limit::CommunityStart => {
+            "Plenipo Pro lets you write first to people in Community, link your organization \
+             with another, and invite a helper. Answering someone who wrote to you first is free."
         }
     }
 }
@@ -128,6 +135,10 @@ mod tests {
                 "Using Plenipo from your phone is part of Pro. Plenipo Pro lets you see your \
                  work, answer approvals, and give objectives from your phone, while your PC \
                  stays in charge. Enter a license key in Settings → License.",
+                "Starting a conversation, a link, or an invitation in Community is part of Pro. \
+                 Plenipo Pro lets you write first to people in Community, link your \
+                 organization with another, and invite a helper. Answering someone who wrote to \
+                 you first is free. Enter a license key in Settings → License.",
             ]
         );
     }
