@@ -226,10 +226,15 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       Linux's, which does not; and on Mac folders that are really links (`/tmp` is `/private/tmp`).
 - [ ] **The terminal's shells.** Today the choice is Windows PowerShell, PowerShell 7, or Command
       Prompt. Add the owner's own shell on Mac and Linux (zsh, bash, fish from `/etc/shells`).
-- [ ] **One Plenipo at a time** on every system (the single-instance switch is Windows only today
-      because Linux test runs start several copies; give tests their own switch instead).
-- [ ] **Updates know which system they are on** (today the update check always asks for
-      `windows-x86_64`). Installing an update on each system comes in Waves 2 and 3.
+- [x] **One Plenipo at a time** on every system (the single-instance switch is Windows only today
+      because Linux test runs start several copies; give tests their own switch instead). Done: on
+      every system. The end-to-end tests start one copy after another, so they need no switch. On
+      Linux the copies find each other over the desktop's session bus, and the plugin stops
+      Plenipo when there is none, so it is used only where one is there.
+- [x] **Updates know which system they are on** (today the update check always asks for
+      `windows-x86_64`). Installing an update on each system comes in Waves 2 and 3. Done: each copy
+      asks for its own (`darwin-aarch64`, `linux-x86_64`, and so on), and a release with no download
+      for it is simply not offered, instead of the check failing every day.
 - [ ] **Screen words** come from the new vocabulary table: the system's own name for the password
       store, "Start Plenipo when you sign in", Cmd and Option on a Mac, no "Windows" where it does not
       apply.

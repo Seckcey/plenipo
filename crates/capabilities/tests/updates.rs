@@ -76,12 +76,19 @@ fn sign(pair: &minisign::KeyPair, data: &[u8], version: Option<&str>) -> String 
     b64(&sig.to_string())
 }
 
+/// A `latest.json` with a download for the system the tests run on (Phase 23: each system looks
+/// for its own).
 fn manifest(version: &str, url: &str, signature: &str) -> Vec<u8> {
+    let mut platforms = serde_json::Map::new();
+    platforms.insert(
+        updates::PLATFORM.to_owned(),
+        serde_json::json!({ "signature": signature, "url": url }),
+    );
     serde_json::to_vec(&serde_json::json!({
         "version": version,
         "notes": "Fixes and safety.",
         "pub_date": "2026-10-01T12:00:00Z",
-        "platforms": { "windows-x86_64": { "signature": signature, "url": url } },
+        "platforms": platforms,
     }))
     .unwrap()
 }
@@ -353,7 +360,14 @@ fn versions_compare_and_pre_releases_are_never_offered() {
     assert!(!updates::is_newer("1.10.0", "1.9.0"));
     assert!(!updates::is_newer("1.9.0", "2.0.0-beta.1"));
     assert!(!updates::is_newer("1.9.0", "not a version"));
-    let r = updates::parse_manifest(&manifest("v1.10.0", "https://x/y", "s")).unwrap();
+    let r = updates::parse_manifest(&manifest("v1.10.0", "https://x/y", "s"))
+        .unwrap()
+        .expect("a download for this system");
     assert_eq!(r.version, "1.10.0");
-    assert!(updates::parse_manifest(br#"{"version":"1.10.0","platforms":{}}"#).is_err());
+    // A release with no download for this system is not offered (Phase 23): no error.
+    let none = updates::parse_manifest(br#"{"version":"1.10.0","platforms":{}}"#).unwrap();
+    assert!(none.is_none());
+    let elsewhere =
+        br#"{"version":"1.10.0","platforms":{"other-system":{"signature":"s","url":"u"}}}"#;
+    assert!(updates::parse_manifest(elsewhere).unwrap().is_none());
 }

@@ -887,19 +887,37 @@ fn quit_on_termination_signal<R: Runtime>(app: tauri::AppHandle<R>) {
     let _ = app;
 }
 
+/// Whether this computer can keep Plenipo to one copy at a time. On Linux the copies find each
+/// other over the desktop's session bus, and the plugin stops Plenipo when there is none (a
+/// minimal Linux, or a container), so it is used only where one is there (Phase 23).
+fn one_at_a_time_possible() -> bool {
+    if !cfg!(target_os = "linux") {
+        return true;
+    }
+    std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_some()
+        || std::env::var_os("XDG_RUNTIME_DIR")
+            .is_some_and(|dir| std::path::Path::new(&dir).join("bus").exists())
+}
+
 /// Build and run the Tauri application, returning the process exit code.
 pub fn run() -> i32 {
     let smoke = SmokeTest::from_env();
     let outcome = smoke.clone();
 
-    // One Plenipo at a time (Phase 13, ADR-037): opening it again shows the one running, and
-    // `--quit` asks it to quit the normal way. First, so a second launch stops before anything
-    // else starts. Windows only: the target, and Linux test runs start one after another.
+    // One Plenipo at a time (Phase 13, ADR-037; on every system from Phase 23): opening it again
+    // shows the one running, and `--quit` asks it to quit the normal way. First, so a second
+    // launch stops before anything else starts.
     let builder = tauri::Builder::default();
-    #[cfg(windows)]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-        start_close::on_second_launch(app, &args);
-    }));
+    let builder = if one_at_a_time_possible() {
+        builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            start_close::on_second_launch(app, &args);
+        }))
+    } else {
+        log::warn!(
+            "No desktop session bus: more than one Plenipo could run at once on this computer"
+        );
+        builder
+    };
     let runtime_code = configure(builder, smoke, ShellOptions::default())
         .build(context())
         .expect("error while building Plenipo")
