@@ -546,8 +546,7 @@ pub(crate) mod tests {
         assert_eq!(b.limit, Limit::CommunityStart);
         assert!(
             b.message.starts_with(
-                "Starting a conversation, a link, or an invitation in Community is part of \
-                 Plenipo Pro."
+                "Starting a conversation, a link, or an invitation in Community is part of Pro."
             ),
             "{b}"
         );
