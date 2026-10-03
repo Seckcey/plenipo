@@ -2029,6 +2029,74 @@ impl Workforce {
         Ok(detail)
     }
 
+    /// A side chat with a full-time agent (Phase 25, item 3.5; ADR-201): a new conversation on
+    /// the agent's AI tool and model, told who it is, what it is doing now, and its recent
+    /// conversation, with the owner's question. Answer only: no tools and no hand-offs. It works
+    /// while the agent is busy or waiting, and never touches its work. Listed in Workers as "Side
+    /// chat with …".
+    pub async fn ask_side_question(
+        &self,
+        position_id: &str,
+        question: &str,
+    ) -> Result<AgentSessionDetail> {
+        if question.trim().is_empty() {
+            return Err(invalid("write your question first"));
+        }
+        let runtime = &self.inner.runtime;
+        if runtime
+            .runtimes()
+            .iter()
+            .any(|r| r.installation.state == InstallState::Checking)
+        {
+            runtime.refresh().await;
+        }
+        let this = self.clone();
+        let id = position_id.to_owned();
+        let (plan, role) = tokio::task::spawn_blocking(move || {
+            let l = this.ledger();
+            let records = l.org_records()?;
+            let view = OrgView::new(&records);
+            let position = view.position(&id).ok_or_else(|| {
+                WorkforceError::Ledger(plenipo_ledger::LedgerError::NotFound(format!(
+                    "position {id}"
+                )))
+            })?;
+            let role = view
+                .role(position)
+                .map_or_else(|| position.title.clone(), |r| r.name.clone());
+            let planner = this.inner.router.planner()?;
+            let plan = conversation::plan(l, &planner, &view, position)?;
+            Ok::<_, WorkforceError>((plan, role))
+        })
+        .await
+        .map_err(|e| WorkforceError::Internal(e.to_string()))??;
+        // What the agent knows: Plenipo's own record of its conversation.
+        let known = if plan.existing {
+            runtime.session(&plan.session_id).await.ok()
+        } else {
+            None
+        };
+        let brief = crate::side_chat::brief(&plan.title, &role, known.as_ref(), question);
+        Ok(self
+            .inner
+            .liaison
+            .start_side_chat(
+                SessionStart {
+                    id: None,
+                    runtime_id: plan.runtime_id,
+                    model: plan.model,
+                    effort: None,
+                    title: Some(format!("Side chat with {}", plan.title)),
+                    metadata: json!({ "sideChat": {
+                        "positionId": position_id,
+                        "title": plan.title,
+                    }}),
+                },
+                &brief,
+            )
+            .await?)
+    }
+
     /// Check that `position_id` can take an objective and find its agent's conversation — or,
     /// for a new one, the AI tool and model to start it on. With `project_id`, the objective
     /// belongs to that project, which must be run by the position's team; the second value is

@@ -616,6 +616,11 @@ export function endOversight(oversightId: string): Promise<OrgSnapshot> {
  * chooses its session; the UI names only the position. With `projectId`, the objective belongs
  * to that project (which the position's team must run).
  */
+/** A side chat with a full-time agent (Phase 25, item 3.5): answer only, in a new conversation. */
+export function askSideQuestion(positionId: string, question: string): Promise<AgentSessionDetail> {
+  return call<AgentSessionDetail>("ask_side_question", { positionId, question });
+}
+
 export function giveObjective(
   positionId: string,
   objective: string,

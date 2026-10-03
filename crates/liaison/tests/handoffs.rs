@@ -680,6 +680,53 @@ async fn an_unavailable_destination_fails_the_handoff_without_switching_provider
     assert!(h.ledger.executions_for_task(&child.id).unwrap().is_empty());
 }
 
+/// Side chats (Phase 25, item 3.5): a side chat during a running task leaves the task alone, has
+/// no tools (it is not a member's conversation, which is what Plenipo gives tools to), and its
+/// hand-off blocks are not read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_side_chat_leaves_the_work_alone_has_no_tools_and_hands_nothing_on() {
+    let h = harness().await;
+    let (_, root) = h
+        .start("codex", "Build it [handoff:claude-code+slow]")
+        .await;
+    h.until("the child to run", |h| {
+        h.children(&root)
+            .first()
+            .is_some_and(|c| c.state == TaskState::Running)
+    })
+    .await;
+    let child = h.only_child(&root);
+
+    let side = h
+        .liaison
+        .start_side_chat(
+            plenipo_runtime::agent::SessionStart {
+                runtime_id: "codex".into(),
+                title: Some("Side chat with Builder".into()),
+                metadata: serde_json::json!({ "sideChat": { "positionId": "p-1", "title": "Builder" } }),
+                ..plenipo_runtime::agent::SessionStart::default()
+            },
+            "How far along is it? [handoff:claude-code]",
+        )
+        .await
+        .unwrap();
+    assert_eq!(side.session.title, "Side chat with Builder");
+    let meta = &side.session.metadata;
+    assert!(
+        meta.get("workforce").is_none() && meta.get("liaison").is_none(),
+        "{meta}"
+    );
+    let asked = side.turns[0].task_id.clone();
+    assert_eq!(h.finished(&asked).await.state, TaskState::Succeeded);
+    // Its hand-off block was not read: nothing was handed on.
+    assert!(h.children(&asked).is_empty());
+    assert!(h.requests(&asked).is_empty());
+    // The work goes on, untouched.
+    assert_eq!(h.task(&child.id).state, TaskState::Running);
+    assert_eq!(h.task(&root).state, TaskState::Blocked);
+    assert_eq!(h.children(&root).len(), 1);
+}
+
 /// Stop on a worker (Phase 25, item 3.3): only its task ends; the lead that asked for it is told
 /// it was stopped, and carries on with its own task.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

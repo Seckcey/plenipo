@@ -19,6 +19,7 @@ import {
   type Status,
 } from "@plenipo/ui";
 
+import { AskQuestionButton } from "../components/sideChat/AskQuestion";
 import { LiveConversation } from "../live/LiveConversation";
 import { liveWork } from "../live/words";
 import { StopButton } from "../components/stop/StopWork";
@@ -208,6 +209,8 @@ export function WorkerPage({
             >
               Show on the map
             </Button>
+            {/* A side chat while it works (Phase 25, item 3.5). */}
+            <AskQuestionButton p={p} onAsked={onOpenSession} />
             {/* Phase 25, item 3.3. */}
             <StopButton who={p.title} work={workToStop(p)} fullTime={p.staffing === "persistent"} />
           </>

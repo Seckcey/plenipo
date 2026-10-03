@@ -636,22 +636,27 @@ About 5 to 7 build sessions.
   including one waiting on its workers, says no. The Workers page refuses to continue a member's
   conversation.
 - **Do:**
-  - [ ] **Ask a question** on the Inspector and the Worker page. It works while the agent is busy
-        or waiting.
-  - [ ] The side chat starts from a **copy** of the agent's conversation, so it knows what's
-        going on, plus a short "status now". Its real work is never touched.
-    - Claude Code: `--fork-session`.
-    - Paid keys and Ollama: Plenipo copies its own saved conversation.
-    - Codex, Grok, and Kimi: their fork, once checked.
-    - Otherwise: a fresh conversation with a short briefing.
-  - [ ] **Answer only:** no tools and no hand-offs
+  - [x] **Ask a question** on the Inspector and the Worker page. It works while the agent is busy
+        or waiting. [ADR-201 (side chats)](../adr/ADR-201-side-chats.md).
+  - [x] The side chat knows what's going on: a briefing with who it is, "status now", and its last
+        four objectives and answers, from Plenipo's own saved record of its conversation. Its real
+        work is never touched.
+    - [ ] Claude Code: `--fork-session`. **Not yet:** every side chat starts fresh with the
+          briefing (ADR-201 says why).
+    - [x] Paid keys and Ollama: Plenipo's own saved record (the briefing).
+    - [ ] Codex, Grok, and Kimi: their fork, once checked. **Not yet** (the briefing for now).
+    - [x] Otherwise: a fresh conversation with a short briefing.
+  - [x] **Answer only:** no tools and no hand-offs
         ([answer 4](../adr/ADR-190-phase-25-starts.md#the-owners-answers-2026-10-03)). It still counts
         toward your plan's usage and Free's three-at-once limit.
-  - [ ] Side chats are listed in Workers as "Side chat with Alex".
+  - [x] Side chats are listed in Workers as "Side chat with Alex".
 - **Tests:**
-  - [ ] a side chat during a running task leaves the task alone
-  - [ ] it has no tools
-  - [ ] its hand-off blocks are ignored
+  - [x] a side chat during a running task leaves the task alone (Liaison
+        `a_side_chat_leaves_the_work_alone_has_no_tools_and_hands_nothing_on`, Workforce
+        `a_side_chat_with_a_busy_supervisor_knows_what_it_is_doing_and_leaves_it_alone`)
+  - [x] it has no tools (it is never marked as a member's conversation, which is what Plenipo gives
+        tools to)
+  - [x] its hand-off blocks are ignored (the same Liaison test); `sideChat.test.tsx` for the box
 
 ---
 

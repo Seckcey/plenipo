@@ -1,7 +1,8 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`The properties panel > has six tabs, and every option on every tab says what it does 1`] = `
-"a full-time agent › Overview › Stop VP — Stops its task now, after a question. Its conversation stays.
+"a full-time agent › Overview › Ask a question — A side chat: it answers from what it knows, and its work goes on.
+a full-time agent › Overview › Stop VP — Stops its task now, after a question. Its conversation stays.
 a full-time agent › Overview › Objective for VP — Say what it should get done. It can hand parts of it to its team.
 a full-time agent › Overview › Give objective — Its agent starts on it now, in its first conversation.
 a full-time agent › Overview › Open its page — Its work, history, and permissions on a page of its own.
@@ -60,6 +61,7 @@ an on-call agent › Team › Assign — It stays where it is and joins that tea
 an on-call agent › Manage › Title — Unique within its team; teammates hand work to each other by title.
 an on-call agent › Manage › Rename — Keeps the new title. Its agent and conversation stay.
 an on-call agent › Manage › Archive — Takes it off the chart; you can bring it back, save it to your Workforce, or delete it for good.
+a manager › Overview › Ask a question — A side chat: it answers from what it knows, and its work goes on.
 a manager › Overview › Objective for Engineering Manager — Say what it should get done. It can hand parts of it to its team.
 a manager › Overview › Give objective — Its agent starts on it now, in its first conversation.
 a manager › Overview › Open its page — Its work, history, and permissions on a page of its own.
@@ -84,6 +86,7 @@ a manager › Manage › Title — Unique within its team; teammates hand work t
 a manager › Manage › Rename — Keeps the new title. Its agent and conversation stay.
 a manager › Manage › Hire into team — Add a position to its team: a new agent, or one from your Workforce.
 a manager › Manage › Let agent go — Its agent retires and its conversation ends; the position stays, vacant.
+a supervisor › Overview › Ask a question — A side chat: it answers from what it knows, and its work goes on.
 a supervisor › Overview › Objective for Website Supervisor — Say what it should get done. It can hand parts of it to its team.
 a supervisor › Overview › Give objective — Its agent starts on it now, in its first conversation.
 a supervisor › Overview › Open its page — Its work, history, and permissions on a page of its own.

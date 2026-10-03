@@ -18,6 +18,7 @@ pub mod outcome;
 pub mod owner;
 mod prompt;
 mod service;
+pub mod side_chat;
 mod snapshot;
 pub mod templates;
 mod view;

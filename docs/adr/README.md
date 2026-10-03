@@ -166,3 +166,4 @@ architecture must be recorded here.
 | [198](ADR-198-the-setup-tour.md)                          | The setup tour, with Driver.js: nine steps that move on when each is done (amends 030, 053)                            | Accepted |
 | [199](ADR-199-stop-all-work.md)                           | Stop on every worker, and Stop all work: every task stops and nothing starts until Allow again (amends 020, 094)       | Accepted |
 | [200](ADR-200-watch-shows-changes-made-by-commands.md)    | Watch shows changes made by commands too: files noted before and compared after (amends 055)                           | Accepted |
+| [201](ADR-201-side-chats.md)                              | Side chats with a manager or supervisor: answer only, briefed on what the agent knows                                  | Accepted |

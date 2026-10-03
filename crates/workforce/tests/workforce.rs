@@ -1055,6 +1055,80 @@ async fn plan_orphan_prevention() {
     );
 }
 
+// ---- Side chats (Phase 25, item 3.5) -------------------------------------------------------
+
+/// A side chat with a busy supervisor: a new conversation, briefed on what it is doing, that
+/// leaves its work alone; an on-call position has none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_side_chat_with_a_busy_supervisor_knows_what_it_is_doing_and_leaves_it_alone() {
+    let h = harness().await;
+    let o = h.development();
+    let busy = h
+        .objective(&o.coordinator, "Ship the pricing page [delay:3000]")
+        .await;
+    h.until("the coordinator to work", |s| {
+        s.positions
+            .iter()
+            .any(|p| p.id == o.coordinator && p.status == PositionStatus::Working)
+    })
+    .await;
+    let side = h
+        .workforce
+        .ask_side_question(&o.coordinator, "How far along are you?")
+        .await
+        .unwrap();
+    let coordinator_title = h
+        .workforce
+        .snapshot()
+        .unwrap()
+        .positions
+        .into_iter()
+        .find(|p| p.id == o.coordinator)
+        .unwrap()
+        .title;
+    assert_eq!(
+        side.session.title,
+        format!("Side chat with {coordinator_title}")
+    );
+    assert_eq!(
+        side.session.metadata["sideChat"]["positionId"],
+        o.coordinator.as_str()
+    );
+    assert!(side.session.metadata.get("workforce").is_none(), "no tools");
+    let asked = &side.turns[0];
+    assert!(
+        asked.objective.contains("This is a side chat"),
+        "{}",
+        asked.objective
+    );
+    assert!(
+        asked
+            .objective
+            .contains("Status now: working on: Ship the pricing page"),
+        "{}",
+        asked.objective
+    );
+    assert!(asked
+        .objective
+        .trim_end()
+        .ends_with("How far along are you?"));
+    // Its own conversation is another one, and its work goes on.
+    assert_ne!(
+        Some(&side.session.id),
+        h.task(&busy).metadata["sessionId"]
+            .as_str()
+            .map(str::to_owned)
+            .as_ref()
+    );
+    assert!(!h.task(&busy).state.is_terminal());
+    assert_eq!(h.finished(&busy).await.state, TaskState::Succeeded);
+    // An empty question, and an on-call position, are refused.
+    assert!(
+        refusal(h.workforce.ask_side_question(&o.coordinator, "  ").await).contains("question")
+    );
+    assert!(refusal(h.workforce.ask_side_question(&o.developer, "Hi").await).contains("on-call"));
+}
+
 // ---- Routing -------------------------------------------------------------------------------
 
 /// A member lent to another team (ADR-054) is named as the reason only when nobody on the team

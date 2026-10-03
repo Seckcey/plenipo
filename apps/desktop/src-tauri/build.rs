@@ -120,6 +120,7 @@ const COMMANDS: &[&str] = &[
     "assign_oversight",
     "end_oversight",
     "give_objective",
+    "ask_side_question",
     "get_routing",
     "save_model",
     "remove_model",

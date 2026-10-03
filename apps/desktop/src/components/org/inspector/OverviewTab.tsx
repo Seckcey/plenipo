@@ -16,6 +16,8 @@ import { useOpenWatch } from "../../../terminal/useTerminal";
 import { PILL_TONE } from "../../tones";
 import { LiveConversation } from "../../../live/LiveConversation";
 import { liveWork } from "../../../live/words";
+import { AskQuestionButton } from "../../sideChat/AskQuestion";
+import { canAsk } from "../../sideChat/canAsk";
 import { StopButton } from "../../stop/StopWork";
 import { workToStop } from "../../stop/stopWork";
 import { Glyph } from "../Glyph";
@@ -76,6 +78,7 @@ export function OverviewTab({
   const stopWork = workToStop(p);
   const liveNow = liveWork(p)[0] ?? null;
   const stopHint = useId();
+  const askHint = useId();
   // Watch (Phase 18, ADR-055): what its workers change, in the terminal panel. Hidden where
   // there is no terminal panel, and for an archived or vacant position.
   const openWatch = useOpenWatch();
@@ -97,6 +100,15 @@ export function OverviewTab({
           </div>
           <StatusPill status={POSITION_STATUS[p.status]} label={STATUS_LABEL[p.status]} />
           {p.statusDetail && <p className="inspector__detail">{p.statusDetail}</p>}
+          {/* Ask it a question while it works (Phase 25, item 3.5). */}
+          {canAsk(p) && (
+            <div className="inspector__stop">
+              <AskQuestionButton p={p} onAsked={actions.openSession} describedBy={askHint} />
+              <span id={askHint} className="muted">
+                A side chat: it answers from what it knows, and its work goes on.
+              </span>
+            </div>
+          )}
           {/* Stop its work now, after a question (Phase 25, item 3.3). */}
           {stopWork.length > 0 && (
             <div className="inspector__stop">

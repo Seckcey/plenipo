@@ -542,6 +542,24 @@ impl Liaison {
         self.admitted(admission, started)
     }
 
+    /// A side chat (Phase 25, item 3.5; ADR-201): the owner's own conversation with a copy of
+    /// what an agent knows, answer only. It gets no Plenipo tools (its AI tool has none of its
+    /// own either) and its hand-off blocks are not read, since hand-offs are on only for
+    /// sessions that ask for them. It counts like any other worker (Free's three at once).
+    pub async fn start_side_chat(
+        &self,
+        start: SessionStart,
+        objective: &str,
+    ) -> std::result::Result<AgentSessionDetail, RuntimeError> {
+        let admission = self.admit_owners()?;
+        let started = self
+            .inner
+            .runtime
+            .start_session_with(start, TurnInput::owner(objective))
+            .await;
+        self.admitted(admission, started)
+    }
+
     /// Give a session its next objective. In a session that allows handoffs it starts a new
     /// workflow; a handoff worker's session takes work only through Liaison.
     pub async fn resume_session(

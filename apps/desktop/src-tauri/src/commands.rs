@@ -1168,6 +1168,25 @@ pub async fn end_oversight(
     with_workforce(&workforce, move |w| w.end_oversight(&oversight_id)).await
 }
 
+/// A side chat with a full-time agent (Phase 25, item 3.5; ADR-201): the owner's question, in a
+/// new conversation that knows what the agent knows, answer only. It works while the agent is
+/// busy or waiting; its work is never touched.
+#[tauri::command]
+pub async fn ask_side_question(
+    workforce: Org<'_, Workforce>,
+    agents: Org<'_, AgentRuntime>,
+    position_id: String,
+    question: String,
+) -> Result<AgentSessionDetail, CommandError> {
+    validate_id("position", &position_id)?;
+    validate_objective(&question)?;
+    refuse_while_stopped(&agents)?;
+    workforce
+        .ask_side_question(&position_id, &question)
+        .await
+        .map_err(workforce_error)
+}
+
 /// Give a staffed persistent position's agent an objective. Core builds its instructions and
 /// chooses its session; the UI names only the position and, optionally, the project the
 /// objective is about (one its team runs, Phase 8).

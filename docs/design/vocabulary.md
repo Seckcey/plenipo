@@ -400,6 +400,7 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Stop (one worker's task) / Keep working                                        | cancel turn, abort, kill                                                                   |
 | Stop all (all work) / Allow again / All work is stopped.                       | kill switch, global halt, resume dispatch                                                  |
 | Live conversation / now: Running `npm test` / Step 3 of 7 · 4 min              | token stream, agent log, telemetry, trace                                                  |
+| Ask a question / Side chat with Alex / made by a command                       | fork session, sub-agent, side channel, shell side effects                                  |
 
 ## Words that change with the system
 
