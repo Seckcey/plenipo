@@ -445,6 +445,12 @@ impl<T: Transport> Community<T> {
                 updated_at: self.now(),
             },
         };
+        if person.blocked {
+            return Err(Refused(format!(
+                "You blocked @{}. Unblock them first.",
+                person.name
+            )));
+        }
         if person.state == PersonState::RequestedByMe {
             return Err(Refused(format!(
                 "Wait for @{} to accept your first message.",
@@ -749,6 +755,10 @@ impl<T: Transport> Community<T> {
             }
             Err(_) => return Err(NotKept::Later),
         };
+        // You blocked them: this PC refuses them too, whatever 8 West hands out (ADR-167 §4).
+        if !outgoing && person.blocked {
+            return Err(NotKept::Dropped("blocked"));
+        }
         if !outgoing {
             if arrived.request
                 && matches!(
