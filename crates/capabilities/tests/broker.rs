@@ -2191,6 +2191,25 @@ async fn a_fourth_request_for_approval_waits_for_the_first_three() {
     let sixth = h.ask_to_run(&grant);
     h.cards_waiting(3).await;
     assert_eq!(h.events(&task, "approval.requested").len(), 4);
+    // A card is in the Ledger a moment before the step counts it: wait for the step's count,
+    // so closing the step now records all four.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let asked = h
+            .broker
+            .grants()
+            .into_iter()
+            .find(|g| g.grant_id == grant)
+            .map(|g| g.asked);
+        if asked == Some(4) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the step counted {asked:?} requests, not 4"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     // The step ends: the cards left expire, and every call comes back with its answer.
     ToolProvider::close(&h.broker, &grant);
     let mut answers = Vec::new();

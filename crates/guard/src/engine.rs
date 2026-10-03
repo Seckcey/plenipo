@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::add_ons::{AddOn, AddOnCheck, ToolMark};
-use crate::commands::{first_approval, first_catch, rule_approves, rule_matches, CommandLine};
+use crate::commands::{first_approval, first_catch, rule_approves, CommandLine};
 use crate::config::GuardConfig;
 use crate::connections::{self, AccessLevel, Connection, ConnectionCheck, ConnectionVerdict};
 use crate::dto::*;
@@ -817,11 +817,12 @@ pub fn evaluate(
             checks,
         );
     }
-    // A rule that names a program and its secrets (ADR-048) approves the command too.
+    // A rule that names a program and its secrets (ADR-048) approves the command too. A program
+    // inside the project folder is named only by its own path, never by a pattern (ADR-213).
     let names_program = |r: &SecretRule| {
         request
             .command
-            .is_some_and(|cmd| rule_matches(&r.rule, cmd))
+            .is_some_and(|cmd| rule_approves(&r.rule, cmd))
     };
     if let Some(cmd) = request.command {
         // Light (ADR-201): a program that is on no list runs without asking. The never-run list,
@@ -830,11 +831,7 @@ pub fn evaluate(
         // only by a rule naming its own path (ADR-213).
         if config.safety != Safety::Light
             && first_approval(&config.commands.approved, cmd).is_none()
-            && !config
-                .commands
-                .with_secrets
-                .iter()
-                .any(|r| rule_approves(&r.rule, cmd))
+            && !config.commands.with_secrets.iter().any(names_program)
         {
             return decision(
                 Verdict::Ask,
@@ -1753,6 +1750,36 @@ mod tests {
         let light = config();
         assert_eq!(run(&light, "./gradlew test").verdict, Verdict::Allow);
         assert_eq!(run(&light, "cargo test").verdict, Verdict::Allow);
+        // A stored secret, too, reaches a program in the project only by a rule that names its
+        // path, never by a pattern, whatever the Safety setting (ADR-048, ADR-213).
+        let given = ["Deploy key".to_owned()];
+        let assemble = CommandLine::new("./gradlew", &["assemble"]);
+        let mut r = request(Capability::ShellExec, &[], Some(&assemble));
+        r.secrets = &given;
+        let mut pattern = light.clone();
+        pattern.commands.with_secrets.push(SecretRule {
+            rule: "./grad* *".into(),
+            secrets: vec!["Deploy key".into()],
+        });
+        let d = eval(&pattern, &s, &r);
+        assert_eq!(
+            (d.verdict, d.layer),
+            (Verdict::Ask, Layer::Rule),
+            "{}",
+            d.reason
+        );
+        assert!(
+            d.reason.contains("stored secret Deploy key"),
+            "{}",
+            d.reason
+        );
+        let mut path = light.clone();
+        path.commands.with_secrets.push(SecretRule {
+            rule: "./gradlew assemble".into(),
+            secrets: vec!["Deploy key".into()],
+        });
+        let d = eval(&path, &s, &r);
+        assert_eq!(d.verdict, Verdict::Allow, "{}", d.reason);
     }
 
     #[test]
