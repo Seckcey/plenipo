@@ -8,7 +8,6 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
 
 use plenipo_capabilities::dto::{
     ChangingFile, FileRoots, FileView, FolderListing, LineEnding, SaveOutcome, WorkFolder,
@@ -38,12 +37,36 @@ pub trait FileOpener: Send + Sync + 'static {
 /// The opener the page's commands use (tests put a stand-in here).
 pub struct Outside(pub Arc<dyn FileOpener>);
 
-/// Windows' own File Explorer (`xdg-open` elsewhere, for development), started through the
-/// supervisor with no shell. Opening a file lets Windows pick its program; Plenipo refuses
-/// programs and scripts before this (the broker's `owner_file_path`).
+/// Windows' own File Explorer, started through the supervisor with no shell. On a Mac and Linux,
+/// the desktop's own opener, for the owner (`open`, `xdg-open`; Phase 23). Opening a file lets
+/// the system pick its program; Plenipo refuses programs and scripts before this (the broker's
+/// `owner_file_path`).
 pub struct SystemFileOpener;
 
 impl FileOpener for SystemFileOpener {
+    #[cfg(unix)]
+    fn open(
+        &self,
+        _supervisor: Supervisor,
+        path: PathBuf,
+        reveal: bool,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> {
+        // The owner's own action with the owner's own session, never a worker's program, so what
+        // opens stays open. Finder selects the file; Linux's file managers open its folder.
+        let args: Vec<std::ffi::OsString> = if !reveal {
+            vec![path.into_os_string()]
+        } else if cfg!(target_os = "macos") {
+            vec!["-R".into(), path.into_os_string()]
+        } else {
+            vec![path
+                .parent()
+                .map_or(path.clone(), PathBuf::from)
+                .into_os_string()]
+        };
+        Box::pin(plenipo_capabilities::programs::open_for_owner(args))
+    }
+
+    #[cfg(not(unix))]
     fn open(
         &self,
         supervisor: Supervisor,
@@ -51,31 +74,16 @@ impl FileOpener for SystemFileOpener {
         reveal: bool,
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> {
         Box::pin(async move {
-            let (executable, args) = if cfg!(windows) {
-                let root = std::env::var_os("SystemRoot")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| "C:\\Windows".into());
-                let shown = path.display().to_string();
-                (
-                    root.join("explorer.exe"),
-                    vec![if reveal {
-                        format!("/select,{shown}")
-                    } else {
-                        shown
-                    }],
-                )
+            let root = std::env::var_os("SystemRoot")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| "C:\\Windows".into());
+            let shown = path.display().to_string();
+            let executable = root.join("explorer.exe");
+            let args = vec![if reveal {
+                format!("/select,{shown}")
             } else {
-                let target = if reveal {
-                    path.parent().map_or(path.clone(), PathBuf::from)
-                } else {
-                    path.clone()
-                };
-                (
-                    plenipo_capabilities::programs::find_on_path("xdg-open")
-                        .ok_or_else(|| "xdg-open is not installed".to_owned())?,
-                    vec![target.display().to_string()],
-                )
-            };
+                shown
+            }];
             let dir = std::env::temp_dir();
             plenipo_capabilities::programs::run(
                 &supervisor,
@@ -90,7 +98,7 @@ impl FileOpener for SystemFileOpener {
                     working_dir: &dir,
                     env: Vec::new(),
                     stdin: None,
-                    timeout: Duration::from_secs(30),
+                    timeout: std::time::Duration::from_secs(30),
                 },
                 |_| {},
             )

@@ -141,6 +141,48 @@ pub const BASELINE_ENV: &[&str] = &[
     "XDG_STATE_HOME",
 ];
 
+/// The owner's own session, for what Plenipo starts for the owner rather than for a worker: the
+/// owner's terminal on a Mac and Linux, and a file, folder, or web page opened the way the
+/// desktop would (Phase 23). Plenipo's own environment, less a run's mark (ADR-158), and less
+/// anything that points into Plenipo's own AppImage on Linux (its folder of libraries and
+/// settings, `APPDIR`): another program given those would load Plenipo's libraries.
+pub fn owner_session_env() -> Vec<(OsString, OsString)> {
+    owner_session_env_from(std::env::vars_os(), std::env::var_os("APPDIR"))
+}
+
+/// The variables the AppImage's own starter sets to describe it, never passed on.
+const APPIMAGE_OWN: &[&str] = &["APPDIR", "APPIMAGE", "ARGV0", "OWD"];
+
+fn owner_session_env_from(
+    vars: impl IntoIterator<Item = (OsString, OsString)>,
+    appdir: Option<OsString>,
+) -> Vec<(OsString, OsString)> {
+    let appdir = appdir.filter(|d| !d.is_empty()).map(PathBuf::from);
+    vars.into_iter()
+        .filter(|(name, _)| name != crate::marks::MARK)
+        .filter(|(name, _)| appdir.is_none() || !APPIMAGE_OWN.iter().any(|own| name == *own))
+        .filter_map(|(name, value)| match &appdir {
+            Some(dir) => outside_appimage(&value, dir).map(|value| (name, value)),
+            None => Some((name, value)),
+        })
+        .collect()
+}
+
+/// `value` without its parts inside `appdir` (a list of paths keeps the others); `None` when
+/// nothing is left. A value with no part inside is kept exactly as it was.
+fn outside_appimage(value: &OsString, appdir: &Path) -> Option<OsString> {
+    let Some(text) = value.to_str() else {
+        return Some(value.clone());
+    };
+    let parts: Vec<&str> = text.split(':').collect();
+    let inside = |part: &&str| !part.is_empty() && Path::new(part).starts_with(appdir);
+    if !parts.iter().any(inside) {
+        return Some(value.clone());
+    }
+    let kept: Vec<&str> = parts.into_iter().filter(|p| !inside(p)).collect();
+    (!kept.iter().all(|p| p.is_empty())).then(|| OsString::from(kept.join(":")))
+}
+
 /// `[A-Za-z_][A-Za-z0-9_]*`, at most 128 bytes.
 pub fn validate_env_name(name: &str) -> Result<(), PolicyError> {
     let mut chars = name.chars();
@@ -159,7 +201,18 @@ pub fn validate_env_name(name: &str) -> Result<(), PolicyError> {
 /// Build the complete child environment: baseline pass-through plus declared variables.
 /// Declared variables win over baseline ones with the same name.
 pub fn build_child_env(declared: &[(String, String)]) -> Vec<(OsString, OsString)> {
-    build_child_env_from(declared, |name| std::env::var_os(name))
+    // Under Plenipo's own AppImage, nothing inside it reaches a worker's program (its own folder
+    // of programs on PATH, for one; Phase 23).
+    let appdir = std::env::var_os("APPDIR")
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from);
+    build_child_env_from(declared, |name| {
+        let value = std::env::var_os(name)?;
+        match &appdir {
+            Some(dir) => outside_appimage(&value, dir),
+            None => Some(value),
+        }
+    })
 }
 
 fn build_child_env_from(
@@ -216,6 +269,46 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    /// Phase 23: what Plenipo opens for the owner gets the owner's session, never a run's mark,
+    /// and nothing from inside Plenipo's own AppImage.
+    #[test]
+    fn the_owners_session_leaves_out_the_mark_and_the_appimage() {
+        let var = |n: &str, v: &str| (OsString::from(n), OsString::from(v));
+        let vars = vec![
+            var("PATH", "/tmp/.mount_Plen1/usr/bin:/usr/bin:/bin"),
+            var("GTK_PATH", "/tmp/.mount_Plen1/usr/lib/gtk-3.0"),
+            var("XDG_DATA_DIRS", "/tmp/.mount_Plen1/usr/share:/usr/share"),
+            var("APPDIR", "/tmp/.mount_Plen1"),
+            var("APPIMAGE", "/home/me/Plenipo.AppImage"),
+            var("DISPLAY", ":0"),
+            var("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus"),
+            var("HOME", "/home/me"),
+            var(crate::marks::MARK, "abc/run"),
+        ];
+        let env = owner_session_env_from(vars.clone(), Some("/tmp/.mount_Plen1".into()));
+        let get = |n: &str| {
+            env.iter()
+                .find(|(k, _)| k == n)
+                .map(|(_, v)| v.to_string_lossy().into_owned())
+        };
+        assert_eq!(get("PATH").as_deref(), Some("/usr/bin:/bin"));
+        assert_eq!(get("XDG_DATA_DIRS").as_deref(), Some("/usr/share"));
+        assert_eq!(get("GTK_PATH"), None);
+        assert_eq!(get("APPDIR"), None);
+        assert_eq!(get("APPIMAGE"), None);
+        assert_eq!(get("DISPLAY").as_deref(), Some(":0"));
+        assert_eq!(
+            get("DBUS_SESSION_BUS_ADDRESS").as_deref(),
+            Some("unix:path=/run/user/1000/bus")
+        );
+        assert_eq!(get("HOME").as_deref(), Some("/home/me"));
+        assert_eq!(get(crate::marks::MARK), None);
+        // Not an AppImage: everything but the mark, as it was.
+        let plain = owner_session_env_from(vars, None);
+        assert_eq!(plain.len(), 8);
+        assert!(plain.iter().all(|(k, _)| k != crate::marks::MARK));
     }
 
     fn setup() -> (tempfile::TempDir, PathBuf, PathBuf) {

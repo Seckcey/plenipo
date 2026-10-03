@@ -101,9 +101,12 @@ pub trait Opener: Send + Sync + 'static {
     fn open(&self, address: String) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>;
 }
 
-/// The owner's default browser, through Windows' own handler for web addresses (`xdg-open`
-/// elsewhere, for development), started through the supervisor with no shell.
+/// The owner's default browser, through Windows' own handler for web addresses, started through
+/// the supervisor with no shell. On a Mac and Linux, the desktop's own opener, for the owner
+/// (`open`, `xdg-open`; Phase 23): with the owner's own session, so the browser can appear, and
+/// never as a worker's program, so it stays open.
 pub struct SystemOpener {
+    #[cfg_attr(unix, allow(dead_code))]
     supervisor: Supervisor,
 }
 
@@ -114,29 +117,20 @@ impl SystemOpener {
 }
 
 impl Opener for SystemOpener {
+    #[cfg(unix)]
+    fn open(&self, address: String) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> {
+        Box::pin(crate::programs::open_for_owner(vec![address.into()]))
+    }
+
+    #[cfg(not(unix))]
     fn open(&self, address: String) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> {
         let supervisor = self.supervisor.clone();
         Box::pin(async move {
-            let (executable, args) = if cfg!(windows) {
-                let root = std::env::var_os("SystemRoot")
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|| "C:\\Windows".into());
-                (
-                    root.join("System32").join("rundll32.exe"),
-                    vec!["url.dll,FileProtocolHandler".to_owned(), address],
-                )
-            } else {
-                let program = if cfg!(target_os = "macos") {
-                    "open"
-                } else {
-                    "xdg-open"
-                };
-                (
-                    crate::programs::find_on_path(program)
-                        .ok_or_else(|| format!("{program} is not installed"))?,
-                    vec![address],
-                )
-            };
+            let root = std::env::var_os("SystemRoot")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| "C:\\Windows".into());
+            let executable = root.join("System32").join("rundll32.exe");
+            let args = vec!["url.dll,FileProtocolHandler".to_owned(), address];
             let dir = std::env::temp_dir();
             crate::programs::run(
                 &supervisor,
