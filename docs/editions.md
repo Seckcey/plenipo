@@ -156,6 +156,9 @@ account ([ADR-162](adr/ADR-162-your-account-in-plenipo.md), your 8 West account 
 Exactly what Plenipo sends to 8 West for Community, and nothing else (the written contract is
 [`contracts/community/v1`](../contracts/community/v1/README.md); a test will check it):
 
+- when you press the **Community** switch (or **Check again**), a question whether Community is
+  open, carrying only Plenipo's version; Plenipo never asks by itself while you are not signed in
+  ([ADR-170](adr/ADR-170-community-follows-8-wests-switch.md), Community follows 8 West's switch);
 - a pass for your PC, and your PC's public keys (the private halves stay in the Vault);
 - your Community name, your birth month and year (never the day), and that you accepted the terms;
 - your profile, unless you choose **Appear offline**: the parts you leave on;
