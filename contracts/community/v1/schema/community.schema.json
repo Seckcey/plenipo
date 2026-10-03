@@ -27,6 +27,16 @@
     },
     "Base64url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
     "Time": { "type": "integer", "minimum": 0 },
+    "Open": {
+      "description": "GET /v1/community/open (§1): which parts of Community are open.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["links", "collaborators"],
+      "properties": {
+        "links": { "type": "boolean" },
+        "collaborators": { "type": "boolean" }
+      }
+    },
     "OneLine": {
       "description": "Text with no control characters (so, one line).",
       "type": "string",
@@ -120,6 +130,8 @@
             "too_new_to_thank",
             "too_many",
             "gifs_unavailable",
+            "not_open",
+            "update_needed",
             "unavailable"
           ]
         },

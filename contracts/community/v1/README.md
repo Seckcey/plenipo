@@ -109,8 +109,27 @@ new pinned copy in the account service each time. After that, a change is a new 
   | `too_new_to_thank`         | 403    | Members can thank after 7 days in Community                                          |
   | `too_many`                 | 429    | A limit in §15. Wait `Retry-After` seconds                                           |
   | `gifs_unavailable`         | 503    | GIF search isn't available (§14)                                                     |
-  | `unavailable`              | 503    | Community isn't open, or the service is busy. Nothing was changed                    |
+  | `not_open`                 | 503    | Community isn't open yet, or this part of it isn't (below). Nothing was read         |
+  | `update_needed`            | 403    | This version of Plenipo can't use Community; the person updates Plenipo (below)      |
+  | `unavailable`              | 503    | The service is busy, or something went wrong. Nothing was changed                    |
 
+- **Is Community open?** `GET /v1/community/open`, with no pass and no body, answers `Open`:
+  `links` and `collaborators`, whether linked organizations (§9) and collaborators (§10) are open
+  yet. While Community isn't open at all, it answers `not_open`, like every other path. The service
+  keeps nothing about the question. Plenipo asks it only when the person presses the **Community**
+  switch or **Check again**, and now and then while this PC is signed in; never by itself on a PC
+  that isn't signed in (ADR-170).
+- **The order of checks.** For every request, the service first checks that Community is open
+  (`not_open`, before reading anything). Then the version: 8 West can set the lowest version of
+  Plenipo allowed in Community, and every request (`open` and the two sign-in requests included)
+  whose `User-Agent` is not `Plenipo/<version>` at or above it answers `update_needed`. Versions
+  compare as numbers, part by part, and a suffix (like `-rc.1`) counts as below the same numbers
+  without one. Then everything else in this contract.
+- **Parts that open later** (ADR-171). While linked organizations are closed, every path in §9,
+  items of kinds `link_note`, `objective`, `objective_state`, and `answer`, and thanks `for`
+  `link_answer` answer `not_open`, and the service makes no `link_*` notice. While collaborators are
+  closed, every path in §10, items of kind `collab_note`, and thanks `for` `collaborator` answer
+  `not_open`, and the service makes no `collab_*` notice. Everything else keeps working.
 - **The JSON Schemas** for every body are in [`schema/community.schema.json`](schema/community.schema.json),
   one `$defs` entry each, named in the sections below. Every file in [`examples/`](examples)
   passes the schema named in [`examples/index.json`](examples/index.json).
@@ -390,6 +409,21 @@ The service never opens a seal. This section is for the PCs, and for the report 
 
 [`examples/vector-item.json`](examples/vector-item.json) is a worked example: an item's payload, its
 report key and tag, its signature by a test PC key, and its stamp by the test stamping key.
+[`examples/vector-seal.json`](examples/vector-seal.json) seals that item for one PC: the PC's keys,
+the one-time key, `info`, and the sealed bytes, and an `info` it must fail with. The published HPKE
+test answers for this suite (the CFRG's test file for RFC 9180, mode 0 with `0x0020`, `0x0001`, and
+`0x0002`) are in Plenipo's own tests.
+
+**The safety code** (ADR-164 §2) is worked out on each PC and never sent. For each of the two
+members, write each of their PCs, as `GET /v1/community/people/{member_id}/devices` lists them, as
+`<signing_key>.<sealing_key>`; sort these by their bytes and join them with `,`. That member's line
+is the `member_id`, then `:`, then those. Sort the two lines by their bytes and join them with one
+line break (`\n`). The code is the first 8 bytes of SHA-256, over the ASCII bytes of
+`plenipo-community-safety.v1.` followed by that text, read as a big-endian number, modulo
+1,000,000,000,000: 12 digits with leading zeros, shown in three groups of four, like
+`5373 9207 7552`. Both sides get the same code, and a new, removed, or changed PC of either member
+changes it, which Plenipo shows as "**Pat's computers changed**".
+[`examples/vector-safety-code.json`](examples/vector-safety-code.json) is a worked example.
 
 ## 8. Blocks
 
@@ -542,6 +576,7 @@ The service enforces these; the numbers may change without a new version, and Pl
 
 | What                                       | Limit                                                                                                                     |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Asking whether Community is open           | 60 an hour per internet address                                                                                           |
 | PCs signed in, per account                 | 5                                                                                                                         |
 | Sign-in starts, per internet address       | 10 an hour                                                                                                                |
 | Finishing sign-in, per internet address    | 1,200 an hour                                                                                                             |
@@ -567,11 +602,13 @@ The service enforces these; the numbers may change without a new version, and Pl
 
 ## 16. The files in this folder
 
-| File                                                           | What it is                                                                                   |
-| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| [`README.md`](README.md)                                       | This contract                                                                                |
-| [`schema/community.schema.json`](schema/community.schema.json) | JSON Schemas for every body, one `$defs` entry each                                          |
-| [`examples/index.json`](examples/index.json)                   | Which `$defs` entry each example passes                                                      |
-| [`examples/`](examples)                                        | An example of each request and answer                                                        |
-| [`examples/vector-item.json`](examples/vector-item.json)       | A worked item: payload, signature, report key, tag, and stamp, and a changed copy that fails |
-| [`test-stamping-key.json`](test-stamping-key.json)             | The test stamping key (private half published on purpose; never trusted in production)       |
+| File                                                                   | What it is                                                                                   |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| [`README.md`](README.md)                                               | This contract                                                                                |
+| [`schema/community.schema.json`](schema/community.schema.json)         | JSON Schemas for every body, one `$defs` entry each                                          |
+| [`examples/index.json`](examples/index.json)                           | Which `$defs` entry each example passes                                                      |
+| [`examples/`](examples)                                                | An example of each request and answer                                                        |
+| [`examples/vector-item.json`](examples/vector-item.json)               | A worked item: payload, signature, report key, tag, and stamp, and a changed copy that fails |
+| [`examples/vector-seal.json`](examples/vector-seal.json)               | That item sealed for one PC, and an `info` it must fail with                                 |
+| [`examples/vector-safety-code.json`](examples/vector-safety-code.json) | A worked safety code for two members, and a changed PC that changes it                       |
+| [`test-stamping-key.json`](test-stamping-key.json)                     | The test stamping key (private half published on purpose; never trusted in production)       |
