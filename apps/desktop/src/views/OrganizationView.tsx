@@ -121,6 +121,7 @@ import {
 } from "../org/rules";
 import { searchMatches } from "../org/search";
 import { rankName, roleLabel, titleSet, withArticle } from "../org/titles";
+import { useSetupTourRunning } from "../tour/store";
 import { LEGEND_KEY, TOUR_KEY, readFlag, writeFlag, type PointerMode } from "../org/tour";
 import { useLiveView, useReducedMotion } from "../org/useLiveView";
 import { useOrganization } from "../org/useOrganization";
@@ -276,6 +277,7 @@ export function OrganizationView({
   const [legendOpen, setLegendOpen] = useState(() => readFlag(LEGEND_KEY) === "shown");
   const [whereOn, setWhereOn] = useState(() => read(WHERE_KEY) === "on");
   const [touring, setTouring] = useState(() => readFlag(TOUR_KEY) !== "seen");
+  const setupTouring = useSetupTourRunning();
   /** Tiles following the pointer while they are arranged (not saved yet). */
   const [preview, setPreview] = useState<TilePlace[] | null>(null);
   const { profile: owner } = useOwnerProfile();
@@ -1225,7 +1227,8 @@ export function OrganizationView({
               />
             )}
             {legendOpen && <LegendPanel onClose={toggleLegend} />}
-            {touring && !empty && <CanvasTour onDone={endTour} />}
+            {/* The canvas's own tour waits while the setup tour shows (Phase 25, item 2.9). */}
+            {touring && !empty && !setupTouring && <CanvasTour onDone={endTour} />}
             {empty && (
               <div className="topology__empty" data-canvas-ui>
                 <h2>Build your organization</h2>
@@ -1248,6 +1251,7 @@ export function OrganizationView({
                 <div className="actions">
                   <Button
                     variant="primary"
+                    data-tour="add-department"
                     onClick={() => setDialog({ kind: "newDepartment", reportsTo: null })}
                   >
                     Create a department

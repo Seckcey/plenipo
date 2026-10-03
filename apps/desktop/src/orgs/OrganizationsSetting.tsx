@@ -74,30 +74,32 @@ export function OrganizationsSetting() {
 
   return (
     <div className="organizations-setting">
-      <form
-        className="organizations-setting__name"
-        aria-label="This organization's name"
-        onSubmit={saveName}
-      >
-        <Field label="This organization's name">
-          <input
-            value={shownName}
-            maxLength={200}
-            required
-            onChange={(e) => setName(e.target.value)}
-          />
-        </Field>
-        <Button
-          type="submit"
-          size="sm"
-          disabled={rename.pending || name === null || shownName.trim() === ""}
+      <div className="organizations-setting__this" data-tour="organization">
+        <form
+          className="organizations-setting__name"
+          aria-label="This organization's name"
+          onSubmit={saveName}
         >
-          Rename
-        </Button>
-        <FormError error={rename.error} />
-      </form>
+          <Field label="This organization's name">
+            <input
+              value={shownName}
+              maxLength={200}
+              required
+              onChange={(e) => setName(e.target.value)}
+            />
+          </Field>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={rename.pending || name === null || shownName.trim() === ""}
+          >
+            Rename
+          </Button>
+          <FormError error={rename.error} />
+        </form>
 
-      <TemplatesSetting onFree={onFree} onSaved={apply} />
+        <TemplatesSetting onFree={onFree} onSaved={apply} />
+      </div>
 
       <h3>Your organizations</h3>
       <p className="muted">

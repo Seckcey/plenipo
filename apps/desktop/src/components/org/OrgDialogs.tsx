@@ -278,7 +278,7 @@ export function HireDialog({
   };
 
   return (
-    <Modal title="Hire" onClose={onCancel}>
+    <Modal title="Hire" onClose={onCancel} tour="hire-dialog">
       <form className="modal__body" aria-label="Hire" onSubmit={submit}>
         {onHireSaved && savedAgents.length > 0 && (
           <Field
@@ -634,7 +634,7 @@ export function NewDepartmentDialog({
   };
 
   return (
-    <Modal title="New department" onClose={onCancel} wide>
+    <Modal title="New department" onClose={onCancel} wide tour="new-department">
       <form className="modal__body" aria-label="New department" onSubmit={submit}>
         {onTemplate && templates.length > 0 && !fromWorkforce && (
           <fieldset className="choices">
@@ -959,7 +959,7 @@ export function NewProjectDialog({
   };
 
   return (
-    <Modal title="New project" onClose={onCancel} wide>
+    <Modal title="New project" onClose={onCancel} wide tour="new-project">
       <form className="modal__body" aria-label="New project" onSubmit={submit}>
         {onTemplate && !fromWorkforce && (
           <div className="actions">
@@ -1116,7 +1116,7 @@ export function SetUpDevelopmentDialog({
     );
   };
   return (
-    <Modal title="Set up a Development project" onClose={onCancel} wide>
+    <Modal title="Set up a Development project" onClose={onCancel} wide tour="software-project">
       <form className="modal__body" aria-label="Set up a Development project" onSubmit={submit}>
         <p className="muted">
           {hasDepartment

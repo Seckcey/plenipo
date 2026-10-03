@@ -229,7 +229,7 @@ export function CanvasToolbar({
           onClick: onOversight,
         })}
       </div>
-      <div className="canvas-toolbar__group">
+      <div className="canvas-toolbar__group" data-tour="add-menu">
         <MenuButton label="Add" icon="plus" variant="quiet" items={addItems} onSelect={onAdd} />
       </div>
       <div className="canvas-toolbar__group canvas-toolbar__end">

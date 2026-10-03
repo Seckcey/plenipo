@@ -1318,6 +1318,7 @@ const World = memo(function World({
                 type="button"
                 data-canvas-ui
                 className={working ? "topo-watch" : "topo-watch topo-watch--quiet"}
+                data-tour={working ? "watch" : "watch-quiet"}
                 style={{ left: n.x + n.w, top: n.y + n.h }}
                 aria-label={`Watch ${p.title} write code`}
                 title={`Watch ${p.title} write code`}

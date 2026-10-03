@@ -72,7 +72,7 @@ export function WhoUsesWhat({ snapshot, onApply }: { snapshot: RoutingSnapshot; 
     if (await run(() => setModelRule(target, rule))) setEditing(null);
   };
   return (
-    <section aria-labelledby="who-uses-what-title">
+    <section aria-labelledby="who-uses-what-title" data-tour="who-uses-what">
       <h3 id="who-uses-what-title">Who uses what</h3>
       <p className="muted">
         Each worker gets the first model on the closest list that is ready: its own, then its

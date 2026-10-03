@@ -491,30 +491,37 @@ simpler screens.
   (`org/tour.ts`). There's no first-run flow, and nothing checks that an AI tool is signed in, so a
   new user can build a whole organization before learning no worker can run.
 - **Do:**
-  - [ ] **Change ADR-030 (one design system):** allow Driver.js (MIT license) for the tour. It
+  - [x] **Change ADR-030 (one design system):** allow Driver.js (MIT license) for the tour. It
         works with Plenipo's security settings as they are, with no change.
-  - [ ] **The tour, step by step, moving on when the step is really done:**
+        [ADR-198 (the setup tour)](../adr/ADR-198-the-setup-tour.md).
+  - [x] **The tour, step by step, moving on when the step is really done:**
     1. Welcome.
     2. Open the AI tools page and sign in to at least one subscription (waits for a green light).
     3. Name your organization, or pick a template (2.8).
     4. Add a department.
     5. Set up the first project.
     6. Hire the team, reusing workers (2.7).
-    7. Choose a model for each tile (2.5).
+    7. Choose a model for each tile (2.5). It moves on once you change a model choice, or with
+       **Skip this step**.
     8. Give the first objective.
-    9. Watch it work (3.1).
-  - [ ] It moves between pages by itself, waits for each part of the screen to appear, and brings
-        canvas tiles into view.
-  - [ ] It pauses while a dialog is open, remembers where you stopped, and works per
-        organization.
-  - [ ] **Take the setup tour again** in Settings and on Home. The old canvas tour waits while it
-        runs.
-  - [ ] Colors use Plenipo's theme, in light and dark.
-  - [ ] Steady anchors: add `data-tour` marks to the sidebar buttons, + Department, + Project, the
-        Add menu, and the dialogs.
+    9. Watch it work (3.1). For now it points at the Watch button from 1.8; 3.1 makes what it
+       opens live.
+  - [x] It moves between pages by itself, waits for each part of the screen to appear, and brings
+        canvas tiles into view (the first project's supervisor).
+  - [x] It pauses while a dialog is open, remembers where you stopped, and works per
+        organization. It starts by itself in a new organization, and comes back if Plenipo
+        closed during it.
+  - [x] **Take the setup tour again** in Settings and on Home ("Pick up the setup tour" after you
+        stopped part way). The old canvas tour waits while it runs.
+  - [x] Colors use Plenipo's theme, in light and dark.
+  - [x] Steady anchors: add `data-tour` marks to the sidebar buttons, + Department, + Project, the
+        Add menu, and the dialogs (also the hire palette, the AI tools list, Settings →
+        Organization, Who uses what, Give an objective, and Watch).
 - **Tests:**
-  - [ ] unit tests for each step's "done" check
-  - [ ] one full run in the end-to-end suite
+  - [x] unit tests for each step's "done" check (`apps/desktop/src/tour/steps.test.ts`, and the
+        tour on screen in `SetupTour.test.tsx`)
+  - [x] one full run in the end-to-end suite (`tests/e2e/specs/setup-tour.e2e.mjs`; it runs on
+        GitHub, not on this build machine)
 
 ---
 

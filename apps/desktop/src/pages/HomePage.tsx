@@ -20,6 +20,7 @@ import {
   type StatItem,
 } from "@plenipo/ui";
 
+import { SetupTourButton } from "../tour/SetupTourButton";
 import { getHome, hirePosition } from "../api/commands";
 import type { Go } from "../components/views";
 import type { useApprovals } from "../guard/usePermissions";
@@ -248,15 +249,18 @@ export function HomePage({
         pip={homePip(mood)}
         title={greeting(new Date(now).getHours())}
         actions={
-          mood.waiting > 0 ? (
-            <Button variant="primary" onClick={() => go({ view: "approvals", id: null })}>
-              Review what's waiting
-            </Button>
-          ) : mood.empty ? (
-            <Button variant="primary" onClick={() => go({ view: "organization", id: null })}>
-              Set up your company
-            </Button>
-          ) : undefined
+          <>
+            {mood.waiting > 0 ? (
+              <Button variant="primary" onClick={() => go({ view: "approvals", id: null })}>
+                Review what's waiting
+              </Button>
+            ) : mood.empty ? (
+              <Button variant="primary" onClick={() => go({ view: "organization", id: null })}>
+                Set up your company
+              </Button>
+            ) : null}
+            <SetupTourButton />
+          </>
         }
       >
         {homeLine(mood)}

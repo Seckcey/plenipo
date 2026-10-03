@@ -243,6 +243,7 @@ function ObjectivePanel({ p, actions }: { p: PositionInfo; actions: InspectorAct
       {...files.dropProps}
       className="inspector__objective"
       aria-label="Give an objective"
+      data-tour="give-objective"
       onSubmit={(e) => void submit(e)}
     >
       <Field

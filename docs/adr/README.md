@@ -162,3 +162,4 @@ architecture must be recorded here.
 | [195](ADR-195-who-uses-what.md)                           | Who uses what: every model in one menu, one table, "never use" for the whole organization (amends 041, 081)            | Accepted |
 | [196](ADR-196-use-the-team-you-hired-first.md)            | Use the team you hired first, and ask before hiring a missing worker (amends 016, 054)                                 | Accepted |
 | [197](ADR-197-templates.md)                               | Templates for organizations, departments, and projects, and saving yours as one (part of parked Phase 15)              | Accepted |
+| [198](ADR-198-the-setup-tour.md)                          | The setup tour, with Driver.js: nine steps that move on when each is done (amends 030, 053)                            | Accepted |

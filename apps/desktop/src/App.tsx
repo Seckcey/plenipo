@@ -36,6 +36,7 @@ import {
   type ViewId,
 } from "./components/views";
 import { RuntimeProvider } from "./runtime/RuntimeProvider";
+import { SetupTour } from "./tour/SetupTour";
 import { isActive } from "./runtime/store";
 import { useRuntime } from "./runtime/useRuntime";
 import { useControl } from "./control/useControl";
@@ -357,6 +358,7 @@ function Shell({ core }: { core: CoreState }) {
         </footer>
       }
     >
+      <SetupTour go={go} snapshot={organization.snapshot} />
       <div ref={workArea} className="shell__work">
         <Dock side="left" />
         <main

@@ -18,6 +18,7 @@ import {
   type Status,
 } from "@plenipo/ui";
 
+import { SetupTourButton } from "../tour/SetupTourButton";
 import { getLedgerStatus, getLocalPaths, listLedgerBackups, toCommandError } from "../api/commands";
 import { AUTH_LABEL, notReadyHint, runtimeStatus } from "../agents/format";
 import { useAgents } from "../agents/useAgents";
@@ -226,6 +227,7 @@ export function OrganizationSettings({ go }: { go: Go }) {
         >
           Open the Organization map
         </Button>
+        <SetupTourButton size="sm" />
       </div>
       <PropertyList
         items={[{ label: "Positions", value: count(snapshot.stats.positions, "position") }]}

@@ -13,11 +13,14 @@ export function Modal({
   onClose,
   children,
   wide = false,
+  tour,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   wide?: boolean;
+  /** Its mark for the setup tour (`data-tour`, Phase 25, item 2.9). */
+  tour?: string;
 }) {
   const id = useId();
   const box = useRef<HTMLDivElement>(null);
@@ -64,6 +67,7 @@ export function Modal({
         className={`modal${wide ? " modal--wide" : ""}`}
         role="dialog"
         aria-modal="true"
+        data-tour={tour}
         aria-labelledby={id}
         onKeyDown={onKeyDown}
       >

@@ -168,7 +168,7 @@ export function AgentRuntimeCards({
           Could not load the AI tools&apos; updates and usage: {ai.error}
         </p>
       )}
-      <ul className="ai-tools" aria-label="AI tools">
+      <ul className="ai-tools" aria-label="AI tools" data-tour="ai-tools">
         {signedIn.map(item)}
         {state.runtimes.length === 0 && (
           <li>
