@@ -66,18 +66,30 @@ record: only what you do on the phone keeps you signed in.
    phone only if the digits match, because a name proves nothing. The phone's page shows "Your PC
    shows the same six digits as this phone: **222 130**", with what to do if the PC shows other
    digits. `PairingView::Asking` carries `check` to the PC's screen.
-3. **A phone that lost the race is told why.** A second phone that finishes the meeting with the
-   same code hears `PairStep::Refused` with "Another phone already used this code. If that was not
-   you, click Cancel on your PC and start again." before its line is closed, instead of a silent
-   close. The PC records `remote.pairing_refused` with reason `used` and that phone's name, so
-   Activity shows that a second phone tried.
+3. **A phone that lost the race is told why**, in one of two ways, depending on when it arrived:
+   - **Already at the mailbox** when the other phone finished (both scanned within the same
+     moment): it finishes its own meeting and hears `PairStep::Refused` from the PC with "Another
+     phone already used this code. If that was not you, click Cancel on your PC and start again."
+     before its line is closed, instead of a silent close. The PC records
+     `remote.pairing_refused` with reason `used` and that phone's name, so Activity shows that a
+     second phone tried.
+   - **Arriving later:** the PC closed the mailbox the moment the first phone finished, so the
+     relay turns the late phone away (`mailbox_closed`) and the PC never hears from it. The page's
+     own words for a closed mailbox now say to look at the PC: "This code was already used, or
+     mistyped, or your PC stopped adding a phone. Look at your PC: if it is asking about a phone
+     that is not yours, click Cancel and start again. Otherwise check the code, or press Add a
+     phone on your PC for a new one. A code lasts 10 minutes and works once." Before, the page
+     said "the code may be wrong or used. Press Add a phone on your PC again", which sent the
+     owner the wrong way. Nothing is recorded on the PC in this case, because the relay never let
+     the phone through.
 4. **Why a stranger cannot show your digits.** The digits come from a hash that includes the
    stranger's own phone key and one-time keys, which differ from your phone's. The code alone, even
    the PC's key alone, does not fix the digits. One meeting in a million shows the same six digits
    as another by chance; that is the same odds as guessing a six-digit code once.
 5. **Old and new.** The digits travel on no wire, so no message changed. An old phone page against
    a new PC shows no digits (the PC still shows them, so the owner simply cannot compare, as
-   before), and a losing old page says "Your PC did not answer as expected." A new page against an
+   before); a losing old page that was already at the mailbox says "Your PC did not answer as
+   expected.", and one arriving later keeps its old closed-mailbox words. A new page against an
    old PC shows digits the PC does not. The page is served from `remote.getplenipo.com`
    (ADR-146), so old pages are rare and short-lived.
 6. **ADR-141 §6 now reads:** the PC asks "Is this your phone?" with the name, the browser, and the
@@ -99,8 +111,8 @@ record: only what you do on the phone keeps you signed in.
   phone's and differ from the second's; the second phone hears the refusal; the owner cancels, and
   nothing is added.
 - `apps/remote/src/lock/lock.test.ts` and `app.test.tsx`: the page makes the same digits as the
-  PC from the same meeting, shows them while the PC asks, and says why when another phone used the
-  code first.
+  PC from the same meeting, shows them while the PC asks, says why when another phone used the
+  code first, and tells a phone the relay turned away to look at the PC.
 - `apps/desktop/src/remote/remote.test.tsx`: "Is this your phone?" shows the digits and what to do
   when they differ, with no accessibility problems.
 - `crates/remote/tests/remote.rs`

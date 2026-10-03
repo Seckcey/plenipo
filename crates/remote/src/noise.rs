@@ -305,10 +305,18 @@ pub(crate) mod tests {
         assert_eq!(on_phone.len(), 6);
         assert!(on_phone.bytes().all(|b| b.is_ascii_digit()), "{on_phone}");
 
-        // The written contract's first meeting, whose hash starts 2bb414f2… (the phone's page
-        // checks the same hash in `contracts/phone-relay/v1/noise-vectors.json`).
-        let mut contract = [0u8; 32];
-        contract[..4].copy_from_slice(&[0x2b, 0xb4, 0x14, 0xf2]);
+        // The written contract's first meeting (`contracts/phone-relay/v1/noise-vectors.json`,
+        // as `contract.rs` writes it): the phone's page checks the same hash against the same
+        // six digits, so the two sides stay honest together.
+        let vectors = crate::contract::handshake_vectors();
+        let hash = vectors["pairing"]["handshakeHash"]
+            .as_str()
+            .expect("the pairing meeting's hash");
+        let contract: Vec<u8> = (0..hash.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hash[i..i + 2], 16).expect("hex"))
+            .collect();
+        assert_eq!(contract.len(), 32);
         assert_eq!(check_digits(&contract), "222130");
         // Always six, with zeros in front when the number is small.
         let mut small = [0u8; 32];
