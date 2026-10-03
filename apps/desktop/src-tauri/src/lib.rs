@@ -13,6 +13,7 @@ pub mod commands;
 pub mod community_commands;
 pub mod community_host;
 pub mod community_messages;
+pub mod community_safety;
 pub mod connections_commands;
 pub mod diagnostics;
 pub mod files_commands;
@@ -775,6 +776,11 @@ pub fn configure<R: Runtime>(
             community_messages::community_safety_code_checked,
             community_messages::open_community_link,
             community_messages::give_community_message_to_worker,
+            community_safety::block_in_community,
+            community_safety::unblock_in_community,
+            community_safety::community_blocked,
+            community_safety::report_in_community,
+            community_safety::delete_my_community_data,
         ])
 }
 
@@ -3858,7 +3864,7 @@ mod ipc_boundary_tests {
 
     /// Settings → Community: turning it on and signing in reach 8 West for the owner, so they are
     /// the main window's alone (ADR-162 §8).
-    const COMMUNITY: [&str; 26] = [
+    const COMMUNITY: [&str; 31] = [
         "get_community",
         "set_community_switch",
         "check_community_again",
@@ -3885,6 +3891,11 @@ mod ipc_boundary_tests {
         "community_safety_code_checked",
         "open_community_link",
         "give_community_message_to_worker",
+        "block_in_community",
+        "unblock_in_community",
+        "community_blocked",
+        "report_in_community",
+        "delete_my_community_data",
     ];
 
     #[test]
@@ -3899,7 +3910,8 @@ mod ipc_boundary_tests {
             "q": "", "kind": "", "region": "", "cursor": "", "memberId": "cm_x",
             "email": "pat@example.com", "before": null, "to": "cm_x", "text": "Hi",
             "replyTo": null, "itemId": "ci_x", "emoji": null, "link": "https://example.com",
-            "positionId": "p", "note": "",
+            "positionId": "p", "note": "", "of": { "kind": "person" }, "reason": "spam",
+            "block": false,
         });
         for cmd in COMMUNITY {
             let refused = |answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,

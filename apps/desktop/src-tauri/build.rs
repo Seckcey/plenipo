@@ -247,6 +247,11 @@ const COMMANDS: &[&str] = &[
     "community_safety_code_checked",
     "open_community_link",
     "give_community_message_to_worker",
+    "block_in_community",
+    "unblock_in_community",
+    "community_blocked",
+    "report_in_community",
+    "delete_my_community_data",
 ];
 
 fn main() {

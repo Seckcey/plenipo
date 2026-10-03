@@ -240,6 +240,11 @@
     "allow-delete-community-message",
     "allow-community-safety-code-checked",
     "allow-open-community-link",
-    "allow-give-community-message-to-worker"
+    "allow-give-community-message-to-worker",
+    "allow-block-in-community",
+    "allow-unblock-in-community",
+    "allow-community-blocked",
+    "allow-report-in-community",
+    "allow-delete-my-community-data"
   ]
 }
