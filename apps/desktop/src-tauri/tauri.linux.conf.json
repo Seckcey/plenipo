@@ -1,6 +1,17 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "bundle": {
-    "targets": ["deb", "appimage"]
+    "targets": ["deb", "appimage"],
+    "publisher": "8 West Ventures, LLC",
+    "copyright": "© 8 West Ventures, LLC",
+    "category": "Business",
+    "shortDescription": "Hire your AI team. Give it a goal.",
+    "longDescription": "Plenipo, by 8 West Ventures, LLC: hire AI workers by role, give them a goal, and follow their work in one desktop workspace. Every step that touches your files, programs, or the web is checked first, and asks you when it should.",
+    "linux": {
+      "deb": {
+        "section": "utils",
+        "recommends": ["gnome-keyring"]
+      }
+    }
   }
 }

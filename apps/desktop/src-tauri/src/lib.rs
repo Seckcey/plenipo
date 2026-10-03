@@ -445,18 +445,33 @@ pub fn configure<R: Runtime>(
             app.manage(router);
             app.manage(workforce);
             quit_on_termination_signal(app.handle().clone());
-            if options.tray {
-                // A missing tray (e.g. no status-notifier host on Linux) is not fatal.
-                if let Err(e) = tray::create(app) {
-                    log::warn!("system tray unavailable: {e}");
+            // A desktop that shows no tray icons (Linux without a status notifier host) gets no
+            // tray: the window shows, and closing it quits (Phase 23). One started at sign-in
+            // waits a moment for the desktop's own start.
+            let tray_wait = if in_tray {
+                std::time::Duration::from_secs(5)
+            } else {
+                std::time::Duration::ZERO
+            };
+            if options.tray && tray::desktop_shows_tray(tray_wait) {
+                // A tray that cannot be made is not fatal: on Linux, not even a missing tray
+                // library, whose loader stops the program instead of failing.
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tray::create(app))) {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => log::warn!("system tray unavailable: {e}"),
+                    Err(_) => log::warn!("system tray unavailable: its library is missing"),
                 }
+            } else if options.tray {
+                log::info!("this desktop shows no tray icons, so Plenipo makes none");
             }
             // The first organization's window (Phase 21: built here, so that it may open its
             // pop-out panels). It starts hidden in the tray; otherwise it shows at once.
+            // Started at sign-in, it stays in the tray, if there is one.
+            let hidden = in_tray && tray::exists(app.handle());
             match workspace_windows::build_org_window(
                 app.handle(),
                 workspace_windows::MAIN,
-                !in_tray,
+                !hidden,
             ) {
                 // It names the organization it shows (Phase 21).
                 Ok(main) => org_commands::set_title(&main, &orgs, &orgs.main_shows()),
@@ -720,6 +735,7 @@ pub fn configure<R: Runtime>(
             upkeep_commands::check_for_updates,
             upkeep_commands::install_update,
             upkeep_commands::open_releases_page,
+            upkeep_commands::delete_plenipo_data,
             workspace_commands::prepare_pop_out,
             workspace_commands::focus_pop_out,
             workspace_commands::reset_pop_outs,
@@ -3677,6 +3693,10 @@ mod ipc_boundary_tests {
             ("check_for_updates", serde_json::json!({})),
             ("install_update", serde_json::json!({ "stopWork": true })),
             ("open_releases_page", serde_json::json!({})),
+            (
+                "delete_plenipo_data",
+                serde_json::json!({ "stopWork": true }),
+            ),
         ] {
             // Refused by the permissions (not by the command itself, which would say something
             // else about these arguments).

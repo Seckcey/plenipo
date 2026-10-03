@@ -688,6 +688,100 @@ async fn install<R: Runtime>(
     }
 }
 
+/// Delete my Plenipo data (Phase 23, a Mac and Linux; Windows' uninstaller has its own tick box):
+/// forget every key Plenipo saved, then stop the work (`stop_work`: the owner agreed), turn
+/// off starting at sign-in, delete Plenipo's own folders, and quit. When the password store does
+/// not let the keys go, nothing is deleted.
+#[tauri::command]
+pub async fn delete_plenipo_data<R: Runtime>(
+    app: AppHandle<R>,
+    stop_work: bool,
+) -> Result<(), CommandError> {
+    if cfg!(windows) {
+        return Err(CommandError::invalid_input(
+            "On Windows, remove Plenipo in Settings → Apps and tick \"Also delete my Plenipo data\".",
+        ));
+    }
+    if crate::work_going(&app) && !stop_work {
+        return Err(CommandError::invalid_input(
+            "Work is running. Deleting your data stops it; say so to go ahead.",
+        ));
+    }
+    let paths = app.path();
+    let data = paths
+        .app_local_data_dir()
+        .map_err(|e| CommandError::internal(e.to_string()))?;
+    // Its data (with the logs), settings, and cache, and on a Mac the web pages' own folder.
+    let mac_web_pages = paths
+        .home_dir()
+        .ok()
+        .filter(|_| cfg!(target_os = "macos"))
+        .map(|home| {
+            home.join("Library")
+                .join("WebKit")
+                .join(crate::uninstall::IDENTIFIER)
+        });
+    let mut folders: Vec<std::path::PathBuf> = Vec::new();
+    for dir in [
+        paths.app_local_data_dir().ok(),
+        paths.app_data_dir().ok(),
+        paths.app_cache_dir().ok(),
+        paths.app_config_dir().ok(),
+        mac_web_pages,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !folders.contains(&dir) {
+            folders.push(dir);
+        }
+    }
+    // The keys first: if the password store says no, nothing else is touched. A Linux PC with no
+    // password store at all cannot have any key in one, so there is nothing to remove.
+    let forgotten = tauri::async_runtime::spawn_blocking(move || {
+        let store_for = |id: &str| -> Box<dyn plenipo_capabilities::SecretStore> {
+            Box::new(plenipo_capabilities::OsSecretStore::new(
+                crate::orgs::vault_name(crate::uninstall::IDENTIFIER, id),
+            ))
+        };
+        let none = store_for(crate::orgs::FIRST).check()
+            == Err(plenipo_capabilities::vault::NO_PASSWORD_STORE.to_owned());
+        if none {
+            log::info!("this computer has no password store, so no saved key to remove");
+            return Ok(0);
+        }
+        crate::uninstall::forget_every_organizations_secrets(&data, store_for)
+    })
+    .await
+    .map_err(|e| CommandError::internal(e.to_string()))?;
+    if let Err(e) = forgotten {
+        return Err(CommandError::invalid_input(format!(
+            "Plenipo could not remove the keys it saved in {} ({e}), so nothing was deleted. \
+             Unlock it, then try again.",
+            plenipo_core::WORDS.key_store
+        )));
+    }
+    log::warn!("deleting Plenipo's data, as the owner asked");
+    crate::stop_work(&app).await;
+    crate::mark_stopped(&app);
+    if start_close::start_with_windows(&app) == Some(true) {
+        let _ = start_close::set_start_with_windows(&app, false);
+    }
+    let deleted =
+        tauri::async_runtime::spawn_blocking(move || crate::uninstall::delete_folders(&folders))
+            .await
+            .map_err(|e| CommandError::internal(e.to_string()))?;
+    match deleted {
+        Ok(()) => {
+            app.exit(0);
+            Ok(())
+        }
+        Err(e) => Err(CommandError::internal(format!(
+            "Some of Plenipo's data could not be deleted: {e}. Quit Plenipo and delete it by hand."
+        ))),
+    }
+}
+
 /// Open GitHub's page for the newest version in the owner's browser, for a copy updated by
 /// hand (Phase 23, ADR-152: a `.deb`). Takes nothing: it opens only that fixed page.
 #[tauri::command]

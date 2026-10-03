@@ -126,6 +126,32 @@ fn forget_license_key(store: &dyn SecretStore) -> Result<bool, String> {
     vault::erase(store, id).map(|()| true)
 }
 
+/// Delete Plenipo's own folders (Phase 23: "Delete my Plenipo data" on a Mac and Linux, where
+/// removing Plenipo never touches the owner's home folder). A folder is deleted only when its
+/// name is Plenipo's own identifier; one already gone is fine.
+pub fn delete_folders(folders: &[PathBuf]) -> Result<(), String> {
+    let mut problems = Vec::new();
+    for folder in folders {
+        if folder.file_name().and_then(|n| n.to_str()) != Some(IDENTIFIER) {
+            problems.push(format!(
+                "{} is not Plenipo's own folder, so it was left alone",
+                folder.display()
+            ));
+            continue;
+        }
+        match std::fs::remove_dir_all(folder) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => problems.push(format!("{} ({e})", folder.display())),
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("; "))
+    }
+}
+
 /// Run the mode when asked for (in `main`, before anything else). Returns the exit code.
 pub fn maybe_run_from_args(mut args: impl Iterator<Item = String>) -> Option<i32> {
     let _program = args.next();
@@ -327,5 +353,22 @@ mod tests {
             maybe_run_from_args(args(&["plenipo.exe", "x", FORGET_SECRETS_ARG])),
             None
         );
+    }
+
+    /// Phase 23: only Plenipo's own folders are deleted, and one already gone is fine.
+    #[test]
+    fn only_plenipos_own_folders_are_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let own = dir.path().join(IDENTIFIER);
+        std::fs::create_dir_all(own.join("ledger")).unwrap();
+        std::fs::write(own.join("ledger").join("plenipo.db"), b"x").unwrap();
+        let other = dir.path().join("Documents");
+        std::fs::create_dir_all(&other).unwrap();
+        let gone = dir.path().join("cache").join(IDENTIFIER);
+        let why = delete_folders(&[own.clone(), other.clone(), gone]).unwrap_err();
+        assert!(!own.exists());
+        assert!(other.exists(), "never another folder");
+        assert!(why.contains("not Plenipo's own folder"), "{why}");
+        assert!(delete_folders(&[own]).is_ok(), "already gone");
     }
 }

@@ -1085,6 +1085,12 @@ export function installUpdate(stopWork: boolean): Promise<UpdateStatus> {
   return call<UpdateStatus>("install_update", { stopWork });
 }
 
+/** Delete my Plenipo data (a Mac and Linux): forget the saved keys, stop the work (`stopWork`:
+ * you agreed), delete Plenipo's own folders, and quit. */
+export function deletePlenipoData(stopWork: boolean): Promise<void> {
+  return call<void>("delete_plenipo_data", { stopWork });
+}
+
 /** A copy updated by hand (Linux's `.deb`): open GitHub's page for the newest version in your
  * browser. */
 export function openReleasesPage(): Promise<void> {
