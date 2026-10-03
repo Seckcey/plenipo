@@ -438,6 +438,129 @@ pub fn start_again(_appimage: &Path) -> std::io::Result<()> {
     Err(std::io::Error::other("not an AppImage"))
 }
 
+/// The Mac app this copy runs from (Phase 23): the `Plenipo.app` folder around the program
+/// (`Plenipo.app/Contents/MacOS/<program>`), when it can be replaced. Not one that macOS runs
+/// from a read-only copy (App Translocation: a downloaded app opened where it lies), nor one on a
+/// disk image: the owner moves it to Applications first.
+pub fn own_app_bundle() -> Option<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    own_app_bundle_from(&std::env::current_exe().ok()?)
+}
+
+fn own_app_bundle_from(program: &Path) -> Option<PathBuf> {
+    let macos = program.parent()?;
+    let contents = macos.parent()?;
+    let bundle = contents.parent()?;
+    let is_app = macos.file_name()? == "MacOS"
+        && contents.file_name()? == "Contents"
+        && bundle.extension()? == "app"
+        && bundle.is_absolute();
+    let read_only = bundle.starts_with("/Volumes")
+        || bundle
+            .components()
+            .any(|c| c.as_os_str() == "AppTranslocation");
+    (is_app && !read_only).then(|| bundle.to_path_buf())
+}
+
+/// Unpack the checked new Mac app (`archive`: the release's `.tar.gz` of `Plenipo.app`) into a
+/// hidden folder next to the running `bundle`, on the same disk, so the swap is one step. Uses
+/// macOS's own `/usr/bin/tar`, which never writes outside the folder it is given. Returns the
+/// new app, after checking it has the same program inside.
+#[cfg(unix)]
+pub fn unpack_app(archive: &Path, bundle: &Path, version: &str) -> Result<PathBuf, String> {
+    let program = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(ToOwned::to_owned))
+        .ok_or("Plenipo could not tell its own program's name")?;
+    unpack_app_named(archive, bundle, version, &program)
+}
+
+#[cfg(unix)]
+fn unpack_app_named(
+    archive: &Path,
+    bundle: &Path,
+    version: &str,
+    program: &std::ffi::OsStr,
+) -> Result<PathBuf, String> {
+    let name = bundle.file_name().ok_or("Plenipo's app has no name")?;
+    let clean: String = version
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '.')
+        .collect();
+    let folder = bundle.with_file_name(format!(".{}.{clean}.new", name.to_string_lossy()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).map_err(|e| {
+        format!(
+            "The update was not installed: Plenipo cannot write next to itself ({e}). Move \
+             Plenipo to your Applications folder, then try again."
+        )
+    })?;
+    let unpacked = std::process::Command::new("/usr/bin/tar")
+        .arg("-xzf")
+        .arg(archive)
+        .arg("-C")
+        .arg(&folder)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let new = folder.join(name);
+    let whole = new.join("Contents").join("MacOS").join(program).is_file();
+    match unpacked {
+        Ok(status) if status.success() && whole => Ok(new),
+        _ => {
+            let _ = std::fs::remove_dir_all(&folder);
+            Err("The update was not installed: the new version could not be unpacked.".into())
+        }
+    }
+}
+
+/// Put the unpacked new app in place of the running one (a Mac). The old one is set aside first
+/// and put back if the new one cannot take its place; the running copy keeps working until it
+/// quits.
+pub fn replace_app(new: &Path, bundle: &Path) -> std::io::Result<()> {
+    let name = bundle
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("Plenipo's app has no name"))?;
+    let old = bundle.with_file_name(format!(".{}.old", name.to_string_lossy()));
+    let _ = std::fs::remove_dir_all(&old);
+    let unpacked = new.parent().map(Path::to_path_buf);
+    let swapped = std::fs::rename(bundle, &old).and_then(|()| {
+        std::fs::rename(new, bundle).inspect_err(|_| {
+            let _ = std::fs::rename(&old, bundle);
+        })
+    });
+    if let Some(folder) = unpacked {
+        let _ = std::fs::remove_dir_all(folder);
+    }
+    if swapped.is_ok() {
+        let _ = std::fs::remove_dir_all(&old);
+    }
+    swapped
+}
+
+/// Open the new Mac app on its own with macOS's `open` (a new copy, told to wait until this one
+/// has closed), with the owner's own session.
+#[cfg(unix)]
+pub fn start_app_again(bundle: &Path) -> std::io::Result<()> {
+    use std::os::unix::process::CommandExt as _;
+    std::process::Command::new("/usr/bin/open")
+        .arg("-n")
+        .arg(bundle)
+        .arg("--args")
+        .arg(format!("{WAIT_FOR}{}", std::process::id()))
+        .env_clear()
+        .envs(plenipo_runtime::policy::owner_session_env())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .process_group(0)
+        .spawn()
+        .map(|_| ())
+}
+
 /// The new version of an AppImage waits here, before anything else starts, until the version it
 /// replaced has closed (at most a minute), so that one Plenipo at a time holds.
 pub fn wait_for_previous(args: impl IntoIterator<Item = String>) {
@@ -675,6 +798,90 @@ mod tests {
             None,
             "not a file"
         );
+    }
+
+    /// Phase 23: a Mac copy replaces itself only from a real `.app` the owner can write to,
+    /// never from the read-only copy macOS runs a downloaded app from, nor from a disk image.
+    #[test]
+    fn a_mac_copy_knows_its_own_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = dir.path().join("Applications").join("Plenipo.app");
+        let program = |b: &Path| b.join("Contents").join("MacOS").join("plenipo-desktop");
+        assert_eq!(own_app_bundle_from(&program(&bundle)), Some(bundle.clone()));
+        assert_eq!(own_app_bundle_from(&bundle.join("plenipo-desktop")), None);
+        let moved = dir
+            .path()
+            .join("AppTranslocation")
+            .join("X")
+            .join("d")
+            .join("Plenipo.app");
+        assert_eq!(own_app_bundle_from(&program(&moved)), None);
+        let not_an_app = dir.path().join("Plenipo");
+        assert_eq!(own_app_bundle_from(&program(&not_an_app)), None);
+        #[cfg(unix)]
+        assert_eq!(
+            own_app_bundle_from(&program(Path::new("/Volumes/Plenipo/Plenipo.app"))),
+            None
+        );
+    }
+
+    /// Phase 23: the new Mac app is unpacked next to the old one and swapped in, and nothing is
+    /// left behind; a broken or foreign archive changes nothing.
+    #[cfg(unix)]
+    #[test]
+    fn a_mac_app_is_replaced_by_its_new_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let make = |root: &Path, program: &str, text: &str| {
+            let macos = root.join("Plenipo.app").join("Contents").join("MacOS");
+            std::fs::create_dir_all(&macos).unwrap();
+            std::fs::write(macos.join(program), text).unwrap();
+        };
+        let apps = dir.path().join("Applications");
+        make(&apps, "plenipo-desktop", "old");
+        let bundle = apps.join("Plenipo.app");
+        let pack = |name: &str, program: &str| {
+            let staging = dir.path().join(format!("staging-{name}"));
+            make(&staging, program, "new");
+            let archive = dir.path().join(format!("{name}.app.tar.gz"));
+            let packed = std::process::Command::new("/usr/bin/tar")
+                .arg("-czf")
+                .arg(&archive)
+                .arg("-C")
+                .arg(&staging)
+                .arg("Plenipo.app")
+                .status()
+                .unwrap();
+            assert!(packed.success());
+            archive
+        };
+        let program = std::ffi::OsStr::new("plenipo-desktop");
+        let leftovers = || {
+            std::fs::read_dir(&apps)
+                .unwrap()
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n != "Plenipo.app")
+                .collect::<Vec<_>>()
+        };
+
+        // Not Plenipo's program inside: refused, nothing changed, nothing left.
+        let foreign = pack("foreign", "something-else");
+        assert!(unpack_app_named(&foreign, &bundle, "1.24.0", program).is_err());
+        let broken = dir.path().join("broken.app.tar.gz");
+        std::fs::write(&broken, b"not an archive").unwrap();
+        assert!(unpack_app_named(&broken, &bundle, "1.24.0", program).is_err());
+        assert!(leftovers().is_empty(), "{:?}", leftovers());
+
+        let archive = pack("good", "plenipo-desktop");
+        let new = unpack_app_named(&archive, &bundle, "1.24.0", program).unwrap();
+        assert_ne!(new, bundle);
+        replace_app(&new, &bundle).unwrap();
+        let inside = bundle
+            .join("Contents")
+            .join("MacOS")
+            .join("plenipo-desktop");
+        assert_eq!(std::fs::read_to_string(inside).unwrap(), "new");
+        assert!(leftovers().is_empty(), "{:?}", leftovers());
     }
 
     #[test]

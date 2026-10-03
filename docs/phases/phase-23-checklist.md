@@ -345,10 +345,36 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       malware check), with the secrets in the GitHub Environment `release` behind the owner's approval,
       like Windows (ADR-052). The release job checks the signature, the notarization, and that macOS
       will open it, just as it checks the Windows signature today.
+      **Waiting (2026-10-03):** 8 West Ventures, LLC has a free Apple account, not the paid Apple
+      Developer Program. A free account cannot make a Developer ID certificate or notarize, so
+      this item and the Mac download wait until the owner enrolls (an organization, $99 a year,
+      with the D-U-N-S number; Apple checks the company first, which can take days).
+      **The other choice: an unsigned test build, for the owner's own MacBook only** (never a
+      public download, never in a release). **Building it:** nothing new. The Release workflow's dry run already builds the Mac app,
+      unsigned, for Apple's chips and Intel. It is kept as a download for 7 days and published
+      nowhere. Signing it with no name ("ad hoc", `signingIdentity: "-"` in
+      `tauri.macos.conf.json`) is worth adding, because an Apple-chip Mac may call an app with
+      no signature at all "damaged". **What the owner sees:** macOS says Apple could not check it for malware and will not open
+      it. On macOS 13 and 14: right-click Plenipo → Open → Open. On macOS 15 and later: try to
+      open it once, then System Settings → Privacy & Security → "Open Anyway". If it says
+      "damaged", the app has no valid signature: in Terminal,
+      `xattr -dr com.apple.quarantine /Applications/Plenipo.app` lets it open. **What does not work the same:** every new test build looks like a different app to
+      macOS, so the Keychain asks again before Plenipo can use its saved keys. Accessibility and
+      Screen Recording (computer use, Wave 3B) must be allowed again for each build. Plenipo
+      does not update itself (its update list has no Mac entry); each test build is downloaded
+      by hand. **So:** the test build is good for checking that Plenipo looks and works right on a Mac
+      (the menu bar, the Dock, copy and paste, the browser, the terminal). It is not for daily
+      use and not for anyone else. Signing waits for the enrollment.
 - [ ] **One download for every Mac** (Apple's chips and Intel), as a `.dmg`.
 - [ ] **Fit in on a Mac:** a menu bar icon, clicking the Dock icon brings the window back, the system's
       Edit menu so Cmd+C and Cmd+V work, Cmd and Option in labels, "Show in Finder" (`open -R`; today
       it would fail on a Mac).
+      **Open question, pop-out windows:** the page opens a pop-out only after waiting for Plenipo,
+      and Apple's web engine may then block it as a window nobody clicked for. Linux turns on a
+      setting that allows it; on a Mac that setting can only be reached with `unsafe` code, which
+      this workspace forbids. Check on the first Mac test build; if Pop out fails, either the page
+      asks Plenipo before the click (so it opens the window at once), or the owner allows one
+      small, reviewed exception to the no-`unsafe` rule.
 - [ ] **The right data folder:** `~/Library/Application Support/com.eightwest.plenipo` (the uninstall
       code looks in the Linux folder on a Mac today). "Delete my Plenipo data" (Wave 2) also
       deletes the Mac's web-page folders (`~/Library/WebKit` and `~/Library/HTTPStorages`); it

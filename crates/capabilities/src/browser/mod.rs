@@ -383,6 +383,11 @@ fn arguments(config: &BrowserConfig, profile: &Path) -> Vec<String> {
         // Never touch the desktop's keyring.
         args.push("--password-store=basic".into());
     }
+    if cfg!(target_os = "macos") {
+        // Never touch the owner's Keychain (Phase 23): no "Chrome Safe Storage" item, and no
+        // Keychain question for the owner when a worker's browser starts.
+        args.push("--use-mock-keychain".into());
+    }
     if config.headless {
         args.push("--headless=new".into());
     }
@@ -841,6 +846,17 @@ mod tests {
             !arguments(&BrowserConfig::new(dir.path().to_path_buf()), dir.path())
                 .contains(&"--headless=new".to_owned())
         );
+    }
+
+    /// Phase 23: the workers' browser never uses the owner's own password store: the desktop's
+    /// keyring on Linux, the Keychain on a Mac.
+    #[test]
+    fn the_browser_stays_out_of_the_owners_password_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = arguments(&BrowserConfig::new(dir.path().to_path_buf()), dir.path());
+        let has = |a: &str| args.iter().any(|x| x == a);
+        assert_eq!(has("--password-store=basic"), cfg!(target_os = "linux"));
+        assert_eq!(has("--use-mock-keychain"), cfg!(target_os = "macos"));
     }
 
     /// The app's browser is driven over the pipes it inherits, never a DevTools port: a port

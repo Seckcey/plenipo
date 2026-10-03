@@ -14,14 +14,22 @@ pub const FORGET_SECRETS_ARG: &str = "--plenipo-forget-secrets";
 /// Plenipo's identifier: its folder's name and its name in Credential Manager.
 pub const IDENTIFIER: &str = "com.eightwest.plenipo";
 
-/// Plenipo's own folder, as Tauri places it (`%LOCALAPPDATA%\com.eightwest.plenipo`).
+/// Plenipo's own folder, as Tauri places it: `%LOCALAPPDATA%\com.eightwest.plenipo` on Windows,
+/// `~/Library/Application Support/com.eightwest.plenipo` on a Mac (Phase 23), and
+/// `~/.local/share/com.eightwest.plenipo` on Linux.
 fn data_dir() -> Option<PathBuf> {
+    data_dir_with(|name| std::env::var_os(name))
+}
+
+/// [`data_dir`], reading the settings it needs through `var` (only full paths count).
+fn data_dir_with(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+    let path = |name: &str| var(name).map(PathBuf::from).filter(|p| p.is_absolute());
     let base = if cfg!(windows) {
-        std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
+        path("LOCALAPPDATA")
+    } else if cfg!(target_os = "macos") {
+        path("HOME").map(|home| home.join("Library").join("Application Support"))
     } else {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        path("XDG_DATA_HOME").or_else(|| path("HOME").map(|home| home.join(".local").join("share")))
     }?;
     Some(base.join(IDENTIFIER))
 }
@@ -161,6 +169,58 @@ pub fn delete_folders(folders: &[PathBuf]) -> Result<(), String> {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => problems.push(format!("{} ({e})", folder.display())),
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("; "))
+    }
+}
+
+/// What a Mac keeps for Plenipo outside Plenipo's own folders (Phase 23): its settings file and
+/// its saved window state, each named for Plenipo. "Delete my Plenipo data" removes them too.
+pub fn mac_leftovers(home: &Path) -> [PathBuf; 2] {
+    let library = home.join("Library");
+    [
+        library
+            .join("Preferences")
+            .join(format!("{IDENTIFIER}.plist")),
+        library
+            .join("Saved Application State")
+            .join(format!("{IDENTIFIER}.savedState")),
+    ]
+}
+
+/// Delete each of `paths` (a file or a folder) only when it is one of [`mac_leftovers`]' names;
+/// one already gone is fine, and a link is removed, never followed.
+pub fn delete_leftovers(paths: &[PathBuf]) -> Result<(), String> {
+    let allowed = [
+        format!("{IDENTIFIER}.plist"),
+        format!("{IDENTIFIER}.savedState"),
+    ];
+    let mut problems = Vec::new();
+    for path in paths {
+        let named = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| allowed.iter().any(|a| a == n));
+        if !named {
+            problems.push(format!(
+                "{} is not one of Plenipo's own files, so it was left alone",
+                path.display()
+            ));
+            continue;
+        }
+        let removed = match std::fs::symlink_metadata(path) {
+            Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
+            Ok(_) => std::fs::remove_file(path),
+            Err(e) => Err(e),
+        };
+        match removed {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => problems.push(format!("{} ({e})", path.display())),
         }
     }
     if problems.is_empty() {
@@ -399,5 +459,49 @@ mod tests {
         assert!(other.exists(), "never another folder");
         assert!(why.contains("not Plenipo's own folder"), "{why}");
         assert!(delete_folders(&[own]).is_ok(), "already gone");
+    }
+
+    /// Phase 23: the data folder is where Tauri puts it on each system (on a Mac, Application
+    /// Support, not Linux's folder).
+    #[test]
+    fn the_data_folder_is_each_systems_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().to_path_buf();
+        let vars = |name: &str| match name {
+            "HOME" => Some(home.clone().into_os_string()),
+            "LOCALAPPDATA" => Some(home.join("AppData").join("Local").into_os_string()),
+            _ => None,
+        };
+        let expected = if cfg!(windows) {
+            home.join("AppData").join("Local")
+        } else if cfg!(target_os = "macos") {
+            home.join("Library").join("Application Support")
+        } else {
+            home.join(".local").join("share")
+        };
+        assert_eq!(data_dir_with(vars).unwrap(), expected.join(IDENTIFIER));
+        assert_eq!(data_dir_with(|_| Some("relative".into())), None);
+    }
+
+    /// Phase 23: a Mac's settings file and saved window state go too, and nothing else.
+    #[test]
+    fn only_plenipos_own_mac_files_are_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let [plist, saved] = mac_leftovers(dir.path());
+        assert!(plist.ends_with("Library/Preferences/com.eightwest.plenipo.plist"));
+        assert!(saved.ends_with("Library/Saved Application State/com.eightwest.plenipo.savedState"));
+        std::fs::create_dir_all(plist.parent().unwrap()).unwrap();
+        std::fs::write(&plist, b"<plist/>").unwrap();
+        std::fs::create_dir_all(saved.join("windows")).unwrap();
+        let other = plist.with_file_name("com.apple.finder.plist");
+        std::fs::write(&other, b"<plist/>").unwrap();
+        let why = delete_leftovers(&[plist.clone(), saved.clone(), other.clone()]).unwrap_err();
+        assert!(!plist.exists() && !saved.exists());
+        assert!(other.exists(), "never another program's settings");
+        assert!(why.contains("not one of Plenipo's own files"), "{why}");
+        assert!(
+            delete_leftovers(&mac_leftovers(dir.path())).is_ok(),
+            "already gone"
+        );
     }
 }
