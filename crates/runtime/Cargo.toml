@@ -37,6 +37,8 @@ uuid = { version = "1", features = ["v4"] }
 libc = "0.2"
 # The keeper (ADR-157) signals a worker's whole program group: safe wrappers.
 nix = { version = "0.31", default-features = false, features = ["process", "signal"] }
+# Programs that left their group, found by the mark in their environment (ADR-158).
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 
 [target.'cfg(windows)'.dependencies]
 # Process creation flags; and, for a program that gets extra pipes (Plenipo's browser), the

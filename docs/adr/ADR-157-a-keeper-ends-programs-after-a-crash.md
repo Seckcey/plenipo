@@ -8,6 +8,8 @@
 - **Part of:** [ADR-150 (Phase 23 starts)](ADR-150-phase-23-starts.md)
 - **Builds on:** [ADR-005 (the runtime supervisor)](ADR-005-runtime-supervisor.md), which noted
   that on Unix a crash leaves a worker's programs running
+- **Amended by:** [ADR-158 (a program that leaves its group still ends with its work)](ADR-158-programs-that-leave-their-group.md):
+  the limit under "Consequences" (a program that leaves its group) is closed
 
 > **On screen:** nothing. A Mac's Activity Monitor shows one more Plenipo while Plenipo runs.
 

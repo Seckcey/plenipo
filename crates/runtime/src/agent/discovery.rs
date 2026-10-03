@@ -218,6 +218,17 @@ pub async fn run_probe(
     .await
 }
 
+/// `env` with a mark of its own on a Mac and Linux (ADR-158): if Plenipo stops suddenly, the
+/// keeper ends what the probe started, even outside its group.
+fn marked(env: &[(String, String)]) -> Vec<(String, String)> {
+    let mut env = env.to_vec();
+    if cfg!(unix) {
+        let probe = format!("probe-{}", uuid::Uuid::new_v4().simple());
+        env.push((crate::marks::MARK.to_owned(), crate::marks::for_run(&probe)));
+    }
+    env
+}
+
 /// [`run_probe`], with `input` written to the program's standard input, which is then closed (a
 /// paid AI tool's key check gets its key there, ADR-085: never an argument or a variable), and
 /// at most `max_output` bytes of its standard output kept.
@@ -235,7 +246,9 @@ pub async fn run_probe_with(
     } else {
         Stdio::null()
     };
-    let mut command = crate::supervisor::wrapped_command(executable, args, env, working_dir, stdin);
+    let env = marked(env);
+    let mut command =
+        crate::supervisor::wrapped_command(executable, args, &env, working_dir, stdin);
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -245,6 +258,8 @@ pub async fn run_probe_with(
             }
         }
     };
+    // On a Mac and Linux, the keeper ends the probe's group if Plenipo stops suddenly.
+    let _kept = child.id().map(crate::keeper::Kept::new);
     if let (Some(bytes), Some(mut pipe)) = (input, child.stdin().take()) {
         use tokio::io::AsyncWriteExt as _;
         let bytes = bytes.to_vec();
@@ -298,8 +313,9 @@ pub async fn run_talk(
 ) -> ProbeOutput {
     use tokio::io::{AsyncWriteExt as _, BufReader};
 
+    let env = marked(env);
     let mut command =
-        crate::supervisor::wrapped_command(executable, args, env, working_dir, Stdio::piped());
+        crate::supervisor::wrapped_command(executable, args, &env, working_dir, Stdio::piped());
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(e) => {
@@ -309,6 +325,8 @@ pub async fn run_talk(
             }
         }
     };
+    // On a Mac and Linux, the keeper ends the probe's group if Plenipo stops suddenly.
+    let _kept = child.id().map(crate::keeper::Kept::new);
     let mut stdin = child.stdin().take();
     let stdout = child.stdout().take();
     let err = tokio::spawn(read_capped(child.stderr().take(), MAX_PROBE_OUTPUT));
