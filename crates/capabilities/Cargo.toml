@@ -62,6 +62,8 @@ semver = "1"
 enigo = { version = "0.6", default-features = false }
 # Each system's own words on screen (Phase 23, ADR-155).
 plenipo-core = { path = "../core" }
+# Community: the contract in code, carried by community_http (Phase 24).
+plenipo-community = { path = "../community" }
 plenipo-guard = { path = "../guard" }
 plenipo-licensing = { path = "../licensing" }
 plenipo-ledger = { path = "../ledger" }
@@ -122,6 +124,8 @@ enigo = { version = "0.6", default-features = false, features = ["x11rb"] }
 x11rb = "0.14"
 
 [dev-dependencies]
+# The stand-in for 8 West's account service, for the tests of community_http.
+plenipo-community = { path = "../community", features = ["stand-in"] }
 # Signs test releases with a throwaway key (Phase 13 update tests).
 minisign = "0.10"
 plenipo-liaison = { path = "../liaison" }
