@@ -1,0 +1,25 @@
+{
+  "note": "A worked seal (contract §7). TEST ONLY: every key here is published on purpose. It seals the item in vector-item.json for one PC of the person it is for. The receiving PC's keys come from sealing_ikm, and the sender's one-time key from ephemeral_ikm, each through HPKE's DeriveKeyPair (RFC 9180 §7.1.3), as the published HPKE test answers do; ephemeral_private_hex and sealing_private_hex are the keys that gives. The seal opens with info for this item and this PC, and fails with wrong_info.",
+  "suite": {
+    "kem_id": 32,
+    "kdf_id": 1,
+    "aead_id": 2,
+    "mode": 0
+  },
+  "item_id": "ci_01JC0D1E2F3G4H5J6K7M8N9P0Q",
+  "device": {
+    "device_id": "cd_01JB7Q8R9S0T1V2W3X4Y5Z6A7C",
+    "member_id": "cm_01JB7Q8R9S0T1V2W3X4Y5Z6A7B",
+    "sealing_ikm_hex": "706c656e69706f2d636f6d6d756e6974792d746573742d7365616c65722d3031",
+    "sealing_private_hex": "4aec3af56140e85e12e0be55821587f4333255cd4766605bc36a6eb962b18c53",
+    "sealing_key": "LHdYVmMG4Zgg44uev0LIRCUlcIl6UfH0px_621sPt3c"
+  },
+  "ephemeral_ikm_hex": "706c656e69706f2d636f6d6d756e6974792d746573742d657068656d2d6b3031",
+  "ephemeral_private_hex": "8eff32cce9b475d0d85aa9bd2fec2673a37e7ee180b7520b5d6d8fe291e096cf",
+  "info": "plenipo-community-seal.v1.ci_01JC0D1E2F3G4H5J6K7M8N9P0Q.cd_01JB7Q8R9S0T1V2W3X4Y5Z6A7C",
+  "aad": "",
+  "sealed_content_json": "{\"payload\":\"eyJ2IjoxLCJpdGVtX2lkIjoiY2lfMDFKQzBEMUUyRjNHNEg1SjZLN004TjlQMFEiLCJraW5kIjoibWVzc2FnZSIsImZyb20iOiJjbV8wMUpBMkIzQzRENUU2RjdHOEg5SjBLMU0yTiIsImZyb21fZGV2aWNlIjoiY2RfMDFKQTJCM0M0RDVFNkY3RzhIOUowSzFNMlAiLCJ0byI6ImNtXzAxSkI3UThSOVMwVDFWMlczWDRZNVo2QTdCIiwicmVmIjpudWxsLCJzZW50X2F0IjoxNzkwMDAwMDAwLCJib2R5Ijp7InRleHQiOiJIaSBQYXQhIFdhbnQgdG8gbGluayBvdXIgb3JnYW5pemF0aW9ucz8g8J-RiyIsImdpZiI6bnVsbCwic3RpY2tlciI6bnVsbCwicmVwbHlfdG8iOm51bGx9fQ\",\"sig\":\"FOzwydjdR2kG88p9mkRX9a0zphepuW0AWtkDFWFrEtWWbz2iM7q2BtSXlECKrbQEIoZ7-iBVGqL6RLesHav3BA\",\"fk\":\"cGxlbmlwby1jb21tdW5pdHktdGVzdC1yZXBvcnQtazE\"}",
+  "enc": "qyaOvvQqNmpzw8ZIZyxCy990zKUwN-JzWM00PnU5Pls",
+  "sealed": "qyaOvvQqNmpzw8ZIZyxCy990zKUwN-JzWM00PnU5PluHdwowZoEUVYcxof5yJKvlG2cpUZevcYBRPTW9vRu4kkz722KzJ__DF-bUGQEbyWNArzEOtD93Qcx4l1Gz1NT8koTiCBew15c9sp7DBXDi20R02MwItNcSEn4qyloRS74BHfMI1-7wl-GRQVrOhvrW1L25SneoR_pndIGXFUGbCGx50Z9Bec-lh9viq6yhDlqpjg_0h5IyeGrr0HRqXqUe4ZOUzpi_C0zD2QCuMn4jIAkqE8Wo6hvSrSeiyR2LjD0lbrY8DFVsWAufjloDuuV4cpPFiAtWeTUTLhT88ywIKxYrQeodpGLsjblXx13b2sJ-0Ubd8Piw4LGJ81oXxrzs-KQh0bcwCgUqWPZcNrcScWdm-wwJpFB_gpbIGT7P5Q8P9IvkjX5H4JykI9stzZquoJuJeist7pMOCWSpiC58HCJ0ctFqSOFnSJayQqJwTyffIHYaiayA-iNwlk0aIceNxU7lhMaam3DQItsFoMnOSM6INX6vXl4q9dbyrcT5rNlYKgpfMGhEJP9bT02Ynvbkj_ye_GlKwtb6hYFqTBt5VSvzofLHlEFeLIh7LZhpLQOTlFbktN57BZH0W_3x7BdPDcJh9RP9qcYhJjdNelpNTVME97EqpAqlZ5TFsNSL9eQHtsot7Yy7dJtsGJPFJF4f9CNJ_SWECuNHRgMbnZO5ibHZaQZMNWJvTWN2LpoU5piEPPDVxV4sBquHe6nr0uzNMGZXrhrjl7tfoP6yKHkHVp6TignP-CRoDJSm-8HLwNQEy2Q9dtyit1opeob5Qu0D9MvTzdYxmGqkpEkF6LhxZmXd",
+  "wrong_info": "plenipo-community-seal.v1.ci_01JC0D1E2F3G4H5J6K7M8N9P0Q.cd_01JB7Q8R9S0T1V2W3X4Y5Z6A7D"
+}
