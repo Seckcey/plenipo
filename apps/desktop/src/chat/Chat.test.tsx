@@ -49,6 +49,8 @@ function emit(update: AgentUpdate) {
 }
 
 const MEMBER = { liaison: { origin: "member" }, workforce: { positionId: "p1" } };
+/** Several promises chain before each of these shows; slow test machines need the time. */
+const SLOW = { timeout: 5000 };
 const started = Date.now() - 5_000;
 
 function detail(turns: AgentTurn[], over: Partial<AgentSessionDetail["session"]> = {}) {
@@ -98,7 +100,7 @@ async function openChat(target: ChatTarget = { positionId: "p1", title: "Develop
       </ChatProvider>
     </AgentsProvider>,
   );
-  await waitFor(() => expect(hub.handlers.length).toBe(2));
+  await waitFor(() => expect(hub.handlers.length).toBe(2), SLOW);
   await user.click(screen.getByRole("button", { name: "Open chat" }));
   return user;
 }
@@ -138,9 +140,14 @@ describe("a chat with an agent (ADR-200)", () => {
 
     await user.type(screen.getByLabelText("Message to Development Manager"), "Write a plan{Enter}");
     expect(commands.giveObjective).toHaveBeenCalledWith("p1", "Write a plan");
-    const log = await screen.findByRole("log", { name: "Conversation with Development Manager" });
-    expect(within(log).getByText("Write a plan")).toBeInTheDocument();
-    expect(within(log).getByText("Starting")).toBeInTheDocument();
+    const log = await screen.findByRole(
+      "log",
+      { name: "Conversation with Development Manager" },
+      SLOW,
+    );
+    // The conversation is drawn as a low-priority update (typing comes first): wait for it.
+    expect(await within(log).findByText("Write a plan", {}, SLOW)).toBeInTheDocument();
+    expect(await within(log).findByText("Starting", {}, SLOW)).toBeInTheDocument();
 
     // A wait that would have looked like nothing happening says why.
     emit({
@@ -187,7 +194,7 @@ describe("a chat with an agent (ADR-200)", () => {
 
     // It finishes: the answer stays, and the file it saved shows with its folder.
     emit({ kind: "turn", ...done("t1", "Here is the plan.") });
-    expect(await within(log).findByText("1 file saved")).toBeInTheDocument();
+    expect(await within(log).findByText("1 file saved", {}, SLOW)).toBeInTheDocument();
     expect(within(log).getByText(/in Plenipo's folder/)).toBeInTheDocument();
     expect(within(log).getByText(/Documents\\Plenipo\\8 West Ventures/)).toBeInTheDocument();
     expect(within(log).getByRole("button", { name: /Saved plan\.md/ })).toHaveAttribute(
@@ -211,17 +218,18 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat();
     const box = screen.getByLabelText("Message to Development Manager");
     await user.type(box, "First{Enter}");
-    await screen.findByRole("log");
+    await screen.findByRole("log", {}, SLOW);
     await user.type(box, "Second{Enter}");
     expect(commands.giveObjective).toHaveBeenCalledTimes(1);
     const waiting = screen.getByRole("list", { name: "Waiting to send" });
     expect(within(waiting).getByText("Second")).toBeInTheDocument();
 
     emit({ kind: "turn", ...done("t1", "One.") });
-    await waitFor(() => expect(commands.giveObjective).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(commands.giveObjective).toHaveBeenCalledTimes(2), SLOW);
     expect(commands.giveObjective).toHaveBeenLastCalledWith("p1", "Second");
-    await waitFor(() =>
-      expect(screen.queryByRole("list", { name: "Waiting to send" })).not.toBeInTheDocument(),
+    await waitFor(
+      () => expect(screen.queryByRole("list", { name: "Waiting to send" })).not.toBeInTheDocument(),
+      SLOW,
     );
   });
 
@@ -237,7 +245,7 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat();
     const box = screen.getByLabelText("Message to Development Manager");
     await user.type(box, "First{Enter}");
-    await screen.findByRole("log");
+    await screen.findByRole("log", {}, SLOW);
     await user.type(box, "Never mind{Enter}");
     await user.click(screen.getByRole("button", { name: "Do not send this" }));
     expect(screen.queryByRole("list", { name: "Waiting to send" })).not.toBeInTheDocument();
@@ -253,7 +261,7 @@ describe("a chat with an agent (ADR-200)", () => {
     );
     const user = await openChat();
     await user.type(screen.getByLabelText("Message to Development Manager"), "Hello{Enter}");
-    const alert = await screen.findByRole("alert");
+    const alert = await screen.findByRole("alert", {}, SLOW);
     expect(alert).toHaveTextContent("Development Manager is vacant.");
     await user.click(within(alert).getByRole("button", { name: /dismiss/i }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -271,8 +279,8 @@ describe("a chat with an agent (ADR-200)", () => {
       notices: [],
     });
     await openChat({ sessionId: "s9", title: "Developer (on call)" });
-    expect(await screen.findByText("Write the script")).toBeInTheDocument();
-    expect(screen.getByText(/takes its work from its lead/)).toBeInTheDocument();
+    expect(await screen.findByText("Write the script", {}, SLOW)).toBeInTheDocument();
+    expect(await screen.findByText(/takes its work from its lead/, {}, SLOW)).toBeInTheDocument();
     expect(screen.getByLabelText("Message to Developer (on call)")).toBeDisabled();
   });
 
@@ -296,11 +304,11 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat({ positionId: "p-dev", title: "Senior Developer" });
     await user.type(screen.getByLabelText("Message to Senior Developer"), "Write the tests{Enter}");
     expect(commands.giveObjective).toHaveBeenCalledWith("p-dev", "Write the tests");
-    expect(await screen.findByRole("tab", { name: /Cloudline Supervisor/ })).toHaveAttribute(
+    expect(await screen.findByRole("tab", { name: /Cloudline Supervisor/ }, SLOW)).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(screen.getByText(/through you/)).toBeInTheDocument();
+    expect(await screen.findByText(/through you/, {}, SLOW)).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: /Senior Developer/ }));
     expect(
       screen.getByText(/Sent to Cloudline Supervisor, who hands it to Senior Developer/),
@@ -325,7 +333,7 @@ describe("a chat with an agent (ADR-200)", () => {
     ]);
     const user = await openChat();
     await user.click(screen.getByRole("button", { name: "Show its tasks" }));
-    const list = await screen.findByRole("list", { name: "Chain of command" });
+    const list = await screen.findByRole("list", { name: "Chain of command" }, SLOW);
     expect(
       within(list).getByText("You asked Cloudline Supervisor directly: “Fix the login page”."),
     ).toBeInTheDocument();

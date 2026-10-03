@@ -8,7 +8,7 @@ import {
   safeLink,
   type Block,
   type Inline,
-} from "./markdown";
+} from "./markdownParse";
 
 const words = (parts: Inline[]) => plainText(parts);
 

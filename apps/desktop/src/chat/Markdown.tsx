@@ -1,7 +1,7 @@
 import { Fragment, memo, useMemo, useState, type ReactNode } from "react";
 
 import { copyText } from "./clipboard";
-import { parseParts, type Block, type Inline, type ListItem } from "./markdown";
+import { parseParts, type Block, type Inline, type ListItem } from "./markdownParse";
 
 interface LinkProps {
   /** What to do when a link is chosen. Without it a link only shows where it goes. */

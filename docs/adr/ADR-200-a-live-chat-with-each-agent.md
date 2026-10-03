@@ -173,7 +173,7 @@ sends (`api_retry`'s fields, `status: "requesting"`, and `--thinking-display`).
   layout kept from before (`apps/desktop/src/workspace/layout.ts`), the dock button, and the
   pop-out window.
 - **The chat** (`apps/desktop/src/chat/`): `ChatProvider` (live updates, the waiting line, Stop),
-  `tabs.ts`, `model.ts` (the conversation from turns and live pieces), `words.ts`, `markdown.ts` and
+  `tabs.ts`, `model.ts` (the conversation from turns and live pieces), `words.ts`, `markdownParse.ts` and
   `Markdown.tsx`, `Transcript.tsx`, `Composer.tsx`, `PlanPanel.tsx` and `plan.ts`, `ChatWindow.tsx`,
   `ChatPanel.tsx`, and `ChatButton.tsx`; the styles under "Chat (ADR-200)" in `styles.css`; a chat
   icon in `packages/ui`.
