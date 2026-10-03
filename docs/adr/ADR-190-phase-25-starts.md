@@ -1,8 +1,10 @@
 # ADR-190: Phase 25 starts — fixes and a simpler Plenipo before launch, in four waves
 
-- **Status:** Proposed. The owner chose the work on 2026-10-03, in two lists. When it starts, and
-  six choices inside it, wait for the owner's answers
-  ([questions for the owner](#questions-for-the-owner)).
+- **Status:** Accepted (by the owner, 2026-10-03). The owner chose the work in two lists, then
+  answered the six questions: start as soon as possible, beside the other phases, "as long as you
+  don't step on each other's work"; questions 2, 3, 4, and 6 "as recommended"; and on question 5,
+  the resets AI companies give out now and then (see
+  [the owner's answers](#the-owners-answers-2026-10-03)).
 - **Date:** 2026-10-03
 - **Phase:** 25 (new)
 - **Amends:** [ADR-132 (the final push: Phase 14, then Mac and Linux, then Community)](ADR-132-the-final-push.md):
@@ -82,8 +84,11 @@ What the check found (details and file paths are in the checklist):
 2. **Four waves, in order:** fix what's broken, make it simple, see and steer the work, then plans
    and made-up answers. Inside Wave 2, the setup tour comes last, because it walks over the simpler
    screens.
-3. **When it starts** is the owner's call (question 1). Until then, the final push stands as
-   written, and no session starts Phase 25 on its own.
+3. **It starts now** (2026-10-03), **beside Phases 23 and 24**, not instead of them. No phase
+   pauses. Each wave of Phase 25 is built on its own branch from the latest `main`, merges `main`
+   often, and stays out of files another open branch is changing; where it must touch a shared file
+   (the command list in `lib.rs`, `App.tsx`, `views.ts`, the vocabulary list), it keeps the change
+   small so the other sessions' merges stay easy.
 4. **Dropped from the first list** at the owner's direction (2026-10-03): the workflow canvas, the
    command-line version, installing AI tools for the owner, making every number clickable (only
    "What's stuck" and "Objectives going" stay, in item 1.7), and the website copy. ADR-059 (Plenipo
@@ -114,7 +119,7 @@ are what the owner's lists already decided:
   AI tools report, and labels its own estimates as estimates.
 - Workers still never control each other. Only supervisors and up may stop or send back work, and
   that is recorded (item 4.8).
-- Plenipo never buys usage for the owner (item 4.2).
+- Plenipo never buys usage for the owner, and never uses a reset for them (item 4.2).
 
 ## Questions for the owner
 
@@ -137,6 +142,28 @@ are what the owner's lists already decided:
    turn it on?**
    - **Recommended:** on, with every step shown and recorded, and a switch to turn it off.
 
+## The owner's answers (2026-10-03)
+
+1. **Start as soon as possible**, beside the other phases, "as long as you don't step on each other's
+   work". Decision 3 above.
+2. **One set of paid keys for the whole PC.** Spending caps stay per organization (item 1.4).
+3. **Ask first** when a manager needs a job no one holds, with a switch to let it hire on its own
+   (item 2.7).
+4. **Side chats answer only:** no tools, no hand-offs (item 3.5).
+5. **Resets, not buying more.** The owner's words: "OpenAI and Claude offer full resets that they
+   give out every once in a while. I have one for each right now. If you can't track it then don't
+   worry about it." So item 4.2 changes:
+   - The notice when a plan runs out says: "If Anthropic gave you a usage reset, you can use it now
+     in Claude", with a button that opens the company's own page. The same goes for OpenAI and
+     ChatGPT.
+   - When the item is built, the builder checks whether Claude Code or Codex reports a waiting
+     reset. If one does, Plenipo shows "You have a reset waiting" on that AI tool's card. If
+     neither does, Plenipo only reminds, and never guesses.
+   - Plenipo never uses a reset for the owner. Using one is the owner's choice, on the company's own
+     site or app.
+6. **Stepping down is on by default**, with every step shown and recorded, and a switch to turn it
+   off (item 4.5).
+
 ## Consequences
 
 - **Easier:**
@@ -144,8 +171,8 @@ are what the owner's lists already decided:
   - Every number that matters is honest across organizations.
   - The owner can see, ask, and stop any worker from where it is shown.
 - **Harder:**
-  - The builders' time goes here before Phase 23's later waves and Phase 24's later parts, if
-    question 1 is answered as recommended.
+  - Three phases are built at once. Each must merge `main` often, and two of them change
+    `lib.rs`'s command list, so small merge conflicts there are expected.
   - Wave 2 changes many screens, so many screen tests change with it.
 - **Watch for:**
   - Old saved settings must still load after fields leave the screen (2.3, 2.4, 2.6).

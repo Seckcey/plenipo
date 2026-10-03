@@ -1,8 +1,8 @@
 # Phase 25 — Implementation Checklist
 
-**Status: planned (2026-10-03).** Nothing is built yet. It waits for the owner to say when it
-starts ([ADR-190, question 1](../adr/ADR-190-phase-25-starts.md#questions-for-the-owner)). Builds
-on v1.20.0. Below, "[x]" is done.
+**Status: started 2026-10-03, beside Phases 23 and 24; Wave 1 in progress.** The owner answered
+ADR-190's six questions the same day ([the owner's answers](../adr/ADR-190-phase-25-starts.md#the-owners-answers-2026-10-03)). Builds on v1.20.0. Below, "[x]"
+is done.
 Plenipo is made by 8 West Ventures, LLC.
 
 Source: the owner's two lists of 2026-10-03, and
@@ -168,11 +168,9 @@ Ships first, in small releases. About 2 to 3 build sessions.
   organization has its own (ADR-094, more than one organization). A window showing a second
   organization looks for the key in its own Vault, doesn't find it, and shows "Key not in use".
   The paid-keys switch being off, or the key check failing at startup, gives the same light.
-- **Do:** (depends on [question 2](../adr/ADR-190-phase-25-starts.md#questions-for-the-owner))
-  - [ ] **Recommended:** one set of keys for the whole PC, saved once and used by every
-        organization. Spending caps stay per organization.
-  - [ ] Otherwise, make the key commands use the window's own organization, and say on the card
-        which organization a key is saved in.
+- **Do:** (the owner chose one set of keys for the whole PC; [answer 2](../adr/ADR-190-phase-25-starts.md#the-owners-answers-2026-10-03))
+  - [ ] One set of keys for the whole PC, saved once and used by every organization. Spending caps
+        stay per organization.
 - **Tests:**
   - [ ] a key saved in one window works in a second organization's window
   - [ ] the light turns green in both
@@ -395,10 +393,8 @@ simpler screens.
         A busy full-time worker's task waits in line. The work is done under the asking project's
         folder and limits.
   - [ ] **Bring in one only when none exists.** If the department has no one for the job, Plenipo
-        asks you first: "The Website supervisor needs a QA Engineer. Hire one?" (Or a switch lets it
-        hire on its own; see
-        [question 3](../adr/ADR-190-phase-25-starts.md#questions-for-the-owner).) Free's limits
-        still apply.
+        asks you first: "The Website supervisor needs a QA Engineer. Hire one?" A switch in Settings →
+        Switches lets it hire on its own ([answer 3](../adr/ADR-190-phase-25-starts.md#the-owners-answers-2026-10-03)). Free's limits still apply.
   - [ ] The supervisor's and manager's instructions say: "Use the people you have first."
   - [ ] **Change ADR-016 (the Development department) and ADR-054 (move or lend an agent).**
 - **Tests:**
@@ -553,7 +549,7 @@ About 5 to 7 build sessions.
     - Codex, Grok, and Kimi: their fork, once checked.
     - Otherwise: a fresh conversation with a short briefing.
   - [ ] **Answer only:** no tools and no hand-offs
-        ([question 4](../adr/ADR-190-phase-25-starts.md#questions-for-the-owner)). It still counts
+        ([answer 4](../adr/ADR-190-phase-25-starts.md#the-owners-answers-2026-10-03)). It still counts
         toward your plan's usage and Free's three-at-once limit.
   - [ ] Side chats are listed in Workers as "Side chat with Alex".
 - **Tests:**
@@ -591,20 +587,21 @@ About 6 to 8 build sessions.
 ### 4.2 When a plan runs out: say what you can do, and pick the work back up — S–M
 
 - **You said (first list):** "Suggest using a subscription reset when model usage limit is
-  reached."
+  reached." And later: "OpenAI and Claude offer full resets that they give out every once in a
+  while. I have one for each right now. If you can't track it then don't worry about it."
 - **Why:** when a limit hits, the task **fails**. You get a general notice and **Try again now**.
   Nothing restarts the work after the reset.
 - **Do:**
   - [ ] The notice says: "Claude Code is out until 3:00 PM. You can:
     - wait (Plenipo picks the work back up at 3:00)
-    - get more usage on Anthropic's site
+    - use a usage reset, if Anthropic gave you one
     - use your Anthropic key or another AI tool"
-  - [ ] Each choice is a button. "Get more usage" opens the company's own page in your browser.
-        **Plenipo never buys anything for you.**
+  - [ ] Each choice is a button. "Use a reset" opens the company's own page in your browser.
+        **Plenipo never uses a reset or buys anything for you.**
+  - [ ] Check whether Claude Code or Codex reports a waiting reset. If one does, show "You have a
+        reset waiting" on its card. If not, only remind, and never guess.
   - [ ] Work stopped by a limit **restarts by itself** after the reset, unless you said Leave
         stopped.
-  - [ ] Assumes "subscription reset" means buying extra usage on the company's own site
-        ([question 5](../adr/ADR-190-phase-25-starts.md#questions-for-the-owner)).
 - **Tests:**
   - [ ] the notice's choices
   - [ ] work restarts after the reset time
@@ -660,7 +657,7 @@ About 6 to 8 build sessions.
   - [ ] It starts when a plan passes a line you set (default 80% used). Every step is shown and
         written in the Ledger.
   - [ ] **On by default**, with a switch in Settings → Switches to turn it off
-        ([question 6](../adr/ADR-190-phase-25-starts.md#questions-for-the-owner)).
+        ([answer 6](../adr/ADR-190-phase-25-starts.md#the-owners-answers-2026-10-03)).
 - **Tests:** each rung of the ladder. Pinned and reviewer roles hold their model.
 
 ### 4.6 Spread use across the week and the month — L

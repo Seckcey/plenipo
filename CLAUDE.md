@@ -22,6 +22,10 @@
   your phone), **2. Phase 23** (Mac and Linux), **3. Phase 24** (Community). Do not start Phase
   14 until the owner says Phase 22 is live. Phase 16's Wave 4, Phase 15, and Phase 9 are
   **parked**: never start one on your own; only the owner can schedule it.
+- **Phase 25 (ADR-190, the owner's order, 2026-10-03)** — fixes and a simpler Plenipo before
+  launch — is built **beside** Phases 23 and 24, wave by wave, starting with Wave 1. Work on its own
+  branch from the latest `main`, merge `main` often, and stay out of files another open branch is
+  changing (the owner: "as long as you don't step on each other's work").
 - **Before pushing** (see `docs/development/setup.md`):
   - `pnpm check`
   - `cargo fmt --all -- --check`

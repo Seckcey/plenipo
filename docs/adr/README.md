@@ -154,4 +154,4 @@ architecture must be recorded here.
 | [170](ADR-170-community-follows-8-wests-switch.md)       | Community follows 8 West's switch: Coming soon until it opens, no release to turn it on             | Accepted |
 | [171](ADR-171-switching-on-part-by-part.md)              | Switching Community on part by part: people, then linked organizations, then collaborators          | Accepted |
 | [172](ADR-172-what-part-24c-changes.md)                  | What part 24C changes: no stickers yet, Delete for me on this PC, email invitations (amends 169)    | Accepted |
-| [190](ADR-190-phase-25-starts.md)                        | Phase 25 starts: fixes and a simpler Plenipo before launch, in four waves (amends 132)              | Proposed |
+| [190](ADR-190-phase-25-starts.md)                        | Phase 25 starts: fixes and a simpler Plenipo before launch, in four waves (amends 132)              | Accepted |

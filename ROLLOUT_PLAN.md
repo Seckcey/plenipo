@@ -21,7 +21,7 @@
 
 **The final push, at the owner's direction (2026-10-01), ADR-132 (the final push: Phase 14, then Mac and Linux, then Community):** after Phase 22's go-live is done, the work is exactly three phases, in this order: **1. Phase 14** (Plenipo on your phone), **2. Phase 23** (Mac and Linux), **3. Phase 24** (Community). Phase 16's Wave 4, Phase 15, and Phase 9 are **parked**: they stay in this plan, as written, with no place in the order until the owner schedules them. No session starts a parked phase on its own.
 
-**Added at the owner's direction (2026-10-03), ADR-190 (Phase 25 starts: fixes and a simpler Plenipo before launch, in four waves):** Phase 25 gathers the owner's 17 bug reports and changes and six ideas kept from a pre-launch list, in four waves: fix what's broken; make Plenipo simple; see and steer the work; make AI plans last and catch made-up answers. It uses ADR-190 to ADR-199. **When it starts waits for the owner** (ADR-190, question 1); until then the final push stands as written.
+**Added at the owner's direction (2026-10-03), ADR-190 (Phase 25 starts: fixes and a simpler Plenipo before launch, in four waves):** Phase 25 gathers the owner's 17 bug reports and changes and six ideas kept from a pre-launch list, in four waves: fix what's broken; make Plenipo simple; see and steer the work; make AI plans last and catch made-up answers. It uses ADR-190 to ADR-199. **It started on 2026-10-03, beside Phases 23 and 24** (the owner: "start asap as long as you don't step on each other's work"); no phase pauses.
 
 ## Order of work (owner's direction, 2026-09-28, ADR-039; Phase 20 moved ahead of Phase 16 by ADR-061; the final push set by ADR-132, 2026-10-01)
 
@@ -43,9 +43,9 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | Parked | 16, Wave 4 | Tools for any model, then specialist jobs | No place in the order until the owner schedules it (ADR-131, ADR-132) |
 | Parked | 15 | Additional providers, departments, Windows servers, and Milepost | No place in the order until the owner schedules it (ADR-132) |
 | Parked | 9 | Sales department on HubSpot | Postponed (ADR-018), parked by ADR-132 |
-| Waiting for the owner | 25 | Fixes and a simpler Plenipo before launch | **Planned** (2026-10-03, ADR-190): four waves; checklist `docs/phases/phase-25-checklist.md`. Its place in the order waits for the owner (ADR-190, question 1; recommended: Wave 1 now beside Phase 23) |
+| Beside 23 and 24 | 25 | Fixes and a simpler Plenipo before launch | **Started** (2026-10-03, ADR-190): four waves, Wave 1 first; built beside Phases 23 and 24, each on its own branch from the latest `main`; checklist `docs/phases/phase-25-checklist.md` |
 
-Phases 0–8, 10, 11, 11A, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered, and Phase 16's Waves 1 to 3. Phase 22 is live (the owner's word, 2026-10-01). Phase 14, the first of the final push, is delivered (v1.19.0 to v1.19.2, its own relay in v1.19.3, and phone access on in v1.19.4); **Phase 23** is in progress (ADR-150), and **Phase 24** is being built beside it (ADR-160). Parked: Phase 16's Wave 4, Phase 15, and Phase 9. **Phase 25** (fixes and a simpler Plenipo before launch) is planned and waits for the owner to set when it starts (ADR-190).
+Phases 0–8, 10, 11, 11A, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered, and Phase 16's Waves 1 to 3. Phase 22 is live (the owner's word, 2026-10-01). Phase 14, the first of the final push, is delivered (v1.19.0 to v1.19.2, its own relay in v1.19.3, and phone access on in v1.19.4); **Phase 23** is in progress (ADR-150), and **Phase 24** is being built beside it (ADR-160). Parked: Phase 16's Wave 4, Phase 15, and Phase 9. **Phase 25** (fixes and a simpler Plenipo before launch) started on 2026-10-03, beside them (ADR-190).
 
 ---
 
@@ -2329,8 +2329,8 @@ Phase 22 (accounts), Phase 14 (the web interface's signed-in connection), Phase 
 # Phase 25 — Fixes and a Simpler Plenipo Before Launch
 
 **Added at the owner's direction (2026-10-03), ADR-190.** The owner tried Plenipo as a new user
-would and sent two lists: 17 bugs and changes, and six ideas kept from a pre-launch list. **When it
-starts waits for the owner** (ADR-190, question 1). Checklist, with the cause of every bug:
+would and sent two lists: 17 bugs and changes, and six ideas kept from a pre-launch list. **Started
+2026-10-03, beside Phases 23 and 24.** Checklist, with the cause of every bug:
 `docs/phases/phase-25-checklist.md`.
 
 ## Goal
@@ -2367,8 +2367,8 @@ makes the owner's AI plans last.
   - side chats with any manager or supervisor, answer only
 - **Wave 4, make AI plans last and catch made-up answers:**
   - Anthropic prompt caching on the direct key and OpenRouter
-  - when a plan runs out, choices to wait, get more usage on the company's own site, or use a key,
-    and the work restarts after the reset
+  - when a plan runs out, choices to wait, use a reset the company gave you (on its own site or
+    app), or use a key, and the work restarts after the reset
   - labelled plan windows
   - the subscription first, then the same company's key
   - stepping down effort and model instead of stopping
@@ -2436,7 +2436,7 @@ latest `main`.
 
 - the workflow canvas, a command-line version, installing AI tools for the owner, making every
   number clickable, and the website copy (dropped by the owner, 2026-10-03)
-- Plenipo buying usage for the owner
+- Plenipo buying usage, or using a reset, for the owner
 
 ---
 
