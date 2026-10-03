@@ -3331,7 +3331,8 @@ mod ipc_boundary_tests {
         let app = app();
         let main = window(&app, "main");
         let settings: TerminalSettings = body(invoke(&main, "get_terminal_settings"));
-        assert_eq!(settings.shells.len(), 3);
+        // Windows' three shells, or a Mac's and Linux's four (the owner's own, zsh, bash, fish).
+        assert_eq!(settings.shells.len(), if cfg!(windows) { 3 } else { 4 });
         assert!(settings.open.is_empty());
         let open = |place: serde_json::Value| serde_json::json!({ "place": place, "cols": 80, "rows": 24, "events": "__CHANNEL__:7" });
         // A place, never a program: anything more, or a server ID that is not an ID, is refused.

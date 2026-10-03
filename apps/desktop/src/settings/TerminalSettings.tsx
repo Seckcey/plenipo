@@ -59,12 +59,6 @@ export function TerminalSettings() {
     <div className="settings-terminal">
       <section aria-labelledby="terminal-shell">
         <h3 id="terminal-shell">The shell on this PC</h3>
-        {s.otherShell && (
-          <p className="muted">
-            This computer is not running Windows, so the terminal uses {s.otherShell}. The choice
-            below applies on Windows.
-          </p>
-        )}
         <fieldset className="fieldset" disabled={pending !== null}>
           <legend className="visually-hidden">The shell a new terminal on this PC starts</legend>
           {s.shells.map((option) => (
@@ -84,8 +78,8 @@ export function TerminalSettings() {
           ))}
         </fieldset>
         <p className="muted">
-          It starts in your home folder, as your own Windows user — never as administrator. Changing
-          it applies to the next terminal you open.
+          It starts in your home folder, {s.runsAs}. Changing it applies to the next terminal you
+          open.
         </p>
         {error && (
           <p className="status status--error" role="alert">

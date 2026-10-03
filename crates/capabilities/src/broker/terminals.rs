@@ -109,31 +109,28 @@ impl Broker {
             .and_then(|p| serde_json::from_value(p["terminalShell"].clone()).ok())
             .unwrap_or_default();
         let config = self.inner.guard.config()?;
-        #[cfg(windows)]
-        let other_shell = None;
-        #[cfg(not(windows))]
-        let other_shell = Some(terminal::other_shell().display().to_string());
         Ok(TerminalSettings {
-            shell,
+            // The shell this system will start: a choice no shell here answers to (the
+            // default, on a Mac or Linux) is this system's first one (Phase 23).
+            shell: terminal::effective_shell(shell),
             shells: terminal::shell_options(),
-            other_shell,
+            runs_as: terminal::runs_as().to_owned(),
             servers_switched_on: config.switches.servers,
             open: self.open_terminals(),
         })
     }
 
-    /// Choose the shell a new terminal on this PC starts (terminals open now keep theirs).
+    /// Choose the shell a new terminal on this PC starts (terminals open now keep theirs). Only
+    /// one this system offers and has.
     pub fn set_terminal_shell(&self, shell: TerminalShell) -> Result<TerminalSettings> {
-        if cfg!(windows) {
-            let installed = terminal::shell_options()
-                .iter()
-                .any(|o| o.shell == shell && o.installed);
-            if !installed {
-                return Err(BrokerError::Invalid(format!(
-                    "{} is not installed on this PC",
-                    terminal::shell_label(shell)
-                )));
-            }
+        let installed = terminal::shell_options()
+            .iter()
+            .any(|o| o.shell == shell && o.installed);
+        if !installed {
+            return Err(BrokerError::Invalid(format!(
+                "{} is not installed on this PC",
+                terminal::shell_label(shell)
+            )));
         }
         self.ledger()
             .merge_setting(PREFERENCES, &json!({ "terminalShell": shell }), OWNER)?;

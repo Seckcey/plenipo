@@ -247,7 +247,13 @@ impl H {
 async fn plan_the_owners_terminal_on_this_pc() {
     let h = harness().await;
     let settings = h.broker.terminal_settings().unwrap();
-    assert_eq!(settings.shell, TerminalShell::WindowsPowerShell);
+    // Windows PowerShell on Windows; the owner's own shell on a Mac or Linux (Phase 23).
+    let first = if cfg!(windows) {
+        TerminalShell::WindowsPowerShell
+    } else {
+        TerminalShell::YourShell
+    };
+    assert_eq!(settings.shell, first);
     assert!(settings.servers_switched_on);
     let screen = Shared::default();
     let info = h.open(&TerminalPlace::ThisPc, &screen).await;
@@ -610,6 +616,44 @@ async fn a_terminal_closed_before_its_screen_answered_still_closes() {
     assert_eq!(h.events("terminal.closed").len(), 1);
 }
 
+/// Phase 23 (ADR-150): on a Mac and Linux, closing a terminal ends the programs started in it,
+/// as Windows' job object does, even one told to ignore the hang-up (`nohup`).
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn closing_a_terminal_ends_the_programs_started_in_it() {
+    let h = harness().await;
+    let screen = Shared::default();
+    let info = h.open(&TerminalPlace::ThisPc, &screen).await;
+    h.broker
+        .write_terminal(
+            &info.id,
+            b"nohup sleep 300 >/dev/null 2>&1 & echo left-$!\r",
+        )
+        .unwrap();
+    // The shell's answer, not the typing echoed back: "left-" and the program's number.
+    let pid = || -> Option<u32> {
+        let shown = text(&screen);
+        shown.match_indices("left-").find_map(|(at, _)| {
+            let digits: String = shown[at + 5..]
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect();
+            digits.parse().ok()
+        })
+    };
+    until("the program's number", || pid().is_some()).await;
+    let pid = pid().unwrap();
+    let alive = |pid: u32| {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    assert!(alive(pid), "the program started");
+    h.closed(&info, &screen).await;
+    until("the program started in the terminal to end", || !alive(pid)).await;
+}
+
 /// The shell for this PC is chosen in Settings → Terminal, and kept.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_shell_choice_is_kept() {
@@ -621,19 +665,33 @@ async fn the_shell_choice_is_kept() {
             .set_terminal_shell(TerminalShell::CommandPrompt)
             .unwrap();
         assert_eq!(s.shell, TerminalShell::CommandPrompt);
-        assert!(s.other_shell.is_none());
+        assert!(
+            s.runs_as.contains("never as administrator"),
+            "{}",
+            s.runs_as
+        );
+        assert_eq!(s.shells.len(), 3);
+        assert!(h.broker.set_terminal_shell(TerminalShell::Zsh).is_err());
     } else {
-        let s = h
+        // bash is on GitHub's Linux and Mac machines (Phase 23).
+        let s = h.broker.set_terminal_shell(TerminalShell::Bash).unwrap();
+        assert_eq!(s.shell, TerminalShell::Bash);
+        assert!(s.runs_as.contains("never as root"), "{}", s.runs_as);
+        assert_eq!(s.shells.len(), 4);
+        assert_eq!(s.shells[0].shell, TerminalShell::YourShell);
+        assert!(
+            s.shells[0].label.starts_with("Your shell ("),
+            "{}",
+            s.shells[0].label
+        );
+        // A Windows shell is not one this system offers.
+        assert!(h
             .broker
             .set_terminal_shell(TerminalShell::PowerShell7)
-            .unwrap();
-        assert_eq!(s.shell, TerminalShell::PowerShell7);
-        // Off Windows, the user's own shell is used whatever the choice.
-        assert!(s.other_shell.is_some());
+            .is_err());
     }
     let again = h.broker.terminal_settings().unwrap();
-    assert_ne!(again.shell, TerminalShell::WindowsPowerShell);
-    assert_eq!(again.shells.len(), 3);
+    assert_ne!(again.shell, again.shells[0].shell);
 }
 
 impl H {

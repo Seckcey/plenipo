@@ -283,7 +283,7 @@ export function TerminalPanel({ theme }: { theme: ThemeName }) {
       id: HERE,
       label: "This PC",
       icon: "terminal",
-      hint: settings ? (settings.otherShell ?? shellLabel(settings)) : undefined,
+      hint: settings ? shellLabel(settings) : undefined,
     },
     ...(servers?.servers ?? []).map((v): MenuItem => {
       const why = !servers?.switchedOn

@@ -171,8 +171,11 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       the check cannot run on is refused everywhere; the Mac asks its own `/usr/sbin/lsof` (full
       path, 5-second limit; any failure refuses) and follows parents with `sysinfo`; its tests
       pass on GitHub's Mac
-- [ ] **The terminal's programs end with it.** Closing a terminal on Mac and Linux only signals the
+- [x] **The terminal's programs end with it.** Closing a terminal on Mac and Linux only signals the
       shell, so programs started in it can keep running. End its whole group, as Windows does.
+      Done: the shell leads its own session, so when it ends Plenipo asks every program still in
+      that session to stop, waits a second, then ends the rest. A test starts a program with
+      `nohup` (told to ignore the hang-up), closes the terminal, and checks the program is gone.
 - [x] **Never as root.** On Windows, Plenipo refuses to open a terminal while it runs as
       administrator. On Mac and Linux it never checks for root; add that check, for the terminal and
       for the browser (which runs without its sandbox as root on Linux).
@@ -224,8 +227,14 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       does not hide the Mac Keychain from it.
 - [ ] **Guard's path rules** on the Mac's file system, which ignores upper and lower case, and on
       Linux's, which does not; and on Mac folders that are really links (`/tmp` is `/private/tmp`).
-- [ ] **The terminal's shells.** Today the choice is Windows PowerShell, PowerShell 7, or Command
+- [x] **The terminal's shells.** Today the choice is Windows PowerShell, PowerShell 7, or Command
       Prompt. Add the owner's own shell on Mac and Linux (zsh, bash, fish from `/etc/shells`).
+      Done: a Mac and Linux offer "Your shell" (the owner's own, named: "Your shell (zsh)"), zsh,
+      bash, and fish, each looked for in fixed places (Homebrew's first for bash and fish) rather
+      than read from `/etc/shells`, and only one this PC has can be picked. A Mac starts them as
+      Terminal does, as a login shell. Settings says who the terminal runs as in the system's own
+      words ("as yourself — never as root"), and a choice made on another system falls back to
+      this system's first one.
 - [x] **One Plenipo at a time** on every system (the single-instance switch is Windows only today
       because Linux test runs start several copies; give tests their own switch instead). Done: on
       every system. The end-to-end tests start one copy after another, so they need no switch. On

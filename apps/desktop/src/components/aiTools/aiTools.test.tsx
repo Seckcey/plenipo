@@ -237,6 +237,7 @@ beforeEach(() => {
   api.getTerminalSettings.mockResolvedValue({
     shell: "windowsPowerShell",
     shells: [{ shell: "windowsPowerShell", label: "Windows PowerShell", installed: true }],
+    runsAs: "as your own Windows user — never as administrator",
     serversSwitchedOn: false,
     open: [],
   });
