@@ -38,8 +38,13 @@ container); a proxy in front of it ends TLS. Settings come from the environment:
   PLENIPO_RELAY_MAX_NEW_PER_MINUTE       new connections from one address in a minute (default 120)
   PLENIPO_RELAY_MAX_TRIES_PER_MINUTE     refusals for one address in a minute (default 30)
   PLENIPO_RELAY_MAX_PHONES_PER_PC        phone connections one PC may have at once (default 40)
+  PLENIPO_RELAY_MAX_PCS_PER_LICENSE      PCs one license may have connected at once (default 10)
+  PLENIPO_RELAY_MAX_PCS_PER_ADDRESS      PCs one address may have connected at once (default 32)
   PLENIPO_RELAY_MAX_MESSAGES_PER_MINUTE  messages one connection may send in a minute (default 1200)
   PLENIPO_RELAY_MAX_BYTES_PER_MINUTE     bytes one connection may send in a minute (default 16777216)
+  PLENIPO_RELAY_MAX_OUTGOING_BYTES       bytes waiting to go out to one connection; over it, the
+                                         connection is closed (default 1048576)
+  PLENIPO_RELAY_MAX_ADDRESSES            addresses remembered at once (default 100000)
   PLENIPO_RELAY_IDLE_SECONDS             a connection quiet this long is closed (default 90)
 
 GET /healthz answers `ok` (or `off`). Logs hold counts, codes, and addresses only: never a message,
@@ -112,6 +117,22 @@ impl Settings {
                 defaults.tries_per_address_per_minute,
             )?,
             phones_per_pc: env_number("PLENIPO_RELAY_MAX_PHONES_PER_PC", defaults.phones_per_pc)?,
+            pcs_per_license: env_number(
+                "PLENIPO_RELAY_MAX_PCS_PER_LICENSE",
+                defaults.pcs_per_license,
+            )?,
+            pcs_per_address: env_number(
+                "PLENIPO_RELAY_MAX_PCS_PER_ADDRESS",
+                defaults.pcs_per_address,
+            )?,
+            outgoing_bytes: env_number(
+                "PLENIPO_RELAY_MAX_OUTGOING_BYTES",
+                defaults.outgoing_bytes,
+            )?,
+            addresses_remembered: env_number(
+                "PLENIPO_RELAY_MAX_ADDRESSES",
+                defaults.addresses_remembered,
+            )?,
             messages_per_minute: env_number(
                 "PLENIPO_RELAY_MAX_MESSAGES_PER_MINUTE",
                 defaults.messages_per_minute,

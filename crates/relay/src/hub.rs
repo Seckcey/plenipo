@@ -253,12 +253,18 @@ impl Hub {
     }
 
     /// Is there no room in the table for a new address? At the cap, the idle ones are forgotten
-    /// at once; only a table full of addresses with something open or counted turns one away.
+    /// at once; if it is still full, the ones that are only counted this minute go too (their
+    /// counts start over), since the table is first of all for addresses with something open.
+    /// Only a table full of those turns a new address away, and they are bounded by the
+    /// connections in all.
     fn no_room_for(st: &mut State, address: AddressKey, most: usize, now: i64) -> bool {
         if st.addresses.contains_key(&address) || st.addresses.len() < most {
             return false;
         }
         Self::sweep(st, now);
+        if st.addresses.len() >= most {
+            st.addresses.retain(|_, u| u.open > 0 || u.pcs > 0);
+        }
         st.addresses.len() >= most
     }
 
@@ -694,23 +700,58 @@ mod tests {
     }
 
     #[test]
-    fn a_full_table_is_swept_at_once_and_then_says_full() {
+    fn a_full_table_is_swept_at_once_and_then_lets_the_counted_only_ones_go() {
         let (hub, time) = hub_with_clock(Limits {
             addresses_remembered: 100,
             ..Limits::default()
         });
-        for n in 0..100 {
+        // One address with a connection open, and 99 that came and went this minute.
+        hub.enter(address(0)).unwrap();
+        for n in 1..100 {
             hub.enter(address(n)).unwrap();
             hub.leave(address(n));
         }
-        // Full, and nothing idle to forget yet: a new address is turned away...
-        assert_eq!(hub.enter(address(100)), Err(Turned::Full));
-        // ...while one already remembered still comes in.
-        hub.enter(address(5)).unwrap();
-        hub.leave(address(5));
-        // A minute on, the table is swept on the spot and the new address fits.
-        time.fetch_add(61, Ordering::SeqCst);
+        // Full, and nothing idle to forget yet: the ones that are only counted go, so the new
+        // address comes in; the busy one stays.
         hub.enter(address(100)).unwrap();
-        assert_eq!(hub.stats().addresses, 1);
+        assert_eq!(hub.stats().addresses, 2);
+        hub.leave(address(100));
+        // A minute on, the sweep alone makes room: nothing busy is touched either way.
+        for n in 1..99 {
+            hub.enter(address(n)).unwrap();
+            hub.leave(address(n));
+        }
+        time.fetch_add(61, Ordering::SeqCst);
+        hub.enter(address(200)).unwrap();
+        assert_eq!(hub.stats().addresses, 2);
+    }
+
+    #[tokio::test]
+    async fn the_byte_bound_alone_kills_a_link_that_queues_too_much() {
+        let (out, mut queue) = tokio::sync::mpsc::channel::<Message>(256);
+        let link = Link {
+            out,
+            kill: Arc::new(Notify::new()),
+            queued: Arc::new(AtomicUsize::new(0)),
+            most_queued: 100,
+        };
+        // Two messages, far under the count of 256, but over the bytes.
+        link.send(String::from_utf8(vec![b'a'; 60]).unwrap());
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(10), link.kill.notified())
+                .await
+                .is_err(),
+            "one message fits"
+        );
+        link.send(String::from_utf8(vec![b'b'; 60]).unwrap());
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(10), link.kill.notified())
+                .await
+                .is_ok(),
+            "the second is over the bytes: killed"
+        );
+        // Only the first was queued.
+        assert_eq!(queue.try_recv().map(|m| m.len()), Ok(60));
+        assert!(queue.try_recv().is_err());
     }
 }

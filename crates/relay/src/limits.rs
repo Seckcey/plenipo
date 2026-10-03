@@ -19,7 +19,7 @@ pub struct Limits {
     pub tries_per_address_per_minute: u32,
     /// Addresses the relay remembers at once (each with its open connections and this minute's
     /// counts). Idle ones are forgotten on the timer; at the cap, they are forgotten at once, and
-    /// if the table is still full, the door answers `503`.
+    /// if the table is still full, the ones that are only counted this minute go too.
     pub addresses_remembered: usize,
     /// How often idle addresses are forgotten.
     pub address_sweep: Duration,
@@ -29,8 +29,9 @@ pub struct Limits {
     /// (`too_many_tries` beyond it). A subscription is one person on any of their own PCs
     /// (ADR-110), so this is a brake on a leaked answer, not a count of a person's PCs.
     pub pcs_per_license: usize,
-    /// PCs one address may have connected at once (`too_many_tries` beyond it). An office or a
-    /// home shares one address, so this allows several.
+    /// PCs one address may have connected at once (`too_many_tries` beyond it). An office, or a
+    /// carrier's whole neighbourhood, can share one address, so this is as many as the address
+    /// may have connections.
     pub pcs_per_address: usize,
     /// Messages one connection may send in a minute.
     pub messages_per_minute: u32,
@@ -66,7 +67,7 @@ impl Default for Limits {
             address_sweep: Duration::from_secs(60),
             phones_per_pc: 40,
             pcs_per_license: 10,
-            pcs_per_address: 8,
+            pcs_per_address: 32,
             messages_per_minute: 1200,
             bytes_per_minute: 16 * 1024 * 1024,
             first_message: Duration::from_secs(10),
