@@ -19,9 +19,24 @@ export const BADGE_WORDS: ReadonlyMap<string, string> = new Map([
   ["top_helper", "Top helper this week"],
 ]);
 
+/** The one-line reason for each badge, said when someone points at it (ADR-169 §3). */
+export const BADGE_REASONS: ReadonlyMap<string, string> = new Map([
+  ["founding_member", "Joined Community in its first 90 days"],
+  ["helper", "Someone's collaborator for 30 days or more"],
+  ["connector", "3 links with other organizations, each 30 days or more"],
+  ["good_neighbor", "Thanked by 10 or more different people"],
+  ["trusted", "In Community 6 months with no report upheld"],
+  ["top_helper", "Most points last week"],
+]);
+
 /** The words for a badge, or `null` for a badge this copy of Plenipo does not know. */
 export function badgeWords(badge: string): string | null {
   return BADGE_WORDS.get(badge) ?? null;
+}
+
+/** The one-line reason for a badge, or `null` for a badge this copy of Plenipo does not know. */
+export function badgeReason(badge: string): string | null {
+  return BADGE_REASONS.get(badge) ?? null;
 }
 
 /** A number of points as words: "0 points", "1 point", "1,250 points". */

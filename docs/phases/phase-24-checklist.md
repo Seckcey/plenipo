@@ -141,17 +141,17 @@ are written and tested; they reach the live service, still switched off, when th
 - [x] A pasted or dropped photo is refused (ADR-164 §4). The **GIF** button stays hidden until the
       owner chooses the library (then a release adds Guard's **GIFs** purpose, ADR-170 §8); stickers
       are left out for now (ADR-172 §1)
-- [ ] Points, the leaderboard, badges, "**Thanked by**", **Getting started** (its first three
+- [x] Points, the leaderboard, badges, "**Thanked by**", **Getting started** (its first three
       steps), and **Invite someone** (ADR-169, ADR-172 §3, §4). The **Thanks** button comes with
       parts 24D and 24E
 - [x] **Give to a worker**, fenced as outside words (a new `fence::Source` kind) (ADR-164 §9)
 - [x] Block, report (with the proof), and leave, everywhere (ADR-167)
 - [x] **Delete my Community data from this PC** (ADR-168 §3)
-- [ ] Ledger events `community.*`, never a message's words
-- [ ] New desktop commands, main window only, with IPC tests
+- [x] Ledger events `community.*`, never a message's words
+- [x] New desktop commands, main window only, with IPC tests
 - [x] **Coming soon** while the account service says Community is not open, **Check again**,
       **Update Plenipo to use Community**, and **Community is closed for now** (ADR-170)
-- [ ] Words added to `docs/design/vocabulary.md`
+- [x] Words added to `docs/design/vocabulary.md`
 
 ## Part 24D — linked organizations (pull requests #136 and #138 merged)
 
@@ -204,7 +204,7 @@ are written and tested; they reach the live service, still switched off, when th
 - [x] Under 13 cannot join, and nothing of the answer is kept (ADR-162 §4)
 - [x] A member under 18 is never in the directory, an adult never sees their status or mood, and an
       adult's message to them lands in **Requests** (ADR-162 §4)
-- [ ] The directory cannot be copied whole, and **Appear offline** removes you from it and the
+- [x] The directory cannot be copied whole, and **Appear offline** removes you from it and the
       leaderboard at once (ADR-163 §4, §5)
 - [x] A message can never make Plenipo fetch anything but the GIF library's pictures (ADR-164 §4)
 - [ ] Sending messages earns no points, and one person can give another at most 20 points a month

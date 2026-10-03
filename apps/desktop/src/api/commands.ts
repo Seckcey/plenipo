@@ -10,9 +10,12 @@ import type {
   ConversationSummary,
   ConversationView,
   Found,
+  GettingStarted,
   KeptOnPc,
+  LeaderboardView,
   MessageView,
   PeoplePage,
+  PointsView,
   RemoteSettings,
   ReportOf,
   LiveView,
@@ -1714,4 +1717,32 @@ export function reportInCommunity(
  */
 export function deleteMyCommunityData(): Promise<void> {
   return call<void>("delete_my_community_data");
+}
+
+/**
+ * **Your points**: the total, this week, your places, your badges, "Thanked by 12 people", and the
+ * last 20 changes. It asks 8 West, which lets this and the leaderboard be asked 120 times an hour
+ * together: ask once each time the page shows, never on a timer.
+ */
+export function communityPoints(): Promise<PointsView> {
+  return call<PointsView>("community_points");
+}
+
+/**
+ * **Leaderboard**: the top 50 of **This week** (`allTime` false) or **All time**, and your own
+ * place. Members under 18 are not on it: do not ask for them. It asks 8 West: ask once each time
+ * the page shows and when the person picks the other list, never on a timer.
+ */
+export function communityLeaderboard(allTime: boolean): Promise<LeaderboardView> {
+  return call<LeaderboardView>("community_leaderboard", { allTime });
+}
+
+/** **Getting started**: which of its steps are done, and whether it was closed. Nothing is sent. */
+export function communityGettingStarted(): Promise<GettingStarted> {
+  return call<GettingStarted>("community_getting_started");
+}
+
+/** Close **Getting started** for good. It answers how things stand now. Nothing is sent. */
+export function closeCommunityGettingStarted(): Promise<GettingStarted> {
+  return call<GettingStarted>("close_community_getting_started");
 }

@@ -134,10 +134,14 @@ describe("Community on the strip", () => {
 });
 
 describe("The Community section", () => {
-  it("has two tabs, People and Messages, and People has its parts", async () => {
+  it("has three tabs, People, Messages, and Leaderboard, and People has its parts", async () => {
     const { container } = await inPage();
     expect(screen.getByRole("heading", { level: 1, name: "Community" })).toBeInTheDocument();
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["People", "Messages"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "People",
+      "Messages",
+      "Leaderboard",
+    ]);
     expect(screen.getByRole("tab", { name: "People" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Messages" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tabpanel", { name: "People" })).toBeInTheDocument();
@@ -591,11 +595,18 @@ describe("A card", () => {
     expect(inCard.getByText("Kitchens and decks")).toBeInTheDocument();
     expect(inCard.getByText("California (United States)")).toBeInTheDocument();
     const badges = inCard.getByRole("list", { name: "Badges" });
-    expect(
-      within(badges)
-        .getAllByRole("listitem")
-        .map((b) => b.textContent),
-    ).toEqual(["Helper", "Founding member", "Top helper this week"]);
+    const items = within(badges).getAllByRole("listitem");
+    // The words, and each one's reason: on hover, and for a screen reader.
+    expect(items.map((b) => b.firstElementChild?.textContent)).toEqual([
+      "Helper",
+      "Founding member",
+      "Top helper this week",
+    ]);
+    expect(items.map((b) => b.getAttribute("title"))).toEqual([
+      "Someone's collaborator for 30 days or more",
+      "Joined Community in its first 90 days",
+      "Most points last week",
+    ]);
     expect(inCard.getByText("1,250 points")).toBeInTheDocument();
     expect(inCard.getByText("Thanked by 12 people")).toBeInTheDocument();
     // The status is a light and a word.
@@ -636,7 +647,10 @@ describe("A card", () => {
         region: null,
       }),
     );
-    expect(card).toHaveTextContent(/^Pat Lee@pat-leeHelper0 points$/);
+    expect(card).toHaveTextContent(
+      /^Pat Lee@pat-leeHelper\. Someone's collaborator for 30 days or more0 points$/,
+    );
+    expect(within(card).queryByText("future_badge")).not.toBeInTheDocument();
     expect(card.querySelector(".people-card__tile")).toBeNull();
     expect(card.querySelector(".people-card__business")).toBeNull();
   });

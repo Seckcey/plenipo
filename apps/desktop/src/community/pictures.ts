@@ -21,8 +21,11 @@ const asked = new Map<string, Promise<string | null>>();
 /** The answers that came, in the same order. */
 const known = new Map<string, string | null>();
 
+/** What names a member's picture: a card has them, and so does a place on the leaderboard. */
+export type PictureOf = Pick<CardView, "memberId" | "hasPicture" | "pictureVersion">;
+
 /** What to call a card's picture in the cache; `null` when the card has no picture. */
-export function pictureKey(card: CardView): string | null {
+export function pictureKey(card: PictureOf): string | null {
   return card.hasPicture ? `${card.memberId}:${card.pictureVersion ?? ""}` : null;
 }
 

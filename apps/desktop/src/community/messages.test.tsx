@@ -178,7 +178,11 @@ describe("The Messages tab", () => {
     // The number is there while People is open.
     const tab = await screen.findByRole("tab", { name: /Messages/ });
     expect(await within(tab).findByRole("img", { name: "3 unseen" })).toHaveTextContent("3");
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["People", "Messages3"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "People",
+      "Messages3",
+      "Leaderboard",
+    ]);
   });
 
   it("has no number on the tab when nothing is new", async () => {

@@ -4,15 +4,9 @@ import { Button, Icon } from "@plenipo/ui";
 
 import { OwnerLight } from "../owner/OwnerFace";
 import { MOOD_FACES, MOOD_WORDS } from "../owner/words";
-import {
-  badgeWords,
-  cardStatus,
-  knownMood,
-  lightWords,
-  pointsWords,
-  thankedWords,
-} from "./peopleWords";
-import { loadPicture, peekPicture, pictureKey } from "./pictures";
+import { BadgeList } from "./Badges";
+import { cardStatus, knownMood, lightWords, pointsWords, thankedWords } from "./peopleWords";
+import { loadPicture, peekPicture, pictureKey, type PictureOf } from "./pictures";
 import { kindLabel, regionLabel } from "./profileWords";
 import { oneLine } from "./safeText";
 
@@ -24,9 +18,10 @@ function line(text: string | null): string {
 /**
  * A member's picture, as the account service sent it and Plenipo checked it. It is asked for only
  * when the card says there is one (`hasPicture`), once for each member and picture version. The
- * result is shown only as `data:image/png;base64,…`: never any other address.
+ * result is shown only as `data:image/png;base64,…`: never any other address. A place on the
+ * leaderboard uses it too (`small`).
  */
-function Picture({ card }: { card: CardView }) {
+export function Picture({ card, small = false }: { card: PictureOf; small?: boolean }) {
   const key = pictureKey(card);
   const memberId = card.memberId;
   const [came, setCame] = useState<{ key: string; picture: string | null } | null>(null);
@@ -46,18 +41,22 @@ function Picture({ card }: { card: CardView }) {
   }, [memberId, key]);
   const picture =
     key === null ? null : came?.key === key ? came.picture : (peekPicture(key) ?? null);
+  const modifier = small ? " people-card__picture--small" : "";
   return picture ? (
     <img
-      className="people-card__picture"
+      className={`people-card__picture${modifier}`}
       src={`data:image/png;base64,${picture}`}
       alt=""
-      width={56}
-      height={56}
+      width={small ? 40 : 56}
+      height={small ? 40 : 56}
       draggable={false}
     />
   ) : (
-    <span className="people-card__picture people-card__picture--none" aria-hidden="true">
-      <Icon name="user" size={28} />
+    <span
+      className={`people-card__picture people-card__picture--none${modifier}`}
+      aria-hidden="true"
+    >
+      <Icon name="user" size={small ? 20 : 28} />
     </span>
   );
 }
@@ -100,14 +99,6 @@ export function CommunityCard({
   });
   const about = line(card.businessLine);
   const place = card.region !== null && card.region !== "" ? oneLine(regionLabel(card.region)) : "";
-  const badges = [
-    ...new Set(
-      card.badges.flatMap((badge) => {
-        const words = badgeWords(badge);
-        return words ? [words] : [];
-      }),
-    ),
-  ];
   const thanked = thankedWords(card.thankedBy);
 
   return (
@@ -140,13 +131,7 @@ export function CommunityCard({
         {kinds.length > 0 && <p className="people-card__business">{kinds.join(", ")}</p>}
         {about && <p className="people-card__line">{about}</p>}
         {place && <p className="people-card__place">{place}</p>}
-        {badges.length > 0 && (
-          <ul className="people-card__badges" aria-label="Badges">
-            {badges.map((badge) => (
-              <li key={badge}>{badge}</li>
-            ))}
-          </ul>
-        )}
+        <BadgeList badges={card.badges} />
         <p className="people-card__points">
           <span>{pointsWords(card.points)}</span>
           {thanked && <span>{thanked}</span>}
