@@ -75,7 +75,7 @@ export function updateLine(status: UpdateStatus, now: number = Date.now()): stri
     case "upToDate":
       return `You have the newest version${checked}.`;
     case "available":
-      return `Plenipo ${status.available?.version ?? ""} is ready to install${checked}.`;
+      return `Plenipo ${status.available?.version ?? ""} is ready to ${status.how === "byHand" ? "download" : "install"}${checked}.`;
     case "installing":
       return "Downloading and checking the update…";
     case "failed":

@@ -197,6 +197,8 @@ const COMMANDS: &[&str] = &[
     "get_update_status",
     "check_for_updates",
     "install_update",
+    "open_releases_page",
+    "delete_plenipo_data",
     "prepare_pop_out",
     "focus_pop_out",
     "reset_pop_outs",

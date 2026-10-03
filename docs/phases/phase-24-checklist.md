@@ -53,7 +53,8 @@ reaching into anyone else's PC, files, sign-ins, or keys."
 - [x] Answer follow-up questions 14 to 18 in ADR-161 (2026-10-02)
 - [ ] Choose the GIF library (for example GIPHY) and accept its terms for 8 West, so the account
       service can hold its key (ADR-164 §4)
-- [ ] Send the attorney the drafts in `docs/legal/phase-24/` (the owner: the night of 2026-10-02)
+- [x] Send the attorney the drafts in `docs/legal/phase-24/`: approved as written (2026-10-03, the
+      owner checked the approved copy is the final version)
 - [x] Decide who reads reports at launch: the owner, "until it gets to be too much" (ADR-167)
 - [x] Answer part 24C's five questions (2026-10-02): follow 8 West's switch, switch on part by
       part, ADR-170 to ADR-179 for Phase 24, no stickers for now, and the rest as recommended

@@ -98,12 +98,109 @@ fn autostart<R: Runtime>(
 /// Whether Windows starts Plenipo at sign-in (`None`: this computer cannot).
 pub fn start_with_windows<R: Runtime>(app: &AppHandle<R>) -> Option<bool> {
     let manager = autostart(app)?;
-    match manager.is_enabled() {
+    let on = if cfg!(target_os = "linux") {
+        Ok(sign_in_entry::file().is_some_and(|f| f.is_file()))
+    } else {
+        manager.is_enabled().map_err(|e| e.to_string())
+    };
+    match on {
         Ok(on) => Some(on),
         Err(e) => {
             log::warn!("Plenipo could not read whether it starts with Windows: {e}");
             Some(false)
         }
+    }
+}
+
+/// Linux's sign-in list: a desktop entry in the owner's autostart folder (Phase 23), written by
+/// Plenipo itself. The plugin's own does not quote the program (an AppImage in a folder with a
+/// space in its name would never start) and cannot make a missing folder.
+mod sign_in_entry {
+    use std::ffi::OsString;
+    use std::path::{Path, PathBuf};
+
+    /// `autostart/Plenipo.desktop` in the owner's settings folder.
+    pub fn file() -> Option<PathBuf> {
+        file_in(
+            std::env::var_os("XDG_CONFIG_HOME"),
+            std::env::var_os("HOME"),
+        )
+    }
+
+    pub(super) fn file_in(config: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
+        let config = config
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .or_else(|| {
+                home.map(PathBuf::from)
+                    .filter(|p| p.is_absolute())
+                    .map(|h| h.join(".config"))
+            })?;
+        Some(
+            config
+                .join("autostart")
+                .join(format!("{}.desktop", super::RUN_NAME)),
+        )
+    }
+
+    /// Start this copy at sign-in: the AppImage it runs from, or the installed program.
+    pub fn turn_on() -> Result<(), String> {
+        let file = file().ok_or("the home folder is not known")?;
+        let program = match crate::update_host::own_appimage() {
+            Some(appimage) => appimage,
+            None => std::env::current_exe().map_err(|e| e.to_string())?,
+        };
+        let text = entry(&program)?;
+        let folder = file.parent().ok_or("no autostart folder")?;
+        std::fs::create_dir_all(folder).map_err(|e| e.to_string())?;
+        let next = folder.join(format!(".{}.desktop.new", super::RUN_NAME));
+        std::fs::write(&next, text).map_err(|e| e.to_string())?;
+        std::fs::rename(&next, &file).map_err(|e| e.to_string())
+    }
+
+    pub fn turn_off() -> Result<(), String> {
+        let Some(file) = file() else { return Ok(()) };
+        match std::fs::remove_file(file) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+            _ => Ok(()),
+        }
+    }
+
+    /// The desktop entry that starts `program` in the tray.
+    pub(super) fn entry(program: &Path) -> Result<String, String> {
+        let program = program
+            .to_str()
+            .ok_or("the program's path is not plain text")?;
+        Ok(format!(
+            "[Desktop Entry]\nType=Application\nName={name}\nComment=Starts {name} in the tray \
+             when you sign in\nExec={program} {in_tray}\nTerminal=false\nStartupNotify=false\n\
+             X-GNOME-Autostart-enabled=true\n",
+            name = super::RUN_NAME,
+            program = quoted(program)?,
+            in_tray = super::IN_TRAY_ARG,
+        ))
+    }
+
+    /// One argument of `Exec`, by the desktop entry rules: in double quotes, with `"`, `` ` ``,
+    /// `$`, and `\` escaped, then every `\` escaped again (the file's own rule), and `%` doubled.
+    pub(super) fn quoted(arg: &str) -> Result<String, String> {
+        if arg.chars().any(char::is_control) {
+            return Err("the program's path has a line break in it".into());
+        }
+        let mut out = String::from("\"");
+        for c in arg.chars() {
+            match c {
+                '"' | '`' | '$' => {
+                    out.push_str("\\\\");
+                    out.push(c);
+                }
+                '\\' => out.push_str("\\\\\\\\"),
+                '%' => out.push_str("%%"),
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+        Ok(out)
     }
 }
 
@@ -119,10 +216,16 @@ pub fn not_available() -> String {
 /// Turn Start with Windows on or off.
 pub fn set_start_with_windows<R: Runtime>(app: &AppHandle<R>, on: bool) -> Result<(), String> {
     let manager = autostart(app).ok_or_else(not_available)?;
-    let done = if on {
-        manager.enable()
+    let done = if cfg!(target_os = "linux") {
+        if on {
+            sign_in_entry::turn_on()
+        } else {
+            sign_in_entry::turn_off()
+        }
+    } else if on {
+        manager.enable().map_err(|e| e.to_string())
     } else {
-        manager.disable()
+        manager.disable().map_err(|e| e.to_string())
     };
     done.map_err(|e| {
         format!(
@@ -250,5 +353,44 @@ mod tests {
         assert!(!started_in_tray(&args(&["--in-tray"])));
         assert!(asked_to_quit(&args(&["plenipo.exe", "--quit"])));
         assert!(!asked_to_quit(&args(&["plenipo.exe"])));
+    }
+
+    /// Phase 23: Linux's sign-in entry lives in the owner's settings folder.
+    #[cfg(unix)]
+    #[test]
+    fn linux_keeps_the_sign_in_entry_in_the_owners_settings() {
+        use std::ffi::OsString;
+        let os = |s: &str| Some(OsString::from(s));
+        assert_eq!(
+            sign_in_entry::file_in(None, os("/home/sam")).unwrap(),
+            Path::new("/home/sam/.config/autostart/Plenipo.desktop")
+        );
+        assert_eq!(
+            sign_in_entry::file_in(os("/home/sam/cfg"), os("/home/sam")).unwrap(),
+            Path::new("/home/sam/cfg/autostart/Plenipo.desktop")
+        );
+        assert_eq!(
+            sign_in_entry::file_in(os("relative"), os("/home/sam")).unwrap(),
+            Path::new("/home/sam/.config/autostart/Plenipo.desktop"),
+            "a relative setting is ignored"
+        );
+        assert!(sign_in_entry::file_in(None, None).is_none());
+    }
+
+    /// Phase 23: Linux's sign-in entry quotes the program, wherever it is.
+    #[test]
+    fn linux_starts_plenipo_at_sign_in_from_any_folder() {
+        let entry = sign_in_entry::entry(Path::new("/home/sam/My Apps/Plenipo.AppImage")).unwrap();
+        assert!(
+            entry.contains("\nExec=\"/home/sam/My Apps/Plenipo.AppImage\" --in-tray\n"),
+            "{entry}"
+        );
+        assert!(entry.starts_with("[Desktop Entry]\nType=Application\nName=Plenipo\n"));
+        // `"`, `$`, and `\` are escaped twice over; `%` is doubled.
+        assert_eq!(
+            sign_in_entry::quoted(r#"/a "b" $c \d 100%"#).unwrap(),
+            r#""/a \\"b\\" \\$c \\\\d 100%%""#
+        );
+        assert!(sign_in_entry::quoted("/a\nb").is_err());
     }
 }

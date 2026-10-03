@@ -1,6 +1,6 @@
 # Community terms — draft
 
-> **Draft for attorney review. Not in force.** Proposed as a new section of the website's terms of
+> **Approved by 8 West's attorney as written (2026-10-03). Not in force until Community launches.** Proposed as a new section of the website's terms of
 > service (`apps/website/legal/terms.md`). It follows the owner's answers of 2026-10-02 (ADR-161).
 
 ---

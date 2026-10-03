@@ -1,6 +1,6 @@
 # Phase 24 (Community) — drafts for the attorney
 
-> **Draft for attorney review. Not in force.** Nothing in this folder is published. The website's
+> **Approved by 8 West's attorney as written (2026-10-03). Not in force until Community launches.** Nothing in this folder is published. The website's
 > legal pages (`apps/website/legal/`) and the account site's legal pages (in the private repository
 > `plenipo-account`) change only after the attorney approves these texts
 > ([ADR-160 (building Phase 24 alongside Phase 23)](../../adr/ADR-160-phase-24-alongside-phase-23.md) §2).

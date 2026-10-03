@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-delete-plenipo-data"
+description = "Enables the delete_plenipo_data command without any pre-configured scope."
+commands.allow = ["delete_plenipo_data"]
+
+[[permission]]
+identifier = "deny-delete-plenipo-data"
+description = "Denies the delete_plenipo_data command without any pre-configured scope."
+commands.deny = ["delete_plenipo_data"]

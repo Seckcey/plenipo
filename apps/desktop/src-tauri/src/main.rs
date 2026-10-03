@@ -38,5 +38,7 @@ fn main() {
     if let Some(code) = plenipo_runtime::diagnostic::maybe_run_from_args(std::env::args()) {
         std::process::exit(code);
     }
+    // An AppImage's new version (Phase 23): wait until the version it replaced has closed.
+    plenipo_desktop_lib::update_host::wait_for_previous(std::env::args());
     std::process::exit(plenipo_desktop_lib::run());
 }

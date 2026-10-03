@@ -17,9 +17,9 @@ pub use organizations::{
     OrgDeletePreview, OrgListing, OrgOpened, OrgStart, OrgSummary, OrgTemplate, OrgWorker,
 };
 pub use upkeep::{
-    AvailableUpdate, CloseWindow, DiagnosticsFile, Recovery, RecoveryCause, RecoveryStatus,
-    SettingsProblem, StartAndClose, StartAndCloseInput, StoppedTask, UpdateState, UpdateStatus,
-    WindowRecovery,
+    AvailableUpdate, CloseWindow, DiagnosticsFile, InstallWay, Recovery, RecoveryCause,
+    RecoveryStatus, SettingsProblem, StartAndClose, StartAndCloseInput, StoppedTask, UpdateState,
+    UpdateStatus, WindowRecovery,
 };
 pub use words::{System, SystemWords, Words, WORDS};
 pub use workspace::{PanelId, PopOutNotice, WindowPlace};

@@ -9,6 +9,49 @@ use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, AppHandle, Manager as _, Runtime};
 
+/// Whether this desktop shows tray icons. On Linux a tray icon appears only where a status
+/// notifier host runs (KDE, Ubuntu's GNOME, and most others; not plain GNOME without its
+/// AppIndicator extension): elsewhere the icon would be there but never seen, and a window
+/// closed to it could not be brought back (Phase 23). A host that starts just after Plenipo (at
+/// sign-in) gets up to `wait`. Every other system always shows them.
+#[cfg(target_os = "linux")]
+pub fn desktop_shows_tray(wait: std::time::Duration) -> bool {
+    let started = std::time::Instant::now();
+    loop {
+        if status_notifier_host() {
+            return true;
+        }
+        if started.elapsed() >= wait {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+}
+
+/// Every other system always shows tray icons.
+#[cfg(not(target_os = "linux"))]
+pub fn desktop_shows_tray(_wait: std::time::Duration) -> bool {
+    true
+}
+
+/// Whether the desktop's session bus has a status notifier host to show tray icons.
+#[cfg(target_os = "linux")]
+fn status_notifier_host() -> bool {
+    let Ok(bus) = zbus::blocking::Connection::session() else {
+        return false;
+    };
+    bus.call_method(
+        Some("org.freedesktop.DBus"),
+        "/org/freedesktop/DBus",
+        Some("org.freedesktop.DBus"),
+        "NameHasOwner",
+        &("org.kde.StatusNotifierWatcher",),
+    )
+    .ok()
+    .and_then(|reply| reply.body().deserialize::<bool>().ok())
+    .unwrap_or(false)
+}
+
 /// Present only when the tray was created successfully.
 pub struct Tray<R: Runtime> {
     icon: TrayIcon<R>,

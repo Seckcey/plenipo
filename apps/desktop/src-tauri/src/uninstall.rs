@@ -28,17 +28,7 @@ fn data_dir() -> Option<PathBuf> {
 
 /// Remove every secret Plenipo keeps for the Ledger in `data`. Returns how many were removed.
 pub fn forget_secrets(data: &Path, store: &dyn SecretStore) -> Result<usize, String> {
-    let db = data.join("ledger").join(DB_FILE_NAME);
-    if !db.exists() {
-        return Ok(0);
-    }
-    // Read straight from the file: a Ledger from a newer Plenipo, or with damaged settings, must
-    // still give up the names of the secrets Plenipo kept.
-    let ids = match plenipo_ledger::setting_in_file(&db, plenipo_guard::SETTING) {
-        Ok(Some(settings)) => vault::stored_ids_in(&settings),
-        Ok(None) => Vec::new(),
-        Err(e) => return Err(format!("the Ledger could not be read ({e})")),
-    };
+    let ids = saved_ids(data)?;
     let (removed, problems) = vault::forget_ids(store, &ids);
     if problems.is_empty() {
         Ok(removed)
@@ -48,6 +38,29 @@ pub fn forget_secrets(data: &Path, store: &dyn SecretStore) -> Result<usize, Str
             problems.join("; ")
         ))
     }
+}
+
+/// The names of the secrets the Ledger in `data` says Plenipo kept (none without a Ledger).
+fn saved_ids(data: &Path) -> Result<Vec<String>, String> {
+    let db = data.join("ledger").join(DB_FILE_NAME);
+    if !db.exists() {
+        return Ok(Vec::new());
+    }
+    // Read straight from the file: a Ledger from a newer Plenipo, or with damaged settings, must
+    // still give up the names of the secrets Plenipo kept.
+    match plenipo_ledger::setting_in_file(&db, plenipo_guard::SETTING) {
+        Ok(Some(settings)) => Ok(vault::stored_ids_in(&settings)),
+        Ok(None) => Ok(Vec::new()),
+        Err(e) => Err(format!("the Ledger could not be read ({e})")),
+    }
+}
+
+/// Whether any organization in `data` says it saved a secret (a Ledger that cannot be read
+/// might have: it counts as yes).
+pub fn any_saved_ids(data: &Path) -> bool {
+    organization_folders(data)
+        .iter()
+        .any(|(_, folder)| saved_ids(folder).map_or(true, |ids| !ids.is_empty()))
 }
 
 /// Every organization's folder in `data` (Phase 21, ADR-094 §9): the first one's is `data`
@@ -81,10 +94,16 @@ pub fn forget_every_organizations_secrets(
         }
         // The PC's license key (Phase 11A), kept under the first organization's name.
         if id == crate::orgs::FIRST {
-            match forget_license_key(store.as_ref()) {
+            match forget_one(store.as_ref(), crate::license_host::VAULT_ID) {
                 Ok(true) => removed += 1,
                 Ok(false) => {}
                 Err(e) => problems.push(format!("the license key: {e}")),
+            }
+            // Community's keys for this PC (Phase 24), under the same name.
+            match forget_one(store.as_ref(), plenipo_community::keys::KEYS_ID) {
+                Ok(true) => removed += 1,
+                Ok(false) => {}
+                Err(e) => problems.push(format!("Community's keys: {e}")),
             }
             // Phone access's keys and phones (Phase 14), under the same name.
             match forget_phone_access(store.as_ref()) {
@@ -117,13 +136,38 @@ fn forget_phone_access(store: &dyn SecretStore) -> Result<usize, String> {
     }
 }
 
-/// Remove the license key, when one is kept. True when there was one.
-fn forget_license_key(store: &dyn SecretStore) -> Result<bool, String> {
-    let id = crate::license_host::VAULT_ID;
+/// Remove one secret (the license key, Community's keys), when it is kept. True when it was.
+fn forget_one(store: &dyn SecretStore, id: &str) -> Result<bool, String> {
     if vault::read(store, id)?.is_none() {
         return Ok(false);
     }
     vault::erase(store, id).map(|()| true)
+}
+
+/// Delete Plenipo's own folders (Phase 23: "Delete my Plenipo data" on a Mac and Linux, where
+/// removing Plenipo never touches the owner's home folder). A folder is deleted only when its
+/// name is Plenipo's own identifier; one already gone is fine.
+pub fn delete_folders(folders: &[PathBuf]) -> Result<(), String> {
+    let mut problems = Vec::new();
+    for folder in folders {
+        if folder.file_name().and_then(|n| n.to_str()) != Some(IDENTIFIER) {
+            problems.push(format!(
+                "{} is not Plenipo's own folder, so it was left alone",
+                folder.display()
+            ));
+            continue;
+        }
+        match std::fs::remove_dir_all(folder) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => problems.push(format!("{} ({e})", folder.display())),
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("; "))
+    }
 }
 
 /// Run the mode when asked for (in `main`, before anything else). Returns the exit code.
@@ -279,14 +323,25 @@ mod tests {
             "plenipo1.key",
         )
         .unwrap();
+        // Community's keys for this PC (Phase 24), under the same name.
+        vault::put(
+            stores[crate::orgs::FIRST].as_ref(),
+            plenipo_community::keys::KEYS_ID,
+            "{\"kept\":1}",
+        )
+        .unwrap();
         // A folder that is not an organization's is left alone.
         std::fs::create_dir_all(dir.path().join(crate::orgs::FOLDER).join("notes")).unwrap();
+        assert!(any_saved_ids(dir.path()));
         let removed = forget_every_organizations_secrets(dir.path(), |id| {
             Box::new(Shared(Arc::clone(&stores[id]))) as Box<dyn SecretStore>
         })
         .unwrap();
-        assert_eq!(removed, 3);
+        assert_eq!(removed, 4);
         assert!(stores.values().all(|s| s.stored() == 0));
+        // A PC where nothing was ever saved says so.
+        let empty = tempfile::tempdir().unwrap();
+        assert!(!any_saved_ids(empty.path()));
     }
 
     /// One organization's store, shared with the test.
@@ -327,5 +382,22 @@ mod tests {
             maybe_run_from_args(args(&["plenipo.exe", "x", FORGET_SECRETS_ARG])),
             None
         );
+    }
+
+    /// Phase 23: only Plenipo's own folders are deleted, and one already gone is fine.
+    #[test]
+    fn only_plenipos_own_folders_are_deleted() {
+        let dir = tempfile::tempdir().unwrap();
+        let own = dir.path().join(IDENTIFIER);
+        std::fs::create_dir_all(own.join("ledger")).unwrap();
+        std::fs::write(own.join("ledger").join("plenipo.db"), b"x").unwrap();
+        let other = dir.path().join("Documents");
+        std::fs::create_dir_all(&other).unwrap();
+        let gone = dir.path().join("cache").join(IDENTIFIER);
+        let why = delete_folders(&[own.clone(), other.clone(), gone]).unwrap_err();
+        assert!(!own.exists());
+        assert!(other.exists(), "never another folder");
+        assert!(why.contains("not Plenipo's own folder"), "{why}");
+        assert!(delete_folders(&[own]).is_ok(), "already gone");
     }
 }

@@ -188,6 +188,8 @@
     "allow-get-update-status",
     "allow-check-for-updates",
     "allow-install-update",
+    "allow-open-releases-page",
+    "allow-delete-plenipo-data",
     "allow-prepare-pop-out",
     "allow-focus-pop-out",
     "allow-reset-pop-outs",
