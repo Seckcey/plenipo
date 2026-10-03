@@ -128,7 +128,7 @@ describe("Settings → AI models", () => {
     ).toBeInTheDocument();
   });
 
-  it("changes a role's model choices: order, requirements, and companies", async () => {
+  it("changes a role's model choices: order, reviews, and companies", async () => {
     render(<ModelSettings go={go} />);
     const user = userEvent.setup();
     await user.click(
@@ -159,11 +159,10 @@ describe("Settings → AI models", () => {
       "Ultra effort",
     ]);
     await user.selectOptions(codexEffort, "High effort");
-    await user.click(within(form).getByRole("checkbox", { name: "Sees images" }));
-    await user.type(
-      within(form).getByRole("spinbutton", { name: /Context size, at least/ }),
-      "100000",
-    );
+    // What the model must do and its context size are no longer asked (Phase 25, items 2.3
+    // and 2.4); the saved ones are kept as they are.
+    expect(within(form).queryByRole("checkbox", { name: "Sees images" })).toBeNull();
+    expect(within(form).queryByRole("spinbutton", { name: /Context size/ })).toBeNull();
     await user.selectOptions(
       within(form).getByRole("combobox", { name: /^Reviews/ }),
       "Prefer a different AI company",
@@ -172,8 +171,8 @@ describe("Settings → AI models", () => {
     await user.click(within(form).getByRole("button", { name: "Save model choices" }));
     expect(api.setRolePolicy).toHaveBeenCalledWith("r-dev", {
       models: ["m-codex", "m-opus", "m-claude"],
-      needs: ["vision"],
-      minContextTokens: 100000,
+      needs: [],
+      minContextTokens: null,
       neverCompanies: ["openai"],
       cost: "any",
       crossCompany: "prefer",
@@ -211,7 +210,9 @@ describe("Settings → AI models", () => {
     const label = within(dialog).getByRole("textbox", { name: "Your name for it" });
     await user.clear(label);
     await user.type(label, "Opus 5.5");
-    await user.click(within(dialog).getByRole("checkbox", { name: "Makes images" }));
+    // What a model can do and its context size are no longer asked (Phase 25, 2.3 and 2.4).
+    expect(within(dialog).queryByRole("checkbox", { name: "Makes images" })).toBeNull();
+    expect(within(dialog).queryByRole("spinbutton", { name: /Context size/ })).toBeNull();
     await user.selectOptions(within(dialog).getByRole("combobox", { name: "Cost" }), "Premium");
     await user.selectOptions(within(dialog).getByRole("combobox", { name: /^Effort/ }), "Max");
     await user.click(within(dialog).getByRole("button", { name: "Add model" }));
@@ -219,7 +220,7 @@ describe("Settings → AI models", () => {
       runtimeId: "claude-code",
       name: "claude-opus-5-5",
       label: "Opus 5.5",
-      features: ["imageGeneration"],
+      features: [],
       cost: "premium",
       effort: "max",
     });

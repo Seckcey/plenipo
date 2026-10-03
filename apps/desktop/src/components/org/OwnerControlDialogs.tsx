@@ -7,7 +7,6 @@ import { useEffect, useState, type FormEvent } from "react";
 import type {
   Capability,
   DeletionPreview,
-  ModelFeature,
   OrgSnapshot,
   RoleJob,
   SavedAgentInfo,
@@ -22,7 +21,6 @@ import { experienceLine } from "../../org/control";
 import { plural } from "../../org/format";
 import { hireRefusal, positionMap, supervisorChoices } from "../../org/rules";
 import { rankName, titlesOf } from "../../org/titles";
-import { FEATURES, FEATURE_LABEL } from "../../routing/format";
 import { Modal } from "./Modal";
 import {
   EMPTY_JOB,
@@ -344,7 +342,6 @@ export function SpecialtyDialog({
       askLead: j.askLead.join("\n"),
     };
   });
-  const [needs, setNeeds] = useState<ModelFeature[]>(specialty?.suggest.needs ?? []);
   const [permissions, setPermissions] = useState<string[]>(specialty?.suggest.permissions ?? []);
   const { pending, error, run } = useSubmit();
   const editing = specialty !== undefined;
@@ -366,7 +363,7 @@ export function SpecialtyDialog({
         askLead: jobLines(job.askLead),
       },
       suggest: {
-        needs,
+        needs: specialty?.suggest.needs ?? [],
         minContextTokens: specialty?.suggest.minContextTokens ?? null,
         models: specialty?.suggest.models ?? [],
         permissions,
@@ -402,16 +399,6 @@ export function SpecialtyDialog({
         </fieldset>
         <fieldset className="choices">
           <legend>Suggestions (shown on the agent&apos;s panel; never applied on their own)</legend>
-          {FEATURES.map((f) => (
-            <label key={f} className="check">
-              <input
-                type="checkbox"
-                checked={needs.includes(f)}
-                onChange={(e) => setNeeds(toggle(needs, f, e.target.checked))}
-              />
-              <span>A model that {FEATURE_LABEL[f].toLowerCase()}</span>
-            </label>
-          ))}
           {CAPABILITIES.map((c: Capability) => (
             <label key={c} className="check">
               <input

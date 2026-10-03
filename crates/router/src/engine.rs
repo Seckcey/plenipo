@@ -544,22 +544,8 @@ pub fn route(input: &RouteInput<'_>) -> RouteDecision {
             .filter(|(_, allowed)| !allowed.contains(&info.id))
         {
             Some(format!("{name} does not allow {}", info.label))
-        } else if let Some(f) = policy.needs.iter().find(|f| !m.features.contains(f)) {
-            Some(format!("it is not marked as able to {}", f.words()))
-        } else if let Some(min) = policy
-            .min_context_tokens
-            .filter(|min| m.context_tokens.is_none_or(|have| have < *min))
-        {
-            Some(match m.context_tokens {
-                None => format!(
-                    "its context size is not recorded ({} needs {min} tokens)",
-                    input.role
-                ),
-                Some(have) => format!(
-                    "it takes {have} tokens of context and {} needs {min}",
-                    input.role
-                ),
-            })
+        // What a model can do (`needs`) and its context size are kept in saved settings and no
+        // longer rule a model out (Phase 25, items 2.3 and 2.4, amending ADR-011).
         } else if cross == CrossCompany::Require && same_company(m) {
             Some(if made_by.is_none() {
                 format!(
@@ -1073,41 +1059,28 @@ mod tests {
         assert_eq!(chosen(&d), Some("gpt"));
     }
 
+    /// What a role says a model must do, and the smallest context it takes, are kept in saved
+    /// settings and no longer rule a model out (Phase 25, items 2.3 and 2.4): the first choice
+    /// is chosen, marked or not.
     #[test]
-    fn capability_requirement_mismatch() {
+    fn saved_needs_and_context_size_rule_nothing_out() {
         let mut w = world();
         let policy = RolePolicy {
-            needs: vec![ModelFeature::Vision, ModelFeature::ImageGeneration],
+            needs: vec![
+                ModelFeature::Vision,
+                ModelFeature::ImageGeneration,
+                ModelFeature::ComputerUse,
+            ],
+            min_context_tokens: Some(200_000),
             ..prefer(&["opus", "gpt"])
         };
-        let d = decide(&w, &policy);
-        assert_eq!(chosen(&d), None);
-        assert!(d
-            .reason
-            .starts_with("No model can take Senior Developer's work now — "));
-        assert!(d.candidates[0]
-            .note
-            .contains("not marked as able to see images"));
-        // A model marked with both is chosen, even as a later choice.
-        w.models[2].features = vec![ModelFeature::ImageGeneration, ModelFeature::Vision];
-        assert_eq!(chosen(&decide(&w, &policy)), Some("gpt"));
-        // Context: unknown or too small is skipped.
-        let policy = RolePolicy {
-            min_context_tokens: Some(200_000),
-            ..prefer(&["opus", "sonnet", "gpt"])
-        };
         w.models[1].context_tokens = Some(100_000);
-        w.models[2].context_tokens = Some(400_000);
         let d = decide(&w, &policy);
-        assert_eq!(chosen(&d), Some("gpt"));
-        assert_eq!(
-            d.candidates[0].note,
-            "its context size is not recorded (Senior Developer needs 200000 tokens)"
-        );
-        assert_eq!(
-            d.candidates[1].note,
-            "it takes 100000 tokens of context and Senior Developer needs 200000"
-        );
+        assert_eq!(chosen(&d), Some("opus"), "{}", d.reason);
+        assert!(d
+            .candidates
+            .iter()
+            .all(|c| !c.note.contains("not marked as able") && !c.note.contains("context")));
     }
 
     #[test]

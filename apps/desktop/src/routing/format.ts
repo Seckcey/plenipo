@@ -6,7 +6,6 @@ import type {
   KnownModel,
   LimitBehavior,
   Maker,
-  ModelFeature,
   ModelInfo,
   ModelRule,
   RouteChoice,
@@ -17,15 +16,6 @@ import type {
 } from "@plenipo/types";
 
 import { priceWords } from "../spending/words";
-
-/** What a model can do, in plain words. */
-export const FEATURE_LABEL: Record<ModelFeature, string> = {
-  vision: "Sees images",
-  imageGeneration: "Makes images",
-  computerUse: "Uses a computer",
-};
-
-export const FEATURES: ModelFeature[] = ["vision", "imageGeneration", "computerUse"];
 
 /** How hard a model thinks before it answers. */
 export const EFFORT_LABEL: Record<Effort, string> = {

@@ -241,12 +241,13 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     await waitForText(browser, '[aria-label="AI tools"]', "Subscription connected");
     await openSettings(browser, "AI models");
     await waitForText(browser, ROLES, "Senior Developer");
-    // Starting choices for built-in roles: the Designer needs a model that makes images.
-    await waitUntil(
-      async () => (await roleRow(browser, "Designer")).includes("None right now"),
-      "the Designer to have no model yet",
-    );
-    assert.match(await roleRow(browser, "Designer"), /not marked as able to see images/);
+    // Starting choices for built-in roles: the Designer gets a model out of the box, since what a
+    // model can do no longer rules one out (Phase 25, item 2.4).
+    await waitUntil(async () => {
+      const row = await roleRow(browser, "Designer");
+      return row.includes("Designer") && !row.includes("None right now");
+    }, "the Designer to have a model");
+    assert.doesNotMatch(await roleRow(browser, "Designer"), /None right now|not marked as able/);
     await scrollTo(browser, "#role-choices-title");
     await screenshot(browser, "models-settings");
 

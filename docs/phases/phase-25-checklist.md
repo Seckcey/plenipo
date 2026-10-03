@@ -337,11 +337,15 @@ simpler screens.
   typed-in size would be skipped. Filling it in automatically would mean checking each model's
   size on your PC, over and over (ADR-081 §8), for no real gain.
 - **Do:**
-  - [ ] Remove the field and column from AI models, the role choices, the specialty dialog, and
+  - [x] Remove the field and column from AI models, the role choices, the specialty dialog, and
         the AI model tab.
-  - [ ] **Keep the saved field and ignore it.** Saved settings refuse unknown fields when they are
-        read. Deleting the field would make old settings unreadable.
-- **Tests:** settings with an old context size still load.
+  - [x] **Keep the saved field and ignore it.** Saved settings refuse unknown fields when they are
+        read. Deleting the field would make old settings unreadable. Saving a model or role keeps
+        the old value untouched. Recorded in
+        [ADR-194 (what a model can do is no longer asked)](../adr/ADR-194-what-a-model-can-do-is-no-longer-asked.md).
+- **Tests:** [x] a saved minimum context rules nothing out
+  (`saved_needs_and_context_size_rule_nothing_out`); the forms no longer ask
+  (`ModelSettings.test.tsx`).
 
 ### 2.4 Fewer questions: no "make images" or "use a computer" — S–M
 
@@ -355,12 +359,17 @@ simpler screens.
     see images", even Claude and GPT. And the **Designer gets no model at all** out of the box,
     because its role asks for both image boxes.
 - **Do:**
-  - [ ] **Change ADR-011 (the router's model rules):** remove "Makes images" and "Uses a computer".
-        Keep the saved values readable, and ignore them.
-  - [ ] "Sees images" comes from each AI tool's own model list, like "who made it" does. When it
-        isn't known, the worker is told nothing.
-  - [ ] A one-time fix for existing installs: take the image requirements off the Designer role.
-- **Tests:** Designer gets a model on a fresh install and after an upgrade.
+  - [x] **Change ADR-011 (the router's model rules):** remove "Makes images" and "Uses a computer".
+        Keep the saved values readable, and ignore them. "Sees images" isn't asked either.
+        Recorded in
+        [ADR-194 (what a model can do is no longer asked)](../adr/ADR-194-what-a-model-can-do-is-no-longer-asked.md).
+  - [x] "Sees images" comes from who made the model (from the AI tool's own list, ADR-081): Anthropic
+        and Google, and OpenAI apart from `gpt-oss`. When it isn't known, the worker is told nothing.
+  - [x] A one-time fix for existing installs: not needed. The router ignores saved requirements,
+        so an old Designer gets a model too. New installs start it with none.
+- **Tests:** [x] Designer gets a model on a fresh install and with an old install's requirements
+  (`reviewers_come_from_another_ai_company_and_unfit_roles_are_explained`, and the real-app
+  routing test).
 
 ### 2.5 Pick the exact model for each job — M
 

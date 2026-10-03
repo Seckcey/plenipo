@@ -1610,10 +1610,18 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
     assert_eq!(h.task(&third).assigned_to.as_deref(), Some("claude-code"));
     assert_ne!(h.task(&third).metadata["sessionId"], session.as_str());
 
-    // No model can take the work: the objective is refused with the reason.
+    // No model can take the work: the objective is refused with the reason. (A role's every AI
+    // company is one it never uses; what a model can do no longer rules one out, Phase 25.)
     h.prefer("Manager", &[]);
     let mut policy = h.policy("Manager");
-    policy.needs = vec![plenipo_router::ModelFeature::ComputerUse];
+    policy.never_companies = h
+        .router
+        .snapshot()
+        .unwrap()
+        .tools
+        .into_iter()
+        .map(|t| t.company)
+        .collect();
     h.router.set_policy(&h.role("Manager"), &policy).unwrap();
     h.workforce.vacate(&head).unwrap();
     h.workforce.fill(&head).unwrap();
@@ -1622,10 +1630,7 @@ async fn a_full_time_agent_is_routed_when_its_conversation_starts_and_keeps_it()
         why.starts_with("Research Manager cannot start: No model can take Manager's work now"),
         "{why}"
     );
-    assert!(
-        why.contains("not marked as able to use a computer"),
-        "{why}"
-    );
+    assert!(why.contains("never uses"), "{why}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1672,22 +1677,28 @@ async fn reviewers_come_from_another_ai_company_and_unfit_roles_are_explained() 
         reason(&child)
     );
 
-    // The Designer template needs a model that sees and makes images; none is marked so.
+    // The Designer gets a model out of the box (Phase 25, item 2.4): its role no longer asks
+    // for a model that sees and makes images.
     h.hire_auto("Designer", "Designer", &o.coordinator);
+    assert!(h.policy("Designer").needs.is_empty());
     let root = h
         .objective(&o.coordinator, "A logo [handoff:role:Designer]")
         .await;
     assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
-    assert!(h.ledger.child_tasks(&root).unwrap().is_empty());
-    let why = h.rejections(&root);
-    assert!(
-        why[0].starts_with("Designer cannot take work now: No model can take Designer's work now"),
-        "{why:?}"
-    );
-    assert!(
-        why[0].contains("not marked as able to see images"),
-        "{why:?}"
-    );
+    assert!(h.last_child(&root).assigned_to.is_some());
+    // An install from before keeps what its Designer asked for, and it still gets a model.
+    let mut old = h.policy("Designer");
+    old.needs = vec![
+        plenipo_router::ModelFeature::Vision,
+        plenipo_router::ModelFeature::ImageGeneration,
+    ];
+    h.router.set_policy(&h.role("Designer"), &old).unwrap();
+    let root = h
+        .objective(&o.coordinator, "Another logo [handoff:role:Designer]")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert!(h.last_child(&root).assigned_to.is_some());
+    assert!(h.rejections(&root).is_empty(), "{:?}", h.rejections(&root));
 }
 
 // ---- Phase 8: leads hand work to full-time members (ADR-016) -------------------------------

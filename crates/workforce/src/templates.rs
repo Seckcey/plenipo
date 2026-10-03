@@ -6,7 +6,7 @@
 //! projects is seeded.
 
 use plenipo_ledger::{Role, RoleTemplate, RoleType, SpecialtyTemplate};
-use plenipo_router::{CostPreference, CrossCompany, ModelFeature, RolePolicy};
+use plenipo_router::{CostPreference, CrossCompany, RolePolicy};
 use serde_json::{json, Value};
 
 use crate::dto::RoleJob;
@@ -639,13 +639,9 @@ pub fn template_policies() -> Vec<(&'static str, RolePolicy)> {
                 ..RolePolicy::default()
             },
         ),
-        (
-            "Designer",
-            RolePolicy {
-                needs: vec![ModelFeature::Vision, ModelFeature::ImageGeneration],
-                ..RolePolicy::default()
-            },
-        ),
+        // The Designer asks for nothing special: what a model can do no longer rules a model
+        // out (Phase 25, item 2.4).
+        ("Designer", RolePolicy::default()),
     ]
 }
 
@@ -658,8 +654,6 @@ struct Specialty {
     name: &'static str,
     title: &'static str,
     job: Job,
-    needs: &'static [ModelFeature],
-    min_context_tokens: Option<u32>,
     permissions: &'static [&'static str],
 }
 
@@ -702,8 +696,6 @@ const SPECIALTIES: &[Specialty] = &[
             &["keep the project's existing look and building blocks unless the task says otherwise"],
             NO_LINES,
         ),
-        needs: &[ModelFeature::Vision],
-        min_context_tokens: None,
         permissions: WRITES_CODE,
     },
     Specialty {
@@ -719,8 +711,6 @@ const SPECIALTIES: &[Specialty] = &[
             &["do not change how stored data is laid out without saying so in your answer"],
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: WRITES_CODE,
     },
     Specialty {
@@ -737,8 +727,6 @@ const SPECIALTIES: &[Specialty] = &[
             &["never delete or rewrite real data: work on test data or a copy"],
             &["a change would lose or rewrite existing data"],
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: WRITES_CODE,
     },
     Specialty {
@@ -755,8 +743,6 @@ const SPECIALTIES: &[Specialty] = &[
             NO_LINES,
             NO_LINES,
         ),
-        needs: &[ModelFeature::Vision],
-        min_context_tokens: None,
         permissions: WRITES_CODE,
     },
     Specialty {
@@ -772,8 +758,6 @@ const SPECIALTIES: &[Specialty] = &[
             NO_LINES,
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: WRITES_CODE,
     },
     Specialty {
@@ -791,8 +775,6 @@ const SPECIALTIES: &[Specialty] = &[
                owner approved it"],
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: &[
             "filesystem.read",
             "filesystem.write",
@@ -814,8 +796,6 @@ const SPECIALTIES: &[Specialty] = &[
             &["never change or delete the source data"],
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: Some(200_000),
         permissions: WRITES_CODE,
     },
     Specialty {
@@ -828,8 +808,6 @@ const SPECIALTIES: &[Specialty] = &[
             NO_LINES,
             NO_LINES,
         ),
-        needs: &[ModelFeature::Vision, ModelFeature::ImageGeneration],
-        min_context_tokens: None,
         permissions: &["filesystem.read", "filesystem.write"],
     },
     Specialty {
@@ -842,8 +820,6 @@ const SPECIALTIES: &[Specialty] = &[
             NO_LINES,
             NO_LINES,
         ),
-        needs: &[ModelFeature::Vision, ModelFeature::ImageGeneration],
-        min_context_tokens: None,
         permissions: &["filesystem.read", "filesystem.write"],
     },
     Specialty {
@@ -856,8 +832,6 @@ const SPECIALTIES: &[Specialty] = &[
             NO_LINES,
             NO_LINES,
         ),
-        needs: &[ModelFeature::Vision, ModelFeature::ImageGeneration],
-        min_context_tokens: None,
         permissions: &["filesystem.read", "filesystem.write"],
     },
     Specialty {
@@ -871,8 +845,6 @@ const SPECIALTIES: &[Specialty] = &[
             NO_LINES,
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: &["filesystem.read", "git.read"],
     },
     Specialty {
@@ -886,8 +858,6 @@ const SPECIALTIES: &[Specialty] = &[
             &["do not give legal advice: say what a lawyer or an auditor should confirm"],
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: &["filesystem.read"],
     },
     Specialty {
@@ -901,8 +871,6 @@ const SPECIALTIES: &[Specialty] = &[
             NO_LINES,
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: &["ssh.connect", "powershell.exec"],
     },
     Specialty {
@@ -915,8 +883,6 @@ const SPECIALTIES: &[Specialty] = &[
             NO_LINES,
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: &["ssh.connect"],
     },
     Specialty {
@@ -931,8 +897,6 @@ const SPECIALTIES: &[Specialty] = &[
                and the owner approved it"],
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: &["ssh.connect"],
     },
     Specialty {
@@ -947,8 +911,6 @@ const SPECIALTIES: &[Specialty] = &[
                approval"],
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: &[],
     },
     Specialty {
@@ -961,8 +923,6 @@ const SPECIALTIES: &[Specialty] = &[
             NO_LINES,
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: &["browser.navigate"],
     },
     Specialty {
@@ -975,8 +935,6 @@ const SPECIALTIES: &[Specialty] = &[
             NO_LINES,
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: &["browser.navigate"],
     },
     Specialty {
@@ -989,8 +947,6 @@ const SPECIALTIES: &[Specialty] = &[
             NO_LINES,
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: &["filesystem.read", "filesystem.write", "git.write"],
     },
     Specialty {
@@ -1004,8 +960,6 @@ const SPECIALTIES: &[Specialty] = &[
             NO_LINES,
             NO_LINES,
         ),
-        needs: &[],
-        min_context_tokens: None,
         permissions: &["filesystem.read", "filesystem.write", "git.write"],
     },
 ];
@@ -1020,9 +974,11 @@ pub fn specialty_templates() -> Vec<SpecialtyTemplate> {
             title: s.title,
             metadata: json!({
                 "job": s.job.dto(),
+                // What a model should do and its context size are no longer suggested
+                // (Phase 25, items 2.3 and 2.4).
                 "suggest": {
-                    "needs": s.needs,
-                    "minContextTokens": s.min_context_tokens,
+                    "needs": [],
+                    "minContextTokens": null,
                     "models": [],
                     "permissions": s.permissions,
                 },

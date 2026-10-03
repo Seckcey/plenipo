@@ -35,6 +35,17 @@ pub fn maker_of(info: &AgentRuntimeInfo, model: Option<&str>) -> Option<Maker> {
     (!caps.runs_other_makers).then(|| company_of(info))
 }
 
+/// Whether a model sees images, worked out from who made it (Phase 25, item 2.4, amending
+/// ADR-011): every current model from Anthropic and Google does, and OpenAI's do apart from its
+/// open-weight `gpt-oss` models. `None`: not known, and the worker is told nothing.
+pub fn sees_images(maker: Option<&str>, model: Option<&str>) -> Option<bool> {
+    match maker? {
+        "anthropic" | "google" => Some(true),
+        "openai" if !model.is_some_and(|m| m.to_lowercase().contains("gpt-oss")) => Some(true),
+        _ => None,
+    }
+}
+
 /// Every AI company this version of Plenipo knows: the AI tools' own companies and every maker
 /// their lists name, by name. The list "AI companies never to use" offers and accepts
 /// (ADR-081 §5).
@@ -56,6 +67,21 @@ pub fn companies(tools: &[AgentRuntimeInfo]) -> Vec<Maker> {
     }
     out.sort_by_key(|m| m.label.to_lowercase());
     out
+}
+
+#[cfg(test)]
+mod sees_tests {
+    use super::sees_images;
+
+    #[test]
+    fn sees_images_comes_from_who_made_it() {
+        assert_eq!(sees_images(Some("anthropic"), Some("fable")), Some(true));
+        assert_eq!(sees_images(Some("google"), None), Some(true));
+        assert_eq!(sees_images(Some("openai"), Some("gpt-6-sol")), Some(true));
+        assert_eq!(sees_images(Some("openai"), Some("gpt-oss:120b")), None);
+        assert_eq!(sees_images(Some("moonshot"), Some("kimi-code/k3")), None);
+        assert_eq!(sees_images(None, Some("auto")), None);
+    }
 }
 
 #[cfg(test)]

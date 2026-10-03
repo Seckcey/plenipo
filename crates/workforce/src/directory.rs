@@ -9,7 +9,7 @@ use plenipo_ledger::{ChildConversation, Ledger, NewWorker, Position, Project, Ta
 use plenipo_liaison::context::Destination;
 use plenipo_liaison::protocol::PROTOCOL;
 use plenipo_liaison::{Directory, MemberConversation, Placement, Team};
-use plenipo_router::{ModelFeature, Planner, RouteDecision, RouteRequest, Router};
+use plenipo_router::{Planner, RouteDecision, RouteRequest, Router};
 use plenipo_runtime::agent::{SessionStart, WorkDoneBy};
 use serde_json::{json, Value};
 
@@ -151,15 +151,9 @@ pub(crate) fn decide(
     }
 }
 
-/// Whether the model with this ID in the owner's list is marked as able to see images (`None`:
-/// the model is not in the list, such as a fixed position's unlisted model).
-fn sees_images(planner: &Planner, model_id: &str) -> Option<bool> {
-    planner
-        .config
-        .models
-        .iter()
-        .find(|m| !model_id.is_empty() && m.id == model_id)
-        .map(|m| m.features.contains(&ModelFeature::Vision))
+/// Whether the routed model is known to see images, from who made it (Phase 25, item 2.4).
+fn sees_images(maker: Option<&str>, model: Option<&str>) -> bool {
+    plenipo_router::makers::sees_images(maker, model) == Some(true)
 }
 
 /// Why `name` is not on `lead`'s team when it is one of the team's agents lent to another team
@@ -282,10 +276,9 @@ impl Directory for WorkforceDirectory {
         let identity = if view.persistent(me) {
             member_identity(&view, &name, me, destinations.iter().any(|d| d.ready))
         } else {
-            let model = workforce["routing"]["choice"]["modelId"]
-                .as_str()
-                .unwrap_or_default();
-            worker_identity(&view, &name, me, None, sees_images(&planner, model))
+            let choice = &workforce["routing"]["choice"];
+            let sees = sees_images(choice["maker"]["id"].as_str(), choice["model"].as_str());
+            worker_identity(&view, &name, me, None, sees)
         } + &self.learned(&view, me, workforce["projectId"].as_str());
         Some(Team {
             identity,
@@ -418,7 +411,10 @@ impl Directory for WorkforceDirectory {
                 &org_name(&self.ledger),
                 target,
                 member.oversight.map(|o| (lead, o.kind)),
-                sees_images(&planner, &choice.model_id),
+                sees_images(
+                    choice.maker.as_ref().map(|m| m.id.as_str()),
+                    choice.model.as_deref(),
+                ),
             ) + &self.learned(&view, target, project_id.as_deref()),
             project_id,
         })

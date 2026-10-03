@@ -20,14 +20,12 @@ import { RuntimeOptions } from "../RuntimeOptions";
 import { subscriptionInstead } from "../runtimeChoices";
 import {
   EFFORT_LABEL,
-  FEATURE_LABEL,
   choiceLabel,
   effortLevels,
   emptyRule,
   isEmptyRule,
   modelLabel,
   ruleSummary,
-  tokens,
 } from "../../../routing/format";
 import { useRouting } from "../../../routing/useRouting";
 import { ModelPicker } from "../../models/ModelPicker";
@@ -370,12 +368,6 @@ function Suggestions({
   const s = specialty.suggest;
   const models = s.models.filter((id) => routing.models.some((m) => m.id === id));
   const lines: string[] = [];
-  if (s.needs.length > 0) {
-    lines.push(`A model that ${s.needs.map((f) => FEATURE_LABEL[f].toLowerCase()).join(" and ")}.`);
-  }
-  if (s.minContextTokens) {
-    lines.push(`A context size of at least ${tokens(s.minContextTokens)} tokens.`);
-  }
   if (models.length > 0) {
     const label = (id: string) => {
       const m = routing.models.find((x) => x.id === id);

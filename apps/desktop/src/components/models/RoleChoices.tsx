@@ -3,7 +3,6 @@ import type {
   CostPreference,
   CrossCompany,
   Effort,
-  ModelFeature,
   RolePolicyView,
   RoutingSnapshot,
 } from "@plenipo/types";
@@ -13,8 +12,6 @@ import { setRolePolicy } from "../../api/commands";
 import {
   COST_PREFERENCE_LABEL,
   CROSS_COMPANY_LABEL,
-  FEATURES,
-  FEATURE_LABEL,
   choiceLabel,
 } from "../../routing/format";
 import { useChange, type Apply } from "../../routing/useChange";
@@ -108,25 +105,22 @@ function PolicyEditor({
 }) {
   const p = view.policy;
   const [models, setModels] = useState(p.models);
-  const [needs, setNeeds] = useState<ModelFeature[]>(p.needs);
-  const [minContext, setMinContext] = useState(p.minContextTokens?.toString() ?? "");
   const [never, setNever] = useState(p.neverCompanies);
   const [cost, setCost] = useState<CostPreference>(p.cost);
   const [cross, setCross] = useState<CrossCompany>(p.crossCompany);
   const [efforts, setEfforts] = useState<Partial<Record<string, Effort>>>(p.efforts);
   const [effort, setEffort] = useState<Effort | null>(p.effort);
   const { pending, error, run } = useChange(onApply);
-  const toggle = <T,>(list: T[], item: T, on: boolean) =>
-    on ? [...list.filter((x) => x !== item), item] : list.filter((x) => x !== item);
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
-    const min = minContext.trim() === "" ? null : Number(minContext);
+    // What the model must do and its context size are no longer asked (Phase 25, items 2.3 and
+    // 2.4): the saved ones are kept as they are.
     const ok = await run(() =>
       setRolePolicy(view.roleId, {
         models,
-        needs,
-        minContextTokens: min,
+        needs: p.needs,
+        minContextTokens: p.minContextTokens,
         neverCompanies: never,
         cost,
         crossCompany: cross,
@@ -152,34 +146,6 @@ function PolicyEditor({
         empty={`None listed: ${view.roleName} uses any model in your list — ${COST_PREFERENCE_LABEL[cost].toLowerCase()}.`}
       />
       <AnyEffort snapshot={snapshot} value={effort} onChange={setEffort} />
-
-      <fieldset className="fieldset">
-        <legend>The model must be able to</legend>
-        {FEATURES.map((f) => (
-          <label key={f} className="check">
-            <input
-              type="checkbox"
-              checked={needs.includes(f)}
-              onChange={(e) => setNeeds(toggle(needs, f, e.target.checked))}
-            />
-            <span>{FEATURE_LABEL[f]}</span>
-          </label>
-        ))}
-        <label className="field">
-          <span>Context size, at least (tokens)</span>
-          <input
-            type="number"
-            min={1}
-            inputMode="numeric"
-            value={minContext}
-            placeholder="No minimum"
-            onChange={(e) => setMinContext(e.target.value)}
-          />
-          <small className="field__hint">
-            How much text the model must take in at once. Tokens are pieces of words.
-          </small>
-        </label>
-      </fieldset>
 
       <label className="field">
         <span>When no models are listed</span>
