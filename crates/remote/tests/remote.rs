@@ -804,6 +804,42 @@ async fn signing_out_and_lapsing_end_the_sign_in() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_page_the_phone_reads_again_by_itself_does_not_keep_it_signed_in() {
+    // P-SRV-3 (ADR-212): the page re-reads with `again: true` whenever the PC says something
+    // changed, every few seconds while workers run. Those re-reads must not move the 30-minute
+    // clock, or a phone left unlocked on a desk stays signed in for 12 hours.
+    let w = World::new().await;
+    let mut phone = w.paired_phone("Phone").await;
+    phone.meet(false).await.unwrap();
+    w.clock.advance(29 * 60 * 1000);
+    let reply = phone
+        .ask_with(&b64::encode(&[7u8; 16]), true, Ask::ReadControl)
+        .await
+        .unwrap();
+    assert!(
+        reply.ok.is_some(),
+        "still signed in at 29 minutes: {reply:?}"
+    );
+    w.clock.advance(2 * 60 * 1000);
+    w.remote.tick();
+    assert_eq!(
+        phone.event().await.unwrap(),
+        Event::SignedOut {
+            why: SignedOutWhy::Idle
+        }
+    );
+    // A request the owner made (`again: false`) is what keeps a phone signed in.
+    phone.close().await;
+    phone.meet(false).await.unwrap();
+    phone.sign_in().await.unwrap();
+    w.clock.advance(29 * 60 * 1000);
+    phone.ask(Ask::ReadControl).await.unwrap();
+    w.clock.advance(2 * 60 * 1000);
+    w.remote.tick();
+    assert!(phone.ask(Ask::ReadControl).await.unwrap().ok.is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn switching_off_cuts_every_phone_off_at_once() {
     let w = World::new().await;
     let mut a = w.paired_phone("A").await;

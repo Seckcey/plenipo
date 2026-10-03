@@ -343,7 +343,9 @@ impl Ask {
 )]
 #[ts(export, rename = "PhoneSays")]
 pub enum PhoneSays {
-    /// A request. `again`: the same page read again after a change (not recorded again).
+    /// A request. `again`: the same page read again after a change (not recorded again, and it
+    /// does not keep the phone signed in: only the owner's own taps move the 30-minute clock,
+    /// ADR-212).
     Ask {
         id: String,
         #[serde(default)]

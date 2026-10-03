@@ -82,6 +82,12 @@ record: only what you do on the phone keeps you signed in.
    (ADR-146), so old pages are rare and short-lived.
 6. **ADR-141 §6 now reads:** the PC asks "Is this your phone?" with the name, the browser, and the
    six digits; the owner compares the digits with the phone in hand; a name alone proves nothing.
+7. **Only what you do keeps the phone signed in** (P-SRV-3). A request marked `again: true` (a
+   page the phone reads again by itself after the PC said something changed) no longer moves the
+   30-minute clock. Opening a page, an approval, an objective, or any other tap of yours still
+   does. The page's **Try again** buttons also read with `again: true`, so a tap on one does not
+   extend the sign-in either; the owner accepted that. **ADR-142 §3 now reads:** 30 minutes after
+   your last tap, where a tap is a request you made, not a page the phone re-read on its own.
 
 ## How it is checked
 
@@ -97,6 +103,10 @@ record: only what you do on the phone keeps you signed in.
   code first.
 - `apps/desktop/src/remote/remote.test.tsx`: "Is this your phone?" shows the digits and what to do
   when they differ, with no accessibility problems.
+- `crates/remote/tests/remote.rs`
+  (`a_page_the_phone_reads_again_by_itself_does_not_keep_it_signed_in`): a phone signed in for
+  29 minutes reads a page again by itself, 2 more minutes pass, and it hears it was signed out
+  for being idle; the same with a request of its own keeps it signed in.
 
 ## Consequences
 
@@ -106,6 +116,9 @@ record: only what you do on the phone keeps you signed in.
   digits the owner's phone does not, and **Cancel** ends it. Activity keeps the trace.
 - `PairingView::Asking` gained a field, so the desktop app and the PC's bindings
   (`packages/types/src/generated/PairingView.ts`) change together.
+- A phone left open on a desk while workers run now signs out after 30 minutes, as ADR-142
+  promised, instead of staying signed in for 12 hours. The owner signs in again with one tap and
+  the phone's own check.
 
 ## Alternatives considered
 
@@ -118,3 +131,6 @@ record: only what you do on the phone keeps you signed in.
   enough against a one-in-a-million chance, and easier to compare at a glance.
 - **A longer code or a PAKE.** The code is already 80 bits and the meeting is sound (ADR-141 §4);
   the gap was what the owner could see, not the cryptography.
+- **Count a Try again tap as a tap.** The buttons would need their own kind of request. Not
+  chosen: the owner accepted that a **Try again** tap does not extend the sign-in; any other tap
+  does, and signing in again is one tap.

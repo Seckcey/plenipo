@@ -1557,7 +1557,9 @@ impl Remote {
                 live.seen.remove(&old);
             }
         }
-        if signed && !from_notice {
+        // Only what the owner does keeps the phone signed in: a page the phone reads again by
+        // itself (`again`) does not move the 30-minute clock (ADR-212, P-SRV-3).
+        if signed && !from_notice && !again {
             live.last_request = now;
         }
         if let Ask::Outcome { of } = &ask {
