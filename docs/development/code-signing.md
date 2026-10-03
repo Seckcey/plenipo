@@ -197,6 +197,14 @@ The Release workflow builds the public half into Plenipo, signs the installer wi
 half (`tauri signer sign --app-version`, after the 8 West signature), checks that signature and the
 version in it before publishing, and attaches `Plenipo_<version>_x64-setup.exe.sig` and
 `latest.json` to the release. Each copy of Plenipo reads `latest.json` from the newest release.
+
+**Linux (Phase 23, ADR-152).** The AppImage is signed with the same updater key, in the same
+approved Windows job (the Linux job that builds it holds no secret), and checked the same way;
+`latest.json` lists it as `linux-x86_64`, and the release carries
+`Plenipo_<version>_amd64.AppImage.sig`. The `.deb` has no updater signature: a copy installed
+from it never changes itself, and offers the download on GitHub instead. Linux has no signing
+like Windows' (no certificate authority checks programs there); the `.deb` names 8 West
+Ventures, LLC as its maker, and GitHub shows each download's SHA-256 checksum.
 If any of the three is missing, the Release workflow stops before building and says which.
 
 - **Losing the private key or its password:** copies already installed refuse updates signed

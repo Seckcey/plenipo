@@ -282,24 +282,55 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
 
 ### Wave 2 — Linux, first look
 
-- [ ] **Downloads:** a `.deb` (Ubuntu 22.04, 24.04, and 26.04 LTS, and Debian 12 or newer) and an
+- [x] **Downloads:** a `.deb` (Ubuntu 22.04, 24.04, and 26.04 LTS, and Debian 12 or newer) and an
       AppImage (most other Linux). Built on Ubuntu 22.04 so it runs on all of them (ADR-152).
-- [ ] **Updates:** the AppImage updates itself, signed with the same updater key as Windows (ADR-038).
+      Done: the Release workflow's Linux job builds both. The `.deb` names 8 West Ventures, LLC as
+      its maker and needs WebKitGTK and the tray library.
+- [x] **Updates:** the AppImage updates itself, signed with the same updater key as Windows (ADR-038).
       The `.deb` shows "A new version is ready" with a download button (an `apt` list can come later).
-- [ ] **The release job** becomes one job per system and one final job that writes a single
+      Done: the AppImage writes the new version next to itself, swaps it in, and starts it again,
+      which waits for the old one to finish. A `.deb` copy (and the Mac's until Wave 3) says "ready
+      to download" and opens GitHub's page. Opening files and pages for the owner now uses the
+      desktop's own opener, with the owner's session and none of the AppImage's own settings.
+- [x] **The release job** becomes one job per system and one final job that writes a single
       `latest.json` listing every system, and publishes once.
-- [ ] **Tray:** works through AppIndicator. On Linux it is menu only (no click, no tooltip). Where a
+      Done: a Linux job with no secret, and the Windows job, which holds the owner's one approval
+      (ADR-052), is the final one. It signs the AppImage too, writes one `latest.json`, and publishes
+      everything at once. Wave 3 adds the Mac's job; a separate final job comes then if the Mac's
+      signing needs one.
+- [x] **Tray:** works through AppIndicator. On Linux it is menu only (no click, no tooltip). Where a
       desktop has no tray (plain Fedora GNOME), closing the window quits, as the code already does.
-- [ ] **Start when you sign in:** already written by the autostart plugin; only the words change.
-- [ ] **The `.deb` recommends a password store** (`gnome-keyring`), since the Vault needs one
+      Done: Plenipo asks the desktop whether it shows tray icons (a status notifier host). Where it
+      does not, Plenipo makes no tray, so the window shows even at sign-in and closing it quits. A
+      missing tray library no longer stops Plenipo.
+- [x] **Start when you sign in:** already written by the autostart plugin; only the words change.
+      Done, with one change: on Linux Plenipo writes the sign-in entry itself, in the owner's
+      settings folder. The plugin's does not quote the program, so an AppImage in a folder with a
+      space in its name would never start, and it cannot make a missing folder.
+- [x] **The `.deb` recommends a password store** (`gnome-keyring`), since the Vault needs one
       (ADR-153); the AppImage explains it on first use.
-- [ ] **Browser choice:** find Chrome, Chromium, Edge, or Brave on Linux, and say plainly when a
+      Done: the `.deb` recommends `gnome-keyring`. With no password store, the Vault says so in
+      plain words (Wave 1).
+- [x] **Browser choice:** find Chrome, Chromium, Edge, or Brave on Linux, and say plainly when a
       "snap" Chromium cannot be used.
-- [ ] **Computer use:** works on X11. Under Wayland (Ubuntu's default, and the only desktop on
+      Done: each one's own folder first, then by name. Brave counts for Automatic and gets its own
+      profile. A Chromium from the Snap Store is never used, and Settings says why.
+- [x] **Computer use:** works on X11. Under Wayland (Ubuntu's default, and the only desktop on
       26.04) Plenipo refuses and says plainly that it is not ready yet (ADR-154).
-- [ ] **Delete my data:** `apt remove` never touches a person's home folder, so Plenipo gets a
+      Done: under Wayland, the screen and the mouse and keyboard both refuse with the same plain
+      words, which say how to choose "Ubuntu on Xorg" when you sign in.
+- [x] **Delete my data:** `apt remove` never touches a person's home folder, so Plenipo gets a
       "Delete my Plenipo data" button, like the Windows uninstaller's tick box.
+      Done: Settings → Info, on a Mac and Linux. It asks first (and again if work is running). It
+      removes the keys Plenipo saved, and if the password store says no, nothing is deleted. Then
+      it stops the work, turns off starting at sign-in, deletes only folders named
+      `com.eightwest.plenipo`, and quits.
 - [ ] **Installer tests** in bash on GitHub's Ubuntu: install, upgrade, update, remove, what is left.
+      Install, remove, and what is left are done (`scripts/linux-package-check.sh`, in every release
+      and dry run). The installed copy and the AppImage each start and keep running on a desktop.
+      Upgrade and update need an earlier Linux release to start from, so they come with the
+      release after the first one. Until then the AppImage's swap has its own test, and the
+      owner's check covers the rest.
 - [ ] **Sign-in checks on Linux** (moved from Wave 1): record each AI tool's real answers on a
       Linux PC; today's samples were recorded on Windows.
 - [ ] **The owner's check on a Linux PC:** install, sign in to Claude Code, run a Development objective

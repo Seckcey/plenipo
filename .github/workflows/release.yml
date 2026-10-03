@@ -23,8 +23,11 @@ name: Release
 # program (musl) with a .sha256, and the release carries it too; the relay's updater on 8 West's
 # server fetches it from the release, as the phone page's updater does for the page.
 #
-# Mac and Linux (Phase 23, ADR-150): a dry run also builds unsigned trial files for the Mac and
-# for Linux, kept as downloads for 7 days. A release builds them from Waves 2 and 3 on.
+# Mac and Linux (Phase 23, ADR-150): a dry run also builds an unsigned trial file for the Mac,
+# kept as a download for 7 days; a release builds it from Wave 3 on. Linux (Wave 2, ADR-152): a
+# Linux job builds the .deb and the AppImage, with no secret, and checks that they install, start,
+# and remove cleanly. After the owner's approval the Windows job gives the AppImage its updater
+# signature, writes one latest.json for both systems, and publishes everything at once.
 
 on:
   push:
@@ -87,10 +90,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Mac and Linux (Phase 23, Wave 0; ADR-150, ADR-152): a dry run also builds the Mac and Linux
-  # files, unsigned, to see what Tauri makes. A dry run only: a release does not build them until
-  # Waves 2 and 3, and no secret is used here (ADR-052). The Mac file is one app for Apple's chips
-  # and Intel; the Linux files are built on Ubuntu 22.04, so they also run on newer Linux.
+  # The Mac (Phase 23, Wave 0; ADR-150): a dry run also builds the Mac's file, unsigned, to see
+  # what Tauri makes. A dry run only: a release does not build it until Wave 3, and no secret is
+  # used here (ADR-052). It is one app for Apple's chips and Intel. (Linux has its own job below.)
   trial:
     name: Trial build, unsigned (${{ matrix.name }})
     if: inputs.dry_run
@@ -106,12 +108,6 @@ jobs:
             runner: macos-latest
             target: universal-apple-darwin
             files: target/universal-apple-darwin/release/bundle/dmg/*.dmg
-          - name: Linux
-            runner: ubuntu-22.04
-            target: ""
-            files: |
-              target/release/bundle/deb/*.deb
-              target/release/bundle/appimage/*.AppImage
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -119,12 +115,6 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - name: Install Tauri Linux system dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev file
       - name: Install Rust toolchain (from rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - name: Both kinds of Mac chip
@@ -148,8 +138,6 @@ jobs:
           PLENIPO_REMOTE_STAND_IN: ""
           PLENIPO_REMOTE_PAGE: ""
           PLENIPO_NOTICES_STAND_IN: ""
-          # The AppImage tool unpacks itself instead of needing FUSE on the runner.
-          APPIMAGE_EXTRACT_AND_RUN: "1"
         run: |
           args=(--verbose)
           if [ -n "$TARGET" ]; then args+=(--target "$TARGET"); fi
@@ -164,13 +152,9 @@ jobs:
             echo ""
             echo '```'
             for f in $FILES; do ls -l $f; done
-            if [ "$RUNNER_OS" = "macOS" ]; then
-              app=(target/universal-apple-darwin/release/bundle/macos/*.app)
-              echo "Chips in ${app[0]##*/}: $(lipo -archs "${app[0]}/Contents/MacOS/"*)"
-              echo "Lowest macOS: $(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "${app[0]}/Contents/Info.plist")"
-            else
-              for f in target/release/bundle/deb/*.deb; do dpkg-deb --field "$f" Package Version Architecture Depends; done
-            fi
+            app=(target/universal-apple-darwin/release/bundle/macos/*.app)
+            echo "Chips in ${app[0]##*/}: $(lipo -archs "${app[0]}/Contents/MacOS/"*)"
+            echo "Lowest macOS: $(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "${app[0]}/Contents/Info.plist")"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -180,9 +164,75 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  # Linux (Phase 23, Wave 2; ADR-152): the .deb and the AppImage, built on Ubuntu 22.04 so they also
+  # run on newer Linux, and checked: they are this version's, the .deb installs with apt, both
+  # start and keep running, and apt removes Plenipo cleanly (scripts/linux-package-check.sh). No
+  # secret is used here (ADR-052): after the owner's approval, the Windows job gives the AppImage
+  # its updater signature and publishes it. A dry run builds and keeps them too.
+  linux:
+    name: Build and check the Linux files (.deb and AppImage)
+    runs-on: ubuntu-22.04
+    # Builds and keeps files; it never writes to the repository or a release.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install Tauri Linux system dependencies, and a desktop to start Plenipo on
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev file \
+            xvfb gnome-keyring dbus
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-linux
+      - run: pnpm install --frozen-lockfile
+      - name: Build the app, its .deb, and its AppImage
+        env:
+          # The updater key's public half, built in so the AppImage updates itself (ADR-038).
+          PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
+          PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
+          PLENIPO_SLACK_CLIENT_ID: ${{ vars.PLENIPO_SLACK_CLIENT_ID }}
+          PLENIPO_RELAY_LIVE: ${{ vars.PLENIPO_RELAY_LIVE }}
+          # Never a test stand-in in a release (an empty value is ignored).
+          PLENIPO_CONNECTIONS_STAND_IN: ""
+          PLENIPO_AI_TOOL_RELEASES: ""
+          PLENIPO_REMOTE_STAND_IN: ""
+          PLENIPO_REMOTE_PAGE: ""
+          PLENIPO_NOTICES_STAND_IN: ""
+          # The AppImage tool unpacks itself instead of needing FUSE on the runner.
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: pnpm --filter @plenipo/desktop tauri build --verbose
+      - name: The files are this version's, install, start, and remove cleanly
+        # `bash` (not the default shell) stops at a failure inside the pipe to `tee`.
+        shell: bash
+        run: |
+          bash scripts/linux-package-check.sh 2>&1 | tee "$RUNNER_TEMP/linux-check.txt"
+          {
+            echo "### Linux files"
+            echo ""
+            echo '```'
+            grep -E "^(The \.deb|The installed|The AppImage|apt removed)" "$RUNNER_TEMP/linux-check.txt"
+            ls -l linux-dist
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plenipo-linux
+          path: linux-dist/
+          retention-days: 7
+          if-no-files-found: error
+
   windows:
-    name: Build Windows installer and publish release
-    needs: relay
+    name: Build Windows installer and publish release (Windows and Linux)
+    needs: [relay, linux]
     runs-on: windows-latest
     # ADR-052: a release uses the Environment `release`, which holds the signing secrets, lets only
     # `main` and `v*` tags in, and waits for the owner's approval before the job starts. A dry run
@@ -361,9 +411,17 @@ jobs:
           path: target/release/bundle/nsis/*-setup.exe
           retention-days: 7
           if-no-files-found: error
-      # ADR-038: the finished installer (already signed as 8 West above) gets the updater
-      # signature, over its final bytes and naming this version, with Tauri's signing tool.
-      - name: Sign the installer with the updater key, for this version
+      # Linux's files (Phase 23, ADR-152), from the Linux job above: the AppImage gets its updater
+      # signature here, with the same key, and both are published with the installer.
+      - name: The Linux files, built and checked on Ubuntu
+        if: ${{ !inputs.dry_run }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: plenipo-linux
+          path: linux-dist
+      # ADR-038: the finished installer (already signed as 8 West above) and the AppImage get the
+      # updater signature, over their final bytes and naming this version, with Tauri's tool.
+      - name: Sign the installer and the AppImage with the updater key, for this version
         if: ${{ !inputs.dry_run }}
         shell: bash
         env:
@@ -372,7 +430,9 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           installer=(target/release/bundle/nsis/*-setup.exe)
+          appimage="linux-dist/Plenipo_${version}_amd64.AppImage"
           test -f "${installer[0]}"
+          test -f "$appimage"
           # A key pasted with a space or line break fails to decode: the key is base64, so every
           # space and line break is dropped; the password loses only a line break at its end.
           key=$(printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | tr -d '[:space:]')
@@ -380,10 +440,12 @@ jobs:
           if [ "$key" != "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             echo "::warning::Environment secret TAURI_SIGNING_PRIVATE_KEY has spaces or line breaks; they were dropped for this run. Save it again without them (docs/development/code-signing.md)."
           fi
-          TAURI_SIGNING_PRIVATE_KEY="$key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$password" \
-            pnpm --filter @plenipo/desktop tauri signer sign --app-version "$version" \
-            "$GITHUB_WORKSPACE/${installer[0]}"
-      - name: The updater signature is Plenipo's, for this version, and latest.json is written
+          for file in "${installer[0]}" "$appimage"; do
+            TAURI_SIGNING_PRIVATE_KEY="$key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$password" \
+              pnpm --filter @plenipo/desktop tauri signer sign --app-version "$version" \
+              "$GITHUB_WORKSPACE/$file"
+          done
+      - name: The updater signatures are Plenipo's, for this version, and latest.json is written
         if: ${{ !inputs.dry_run }}
         shell: bash
         env:
@@ -391,15 +453,17 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           installer=(target/release/bundle/nsis/*-setup.exe)
+          appimage="linux-dist/Plenipo_${version}_amd64.AppImage"
           test -f "${installer[0]}"
-          sig="${installer[0]}.sig"
-          if [ ! -f "$sig" ]; then
-            echo "::error::No updater signature was made (${sig}); check the updater key secrets"
-            exit 1
-          fi
-          # The same check Plenipo makes before installing: the key built into it, this version.
-          cargo run --release --locked -p plenipo-capabilities --example verify_update -- \
-            "${installer[0]}" "$sig" "$version"
+          for file in "${installer[0]}" "$appimage"; do
+            if [ ! -f "$file.sig" ]; then
+              echo "::error::No updater signature was made ($file.sig); check the updater key secrets"
+              exit 1
+            fi
+            # The same check Plenipo makes before installing: the key built into it, this version.
+            cargo run --release --locked -p plenipo-capabilities --example verify_update -- \
+              "$file" "$file.sig" "$version"
+          done
           # Plenipo never offers a pre-release as an update, so a pre-release has no latest.json.
           case "$version" in
             *-*)
@@ -409,8 +473,10 @@ jobs:
           esac
           notes="docs/releases/v$version.md"
           if [ ! -f "$notes" ]; then notes="$RUNNER_TEMP/no-notes.md"; printf '# v%s\n' "$version" > "$notes"; fi
-          node scripts/update-manifest.mjs "$version" "${installer[0]}" "$sig" "$notes" \
-            target/release/bundle/nsis/latest.json
+          # One latest.json for every system (Phase 23): Windows' installer and Linux's AppImage.
+          node scripts/update-manifest.mjs "$version" "$notes" target/release/bundle/nsis/latest.json \
+            windows-x86_64 "${installer[0]}" "${installer[0]}.sig" \
+            linux-x86_64 "$appimage" "$appimage.sig"
       # Checked inside the installer: that copy of the app is the one customers get. Tauri leaves
       # target/release/plenipo-desktop.exe unsigned after bundling, so that file proves nothing.
       - name: The installer and the app inside it are signed by 8 West Ventures, LLC, with a timestamp
@@ -482,6 +548,13 @@ jobs:
           # latest.json.
           test -f "${installer[0]}.sig"
           assets=("${installer[@]}" "${installer[0]}.sig")
+          # Linux's .deb and AppImage (Phase 23, ADR-152), and the AppImage's updater signature.
+          version=$(node -p "require('./package.json').version")
+          for file in "linux-dist/Plenipo_${version}_amd64.deb" "linux-dist/Plenipo_${version}_amd64.AppImage" \
+            "linux-dist/Plenipo_${version}_amd64.AppImage.sig"; do
+            test -f "$file"
+            assets+=("$file")
+          done
           # The phone's page (Phase 14, ADR-146), and its checksum.
           version=$(node -p "require('./package.json').version")
           test -f "plenipo-phone-page-$version.zip"
