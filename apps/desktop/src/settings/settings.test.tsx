@@ -80,6 +80,7 @@ const terminal: Terminal = {
     { shell: "powerShell7", label: "PowerShell 7", installed: false },
     { shell: "commandPrompt", label: "Command Prompt", installed: true },
   ],
+  runsAs: "as your own Windows user — never as administrator",
   serversSwitchedOn: false,
   open: [],
 };
