@@ -95,6 +95,30 @@ describe("runtimeReducer", () => {
     expect(s.executions.a?.state).toBe("cancelled");
   });
 
+  it("keeps the end of a run that arrived before the start command's answer", () => {
+    // A program that ends at once: its end can arrive before Start's own answer, which still
+    // says it is running.
+    let s = runtimeReducer(initialRuntimeState, {
+      type: "event",
+      at: 0,
+      event: { kind: "lifecycle", record: record("a", { state: "failed", exitCode: 3 }) },
+    });
+    s = runtimeReducer(s, { type: "recordUpdated", record: record("a") });
+    expect(s.executions.a).toMatchObject({ state: "failed", exitCode: 3 });
+    expect(s.order).toEqual(["a"]);
+    // A late lifecycle event that still says running changes nothing either.
+    s = runtimeReducer(s, {
+      type: "event",
+      at: 1,
+      event: { kind: "lifecycle", record: record("a") },
+    });
+    expect(s.executions.a?.state).toBe("failed");
+    // A new run is added as before.
+    s = runtimeReducer(s, { type: "recordUpdated", record: record("b") });
+    expect(s.order).toEqual(["b", "a"]);
+    expect(s.executions.b?.state).toBe("running");
+  });
+
   it("merges output events and snapshots", () => {
     let s = runtimeReducer(initialRuntimeState, {
       type: "event",

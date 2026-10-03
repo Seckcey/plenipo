@@ -825,6 +825,14 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
     assert.equal(queue.recent[0].status, "approved");
     assert.equal(queue.recent[0].note, `Approved by you, from ${PHONE_NAME}.`);
 
+    // The PC's Activity names the phone. Checked now, while these are among the newest events:
+    // All events shows the newest 200, and the tests after this one add many more.
+    await nav(browser, "Activity");
+    await (await browser.$('//button[@role="tab" and normalize-space()="All events"]')).click();
+    const all = 'ol[aria-label="All events"]';
+    await waitForText(browser, all, `${PHONE_NAME} asked to approve`);
+    await waitForText(browser, all, `Approved: git push origin (from ${PHONE_NAME})`);
+
     // The relay passed every word sealed: it never saw them.
     for (const words of ["git push", "approve", PHONE_NAME, "Senior Developer", "Website"]) {
       assert.equal(await relaySaw(words), false, `the relay never saw "${words}"`);
@@ -1219,11 +1227,11 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
       sentNotices.some((e) => e.payload.name === PHONE_NAME && e.payload.kind === "approvals"),
     );
     assert.ok(!JSON.stringify(sentNotices).includes("git push"), "never what a notice said");
+    // The page shows the newest 200 events, so the approval's lines (checked on it when they were
+    // new) are older than that by now; the newer requests are still on it.
     await nav(browser, "Activity");
     await (await browser.$('//button[@role="tab" and normalize-space()="All events"]')).click();
     const all = 'ol[aria-label="All events"]';
-    await waitForText(browser, all, `${PHONE_NAME} asked to approve`);
-    await waitForText(browser, all, `Approved: git push origin (from ${PHONE_NAME})`);
     await waitForText(browser, all, `${PHONE_NAME} asked to stop all`);
     await waitForText(browser, all, `You removed ${PHONE_NAME}`);
     await screenshot(browser, "phone-pc-activity");
