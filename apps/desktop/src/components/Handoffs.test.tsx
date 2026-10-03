@@ -64,3 +64,34 @@ describe("HandoffCard — answers checked against Plenipo's record", () => {
     expect(within(c).getByText("Fixed it. All tests pass.")).toBeInTheDocument();
   });
 });
+
+// ADR-259: a lead stops its team's work in a check-in; the card says who stopped it and why.
+describe("HandoffCard — work its lead stopped", () => {
+  it("says who stopped it and why, even when Plenipo answered for it", () => {
+    const c = card(
+      view({
+        outcome: "cancelled",
+        summary: "Stopped by you: The API changed",
+        text: null,
+        source: "liaison",
+        stopped: { by: "Website Supervisor", reason: "The API changed", finishedFirst: false },
+      }),
+    );
+    expect(within(c).getByText(/stopped by Website Supervisor/)).toBeInTheDocument();
+    expect(within(c).getByRole("note")).toHaveTextContent(
+      "Stopped by Website Supervisor: The API changed",
+    );
+  });
+
+  it("says when it finished before the stop reached it", () => {
+    const c = card(
+      view({
+        stopped: { by: "Website Supervisor", reason: "Not needed", finishedFirst: true },
+      }),
+    );
+    expect(within(c).queryByText(/stopped by/)).not.toBeInTheDocument();
+    expect(within(c).getByRole("note")).toHaveTextContent(
+      "It finished before Website Supervisor's stop reached it (Not needed).",
+    );
+  });
+});

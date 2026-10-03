@@ -129,6 +129,22 @@ pub struct ReplyView {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(as = "Option<bool>", optional)]
     pub sent_back: bool,
+    /// Its lead stopped it (ADR-259, leads stop their team mid-task).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub stopped: Option<StoppedView>,
+}
+
+/// Who stopped a task in a check-in, and why (ADR-259).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct StoppedView {
+    /// The lead: its position's title, or its AI tool's name.
+    pub by: String,
+    pub reason: String,
+    /// It finished before the stop reached it: the reply is its real result.
+    pub finished_first: bool,
 }
 
 /// One handoff request with its child and reply.

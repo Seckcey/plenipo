@@ -122,6 +122,38 @@ describe("describeEvent (Phase 4 Liaison events)", () => {
     ).toBe("Received as a handoff (depth 1), work sent back to fix: Run the tests");
   });
 
+  it("says how a lead checked in on its team and what it stopped (ADR-259)", () => {
+    expect(describeEvent(event("liaison.check_in_started", { working: 2 }))).toBe(
+      "Checking in on its team (2 still working)",
+    );
+    expect(describeEvent(event("liaison.checked_in", { outcome: "completed", stops: 1 }))).toBe(
+      "Checked in on its team: stopped 1 task",
+    );
+    expect(describeEvent(event("liaison.checked_in", { outcome: "completed", stops: 0 }))).toBe(
+      "Checked in on its team: nothing stopped",
+    );
+    expect(describeEvent(event("liaison.checked_in", { outcome: "failed", stops: 0 }))).toBe(
+      "Its check-in on its team didn't finish; it waits for its team",
+    );
+    expect(
+      describeEvent(event("liaison.check_in_skipped", { why: "Codex needs you to sign in" })),
+    ).toBe("Check-in on its team skipped: Codex needs you to sign in");
+    expect(
+      describeEvent(
+        event("liaison.work_stopped", {
+          by: "Website Supervisor",
+          reason: "The API changed, start over",
+        }),
+      ),
+    ).toBe("Stopped by Website Supervisor: The API changed, start over");
+    expect(describeEvent(event("liaison.stop_asked", { reason: "Not needed now" }))).toBe(
+      "Stopped a task it handed on: Not needed now",
+    );
+    expect(describeEvent(event("liaison.stop_refused", { why: "task t-1 already finished" }))).toBe(
+      "Stop refused: task t-1 already finished",
+    );
+  });
+
   it("explains refusals, cancellations, and failures with their reason", () => {
     expect(
       describeEvent(

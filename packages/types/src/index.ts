@@ -89,6 +89,7 @@ export type { LiaisonLimits } from "./generated/LiaisonLimits";
 export type { LiaisonOverview } from "./generated/LiaisonOverview";
 export type { ReplyState } from "./generated/ReplyState";
 export type { ReplyView } from "./generated/ReplyView";
+export type { StoppedView } from "./generated/StoppedView";
 export type { TaskHandoffs } from "./generated/TaskHandoffs";
 export type { TaskTree } from "./generated/TaskTree";
 export type { TaskTreeNode } from "./generated/TaskTreeNode";

@@ -1313,9 +1313,12 @@ impl Ledger {
                     .and_then(|p| serde_json::from_str::<Value>(&p).ok())
                     .and_then(|p| serde_json::from_value(p["seen"].clone()).ok())
                     .unwrap_or_default();
+                // A worker's answer: not a refusal (no task), nor the lead's own stop.
                 let mut pending = c.prepare(
                     "SELECT id, created_at, child_task_id FROM liaison_messages
                      WHERE task_id = ?1 AND kind = 'reply' AND state = 'pending'
+                       AND child_task_id IS NOT NULL
+                       AND json_extract(envelope, '$.result.stopped') IS NULL
                      ORDER BY created_at DESC, rowid DESC",
                 )?;
                 let newest_answer = pending
@@ -1338,6 +1341,14 @@ impl Ledger {
                     |r| r.get(0),
                 )?;
                 let waiting_since = waiting_since.map_or(task.updated_at, u64_of);
+                let check_in_failed: bool = c.query_row(
+                    "SELECT EXISTS (SELECT 1 FROM events WHERE task_id = ?1
+                                      AND event_type = 'liaison.checked_in'
+                                      AND json_extract(payload, '$.round') = ?2
+                                      AND json_extract(payload, '$.outcome') != 'completed')",
+                    params![id, round],
+                    |r| r.get(0),
+                )?;
                 out.push(crate::dto::CheckInCandidate {
                     task,
                     working,
@@ -1346,6 +1357,7 @@ impl Ledger {
                     waiting_since,
                     round,
                     check_ins,
+                    check_in_failed,
                 });
             }
             Ok(out)
@@ -1903,7 +1915,8 @@ mod tests {
                 child_task_id: Some(child.into()),
                 source: "liaison".into(),
                 envelope: json!({ "result": { "outcome": "cancelled",
-                                              "summary": "Stopped by you: No longer needed" } }),
+                                              "summary": "Stopped by you: No longer needed",
+                                              "stopped": { "by": "Website Supervisor" } } }),
                 summary: json!({ "outcome": "cancelled" }),
             },
         };
@@ -1968,7 +1981,7 @@ mod tests {
             .into_iter()
             .map(|t| t.id)
             .collect();
-        assert_eq!(live, [running_child.id.clone()]);
+        assert_eq!(live, std::slice::from_ref(&running_child.id));
         // Nothing of the other lead's changed.
         assert_eq!(
             l.task(&theirs.id).unwrap().unwrap().state,
@@ -2012,14 +2025,12 @@ mod tests {
                 "liaison",
             )
             .is_err());
-        // Its check-in is counted for this round, and the answers since it began are new.
+        // Its check-in is counted for this round. The answer it saw, and its own stop, bring
+        // no other check-in.
         let candidates = l.liaison_check_in_candidates().unwrap();
         let mine = candidates.iter().find(|c| c.task.id == lead.id).unwrap();
         assert_eq!((mine.working, mine.answered, mine.check_ins), (1, 2, 1));
-        assert_eq!(
-            mine.newest_answer.as_ref().unwrap().1.as_deref(),
-            Some(queued.id.as_str())
-        );
+        assert_eq!(mine.newest_answer, None);
     }
 
     #[test]

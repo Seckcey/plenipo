@@ -61,6 +61,14 @@ pub struct LiaisonConfig {
     pub task_context_bytes: usize,
     /// Reconciliation also runs this often, to retry work refused for lack of a worker slot.
     pub tick: Duration,
+    /// A waiting lead is checked in on after its team worked this long since it last went back
+    /// to waiting (ADR-259, leads stop their team mid-task).
+    pub check_in_every: Duration,
+    /// An answer brings a check-in once no other answer came for this long, so answers that
+    /// come together bring one check-in.
+    pub check_in_debounce: Duration,
+    /// Most check-ins (tried) in one round of a lead's handoffs.
+    pub max_check_ins: u32,
 }
 
 impl Default for LiaisonConfig {
@@ -76,6 +84,9 @@ impl Default for LiaisonConfig {
             answer_context_bytes: 6 * 1024,
             task_context_bytes: 8 * 1024,
             tick: Duration::from_secs(2),
+            check_in_every: Duration::from_secs(20 * 60),
+            check_in_debounce: Duration::from_secs(30),
+            max_check_ins: 4,
         }
     }
 }
@@ -243,6 +254,10 @@ struct Snapshot {
     retire: Vec<String>,
     /// Answers sent back to their worker to check, not yet given back (4.7).
     sent_back: Vec<String>,
+    /// Tasks a lead stopped that still run or wait (ADR-259).
+    lead_stopped: Vec<Task>,
+    /// Waiting leads whose team still works: maybe due a check-in (ADR-259).
+    check_ins: Vec<plenipo_ledger::CheckInCandidate>,
 }
 
 impl Snapshot {
@@ -261,6 +276,8 @@ impl Snapshot {
             stale: l.liaison_stale_replies()?,
             retire,
             sent_back: l.liaison_sent_back_waiting()?,
+            lead_stopped: l.liaison_stopped_live_children()?,
+            check_ins: l.liaison_check_in_candidates()?,
         })
     }
 }
@@ -808,21 +825,44 @@ impl Liaison {
     }
 
     fn disposition(&self, end: &TurnEnd) -> TurnDisposition {
-        if !session_info(&end.session.metadata).enabled
-            || end.result.outcome != TurnOutcome::Completed
+        if !session_info(&end.session.metadata).enabled {
+            return TurnDisposition::Finish;
+        }
+        // A lead's check-in on its team (ADR-259): this exact step began as one. It never
+        // finishes the lead, is never checked as an answer, and never hands work on.
+        match self
+            .inner
+            .ledger
+            .last_task_event(&end.task_id, "liaison.check_in_started")
         {
+            Ok(Some(e)) if e.payload["step"].as_u64() == Some(u64::from(end.step)) => {
+                return self.check_in_ended(end, &e.payload);
+            }
+            Ok(_) => {}
+            Err(e) => self.notice(format!(
+                "Liaison could not read whether task {} is checking in: {e}",
+                end.task_id
+            )),
+        }
+        if end.result.outcome != TurnOutcome::Completed {
             return TurnDisposition::Finish;
         }
         let Some(text) = end.result.text.as_deref() else {
             return TurnDisposition::Finish;
         };
         let extracted = protocol::extract(text);
-        if extracted.blocks.is_empty() {
+        // A stop is read only in a check-in: anywhere else it is refused, and makes no request.
+        let (stops, blocks): (Vec<Block>, Vec<Block>) =
+            extracted.blocks.into_iter().partition(|b| b.stop.is_some());
+        if !stops.is_empty() {
+            self.refuse_stops(end, &stops);
+        }
+        if blocks.is_empty() {
             // A final answer: checked against Plenipo's record before it goes up (4.7).
             return self.check_answer(end, text);
         }
         let _planning = lock(&self.inner.planning);
-        match self.record_requests(end, &extracted.answer, &extracted.blocks) {
+        match self.record_requests(end, &extracted.answer, &blocks) {
             Ok(Some(reason)) => {
                 self.inner.wake.notify_one();
                 TurnDisposition::Suspended { reason }
@@ -910,6 +950,361 @@ impl Liaison {
                     end.task_id
                 ));
                 TurnDisposition::Finish
+            }
+        }
+    }
+
+    // ---- Check-ins and stops (ADR-259, leads stop their team mid-task) --------------------
+
+    /// A stop outside a check-in is refused: recorded on the task (`liaison.handoff_rejected`),
+    /// never a request.
+    fn refuse_stops(&self, end: &TurnEnd, stops: &[Block]) {
+        for block in stops {
+            let refused = self.inner.ledger.append_event(task_event(
+                &end.task_id,
+                "liaison.handoff_rejected",
+                json!({
+                    "block": block.index,
+                    "step": end.step,
+                    "reason": "a stop is read only in a check-in, while your team is still working",
+                }),
+            ));
+            if let Err(e) = refused {
+                self.notice(format!(
+                    "Liaison could not record a refused stop of task {}: {e}",
+                    end.task_id
+                ));
+            }
+        }
+    }
+
+    /// A check-in step ended. However it ended (an answer, a failure, text, handoff blocks), the
+    /// lead goes back to waiting: its stops and the step are recorded in one transaction, and
+    /// its team goes on. Only the owner's Stop on the lead itself ends it (and its round).
+    fn check_in_ended(&self, end: &TurnEnd, check_in: &Value) -> TurnDisposition {
+        if end.result.outcome == TurnOutcome::Cancelled {
+            return TurnDisposition::Finish;
+        }
+        match self.end_check_in(end, check_in) {
+            Ok(reason) => {
+                self.inner.wake.notify_one();
+                TurnDisposition::Suspended { reason }
+            }
+            Err(e) => {
+                // Only when the Ledger can't be written: the step ends as any step whose
+                // requests Liaison couldn't record.
+                self.notice(format!(
+                    "Liaison could not record the check-in of task {}: {e}",
+                    end.task_id
+                ));
+                TurnDisposition::Finish
+            }
+        }
+    }
+
+    /// Record a check-in's end: what the lead stopped (each checked by [`Self::stoppable`]),
+    /// what was refused and why, and the lead back to waiting. Returns why it waits.
+    fn end_check_in(&self, end: &TurnEnd, check_in: &Value) -> Result<String> {
+        let l = &self.inner.ledger;
+        let task = l
+            .task(&end.task_id)?
+            .ok_or_else(|| LedgerError::NotFound(format!("task {}", end.task_id)))?;
+        let tag = json!({
+            "step": end.step,
+            "round": check_in["round"],
+            "checkIn": check_in["number"],
+            "triggeredBy": check_in["triggeredBy"],
+        });
+        // The sender, from Plenipo's own records: this task's running check-in.
+        let from_its_turn = task.metadata["sessionId"].as_str() == Some(end.session.id.as_str())
+            && task.state == TaskState::Running;
+        let mut refusals = Vec::new();
+        let mut stops = Vec::new();
+        let mut ignored = 0_u32;
+        if end.result.outcome == TurnOutcome::Completed {
+            let by = self.worker_of(l, &task);
+            let text = end.result.text.as_deref().unwrap_or_default();
+            for block in protocol::extract(text).blocks {
+                let refuse = |task_id: Option<&str>, why: String| {
+                    let mut r = tag.clone();
+                    r["block"] = block.index.into();
+                    r["taskId"] = json!(task_id);
+                    r["why"] = why.into();
+                    r
+                };
+                match &block.stop {
+                    // A check-in hands nothing on: other blocks are left alone.
+                    None => ignored += 1,
+                    Some(Err(why)) => refusals.push(refuse(None, why.clone())),
+                    Some(Ok(d)) if !from_its_turn => refusals.push(refuse(
+                        Some(&d.task_id),
+                        "the stop did not come from this task's own check-in".into(),
+                    )),
+                    Some(Ok(d)) => match self.stoppable(l, &task, &d.task_id) {
+                        Err(why) => refusals.push(refuse(Some(&d.task_id), why)),
+                        Ok((request, child)) => {
+                            let mut payload = tag.clone();
+                            payload["by"] = by.clone().into();
+                            payload["byTaskId"] = task.id.clone().into();
+                            payload["reason"] = d.reason.clone().into();
+                            payload["messageId"] = request.id.clone().into();
+                            stops.push(plenipo_ledger::LeadStop {
+                                reply: stop_reply(&request, &child, &by, &d.reason),
+                                request_id: request.id,
+                                child_task_id: child.id,
+                                payload,
+                            });
+                        }
+                    },
+                }
+            }
+        }
+        let mut checked_in = tag.clone();
+        checked_in["outcome"] = json!(end.result.outcome);
+        checked_in["stops"] = stops.len().into();
+        checked_in["refused"] = refusals.len().into();
+        checked_in["ignored"] = ignored.into();
+        let actor = format!("agent:{}", end.session.runtime_id);
+        let step_result = result_event(
+            &TurnRef {
+                session_id: &end.session.id,
+                task_id: &task.id,
+                execution_id: end.execution_id.as_deref(),
+                step: Some(end.step),
+                actor: &actor,
+            },
+            &end.result,
+        )
+        .map_err(LiaisonError::Internal)?;
+        let working = l
+            .liaison_messages_for_task(&task.id)?
+            .iter()
+            .filter(|m| m.kind == MessageKind::Request && m.state.is_open())
+            .count();
+        let reason = format!("waiting for its team ({working} still working)");
+        l.end_check_in(
+            &task.id,
+            end.step,
+            step_result,
+            checked_in,
+            refusals,
+            stops,
+            &reason,
+            ACTOR,
+        )?;
+        Ok(reason)
+    }
+
+    /// Whether `lead` may stop task `id` (ADR-259), one rule, like [`Self::sendable_back`]: the
+    /// task's parent is the lead's task, its request is the lead's and still open (accepted or
+    /// dispatched), and it is not stopped already. Task IDs are shown to leads, so this link is
+    /// the bound, not secrecy. The sender (the lead's own running check-in) is the caller's to
+    /// check, and the Ledger checks all of it again when it records the stop.
+    fn stoppable(
+        &self,
+        l: &Ledger,
+        lead: &Task,
+        id: &str,
+    ) -> std::result::Result<(LiaisonMessage, Task), String> {
+        let not_yours = || format!("task {id} is not one you handed on, so you can't stop it");
+        let child = l
+            .task(id)
+            .map_err(|e| e.to_string())?
+            .filter(|t| t.parent_task_id.as_deref() == Some(lead.id.as_str()))
+            .ok_or_else(not_yours)?;
+        let request = l
+            .liaison_request_for_child(&child.id)
+            .map_err(|e| e.to_string())?
+            .filter(|r| r.task_id == lead.id)
+            .ok_or_else(not_yours)?;
+        if l.count_task_events(&child.id, "liaison.work_stopped")
+            .map_err(|e| e.to_string())?
+            > 0
+        {
+            return Err(format!("task {id} is already stopped"));
+        }
+        if !request.state.is_open() || child.state.is_terminal() {
+            return Err(format!(
+                "task {id} already finished; send it back instead if it needs more work"
+            ));
+        }
+        Ok((request, child))
+    }
+
+    /// Whether a waiting lead is due a check-in now: `Some` with the answered task that brings
+    /// it (none for a long wait). An answer brings one once no other came for the debounce
+    /// time; a long wait brings one after `check_in_every`; never past the round's cap, and no
+    /// more in a round where one failed.
+    fn check_in_due(
+        &self,
+        c: &plenipo_ledger::CheckInCandidate,
+        now: u64,
+    ) -> Option<Option<String>> {
+        let config = &self.inner.config;
+        if c.working == 0 || c.check_ins >= config.max_check_ins || c.check_in_failed {
+            return None;
+        }
+        let ms = |d: Duration| u64::try_from(d.as_millis()).unwrap_or(u64::MAX);
+        if let Some((at, child)) = &c.newest_answer {
+            if now.saturating_sub(*at) >= ms(config.check_in_debounce) {
+                return Some(child.clone());
+            }
+        }
+        (now.saturating_sub(c.waiting_since) >= ms(config.check_in_every)).then_some(None)
+    }
+
+    fn spawn_check_in(&self, candidate: plenipo_ledger::CheckInCandidate, by: Option<String>) {
+        // One lock per lead: a check-in and a delivery never continue the same turn at once.
+        let key = format!("deliver:{}", candidate.task.id);
+        if !self.claim(&key) {
+            return;
+        }
+        let this = self.clone();
+        tokio::spawn(async move {
+            let task_id = candidate.task.id.clone();
+            if let Err(e) = this.check_in(candidate, by).await {
+                this.notice(format!(
+                    "Liaison could not check in on the team of task {task_id}: {e}"
+                ));
+            }
+            this.release_after(&key, &task_id);
+        });
+    }
+
+    /// Check in on a waiting lead's team: a short step of its own turn (the runtime's
+    /// `check_in_turn`, which leaves the turn waiting when its AI tool can't take work). Only
+    /// Plenipo's own facts about work still going; the answers back, as their workers' first
+    /// lines between fresh markers. Skipped, not queued, while its AI tool is held or no place is
+    /// free; a try that can't start counts toward the round's check-ins.
+    async fn check_in(
+        &self,
+        c: plenipo_ledger::CheckInCandidate,
+        triggered_by: Option<String>,
+    ) -> Result<()> {
+        let task = c.task;
+        // Tried again on the regular pass, not at once (it would try over and over).
+        let later = |this: &Self| {
+            this.lock().waiting_for_place.insert(task.id.clone());
+        };
+        let runtime = &self.inner.runtime;
+        let Some(session_id) = task.metadata["sessionId"].as_str().map(str::to_owned) else {
+            return Ok(());
+        };
+        let runtime_id = task.metadata["runtimeId"].as_str().unwrap_or_default();
+        if runtime.work_held() || (!runtime_id.is_empty() && runtime.held(runtime_id)) {
+            later(self);
+            return Ok(());
+        }
+        let tid = task.id.clone();
+        let (working, answered, seen) = self
+            .blocking(move |l| {
+                let now = plenipo_ledger::now_ms();
+                let label = |m: &LiaisonMessage| {
+                    m.envelope["destinationLabel"]
+                        .as_str()
+                        .map_or_else(|| m.destination.clone(), str::to_owned)
+                };
+                let mut working = Vec::new();
+                let messages = l.liaison_messages_for_task(&tid)?;
+                for r in messages
+                    .iter()
+                    .filter(|m| m.kind == MessageKind::Request && m.state.is_open())
+                {
+                    let Some(child) = r.child_task_id.as_deref() else {
+                        continue;
+                    };
+                    let Some(child) = l.task(child)? else {
+                        continue;
+                    };
+                    // Being stopped already: not offered again.
+                    if l.count_task_events(&child.id, "liaison.work_stopped")? > 0 {
+                        continue;
+                    }
+                    let since = l
+                        .last_task_event(&child.id, "liaison.dispatched")?
+                        .map_or(child.created_at, |e| e.created_at);
+                    let last =
+                        l.last_task_event_among(&child.id, &["agent.tool_use", "capability.used"])?;
+                    working.push(context::CheckInWorking {
+                        who: label(r),
+                        task_id: child.id.clone(),
+                        request: r.envelope["objective"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_owned(),
+                        doing: doing_kind(&child, last.as_ref()),
+                        minutes: now.saturating_sub(since) / 60_000,
+                    });
+                }
+                let replies = l.liaison_pending_replies(&tid)?;
+                let mut answered = Vec::new();
+                for reply in &replies {
+                    let request = messages
+                        .iter()
+                        .find(|m| Some(m.id.as_str()) == reply.in_reply_to.as_deref());
+                    let result = &reply.envelope["result"];
+                    answered.push(context::CheckInAnswered {
+                        who: request.map_or_else(|| "Plenipo".to_owned(), label),
+                        task_id: reply.child_task_id.clone(),
+                        outcome: result["outcome"].as_str().unwrap_or("finished").to_owned(),
+                        summary: result["summary"].as_str().unwrap_or_default().to_owned(),
+                    });
+                }
+                let seen: Vec<String> = replies.into_iter().map(|r| r.id).collect();
+                Ok((working, answered, seen))
+            })
+            .await?;
+        if working.is_empty() {
+            return Ok(());
+        }
+        let number = c.check_ins + 1;
+        let nonce: String = uuid::Uuid::new_v4().simple().to_string()[..12].to_owned();
+        let message = context::check_in_message(
+            &working,
+            &answered,
+            &nonce,
+            number,
+            self.inner.config.max_check_ins,
+        );
+        let note = StepNote {
+            reason: "checking in on its team".into(),
+            data: json!({ "checkIn": {
+                "number": number,
+                "round": c.round,
+                "triggeredBy": triggered_by,
+                "working": working.len(),
+                "answered": answered.len(),
+                "seen": seen,
+            }}),
+            passed_bytes: message.passed_bytes,
+        };
+        let Ok(admission) = self.entitlements().admit_worker(Some(&task.id)) else {
+            later(self);
+            return Ok(());
+        };
+        let continued = runtime
+            .check_in_turn(&session_id, &task.id, &message.text, note)
+            .await;
+        self.entitlements().release(admission);
+        match continued {
+            Ok(_) | Err(RuntimeError::ShuttingDown) => Ok(()),
+            Err(RuntimeError::Busy(_)) => {
+                later(self);
+                Ok(())
+            }
+            Err(e) => {
+                // It couldn't start (its AI tool can't take work now): the lead still waits.
+                later(self);
+                let (tid, why, round) = (task.id.clone(), e.to_string(), c.round);
+                self.blocking(move |l| {
+                    l.append_event(task_event(
+                        &tid,
+                        "liaison.check_in_skipped",
+                        json!({ "round": round, "checkIn": number, "why": why }),
+                    ))?;
+                    Ok(())
+                })
+                .await
             }
         }
     }
@@ -1632,6 +2027,19 @@ impl Liaison {
         }
         for task_id in snapshot.sent_back {
             self.spawn_give_back(task_id);
+        }
+        // A lead's stops (ADR-259): the same runtime calls as for a cancelled request.
+        for child in snapshot.lead_stopped {
+            self.spawn_stop(child);
+        }
+        // Check-ins on waiting leads (ADR-259): never while Stop all holds the work.
+        if !self.inner.runtime.work_held() {
+            let now = plenipo_ledger::now_ms();
+            for candidate in snapshot.check_ins {
+                if let Some(triggered_by) = self.check_in_due(&candidate, now) {
+                    self.spawn_check_in(candidate, triggered_by);
+                }
+            }
         }
         Ok(())
     }
@@ -2463,7 +2871,104 @@ fn reply_view(reply: &LiaisonMessage) -> ReplyView {
         created_at: reply.created_at,
         mismatches: serde_json::from_value(result["mismatches"].clone()).unwrap_or_default(),
         sent_back: result["sentBack"].as_bool().unwrap_or(false),
+        stopped: result["stopped"].is_object().then(|| StoppedView {
+            by: result["stopped"]["by"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            reason: result["stopped"]["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+            finished_first: result["stopped"]["finishedFirst"]
+                .as_bool()
+                .unwrap_or(false),
+        }),
     }
+}
+
+/// "Stopped by you: …", Plenipo's reply to a lead for a task it stopped before it started
+/// (ADR-259).
+fn stop_reply(request: &LiaisonMessage, child: &Task, by: &str, reason: &str) -> NewReply {
+    let message_id = uuid::Uuid::new_v4().to_string();
+    let summary = format!("Stopped by you: {reason}");
+    NewReply {
+        message_id: message_id.clone(),
+        correlation_id: request.correlation_id.clone(),
+        in_reply_to: request.id.clone(),
+        child_task_id: Some(child.id.clone()),
+        source: ACTOR.into(),
+        envelope: json!({
+            "protocol": PROTOCOL,
+            "kind": "reply",
+            "messageId": message_id,
+            "correlationId": request.correlation_id,
+            "inReplyTo": request.id,
+            "parentTaskId": request.task_id,
+            "childTaskId": child.id,
+            "source": ACTOR,
+            "destination": request.source,
+            "timestamp": plenipo_ledger::now_ms(),
+            "result": {
+                "outcome": HandoffOutcome::Cancelled,
+                "summary": summary,
+                "text": null,
+                "error": null,
+                "runtimeId": child.metadata["runtimeId"],
+                "stopped": { "by": by, "reason": reason, "finishedFirst": false },
+            },
+        }),
+        summary: json!({
+            "outcome": HandoffOutcome::Cancelled,
+            "summary": first_line(&summary, 200),
+            "stopped": true,
+        }),
+    }
+}
+
+/// What a task still working is doing, in a few plain words, from Plenipo's own record of its
+/// last step: its kind only, never its command line, file names, or other words its worker
+/// wrote (ADR-259).
+fn doing_kind(child: &Task, last: Option<&LedgerEvent>) -> String {
+    match child.state {
+        TaskState::Queued => return "waiting to start".into(),
+        TaskState::Blocked => return "waiting for its own team".into(),
+        TaskState::AwaitingApproval => return "waiting for the owner's approval".into(),
+        _ => {}
+    }
+    let Some(e) = last else {
+        return "thinking".into();
+    };
+    let name = if e.event_type == "capability.used" {
+        e.payload["capability"].as_str()
+    } else {
+        e.payload["tool"].as_str()
+    }
+    .unwrap_or_default()
+    .to_ascii_lowercase();
+    let has = |words: &[&str]| words.iter().any(|w| name.contains(w));
+    if has(&["browser", "web", "fetch", "navigate", "url"]) {
+        "reading web pages"
+    } else if has(&["git"]) {
+        "using git"
+    } else if has(&["bash", "shell", "command", "exec", "powershell", "terminal"]) {
+        "running a command"
+    } else if has(&[
+        "edit",
+        "write",
+        "patch",
+        "file_change",
+        "create",
+        "delete",
+        "move",
+    ]) {
+        "changing files"
+    } else if has(&["read", "grep", "glob", "search", "list", "view", "find"]) {
+        "reading files"
+    } else {
+        "working"
+    }
+    .into()
 }
 
 /// A finished child's reply: its final result, or why it never ran.
@@ -2505,6 +3010,35 @@ fn build_reply(
                 None,
             )
         };
+    // Its lead stopped it (ADR-259): "Stopped by you", unless it finished before the stop
+    // reached it, when the lead gets its real result, marked.
+    let stopped = l.last_task_event(&child.id, "liaison.work_stopped")?;
+    let finished_first = child.state != TaskState::Cancelled;
+    let (outcome, summary, text, error) = match &stopped {
+        Some(s) if !finished_first => (
+            HandoffOutcome::Cancelled,
+            format!(
+                "Stopped by you: {}",
+                s.payload["reason"].as_str().unwrap_or_default()
+            ),
+            None,
+            None,
+        ),
+        Some(_) => (
+            outcome,
+            format!("It finished before your stop reached it. {summary}"),
+            text,
+            error,
+        ),
+        None => (outcome, summary, text, error),
+    };
+    let stopped = stopped.map(|s| {
+        json!({
+            "by": s.payload["by"],
+            "reason": s.payload["reason"],
+            "finishedFirst": finished_first,
+        })
+    });
     // Plenipo's record under the answer, and the plain checks (Phase 25, item 4.7).
     let correlation = task_info(&child.metadata).correlation_id;
     let record = facts::gather(l, child, correlation.as_deref())?;
@@ -2546,6 +3080,7 @@ fn build_reply(
                 "record": record,
                 "mismatches": mismatches,
                 "sentBack": sent_back,
+                "stopped": stopped,
             },
         }),
         summary: json!({

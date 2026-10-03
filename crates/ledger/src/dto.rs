@@ -1383,6 +1383,8 @@ pub struct CheckInCandidate {
     /// This round (its deliveries so far), and the check-ins tried in it.
     pub round: u32,
     pub check_ins: u32,
+    /// A check-in this round that didn't complete (its step failed): no more this round.
+    pub check_in_failed: bool,
 }
 
 /// A lesson a worker learned from its work (ADR-024): what would help the next worker in its

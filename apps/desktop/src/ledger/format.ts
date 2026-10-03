@@ -1002,6 +1002,28 @@ function describeLiaisonEvent(type: string, p: Record<string, unknown>): string 
     }
     case "liaison.sent_back_delivered":
       return "Checking its answer again";
+    // ADR-259: leads stop their team mid-task, in a check-in while their team works.
+    case "liaison.check_in_started": {
+      const n = typeof p.working === "number" ? p.working : null;
+      return `Checking in on its team${n === null ? "" : ` (${n} still working)`}`;
+    }
+    case "liaison.checked_in": {
+      if (str(p.outcome) && p.outcome !== "completed") {
+        return "Its check-in on its team didn't finish; it waits for its team";
+      }
+      const n = typeof p.stops === "number" ? p.stops : 0;
+      return n > 0
+        ? `Checked in on its team: stopped ${n} task${n === 1 ? "" : "s"}`
+        : "Checked in on its team: nothing stopped";
+    }
+    case "liaison.check_in_skipped":
+      return `Check-in on its team skipped: ${brief(p.why, 200)}`;
+    case "liaison.work_stopped":
+      return `Stopped by ${str(p.by) ?? "its lead"}: ${brief(p.reason, 200)}`;
+    case "liaison.stop_asked":
+      return `Stopped a task it handed on: ${brief(p.reason, 200)}`;
+    case "liaison.stop_refused":
+      return `Stop refused: ${brief(p.why, 200)}`;
     case "liaison.give_back_failed":
       return `Its answer could not be sent back${why}`;
     case "liaison.replies_delivered": {
