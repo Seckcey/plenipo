@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { decode, encode, fromHex, fromUtf8, hex } from "./bytes";
 import { codeFromHash, mailboxOf, parseCode, pskOf, shownCode } from "./code";
-import { Assembler, Handshake, fixedKeyPair, newKeyPair } from "./noise";
+import { Assembler, Handshake, checkDigits, fixedKeyPair, newKeyPair } from "./noise";
 
 /** The written contract, as the PC's code wrote it (`crates/remote/src/contract.rs`). */
 function contract<T>(name: string): T {
@@ -95,6 +95,7 @@ describe("the lock: the PC's own test answers", () => {
     expect(hex(hs.rs!)).toBe(v.pcStaticPublic);
     expect(hex(await hs.writeMessage(fromHex(m3!.payload)))).toBe(m3!.message);
     expect(hex(hs.handshakeHash)).toBe(v.handshakeHash);
+    expect(checkDigits(hs.handshakeHash)).toBe("222130");
     const line = await hs.open();
     const phoneSays = v.sealed.find((x) => x.from === "phone")!;
     const pieces = await line.seal(fromHex(phoneSays.plain!));
@@ -119,6 +120,17 @@ describe("the lock: the PC's own test answers", () => {
     expect(hex(await hs.readMessage(fromHex(m3!.message)))).toBe(m3!.payload);
     expect(hex(hs.rs!)).toBe(v.phoneStaticPublic);
     expect(hex(hs.handshakeHash)).toBe(v.handshakeHash);
+    expect(checkDigits(hs.handshakeHash)).toBe("222130");
+  });
+
+  it("makes the six digits both screens show, as the PC does (ADR-212)", () => {
+    // The PC's own test (`crates/remote/src/noise.rs`) makes the same from the same hash.
+    expect(checkDigits(fromHex(vectors.pairing.handshakeHash))).toBe("222130");
+    // Always six, with zeros in front when the number is small.
+    const small = new Uint8Array(32);
+    small[3] = 5;
+    expect(checkDigits(small)).toBe("000005");
+    expect(checkDigits(new Uint8Array(32).fill(0xff))).toBe("967295");
   });
 
   it("a wrong code fails the first meeting at its third message", async () => {
