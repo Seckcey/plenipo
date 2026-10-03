@@ -48,6 +48,10 @@ linked organizations and one for collaborators.
       While it is off: every path in contract §10, items of kind `collab_note`, and thanks `for`
       `collaborator` answer `not_open`; and the service makes no `collab_*` notices. `open` answers
       `"collaborators": false`.
+- [ ] **When both people have left a conversation, it is over** (contract §5, from Plenipo's
+      part 24C): when the second side leaves, the conversation is deleted at once, so writing again
+      is a new request (needing `can_start`). Today both sides' next items answer `not_delivered`
+      for good, and neither can ever write to the other again.
 - [ ] **Tests** for each of the above, including: nothing is read or kept while Community is off; an
       old version is refused before its pass is looked at; a closed part refuses its items while
       messages keep working.

@@ -12,6 +12,7 @@ pub mod add_ons;
 pub mod ai_tools;
 pub mod broker;
 pub mod browser;
+pub mod community_http;
 pub mod connections;
 pub mod control;
 pub mod desktop;

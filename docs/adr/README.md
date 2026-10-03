@@ -154,6 +154,7 @@ architecture must be recorded here.
 | [170](ADR-170-community-follows-8-wests-switch.md)        | Community follows 8 West's switch: Coming soon until it opens, no release to turn it on                                | Accepted |
 | [171](ADR-171-switching-on-part-by-part.md)               | Switching Community on part by part: people, then linked organizations, then collaborators                             | Accepted |
 | [172](ADR-172-what-part-24c-changes.md)                   | What part 24C changes: no stickers yet, Delete for me on this PC, email invitations (amends 169)                       | Accepted |
+| [173](ADR-173-leave-deletes-from-this-pc.md)              | Leave this conversation deletes it from this PC (amends 167)                                                           | Accepted |
 | [190](ADR-190-phase-25-starts.md)                         | Phase 25 starts: fixes and a simpler Plenipo before launch, in four waves (amends 132)                                 | Accepted |
 | [191](ADR-191-a-model-you-pick-by-name-is-your-choice.md) | A model you pick by name is your choice: an unknown maker warns instead of refusing (amends 081)                       | Accepted |
 | [192](ADR-192-one-set-of-paid-keys-for-the-pc.md)         | One set of paid AI keys for the whole PC; switches and caps stay each organization's (amends 085, 094)                 | Accepted |

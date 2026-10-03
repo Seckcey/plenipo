@@ -223,6 +223,42 @@ const COMMANDS: &[&str] = &[
     "unpause_device",
     "set_kept_on_pc",
     "set_phone_notices",
+    // Phase 24: Community (Settings → Community, and the switch).
+    "get_community",
+    "set_community_switch",
+    "check_community_again",
+    "cancel_community_sign_in",
+    "join_community",
+    "sign_out_of_community",
+    "open_community_page",
+    "save_community_profile",
+    "set_community_appear_offline",
+    "community_directory",
+    "community_new_this_week",
+    "find_in_community",
+    "community_card",
+    "community_picture",
+    "invite_to_community",
+    "share_my_community_profile",
+    "community_conversations",
+    "community_conversation",
+    "send_community_message",
+    "react_in_community",
+    "accept_community_request",
+    "leave_community_conversation",
+    "delete_community_message",
+    "community_safety_code_checked",
+    "open_community_link",
+    "give_community_message_to_worker",
+    "block_in_community",
+    "unblock_in_community",
+    "community_blocked",
+    "report_in_community",
+    "delete_my_community_data",
+    "community_points",
+    "community_leaderboard",
+    "community_getting_started",
+    "close_community_getting_started",
 ];
 
 fn main() {
@@ -239,6 +275,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=PLENIPO_CONNECTIONS_STAND_IN");
     // The stand-in for 8 West's license check in copies built for the tests (Phase 11A).
     println!("cargo:rerun-if-env-changed=PLENIPO_LICENSE_STAND_IN");
+    println!("cargo:rerun-if-env-changed=PLENIPO_COMMUNITY_STAND_IN");
     let windows_msvc = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
         && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
 

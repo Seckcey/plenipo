@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-community-picture"
+description = "Enables the community_picture command without any pre-configured scope."
+commands.allow = ["community_picture"]
+
+[[permission]]
+identifier = "deny-community-picture"
+description = "Denies the community_picture command without any pre-configured scope."
+commands.deny = ["community_picture"]

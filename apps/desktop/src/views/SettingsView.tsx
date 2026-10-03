@@ -8,6 +8,8 @@ import { ServerSettings } from "../components/servers/ServerSettings";
 import { SwitchSettings } from "../components/SwitchSettings";
 import { TitlesSetting } from "../components/TitlesSetting";
 import type { Go } from "../components/views";
+import { CommunitySettings } from "../community/CommunitySettings";
+import { CommunitySwitch } from "../community/CommunitySwitch";
 import { LearningSwitch } from "../learning/Lessons";
 import { LicenseSettings } from "../license/LicenseSettings";
 import { useLearning } from "../learning/useLearning";
@@ -117,9 +119,11 @@ export function SettingsView({
             <SwitchSettings
               learning={<LearningSwitch learning={learning} />}
               phone={<PhoneSwitch />}
+              community={<CommunitySwitch />}
             />
           )}
           {current === "devices" && <DevicesSettings go={go} />}
+          {current === "community" && <CommunitySettings go={go} />}
           {current === "notifications" && <NotificationSettings />}
           {current === "terminal" && <TerminalSettings />}
           {current === "startAndClose" && <StartAndCloseSettings />}

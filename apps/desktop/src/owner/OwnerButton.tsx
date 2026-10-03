@@ -15,9 +15,10 @@ import type {
   OwnerStatus,
   PictureChange,
 } from "@plenipo/types";
-import { Button } from "@plenipo/ui";
+import { Button, Checkbox } from "@plenipo/ui";
 
-import { toCommandError } from "../api/commands";
+import { setCommunityAppearOffline, toCommandError } from "../api/commands";
+import { useCommunity } from "../community/useCommunity";
 import { useOwnerProfile } from "./context";
 import { OwnerFace, OwnerLight } from "./OwnerFace";
 import { CANNOT_READ, PICTURE_ACCEPT, PictureError, shrinkToPng } from "./picture";
@@ -127,6 +128,44 @@ export function OwnerButton() {
           onPending={setSaving}
           onClose={close}
         />
+      )}
+    </div>
+  );
+}
+
+/**
+ * **Appear offline in Community** (ADR-163 §5), beside your status: only when you are signed in to
+ * Community and a member, and nothing while that is read or if it cannot be. It changes at once,
+ * not with the panel's Save, and says in plain words when it could not.
+ */
+function AppearOfflineBox() {
+  const { view, show } = useCommunity();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const member = view?.stage === "signedIn" ? view.member : null;
+  if (!member) return null;
+  const change = (offline: boolean) => {
+    setBusy(true);
+    setProblem(null);
+    setCommunityAppearOffline(offline)
+      .then(show)
+      .catch((reason: unknown) =>
+        setProblem(`Couldn't change Appear offline: ${toCommandError(reason).message}`),
+      )
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div className="owner-panel__group">
+      <Checkbox
+        label="Appear offline in Community"
+        checked={member.appearOffline}
+        disabled={busy}
+        onChange={change}
+      />
+      {problem && (
+        <p className="form-error" role="alert">
+          {problem}
+        </p>
       )}
     </div>
   );
@@ -360,6 +399,8 @@ function OwnerPanel({
             </p>
           )}
         </fieldset>
+
+        <AppearOfflineBox />
 
         <fieldset className="owner-panel__group">
           <legend>Mood</legend>

@@ -13,6 +13,7 @@ import { AgentsProvider } from "../agents/AgentsProvider";
 import { RuntimeProvider } from "../runtime/RuntimeProvider";
 import { runtime } from "../test/agentFixtures";
 import { aiPage, aiTool } from "../test/aiToolFixtures";
+import { communityView } from "../test/communityFixtures";
 import { emptyOrganization, sampleOrganization } from "../test/orgFixtures";
 import { sampleRouting } from "../test/routingFixtures";
 import { a11yProblems } from "../test/a11y";
@@ -53,6 +54,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     setAiToolsAutoUpdate: vi.fn(),
     getOrganizations: vi.fn(),
     getRemote: vi.fn(),
+    getCommunity: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -62,6 +64,7 @@ vi.mock("../api/events", () => ({
   subscribeAgentUpdates: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeOrganizations: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeRemote: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeCommunity: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 const api = vi.mocked(commands);
@@ -181,6 +184,8 @@ beforeEach(() => {
       phoneNotices: true,
     },
   });
+  // Community (Phase 24): off, and nothing about anyone.
+  api.getCommunity.mockResolvedValue(communityView());
   api.getLocalPaths.mockResolvedValue([
     {
       label: "Everything that happened (the Ledger)",
@@ -210,6 +215,7 @@ describe("Settings in one place", () => {
       "Connections",
       "Switches",
       "Devices",
+      "Community",
       "Notifications",
       "Terminal",
       "Start and close",

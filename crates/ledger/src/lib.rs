@@ -7,6 +7,7 @@
 
 mod activity;
 pub mod backups;
+pub mod community;
 pub mod dto;
 pub mod error;
 mod events;

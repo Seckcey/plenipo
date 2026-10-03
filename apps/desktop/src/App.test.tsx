@@ -13,6 +13,7 @@ import { App } from "./App";
 import * as commands from "./api/commands";
 import * as events from "./api/events";
 import { runtime } from "./test/agentFixtures";
+import { communityView } from "./test/communityFixtures";
 import { emptyOrganization, sampleOrganization } from "./test/orgFixtures";
 import { samplePermissions, sampleQueue } from "./test/permissionFixtures";
 import { sampleWork } from "./test/projectFixtures";
@@ -66,6 +67,8 @@ vi.mock("./api/commands", async (importOriginal) => {
     windowAlive: vi.fn(),
     getUpdateStatus: vi.fn(),
     getOwnerProfile: vi.fn(),
+    getCommunity: vi.fn(),
+    communityConversations: vi.fn(),
     getAiTools: vi.fn(),
   };
 });
@@ -81,6 +84,8 @@ vi.mock("./api/events", () => ({
   subscribeDrops: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeOrganizations: vi.fn(() => Promise.resolve(() => undefined)),
   subscribeWatch: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeCommunity: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeCommunityMessages: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 const api = vi.mocked(commands);
@@ -192,6 +197,8 @@ beforeEach(() => {
     words: SYSTEM_WORDS.windows,
   });
   api.frontendReady.mockResolvedValue(undefined);
+  api.getCommunity.mockResolvedValue(communityView());
+  api.communityConversations.mockResolvedValue([]);
   api.getAiTools.mockResolvedValue({
     tools: [],
     autoUpdate: false,
@@ -252,6 +259,45 @@ describe("App shell", () => {
     }
     expect(await screen.findByLabelText("Application version")).toHaveTextContent("v0.1.0");
     await waitFor(() => expect(api.frontendReady).toHaveBeenCalledTimes(1));
+  });
+
+  it("has no Community on the strip until Community's switch is on", async () => {
+    render(<App />);
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    await waitFor(() => expect(api.getCommunity).toHaveBeenCalled());
+    // Let the answer (Community is off) reach the strip before looking for what is not there.
+    await act(() => Promise.resolve());
+    expect(within(nav).queryByRole("button", { name: /Community/ })).not.toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: /Activity/ })).toBeInTheDocument();
+  });
+
+  it("puts Community on the strip while its switch is on, and opens it", async () => {
+    api.getCommunity.mockResolvedValue(
+      communityView({
+        stage: "signedIn",
+        switchedOn: true,
+        accountName: "Frank Gonzalez",
+        member: {
+          name: "pat-lee",
+          adult: true,
+          canStart: false,
+          standing: "ok",
+          pausedUntil: null,
+          appearOffline: false,
+          hiddenParts: [],
+        },
+      }),
+    );
+    render(<App />);
+    const user = userEvent.setup();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    await user.click(await within(nav).findByRole("button", { name: "Community" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Community" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Find someone" })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "Community" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("shows your picture and status in the top bar (ADR-056)", async () => {

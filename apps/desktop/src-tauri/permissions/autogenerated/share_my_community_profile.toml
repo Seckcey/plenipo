@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-share-my-community-profile"
+description = "Enables the share_my_community_profile command without any pre-configured scope."
+commands.allow = ["share_my_community_profile"]
+
+[[permission]]
+identifier = "deny-share-my-community-profile"
+description = "Denies the share_my_community_profile command without any pre-configured scope."
+commands.deny = ["share_my_community_profile"]
