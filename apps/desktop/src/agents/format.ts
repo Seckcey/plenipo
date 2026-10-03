@@ -234,5 +234,9 @@ export function describeActivity(e: AgentEvent): {
       return { label: "Usage", text: describeUsage(e.usage) };
     case "memoryShortened":
       return { label: "Memory", text: e.detail };
+    case "plan": {
+      const done = e.steps.filter((s) => s.status === "done").length;
+      return { label: "Plan", text: `${done} of ${e.steps.length} steps done` };
+    }
   }
 }

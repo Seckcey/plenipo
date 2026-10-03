@@ -496,6 +496,74 @@ pub enum AgentEvent {
     MemoryShortened {
         detail: String,
     },
+    /// The worker's plan, all of it each time (Phase 25, item 3.1): Grok's and Kimi's plans,
+    /// Codex's to-do list, Claude Code's to-dos. The screen shows "step 3 of 7" from it. Live
+    /// view only.
+    Plan {
+        steps: Vec<PlanStep>,
+    },
+}
+
+/// One step of a worker's plan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PlanStep {
+    pub text: String,
+    pub status: PlanStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum PlanStatus {
+    Pending,
+    InProgress,
+    Done,
+}
+
+impl PlanStatus {
+    /// From the words the AI tools use: "completed", "in_progress", "pending", and the like.
+    pub fn from_words(status: &str) -> Self {
+        match status {
+            "completed" | "done" | "complete" => Self::Done,
+            "in_progress" | "inProgress" | "active" | "running" => Self::InProgress,
+            _ => Self::Pending,
+        }
+    }
+}
+
+/// A plan's steps from a list of objects: `text_keys` name where each step's words are, and
+/// its status is read from `status`, or a `completed: true` flag. At most 50 steps.
+pub fn plan_steps(items: &serde_json::Value, text_keys: &[&str]) -> Vec<PlanStep> {
+    items
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let text = text_keys
+                .iter()
+                .find_map(|k| item.get(*k).and_then(serde_json::Value::as_str))?
+                .trim();
+            if text.is_empty() {
+                return None;
+            }
+            let status = match item.get("status").and_then(serde_json::Value::as_str) {
+                Some(s) => PlanStatus::from_words(s),
+                None if item.get("completed").and_then(serde_json::Value::as_bool)
+                    == Some(true) =>
+                {
+                    PlanStatus::Done
+                }
+                None => PlanStatus::Pending,
+            };
+            Some(PlanStep {
+                text: crate::agent::adapter::first_line(text, 200),
+                status,
+            })
+        })
+        .take(50)
+        .collect()
 }
 
 impl AgentEvent {
@@ -508,7 +576,10 @@ impl AgentEvent {
             Self::ToolResult { .. } => Some("agent.tool_result"),
             Self::Notice { .. } => Some("agent.notice"),
             Self::MemoryShortened { .. } => Some("agent.memory_shortened"),
-            Self::TextDelta { .. } | Self::Reasoning { .. } | Self::Usage { .. } => None,
+            Self::TextDelta { .. }
+            | Self::Reasoning { .. }
+            | Self::Usage { .. }
+            | Self::Plan { .. } => None,
         }
     }
 }

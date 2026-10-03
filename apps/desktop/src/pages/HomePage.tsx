@@ -31,6 +31,7 @@ import { ago } from "../org/format";
 import { rankName, titlesOf } from "../org/titles";
 import { useOrganization } from "../org/useOrganization";
 import { useNow } from "../runtime/useNow";
+import { useOpenWatch } from "../terminal/useTerminal";
 import { approvalRows, workingRows } from "./rows";
 import { changesWork, useLive } from "./useLive";
 import {
@@ -119,6 +120,7 @@ export function HomePage({
   const now = useNow(30_000);
   const home = useLive<HomeView>("home", getHome, changesWork, 800);
   const organization = useOrganization();
+  const openWatch = useOpenWatch();
   const org = organization.snapshot;
   const departments = useMemo(() => org?.departments.filter((d) => d.active) ?? [], [org]);
   const scopes = useMemo(
@@ -136,6 +138,7 @@ export function HomePage({
         org,
         go,
         org.positions.filter((p) => p.active),
+        openWatch,
       )
     : [];
   const finishedDay = home.value?.finishedDay ?? 0;

@@ -522,6 +522,18 @@ impl Parser {
                         text.push_str(t);
                     }
                 }
+                // Claude Code's to-dos are its plan (Phase 25, item 3.1).
+                Some("tool_use")
+                    if block.get("name").and_then(Value::as_str) == Some("TodoWrite") =>
+                {
+                    let steps = super::dto::plan_steps(
+                        block.pointer("/input/todos").unwrap_or(&Value::Null),
+                        &["content", "activeForm"],
+                    );
+                    if !steps.is_empty() {
+                        parsed.events.push(AgentEvent::Plan { steps });
+                    }
+                }
                 Some("tool_use") => parsed.events.push(AgentEvent::ToolUse {
                     tool: cap(
                         block.get("name").and_then(Value::as_str).unwrap_or("tool"),
@@ -913,6 +925,33 @@ mod tests {
             ..ProbeOutput::default()
         });
         assert_eq!(s.state, AuthState::Unknown);
+    }
+
+    /// Phase 25, item 3.1: Claude Code's to-dos become its plan, not a step of their own.
+    #[test]
+    fn its_to_dos_are_its_plan() {
+        use super::super::dto::{PlanStatus, PlanStep};
+        let mut p = ClaudeCode.parser(&new_request());
+        let events = feed(
+            p.as_mut(),
+            &[
+                json!({"type":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"content":"Read the code","status":"completed","activeForm":"Reading the code"},{"content":"Run the tests","status":"in_progress","activeForm":"Running the tests"},{"content":"Write it up","status":"pending","activeForm":"Writing it up"}]}}]}}),
+            ],
+        );
+        let step = |text: &str, status| PlanStep {
+            text: text.into(),
+            status,
+        };
+        assert_eq!(
+            events,
+            [AgentEvent::Plan {
+                steps: vec![
+                    step("Read the code", PlanStatus::Done),
+                    step("Run the tests", PlanStatus::InProgress),
+                    step("Write it up", PlanStatus::Pending),
+                ]
+            }]
+        );
     }
 
     #[test]

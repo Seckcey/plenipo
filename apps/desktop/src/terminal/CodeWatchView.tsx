@@ -2,6 +2,7 @@ import { Fragment, useContext, useEffect, useRef, useState, type ReactNode } fro
 import type { WatchChange, WatchFileView, WatchLine } from "@plenipo/types";
 import { Banner, Button, EmptyState, Segmented, StatusDot, cx } from "@plenipo/ui";
 
+import { LiveForTasks } from "../live/LiveForTasks";
 import { AgentsContext } from "../agents/context";
 import { isRunning, isWaiting } from "../agents/store";
 import { cancelAgentTurn, getWatch, getWatchChange, toCommandError } from "../api/commands";
@@ -265,6 +266,10 @@ export function CodeWatchView({
                 "Changes show here as the worker, or the team it hands work to, makes them. Watch shows the files they write with Plenipo's file tools; changes made by commands they run aren't shown yet."}
             </EmptyState>
           )}
+          {/* What it says and does, live, even before a file changes (Phase 25, item 3.1). */}
+          <div className="code-watch__live">
+            <LiveForTasks taskIds={watch.teamTasks} preferred={null} who={tab.title} />
+          </div>
         </div>
       ) : (
         <div className="code-watch__main">
@@ -308,6 +313,16 @@ export function CodeWatchView({
               task={labels.get(shown.taskId)}
             />
           )}
+          {/* Next to the file changes: what it says and does, live (Phase 25, item 3.1). */}
+          <aside className="code-watch__live" aria-label="Live conversation">
+            <LiveForTasks
+              taskIds={watch.teamTasks}
+              preferred={
+                shown ? { taskId: shown.taskId, sessionId: shown.sessionId ?? null } : null
+              }
+              who={tab.title}
+            />
+          </aside>
         </div>
       )}
     </div>

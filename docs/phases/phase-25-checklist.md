@@ -9,7 +9,9 @@ Source: the owner's two lists of 2026-10-03, and
 [ADR-190 (Phase 25 starts: fixes and a simpler Plenipo before launch)](../adr/ADR-190-phase-25-starts.md).
 
 **Numbers:** ADR-190 to ADR-199. Phase 24 is already using numbers in the 170s, so Phase 25
-starts at 190 to keep clear of it. Dates are Pacific time. Screen words follow
+starts at 190 to keep clear of it. Waves 1 and 2 and the first Wave 3 items used the whole block (ADR-199 is Stop all work), so
+any later Phase 25 decision continues at ADR-200 (no other phase uses the 200s). Dates are Pacific
+time. Screen words follow
 [`docs/design/vocabulary.md`](../design/vocabulary.md).
 
 **Goal:** "Plenipo works the first time, is simple to set up, lets you see and steer every worker,
@@ -539,20 +541,27 @@ About 5 to 7 build sessions.
   tile, Inspector) shows just "Working". Codex sends whole messages only, no live text. Tool use is
   shown late, and plans ("step 3 of 7") are thrown away.
 - **Do:**
-  - [ ] One **Live conversation** part, chat-style:
-    - the worker's words appear as it types them
-    - its steps in plain words: "Reading index.ts", "Writing app.tsx", "Running `npm test`",
-      "Asked the Code Reviewer…"
-    - a progress line: step 3 of 7, 4 minutes, 12 steps, tokens so far
-  - [ ] Put it in the Watch tab (next to the file changes), the Task page, the Worker page, the
-        Inspector (last 3 lines), and a one-line "now: Running npm test" on canvas tiles.
-  - [ ] From 1.8: the Watch button on the Task page, Home's "Who's working" rows, List mode, and
-        the worker popup.
-  - [ ] Read plans and progress from every AI tool that sends them: Grok and Kimi plans, Codex's
-        to-do list, and Claude Code's tool calls as soon as they start.
+  - [x] One **Live conversation** part, chat-style (`apps/desktop/src/live/`):
+    - the worker's words appear as it types them (a caret while it types)
+    - its steps in plain words: "Reading index.ts", "Changing app.tsx", "Running `npm test`",
+      "Searching the web for …", and a failed step as "That didn't work: …"
+    - a progress line: step 3 of 7, 4 min, 12 steps, tokens so far
+  - [x] Put it in the Watch tab (beside the file changes, and under "No file changes yet"), the
+        Task page, the Worker page, the details panel (last 3 lines), and a one-line "now: Running
+        `npm test`" on canvas tiles (in place of the rank line while it works).
+  - [x] From 1.8: the Watch button on the Task page, Home's "Who's working" rows, and List mode
+        (beside Stop). The details panel ("the worker popup") already had it.
+  - [x] Read plans and progress from every AI tool that sends them: Grok's and Kimi's plans,
+        Codex's to-do list (as it starts, each step ticked, and at the end), and Claude Code's
+        to-dos. A new "plan" event, live only.
+  - [ ] Claude Code's tool calls as soon as they start: **not yet.** A step shows when its call
+        is complete (as before); a file it writes already shows in Watch as it is written.
   - [ ] Codex live text needs its other connection method (app-server). That's a stretch goal,
-        built last.
-- **Tests:** the store joins live text correctly. Each tool's plan becomes progress.
+        built last. **Not yet:** Codex's words show as each message is complete.
+- **Tests:** the store joins live text correctly (`agents/store.test.ts`, as before). Each tool's
+  plan becomes progress: Rust `its_to_do_list_is_its_plan` (Codex), `its_to_dos_are_its_plan`
+  (Claude Code), `the_plan_is_passed_on` (Grok and Kimi); `live/live.test.tsx` (plain-word steps,
+  the progress line, the last 3 lines, a tile's one line).
 
 ### 3.2 Watch shows changes made by commands too — M–L
 

@@ -528,6 +528,20 @@ fn item_type(item: &Value) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
+/// Codex's to-do list is its plan (Phase 25, item 3.1): when it starts, each time a step is
+/// ticked, and when it ends.
+fn todo_plan(item: &Value) -> Parsed {
+    let steps = super::dto::plan_steps(
+        item.get("items").unwrap_or(&Value::Null),
+        &["text", "content"],
+    );
+    if steps.is_empty() {
+        Parsed::none()
+    } else {
+        Parsed::one(AgentEvent::Plan { steps })
+    }
+}
+
 fn str_of<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or("")
 }
@@ -591,6 +605,7 @@ impl Parser {
                 ),
                 summary: tool_summary(item.get("arguments").unwrap_or(&Value::Null)),
             }),
+            Some("todo_list") => todo_plan(item),
             _ => Parsed::none(),
         }
     }
@@ -642,16 +657,7 @@ impl Parser {
                 tool: "web search".into(),
                 summary: first_line(str_of(item, "query"), MAX_SUMMARY),
             }),
-            Some("todo_list") => {
-                let n = item
-                    .get("items")
-                    .and_then(Value::as_array)
-                    .map_or(0, Vec::len);
-                Parsed::one(AgentEvent::Notice {
-                    level: NoticeLevel::Info,
-                    text: format!("Codex updated its plan ({n} steps)"),
-                })
-            }
+            Some("todo_list") => todo_plan(item),
             Some("error") => {
                 let message = cap(&readable(str_of(item, "message")), MAX_EVENT_TEXT);
                 self.state.last_warning = Some(message.clone());
@@ -672,7 +678,15 @@ impl TurnParser for Parser {
         };
         let parsed = match v.get("type").and_then(Value::as_str) {
             Some("thread.started") => self.thread_started(&v),
-            Some("turn.started") | Some("item.updated") => Parsed::none(),
+            Some("turn.started") => Parsed::none(),
+            Some("item.updated") => {
+                let item = v.get("item").unwrap_or(&Value::Null);
+                if item_type(item) == Some("todo_list") {
+                    todo_plan(item)
+                } else {
+                    Parsed::none()
+                }
+            }
             Some("item.started") => Self::item_started(v.get("item").unwrap_or(&Value::Null)),
             Some("item.completed") => self.item_completed(v.get("item").unwrap_or(&Value::Null)),
             Some("turn.completed") => {
@@ -971,6 +985,50 @@ mod tests {
                 tool: "plenipo/run_command".into(),
                 summary: "git --version".into()
             }]
+        );
+    }
+
+    /// Phase 25, item 3.1: Codex's to-do list becomes its plan as it starts, as steps are ticked,
+    /// and when it ends.
+    #[test]
+    fn its_to_do_list_is_its_plan() {
+        use super::super::dto::{PlanStatus, PlanStep};
+        let mut p = Codex.parser(&new_request());
+        let step = |text: &str, status| PlanStep {
+            text: text.into(),
+            status,
+        };
+        let events = feed(
+            p.as_mut(),
+            &[
+                json!({"type":"item.started","item":{"id":"t1","type":"todo_list","items":[{"text":"Read the code","completed":false},{"text":"Fix the bug","completed":false}]}}),
+                json!({"type":"item.updated","item":{"id":"t1","type":"todo_list","items":[{"text":"Read the code","completed":true},{"text":"Fix the bug","completed":false}]}}),
+                json!({"type":"item.updated","item":{"id":"c1","type":"command_execution","command":"ls"}}),
+                json!({"type":"item.completed","item":{"id":"t1","type":"todo_list","items":[{"text":"Read the code","completed":true},{"text":"Fix the bug","completed":true}]}}),
+            ],
+        );
+        assert_eq!(
+            events,
+            [
+                AgentEvent::Plan {
+                    steps: vec![
+                        step("Read the code", PlanStatus::Pending),
+                        step("Fix the bug", PlanStatus::Pending)
+                    ]
+                },
+                AgentEvent::Plan {
+                    steps: vec![
+                        step("Read the code", PlanStatus::Done),
+                        step("Fix the bug", PlanStatus::Pending)
+                    ]
+                },
+                AgentEvent::Plan {
+                    steps: vec![
+                        step("Read the code", PlanStatus::Done),
+                        step("Fix the bug", PlanStatus::Done)
+                    ]
+                },
+            ]
         );
     }
 

@@ -57,6 +57,8 @@ export type { HoldFor } from "./generated/HoldFor";
 export type { ReportedModels } from "./generated/ReportedModels";
 export type { PlanWindow } from "./generated/PlanWindow";
 export type { PlanReport } from "./generated/PlanReport";
+export type { PlanStatus } from "./generated/PlanStatus";
+export type { PlanStep } from "./generated/PlanStep";
 export type { PlanUpdate } from "./generated/PlanUpdate";
 export type { AiToolsPage } from "./generated/AiToolsPage";
 export type { AiToolState } from "./generated/AiToolState";

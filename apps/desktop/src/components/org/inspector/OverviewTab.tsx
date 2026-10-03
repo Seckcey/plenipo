@@ -14,6 +14,8 @@ import { useObjectiveFiles } from "../../../files/useObjectiveFiles";
 import { EFFORT_LABEL } from "../../../routing/format";
 import { useOpenWatch } from "../../../terminal/useTerminal";
 import { PILL_TONE } from "../../tones";
+import { LiveConversation } from "../../../live/LiveConversation";
+import { liveWork } from "../../../live/words";
 import { StopButton } from "../../stop/StopWork";
 import { workToStop } from "../../stop/stopWork";
 import { Glyph } from "../Glyph";
@@ -72,6 +74,7 @@ export function OverviewTab({
   const t = titlesOf(snapshot);
   const sessionId = p.agent?.sessionId ?? null;
   const stopWork = workToStop(p);
+  const liveNow = liveWork(p)[0] ?? null;
   const stopHint = useId();
   // Watch (Phase 18, ADR-055): what its workers change, in the terminal panel. Hidden where
   // there is no terminal panel, and for an archived or vacant position.
@@ -112,6 +115,18 @@ export function OverviewTab({
           )}
         </div>
       </div>
+
+      {/* The last 3 lines of what it says and does, live (Phase 25, item 3.1). */}
+      {liveNow && (
+        <LiveConversation
+          taskId={liveNow.taskId}
+          sessionId={liveNow.sessionId}
+          startedAt={liveNow.startedAt}
+          running
+          who={p.title}
+          lines={3}
+        />
+      )}
 
       {!p.active ? (
         <p className="muted">

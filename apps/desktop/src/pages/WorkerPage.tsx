@@ -19,6 +19,8 @@ import {
   type Status,
 } from "@plenipo/ui";
 
+import { LiveConversation } from "../live/LiveConversation";
+import { liveWork } from "../live/words";
 import { StopButton } from "../components/stop/StopWork";
 import { workToStop } from "../components/stop/stopWork";
 import { getAgentSession, getPermissions, getScopeEvents, getWork } from "../api/commands";
@@ -164,6 +166,7 @@ export function WorkerPage({
   const team = work.value?.team ?? [];
   const turns = [...(session.value?.turns ?? [])].sort((a, b) => b.number - a.number).slice(0, 6);
   const route = p.route;
+  const live = liveWork(p);
 
   return (
     <div className="page">
@@ -212,6 +215,23 @@ export function WorkerPage({
       />
 
       <div className="page__grid">
+        {/* What it says and does now, live (Phase 25, item 3.1). */}
+        {live.length > 0 && (
+          <Panel id="worker-live" title="Live conversation" wide>
+            {live.map((w) => (
+              <div key={w.taskId} className="worker-live">
+                {live.length > 1 && <h3 className="worker-live__task">{w.objective}</h3>}
+                <LiveConversation
+                  taskId={w.taskId}
+                  sessionId={w.sessionId}
+                  startedAt={w.startedAt}
+                  running
+                  who={p.title}
+                />
+              </div>
+            ))}
+          </Panel>
+        )}
         <Panel id="worker-about" title="About">
           <PropertyList
             items={[

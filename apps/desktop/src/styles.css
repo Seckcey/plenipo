@@ -677,6 +677,26 @@ body.popout {
   flex-direction: column;
 }
 
+/* The live conversation beside the file changes (Phase 25, item 3.1). */
+.code-watch__live {
+  flex: 0 0 300px;
+  min-height: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-left: 1px solid var(--ui-border);
+}
+
+.code-watch__live:empty {
+  display: none;
+}
+
+.terminal-panel--right .code-watch__live,
+.code-watch__empty .code-watch__live {
+  flex: none;
+  border-top: 1px solid var(--ui-border);
+  border-left: 0;
+}
+
 .code-watch__files {
   flex: 0 0 260px;
   min-height: 0;
@@ -6572,4 +6592,120 @@ body.popout {
   .message {
     max-width: 100%;
   }
+}
+
+/* The live conversation (Phase 25, item 3.1): a worker's words as it types, its steps in plain
+   words, and how far along it is. */
+.live {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.live__progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+}
+
+.live__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ui-ok);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.live__lines {
+  display: grid;
+  gap: 4px;
+  max-height: 360px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.live--short .live__lines {
+  max-height: none;
+  overflow: hidden;
+}
+
+.live__line {
+  min-width: 0;
+  font-size: var(--ui-font-sm);
+  overflow-wrap: anywhere;
+}
+
+.live__line--step,
+.live__line--note {
+  color: var(--ui-text-secondary);
+}
+
+.live__line--step::before {
+  content: "› ";
+  color: var(--ui-accent);
+}
+
+.live__line--problem {
+  color: var(--ui-warn-text);
+}
+
+.live__words {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--ui-radius-md);
+  background: var(--ui-surface-raised);
+  white-space: pre-wrap;
+}
+
+.live--short .live__words {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.live__caret {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--ui-accent);
+  animation: live-pulse 1s steps(2) infinite;
+}
+
+.live__empty {
+  margin: 0;
+  font-size: var(--ui-font-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live__dot,
+  .live__caret {
+    animation: none;
+  }
+}
+
+/* A tile's "now: …" line while it works (Phase 25, item 3.1). */
+.topo-node__now {
+  color: var(--ui-ok-text);
+}
+
+/* Watch and Stop in a table row (Phase 25, items 3.1 and 3.3). */
+.table__actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
 }

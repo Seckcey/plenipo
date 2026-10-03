@@ -2,6 +2,11 @@ import { useState } from "react";
 import type { OrgSnapshot, PositionStatus, SavedAgentInfo } from "@plenipo/types";
 import { Button, StatusPill, Tabs } from "@plenipo/ui";
 
+import { liveWork } from "../../live/words";
+import { useOpenWatch } from "../../terminal/useTerminal";
+import { StopButton } from "../stop/StopWork";
+import { workToStop } from "../stop/stopWork";
+import { WatchButton } from "../stop/WatchButton";
 import type { ArchivedKind } from "../../api/commands";
 import { POSITION_STATUS } from "../../org/cards";
 import {
@@ -51,6 +56,7 @@ export function Directory({
   actions: DirectoryActions;
 }) {
   const [tab, setTab] = useState<Tab>("positions");
+  const openWatch = useOpenWatch();
   const [department, setDepartment] = useState("");
   const [status, setStatus] = useState<PositionStatus | "">("");
   const byId = positionMap(snapshot);
@@ -168,6 +174,17 @@ export function Directory({
                       {p.staffing === "onDemand"
                         ? `${p.workers.length} live`
                         : `${p.counts.working + p.counts.waiting} open · ${p.counts.queued} queued`}
+                      {/* Watch and Stop while it works (Phase 25, items 3.1 and 3.3). */}
+                      {liveWork(p).length > 0 && (
+                        <span className="table__actions">
+                          {openWatch && <WatchButton p={p} watch={openWatch} />}
+                          <StopButton
+                            who={p.title}
+                            work={workToStop(p)}
+                            fullTime={p.staffing === "persistent"}
+                          />
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

@@ -818,9 +818,18 @@ impl AcpTurn {
                     return self.mode_reported(&mode).unwrap_or_default();
                 }
             }
+            // Grok's and Kimi's plan, all of it each time (Phase 25, item 3.1).
+            "plan" => {
+                let steps = super::dto::plan_steps(
+                    update.get("entries").unwrap_or(&Value::Null),
+                    &["content"],
+                );
+                if !steps.is_empty() {
+                    parsed.events.push(AgentEvent::Plan { steps });
+                }
+            }
             "agent_thought_chunk"
             | "user_message_chunk"
-            | "plan"
             | "available_commands_update"
             | "session_info_update" => {}
             _ => self.state.unknown += 1,
@@ -1451,6 +1460,41 @@ mod tests {
         assert_eq!(r.model.as_deref(), Some("grok-4.6"));
         assert_eq!(r.usage, Some(usage));
         assert_eq!(r.ignored_lines, 0);
+    }
+
+    /// Phase 25, item 3.1: Grok's and Kimi's plan becomes the worker's plan.
+    #[test]
+    fn the_plan_is_passed_on() {
+        use super::super::dto::{PlanStatus, PlanStep};
+        let mut t = prompting(false);
+        let p = t.line(
+            &notify(json!({ "sessionUpdate": "plan", "entries": [
+                { "content": "Look at the page", "priority": "high", "status": "completed" },
+                { "content": "Change the title", "priority": "medium", "status": "in_progress" },
+                { "content": "", "priority": "low", "status": "pending" },
+            ]})),
+            false,
+        );
+        assert_eq!(
+            p.events,
+            [AgentEvent::Plan {
+                steps: vec![
+                    PlanStep {
+                        text: "Look at the page".into(),
+                        status: PlanStatus::Done
+                    },
+                    PlanStep {
+                        text: "Change the title".into(),
+                        status: PlanStatus::InProgress
+                    },
+                ]
+            }]
+        );
+        assert_eq!(
+            t.finish(&end(ExecutionState::Succeeded, Some(0)))
+                .ignored_lines,
+            0
+        );
     }
 
     #[test]
