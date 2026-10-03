@@ -265,7 +265,41 @@ pub trait Desktop: Send + Sync + 'static {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemDesktop;
 
+/// What a worker is told on a Linux desktop that runs Wayland (ADR-154, Wave 2): Plenipo sees
+/// and uses only X11 so far, and never sends a picture of part of the screen.
+pub const WAYLAND_NOT_YET: &str = "Computer use doesn't work on this desktop yet: it runs \
+    Wayland, which Plenipo supports in a later version. On Ubuntu 22.04 and 24.04, choose \
+    \"Ubuntu on Xorg\" with the gear button when you sign in, and it works.";
+
+/// Refuse under Wayland (Linux); fine everywhere else.
+fn not_on_wayland() -> Result<(), String> {
+    let wayland = cfg!(target_os = "linux")
+        && runs_wayland(
+            std::env::var_os("XDG_SESSION_TYPE"),
+            std::env::var_os("WAYLAND_DISPLAY"),
+        );
+    if wayland {
+        Err(WAYLAND_NOT_YET.into())
+    } else {
+        Ok(())
+    }
+}
+
+/// Whether the desktop session is Wayland: as the session says, or, when it does not say, when
+/// it has a Wayland display.
+fn runs_wayland(
+    session: Option<std::ffi::OsString>,
+    wayland_display: Option<std::ffi::OsString>,
+) -> bool {
+    match session.as_ref().and_then(|s| s.to_str()) {
+        Some("x11") => false,
+        Some("wayland") => true,
+        _ => wayland_display.is_some_and(|d| !d.is_empty()),
+    }
+}
+
 fn enigo() -> Result<enigo::Enigo, String> {
+    not_on_wayland()?;
     enigo::Enigo::new(&enigo::Settings::default())
         .map_err(|e| format!("the mouse and keyboard cannot be used: {e}"))
 }
@@ -318,6 +352,7 @@ impl Desktop for SystemDesktop {
     }
 
     fn capture(&self) -> Result<Frame, String> {
+        not_on_wayland()?;
         capture::main_screen()
     }
 
@@ -728,5 +763,22 @@ mod tests {
         );
         let f = d.capture().unwrap();
         assert_eq!(f.rgba.len(), (f.width * f.height * 4) as usize);
+    }
+
+    /// ADR-154: under Wayland computer use is refused, plainly; X11 is used.
+    #[test]
+    fn computer_use_waits_for_x11_under_wayland() {
+        let os = |s: &str| Some(std::ffi::OsString::from(s));
+        assert!(runs_wayland(os("wayland"), None));
+        assert!(runs_wayland(os("wayland"), os("wayland-0")));
+        assert!(
+            !runs_wayland(os("x11"), os("wayland-0")),
+            "the session says X11"
+        );
+        assert!(runs_wayland(None, os("wayland-0")));
+        assert!(!runs_wayland(None, None));
+        assert!(!runs_wayland(None, os("")));
+        assert!(!runs_wayland(os("tty"), None));
+        assert!(WAYLAND_NOT_YET.contains("Ubuntu on Xorg"));
     }
 }

@@ -4,12 +4,15 @@
 //! Installing goes in order and stops at the first problem, leaving this version installed:
 //! download and check the installer ([`plenipo_capabilities::updates`]), back up the Ledger,
 //! stop the work the normal way, start the installer ("progress bar only", as an update, and
-//! reopen Plenipo after), and quit.
+//! reopen Plenipo after), and quit. On Linux an AppImage puts the new version in place of itself
+//! and opens it; a copy the system's installer put there (a `.deb`) is updated by hand (Phase 23,
+//! ADR-152).
 //!
 //! Where updates come from, and the updater key's public half, are built into each copy by the
 //! Release workflow (`PLENIPO_UPDATE_ENDPOINT`, `PLENIPO_UPDATER_PUBLIC_KEY` at build time).
 //! They are never read from a setting or from the environment at run time.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -17,7 +20,7 @@ use std::time::Duration;
 use plenipo_capabilities::updates::{
     self, Release, UpdateSource, RELEASES_ENDPOINT, RELEASES_PAGE,
 };
-use plenipo_core::{AvailableUpdate, UpdateState, UpdateStatus};
+use plenipo_core::{AvailableUpdate, InstallWay, UpdateState, UpdateStatus};
 use plenipo_guard::Guard;
 use plenipo_ledger::{BackupKind, Ledger, NewEvent};
 use serde_json::json;
@@ -51,6 +54,60 @@ pub fn built_source() -> UpdateSource {
 /// (`/UPDATE`: no "uninstall first" question, shortcuts kept), and reopen Plenipo after (`/R`).
 pub const INSTALLER_ARGS: [&str; 3] = ["/P", "/UPDATE", "/R"];
 
+/// The switch an AppImage's new version starts with: wait until the version it replaced has
+/// closed, so that one Plenipo at a time holds (Phase 23).
+pub const WAIT_FOR: &str = "--plenipo-wait-for=";
+/// The longest the new version waits for the old one.
+const WAIT_AT_MOST: Duration = Duration::from_secs(60);
+
+/// How this copy takes a new version: Windows' installer; on Linux, an AppImage replaces itself
+/// (the AppImage's starter says where it is, `APPIMAGE`); otherwise by hand.
+pub fn install_way() -> InstallWay {
+    install_way_from(cfg!(windows), own_appimage().is_some())
+}
+
+fn install_way_from(windows: bool, appimage: bool) -> InstallWay {
+    if windows {
+        InstallWay::Installer
+    } else if appimage {
+        InstallWay::ReplacesItself
+    } else {
+        InstallWay::ByHand
+    }
+}
+
+/// The AppImage this copy runs from, on Linux: a file, named by its full path.
+pub fn own_appimage() -> Option<PathBuf> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    own_appimage_from(
+        std::env::var_os("APPIMAGE"),
+        std::env::var_os("APPDIR"),
+        std::env::current_exe().ok(),
+    )
+}
+
+/// `APPIMAGE` names this copy only when the program runs from inside its unpacked folder
+/// (`APPDIR`). A Plenipo installed from the `.deb` and started from inside another AppImage (a
+/// terminal in an editor that is one) inherits that one's settings, and must never replace that
+/// program with Plenipo or start it at sign-in.
+fn own_appimage_from(
+    appimage: Option<OsString>,
+    appdir: Option<OsString>,
+    exe: Option<PathBuf>,
+) -> Option<PathBuf> {
+    let appdir = appdir
+        .map(PathBuf::from)
+        .filter(|d| d.is_absolute() && d.parent().is_some())?;
+    if !exe?.starts_with(&appdir) {
+        return None;
+    }
+    appimage
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute() && p.is_file())
+}
+
 struct Inner {
     state: UpdateState,
     last_checked_at: Option<u64>,
@@ -62,14 +119,21 @@ struct Inner {
 pub struct Updates {
     source: UpdateSource,
     version: String,
+    how: InstallWay,
     inner: Mutex<Inner>,
 }
 
 impl Updates {
     pub fn new(version: &str, source: UpdateSource) -> Arc<Self> {
+        Self::new_with(version, source, install_way())
+    }
+
+    /// As [`Updates::new`], taking a new version the given way.
+    pub fn new_with(version: &str, source: UpdateSource, how: InstallWay) -> Arc<Self> {
         Arc::new(Self {
             source,
             version: version.to_owned(),
+            how,
             inner: Mutex::new(Inner {
                 state: UpdateState::NotChecked,
                 last_checked_at: None,
@@ -85,6 +149,11 @@ impl Updates {
 
     pub fn source(&self) -> &UpdateSource {
         &self.source
+    }
+
+    /// How this copy takes a new version.
+    pub fn how(&self) -> InstallWay {
+        self.how
     }
 
     /// This copy can install updates (it has the updater key's public half).
@@ -122,6 +191,7 @@ impl Updates {
             }),
             message,
             releases_page: RELEASES_PAGE.to_owned(),
+            how: self.how,
         }
     }
 
@@ -196,6 +266,9 @@ impl Updates {
         if !self.can_install() {
             return Err(self.status().message.unwrap_or_default());
         }
+        if self.how == InstallWay::ByHand {
+            return Err(BY_HAND.into());
+        }
         {
             // One install at a time: the check and the change are one step.
             let mut inner = self.lock();
@@ -231,6 +304,11 @@ impl Updates {
     }
 }
 
+/// Why a copy the system's installer put there never installs a new version itself.
+pub const BY_HAND: &str =
+    "This copy of Plenipo was installed by your computer's installer, so it is \
+                           updated the same way: choose Download the new version, then install it.";
+
 /// Record a newer version once, which also shows a notice.
 fn announce(ledger: &Ledger, version: &str) {
     let already = ledger
@@ -258,6 +336,7 @@ pub fn prepare(
     from: &str,
     release: &Release,
     installer: &[u8],
+    appimage: Option<&Path>,
 ) -> Result<PathBuf, String> {
     let backup = if ledger.path().is_some() {
         let info = ledger
@@ -275,17 +354,41 @@ pub fn prepare(
     } else {
         None
     };
-    std::fs::create_dir_all(dir).map_err(|e| {
-        format!("The update was not installed: its folder could not be made ({e}).")
-    })?;
     let clean: String = release
         .version
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '.')
         .collect();
-    let path = dir.join(format!("Plenipo_{clean}_x64-setup.exe"));
-    std::fs::write(&path, installer)
-        .map_err(|e| format!("The update was not installed: it could not be saved ({e})."))?;
+    let path = match appimage {
+        // Next to the AppImage it replaces, on the same disk, so the swap is one step; hidden
+        // until then.
+        Some(appimage) => {
+            let name = appimage
+                .file_name()
+                .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+            appimage.with_file_name(format!(".{name}.{clean}.new"))
+        }
+        None => {
+            std::fs::create_dir_all(dir).map_err(|e| {
+                format!("The update was not installed: its folder could not be made ({e}).")
+            })?;
+            dir.join(format!("Plenipo_{clean}_x64-setup.exe"))
+        }
+    };
+    std::fs::write(&path, installer).map_err(|e| {
+        let folder = path
+            .parent()
+            .map_or_else(String::new, |p| p.display().to_string());
+        format!("The update was not installed: it could not be saved in {folder} ({e}).")
+    })?;
+    #[cfg(unix)]
+    if appimage.is_some() {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).map_err(|e| {
+            let _ = std::fs::remove_file(&path);
+            format!("The update was not installed: it could not be made runnable ({e}).")
+        })?;
+    }
     let _ = ledger.append_event(NewEvent {
         source: "plenipo".into(),
         event_type: INSTALLING.into(),
@@ -302,6 +405,65 @@ pub fn clean_up(dir: &Path) {
             let _ = std::fs::remove_file(e.path());
         }
     }
+}
+
+/// Put the checked new AppImage in place of the running one (Linux). The running copy keeps
+/// working from the old file until it quits.
+pub fn replace_itself(new: &Path, appimage: &Path) -> std::io::Result<()> {
+    std::fs::rename(new, appimage).inspect_err(|_| {
+        let _ = std::fs::remove_file(new);
+    })
+}
+
+/// Open the new AppImage on its own, told to wait until this one has closed (it outlives
+/// Plenipo, which quits right after), with the owner's own session.
+#[cfg(unix)]
+pub fn start_again(appimage: &Path) -> std::io::Result<()> {
+    use std::os::unix::process::CommandExt as _;
+    std::process::Command::new(appimage)
+        .arg(format!("{WAIT_FOR}{}", std::process::id()))
+        .env_clear()
+        .envs(plenipo_runtime::policy::owner_session_env())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .process_group(0)
+        .spawn()
+        .map(|_| ())
+}
+
+/// Opening an AppImage again is for Linux alone.
+#[cfg(not(unix))]
+pub fn start_again(_appimage: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::other("not an AppImage"))
+}
+
+/// The new version of an AppImage waits here, before anything else starts, until the version it
+/// replaced has closed (at most a minute), so that one Plenipo at a time holds.
+pub fn wait_for_previous(args: impl IntoIterator<Item = String>) {
+    let Some(pid) = args
+        .into_iter()
+        .find_map(|a| a.strip_prefix(WAIT_FOR).and_then(|p| p.parse::<u32>().ok()))
+        .filter(|&p| p > 1 && p != std::process::id())
+    else {
+        return;
+    };
+    let started = std::time::Instant::now();
+    while running(pid) && started.elapsed() < WAIT_AT_MOST {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn running(pid: u32) -> bool {
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+    let pid = Pid::from_u32(pid);
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        true,
+        ProcessRefreshKind::nothing(),
+    );
+    system.process(pid).is_some()
 }
 
 /// Start the installer on its own (it outlives Plenipo, which quits right after).
@@ -339,12 +501,15 @@ mod tests {
 
     #[test]
     fn a_check_that_ends_while_installing_leaves_the_install_alone() {
-        let u = Updates::new(
+        // A copy that installs updates (on Linux's test machines, a copy that is not an AppImage
+        // would be updated by hand and never install).
+        let u = Updates::new_with(
             "1.9.0",
             UpdateSource {
                 endpoint: RELEASES_ENDPOINT.into(),
                 public_key: Some("key".into()),
             },
+            InstallWay::Installer,
         );
         u.lock().available = Some(release("1.10.0"));
         u.set(UpdateState::Installing, None);
@@ -404,7 +569,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let l = Ledger::open(&dir.path().join("ledger").join("plenipo.db")).unwrap();
         let updates = dir.path().join(FOLDER);
-        let path = prepare(&l, &updates, "1.9.0", &release("1.10.0"), b"MZ installer").unwrap();
+        let path = prepare(
+            &l,
+            &updates,
+            "1.9.0",
+            &release("1.10.0"),
+            b"MZ installer",
+            None,
+        )
+        .unwrap();
         assert_eq!(path.file_name().unwrap(), "Plenipo_1.10.0_x64-setup.exe");
         assert_eq!(std::fs::read(&path).unwrap(), b"MZ installer");
         let backups = l.backups().unwrap();
@@ -417,6 +590,110 @@ mod tests {
         // The next start clears the folder.
         clean_up(&updates);
         assert!(!path.exists());
+    }
+
+    /// Phase 23: an AppImage's new version waits next to it, runnable, and then takes its place.
+    #[test]
+    fn an_appimage_is_replaced_by_its_new_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let l = Ledger::open(&dir.path().join("ledger").join("plenipo.db")).unwrap();
+        let apps = dir.path().join("My Apps");
+        std::fs::create_dir_all(&apps).unwrap();
+        let appimage = apps.join("Plenipo.AppImage");
+        std::fs::write(&appimage, b"old").unwrap();
+        let new = prepare(
+            &l,
+            &dir.path().join(FOLDER),
+            "1.9.0",
+            &release("1.10.0"),
+            b"new",
+            Some(&appimage),
+        )
+        .unwrap();
+        assert_eq!(new.parent(), Some(apps.as_path()));
+        assert_eq!(new.file_name().unwrap(), ".Plenipo.AppImage.1.10.0.new");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = std::fs::metadata(&new).unwrap().permissions().mode();
+            assert_eq!(mode & 0o111, 0o111, "runnable");
+        }
+        assert_eq!(
+            l.backups().unwrap().len(),
+            1,
+            "the Ledger is backed up first"
+        );
+        replace_itself(&new, &appimage).unwrap();
+        assert_eq!(std::fs::read(&appimage).unwrap(), b"new");
+        assert!(!new.exists());
+    }
+
+    #[test]
+    fn each_copy_takes_a_new_version_its_own_way() {
+        assert_eq!(install_way_from(true, false), InstallWay::Installer);
+        assert_eq!(install_way_from(false, true), InstallWay::ReplacesItself);
+        assert_eq!(install_way_from(false, false), InstallWay::ByHand);
+        // A copy updated by hand never downloads the update itself.
+        let u = Updates::new_with(
+            "1.9.0",
+            UpdateSource {
+                endpoint: RELEASES_ENDPOINT.into(),
+                public_key: Some("key".into()),
+            },
+            InstallWay::ByHand,
+        );
+        u.lock().available = Some(release("1.10.0"));
+        assert_eq!(u.status().how, InstallWay::ByHand);
+        let ledger = Arc::new(Ledger::open_in_memory().unwrap());
+        let guard = Guard::new(Arc::clone(&ledger));
+        let refused = tauri::async_runtime::block_on(u.download(&guard)).unwrap_err();
+        assert_eq!(refused, BY_HAND);
+        assert_eq!(u.status().state, UpdateState::NotChecked);
+    }
+
+    /// Phase 23: `APPIMAGE` counts only when this program runs from inside that AppImage, never
+    /// when Plenipo merely inherited another AppImage's settings.
+    #[test]
+    fn only_plenipos_own_appimage_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("Plenipo.AppImage");
+        std::fs::write(&file, b"x").unwrap();
+        let mount = dir.path().join("mount");
+        let os = |p: &Path| Some(p.as_os_str().to_owned());
+        let inside = Some(mount.join("usr").join("bin").join("plenipo-desktop"));
+        assert_eq!(
+            own_appimage_from(os(&file), os(&mount), inside.clone()),
+            Some(file.clone())
+        );
+        // Installed from the .deb, started from inside another AppImage.
+        let installed = Some(dir.path().join("usr").join("bin").join("plenipo-desktop"));
+        assert_eq!(own_appimage_from(os(&file), os(&mount), installed), None);
+        assert_eq!(own_appimage_from(os(&file), None, inside.clone()), None);
+        assert_eq!(own_appimage_from(os(&file), os(&mount), None), None);
+        assert_eq!(
+            own_appimage_from(os(&dir.path().join("gone")), os(&mount), inside),
+            None,
+            "not a file"
+        );
+    }
+
+    #[test]
+    fn the_new_version_waits_only_for_a_real_earlier_one() {
+        let started = std::time::Instant::now();
+        // No switch, a bad one, and this program itself: no wait.
+        wait_for_previous(["plenipo".to_owned()]);
+        wait_for_previous(["plenipo".to_owned(), format!("{WAIT_FOR}x")]);
+        wait_for_previous([format!("{WAIT_FOR}{}", std::process::id())]);
+        // One that has already closed.
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--list")
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let gone = child.id();
+        child.wait().unwrap();
+        wait_for_previous([format!("{WAIT_FOR}{gone}")]);
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 
     #[test]

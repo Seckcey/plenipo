@@ -386,6 +386,13 @@ pub fn start_local(
         for (name, value) in env {
             command.env(name, value);
         }
+    } else if cfg!(unix) {
+        // The owner's own session, less anything inside Plenipo's own AppImage, whose libraries
+        // would break the programs the owner runs here (Phase 23).
+        command.env_clear();
+        for (name, value) in plenipo_runtime::policy::owner_session_env() {
+            command.env(name, value);
+        }
     }
     // What the shell may expect of the screen part (xterm.js): colors, and 256 of them.
     command.env("TERM", "xterm-256color");

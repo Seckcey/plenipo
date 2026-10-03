@@ -239,6 +239,75 @@ pub async fn run(
     })
 }
 
+/// How long Plenipo waits for the desktop's opener to answer. Most answer at once; one still
+/// running after this is showing what it opened, and is left to it.
+#[cfg(unix)]
+const OPENER_ANSWERS: Duration = Duration::from_secs(10);
+
+/// Open something for the owner the way their desktop would (Phase 23): `args` for the Mac's
+/// `open` or Linux's `xdg-open`, such as a file, a folder, or a web address. Not a worker's
+/// program, so not through the supervisor: it gets the owner's own session (the screen and the
+/// desktop's services, which a worker's programs never get), and runs in a group of its own with
+/// no run mark, so what it opens stays open after Plenipo's run ends (ADR-158). Plenipo waits only
+/// for the opener's own answer, and says so when it fails.
+#[cfg(unix)]
+pub async fn open_for_owner(args: Vec<OsString>) -> Result<(), String> {
+    let program = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let executable = find_on_path(program).ok_or_else(|| format!("{program} is not installed"))?;
+    open_with(
+        &executable,
+        args,
+        plenipo_runtime::policy::owner_session_env(),
+        OPENER_ANSWERS,
+    )
+    .await
+}
+
+#[cfg(unix)]
+async fn open_with(
+    executable: &Path,
+    args: Vec<OsString>,
+    env: Vec<(OsString, OsString)>,
+    answers_within: Duration,
+) -> Result<(), String> {
+    let name = executable
+        .file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let mut command = tokio::process::Command::new(executable);
+    command
+        .args(args)
+        .env_clear()
+        .envs(env)
+        .current_dir(std::env::temp_dir())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .process_group(0);
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("{name} could not be started: {e}"))?;
+    let system = plenipo_core::words::sentence_start(plenipo_core::WORDS.the_system);
+    match tokio::time::timeout(answers_within, child.wait()).await {
+        Ok(Ok(status)) if status.success() => Ok(()),
+        Ok(Ok(status)) => Err(match status.code() {
+            Some(code) => format!("{system} could not open it ({name} answered {code})."),
+            None => format!("{system} could not open it ({name} stopped before it did)."),
+        }),
+        Ok(Err(e)) => Err(format!("{name} could not be followed: {e}")),
+        Err(_) => {
+            // Still running: some desktops' openers stay until what they opened is closed.
+            tokio::spawn(async move {
+                let _ = child.wait().await;
+            });
+            Ok(())
+        }
+    }
+}
+
 /// PowerShell on this computer: Windows PowerShell on Windows, `pwsh` elsewhere (or on
 /// Windows when Windows PowerShell is missing).
 pub fn powershell() -> Option<PathBuf> {
@@ -336,5 +405,42 @@ mod tests {
         assert_eq!(find_in("missing", path.clone()), None);
         assert_eq!(find_in("../tool", path.clone()), None);
         assert_eq!(find_in("", path), None);
+    }
+
+    /// Phase 23: what Plenipo opens for the owner gets the session it is given, never a run's
+    /// mark, runs in a group of its own, and a failing opener says so.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_owners_opener_answers_and_runs_on_its_own() {
+        let sh = Path::new("/bin/sh");
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("seen");
+        let script = format!(
+            "echo \"mark=$PLENIPO_RUN home=$HOME\" > '{0}'; ps -o pgid= -p $$ >> '{0}'; echo $$ >> '{0}'",
+            out.display()
+        );
+        let env = vec![(OsString::from("HOME"), OsString::from("/home/me"))];
+        let wait = Duration::from_secs(5);
+        open_with(sh, vec!["-c".into(), script.into()], env, wait)
+            .await
+            .unwrap();
+        let seen = std::fs::read_to_string(&out).unwrap();
+        let lines: Vec<&str> = seen.lines().map(str::trim).collect();
+        assert_eq!(lines[0], "mark= home=/home/me", "{seen}");
+        assert_eq!(lines[1], lines[2], "a group of its own: {seen}");
+        let failed = open_with(sh, vec!["-c".into(), "exit 4".into()], vec![], wait)
+            .await
+            .unwrap_err();
+        assert!(
+            failed.contains("could not open it") && failed.contains("answered 4"),
+            "{failed}"
+        );
+        // One still going after the wait has opened what it was asked to; it is left to it.
+        let started = std::time::Instant::now();
+        let quick = Duration::from_millis(200);
+        open_with(sh, vec!["-c".into(), "sleep 2".into()], vec![], quick)
+            .await
+            .unwrap();
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 }

@@ -134,6 +134,8 @@ fn name_of(path: &Path) -> String {
         .unwrap_or_default();
     if stem.contains("edge") {
         "Microsoft Edge".into()
+    } else if stem.contains("brave") || path.to_string_lossy().contains("brave.com") {
+        "Brave".into()
     } else if stem.contains("chromium") || path.to_string_lossy().contains("chromium") {
         "Chromium".into()
     } else if stem.contains("chrome") {
@@ -152,6 +154,8 @@ fn browser_words(answer: &str, method: &str) -> String {
 }
 
 /// Edge and Chrome on this computer, Edge first: each program found, and which choice it is.
+/// On Linux, Chromium counts as Chrome, and Brave comes last, for Automatic only (Phase 23); a
+/// Chromium from the Snap Store is never one (it cannot use Plenipo's folders).
 fn installed() -> Vec<(BrowserChoice, PathBuf)> {
     let mut candidates: Vec<(BrowserChoice, PathBuf)> = Vec::new();
     if cfg!(windows) {
@@ -168,6 +172,37 @@ fn installed() -> Vec<(BrowserChoice, PathBuf)> {
         ] {
             candidates.extend(bases.iter().map(|base| (choice, base.join(program))));
         }
+    } else if cfg!(target_os = "linux") {
+        // Where each one's own package puts it, then by name on PATH.
+        for (choice, place) in [
+            (BrowserChoice::Edge, "/opt/microsoft/msedge/msedge"),
+            (BrowserChoice::Chrome, "/opt/google/chrome/chrome"),
+            (BrowserChoice::Chrome, "/usr/lib/chromium/chromium"),
+            (BrowserChoice::Automatic, "/opt/brave.com/brave/brave"),
+        ] {
+            candidates.push((choice, PathBuf::from(place)));
+        }
+        for (choice, name) in [
+            (BrowserChoice::Edge, "microsoft-edge"),
+            (BrowserChoice::Edge, "microsoft-edge-stable"),
+            (BrowserChoice::Chrome, "google-chrome"),
+            (BrowserChoice::Chrome, "google-chrome-stable"),
+            (BrowserChoice::Chrome, "chromium"),
+            (BrowserChoice::Chrome, "chromium-browser"),
+            (BrowserChoice::Automatic, "brave-browser"),
+            (BrowserChoice::Automatic, "brave"),
+        ] {
+            if let Some(p) = crate::programs::find_on_path(name) {
+                candidates.push((choice, p));
+            }
+        }
+        candidates.retain(|(_, p)| !from_the_snap_store(p));
+        // Edge, then Chrome and Chromium, then Brave.
+        candidates.sort_by_key(|(choice, _)| match choice {
+            BrowserChoice::Edge => 0,
+            BrowserChoice::Chrome => 1,
+            BrowserChoice::Automatic => 2,
+        });
     } else {
         for (choice, name) in [
             (BrowserChoice::Edge, "microsoft-edge"),
@@ -192,6 +227,32 @@ fn installed() -> Vec<(BrowserChoice, PathBuf)> {
     }
     candidates.retain(|(_, p)| p.is_file());
     candidates
+}
+
+/// A Chromium from the Snap Store: its program lives under `/snap`, or is Ubuntu's small
+/// script that starts the snap. Snaps keep to their own folders, so it cannot use Plenipo's
+/// profile folder (Phase 23).
+fn from_the_snap_store(program: &Path) -> bool {
+    if program.starts_with("/snap") {
+        return true;
+    }
+    if dunce::canonicalize(program)
+        .is_ok_and(|real| real.starts_with("/snap") || real.ends_with("snap"))
+    {
+        return true;
+    }
+    // A short script (a real browser is many megabytes) that names the snap.
+    std::fs::metadata(program).is_ok_and(|m| m.len() < 16 * 1024)
+        && std::fs::read_to_string(program).is_ok_and(|text| text.contains("/snap/"))
+}
+
+/// Whether this Linux computer's only Chromium is the Snap Store's.
+fn only_a_snap_chromium() -> bool {
+    cfg!(target_os = "linux")
+        && ["chromium", "chromium-browser"]
+            .iter()
+            .filter_map(|name| crate::programs::find_on_path(name))
+            .any(|p| from_the_snap_store(&p))
 }
 
 /// Edge or Chrome on this computer: the configured one, then the usual places, Edge first.
@@ -220,8 +281,13 @@ fn find_chosen(
 }
 
 /// A browser's own profile folder: Chrome's is next to Plenipo's usual one (Edge's), because
-/// two browsers must never share one profile.
-fn profile_for(usual: &Path, kind: BrowserChoice) -> PathBuf {
+/// two browsers must never share one profile; Brave's too (Phase 23).
+fn profile_for(usual: &Path, kind: BrowserChoice, program: &Path) -> PathBuf {
+    if name_of(program) == "Brave" {
+        let mut name = usual.file_name().unwrap_or_default().to_os_string();
+        name.push("-brave");
+        return usual.with_file_name(name);
+    }
     match kind {
         BrowserChoice::Chrome => {
             let mut name = usual.file_name().unwrap_or_default().to_os_string();
@@ -235,6 +301,19 @@ fn profile_for(usual: &Path, kind: BrowserChoice) -> PathBuf {
 /// What Settings says when the chosen browser is not on this computer.
 fn not_found(choice: BrowserChoice) -> &'static str {
     match choice {
+        BrowserChoice::Automatic if cfg!(target_os = "linux") && only_a_snap_chromium() => {
+            "The only browser found is Chromium from the Snap Store, which keeps to its own \
+             folders, so Plenipo cannot use it and workers cannot use websites. Install Google \
+             Chrome, Microsoft Edge, or Brave from its own website."
+        }
+        BrowserChoice::Automatic if cfg!(target_os = "linux") => {
+            "No Microsoft Edge, Google Chrome, Chromium, or Brave was found on this computer, so \
+             workers cannot use websites. Install one of them."
+        }
+        BrowserChoice::Automatic if cfg!(target_os = "macos") => {
+            "No Microsoft Edge or Google Chrome was found on this Mac, so workers cannot use \
+             websites. Install Edge or Chrome."
+        }
         BrowserChoice::Automatic => {
             "No Microsoft Edge or Google Chrome was found on this computer, so workers cannot use \
              websites. Windows 11 includes Edge; if it was removed, install Edge or Chrome."
@@ -439,7 +518,7 @@ impl Browser {
         let usual = &self.inner.config.profile_dir;
         let upcoming = next
             .as_ref()
-            .map(|(p, name, kind)| (name.clone(), p.clone(), profile_for(usual, *kind)));
+            .map(|(p, name, kind)| (name.clone(), p.clone(), profile_for(usual, *kind, p)));
         let shown = open.clone().or_else(|| upcoming.clone());
         BrowserStatus {
             name: shown.as_ref().map(|(n, _, _)| n.clone()),
@@ -523,7 +602,7 @@ impl Browser {
         let (path, name, kind) = self
             .find_chosen()
             .ok_or_else(|| not_found(self.choice()).to_owned())?;
-        let profile = profile_for(&config.profile_dir, kind);
+        let profile = profile_for(&config.profile_dir, kind, &path);
         prepare_profile(&profile)
             .map_err(|e| format!("could not prepare the browser's profile: {e}"))?;
         let sup = &self.inner.supervisor;
@@ -785,13 +864,22 @@ mod tests {
     #[test]
     fn each_browser_has_its_own_profile() {
         let usual = Path::new("/data/browser-profile");
-        assert_eq!(profile_for(usual, BrowserChoice::Edge), usual);
-        assert_eq!(profile_for(usual, BrowserChoice::Automatic), usual);
+        let edge = Path::new("/opt/microsoft/msedge/msedge");
+        let google = Path::new("/opt/google/chrome/chrome");
+        assert_eq!(profile_for(usual, BrowserChoice::Edge, edge), usual);
+        assert_eq!(profile_for(usual, BrowserChoice::Automatic, edge), usual);
         assert_eq!(
-            profile_for(usual, BrowserChoice::Chrome),
+            profile_for(usual, BrowserChoice::Chrome, google),
             Path::new("/data/browser-profile-chrome")
         );
-        let chrome = profile_for(usual, BrowserChoice::Chrome);
+        // Brave (Phase 23): a profile of its own, whichever choice found it.
+        let brave = Path::new("/opt/brave.com/brave/brave");
+        assert_eq!(name_of(brave), "Brave");
+        assert_eq!(
+            profile_for(usual, BrowserChoice::Automatic, brave),
+            Path::new("/data/browser-profile-brave")
+        );
+        let chrome = profile_for(usual, BrowserChoice::Chrome, google);
         let args = arguments(&BrowserConfig::new(usual.to_path_buf()), &chrome);
         // As the system writes the path (`\` on Windows).
         assert!(args.contains(&format!("--user-data-dir={}", chrome.display())));
@@ -823,7 +911,37 @@ mod tests {
     fn missing_browsers_are_named_in_plain_words() {
         assert!(not_found(BrowserChoice::Edge).starts_with("Microsoft Edge was not found"));
         assert!(not_found(BrowserChoice::Chrome).contains("Choose Automatic or Microsoft Edge"));
-        assert!(not_found(BrowserChoice::Automatic).contains("Windows 11 includes Edge"));
+        // Each system names its own browsers (Phase 23).
+        let automatic = not_found(BrowserChoice::Automatic);
+        if cfg!(windows) {
+            assert!(
+                automatic.contains("Windows 11 includes Edge"),
+                "{automatic}"
+            );
+        } else {
+            assert!(!automatic.contains("Windows"), "{automatic}");
+        }
+        if cfg!(target_os = "linux") {
+            assert!(
+                automatic.contains("Brave") || automatic.contains("Snap Store"),
+                "{automatic}"
+            );
+        }
+    }
+
+    /// Phase 23: a Chromium from the Snap Store is never used: it cannot reach Plenipo's folders.
+    #[cfg(unix)]
+    #[test]
+    fn a_snap_chromium_is_never_used() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("chromium-browser");
+        std::fs::write(&script, "#!/bin/sh\nexec /snap/bin/chromium \"$@\"\n").unwrap();
+        assert!(from_the_snap_store(&script));
+        assert!(from_the_snap_store(Path::new("/snap/bin/chromium")));
+        let real = dir.path().join("chrome");
+        std::fs::write(&real, vec![0u8; 20 * 1024]).unwrap();
+        assert!(!from_the_snap_store(&real));
+        assert!(!from_the_snap_store(Path::new("/opt/google/chrome/chrome")));
     }
 
     #[test]

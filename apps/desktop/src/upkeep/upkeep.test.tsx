@@ -37,6 +37,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     getUpdateStatus: vi.fn(),
     checkForUpdates: vi.fn(),
     installUpdate: vi.fn(),
+    openReleasesPage: vi.fn(),
     listLedgerBackups: vi.fn(),
     restoreLedgerBackup: vi.fn(),
     cancelLedgerRestore: vi.fn(),
@@ -305,6 +306,21 @@ describe("Settings → Updates", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Stop the work and install" }));
     expect(api.installUpdate).toHaveBeenLastCalledWith(true);
+    expect(a11yProblems(container)).toEqual([]);
+  });
+
+  it("a copy your computer's installer put there downloads the new version (Phase 23)", async () => {
+    api.getUpdateStatus.mockResolvedValue({ ...updateReady(), how: "byHand" });
+    api.openReleasesPage.mockResolvedValue(undefined);
+    const { container } = inPage(<UpdateSettings />);
+    expect(await screen.findByText(/Plenipo 1.10.0 is ready to download/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Install now" })).toBeNull();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Download the new version" }));
+    expect(api.openReleasesPage).toHaveBeenCalled();
+    expect(api.installUpdate).not.toHaveBeenCalled();
+    expect(screen.getByText(/It opens GitHub in your browser/)).toBeInTheDocument();
+    expect(screen.getByText(/never changes itself/)).toBeInTheDocument();
     expect(a11yProblems(container)).toEqual([]);
   });
 

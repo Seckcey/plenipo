@@ -292,6 +292,7 @@ export type { StartAndCloseInput } from "./generated/StartAndCloseInput";
 export type { StoppedTask } from "./generated/StoppedTask";
 export type { UpdateState } from "./generated/UpdateState";
 export type { UpdateStatus } from "./generated/UpdateStatus";
+export type { InstallWay } from "./generated/InstallWay";
 export type { WindowRecovery } from "./generated/WindowRecovery";
 
 // The organization canvas (Phase 18: ADR-053 canvas, ADR-054 move or lend, ADR-055 Watch,
