@@ -1,3 +1,4 @@
+import { systemWords } from "../system/words";
 /**
  * Every mark the canvas can show, in one list (Phase 18, ADR-053 §15–§16). The canvas puts each
  * mark's key in a `data-symbol` attribute, and the legend shows this same list, so the two cannot
@@ -242,7 +243,9 @@ export const SYMBOLS = [
   {
     key: "where-this-pc",
     group: "Where",
-    label: "Runs on this PC",
+    get label() {
+      return `Runs on ${systemWords().thisComputer}`;
+    },
     words: "It runs a program, uses Plenipo's browser, or uses the screen here.",
     sample: { kind: "where", glyph: "pc" },
   },

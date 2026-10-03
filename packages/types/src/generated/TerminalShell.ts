@@ -2,6 +2,7 @@
 
 /**
  * Which shell the owner's terminal on this PC starts (Settings → Terminal). Never a path: Plenipo
- * finds each one itself.
+ * finds each one itself. The first three are Windows', the rest a Mac's and Linux's (Phase 23,
+ * ADR-150); a choice another system made means that system's first one here.
  */
-export type TerminalShell = "windowsPowerShell" | "powerShell7" | "commandPrompt";
+export type TerminalShell = "windowsPowerShell" | "powerShell7" | "commandPrompt" | "yourShell" | "zsh" | "bash" | "fish";

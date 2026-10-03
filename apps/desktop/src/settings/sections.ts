@@ -1,5 +1,7 @@
 import type { IconName } from "@plenipo/ui";
 
+import { systemWords } from "../system/words";
+
 /** The sections of Settings, one at a time (Phase 12). */
 export type SettingsSection =
   | "aiTools"
@@ -21,7 +23,8 @@ export type SettingsSection =
   | "updates"
   | "about";
 
-/** Each section: its name on the list, and a line about it at its top. */
+/** Each section: its name on the list, and a line about it at its top (read when shown, in the
+ * system's own words, ADR-155). */
 export const SETTINGS_SECTIONS: readonly {
   id: SettingsSection;
   label: string;
@@ -80,25 +83,35 @@ export const SETTINGS_SECTIONS: readonly {
     id: "devices",
     label: "Devices",
     icon: "phone",
-    lead: "Use Plenipo from your phone: add a phone, see your phones, and choose which approvals stay on this PC.",
+    get lead() {
+      return `Use Plenipo from your phone: add a phone, see your phones, and choose which approvals stay on ${systemWords().thisComputer}.`;
+    },
   },
   {
     id: "notifications",
     label: "Notifications",
     icon: "bell",
-    lead: "Which pop-up notices Windows shows you when something needs you.",
+    get lead() {
+      const w = systemWords();
+      return `Which ${w.notices} ${w.theSystem} shows you when something needs you.`;
+    },
   },
   {
     id: "terminal",
     label: "Terminal",
     icon: "terminal",
-    lead: "The shell your terminal on this PC starts.",
+    get lead() {
+      return `The shell your terminal on ${systemWords().thisComputer} starts.`;
+    },
   },
   {
     id: "startAndClose",
     label: "Start and close",
     icon: "play",
-    lead: "Whether Plenipo starts with Windows, and what closing its window does.",
+    get lead() {
+      const when = systemWords().whenYouSignIn;
+      return `Whether Plenipo starts ${when.charAt(0).toLowerCase()}${when.slice(1)}, and what closing its window does.`;
+    },
   },
   {
     id: "personalization",
@@ -122,7 +135,9 @@ export const SETTINGS_SECTIONS: readonly {
     id: "license",
     label: "License",
     icon: "key",
-    lead: "Free or Plenipo Pro on this PC, your license key, and the weekly check with 8 West.",
+    get lead() {
+      return `Free or Plenipo Pro on ${systemWords().thisComputer}, your license key, and the weekly check with 8 West.`;
+    },
   },
   {
     id: "updates",

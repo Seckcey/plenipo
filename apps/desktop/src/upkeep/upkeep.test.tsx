@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { SYSTEM_WORDS } from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../api/commands";
+import { setSystemWords } from "../system/words";
 import { a11yProblems } from "../test/a11y";
 import {
   NO_RECOVERY,
@@ -70,6 +72,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  setSystemWords(SYSTEM_WORDS.windows);
 });
 
 describe("words", () => {
@@ -79,6 +82,15 @@ describe("words", () => {
     expect(recoveryTitle(r, now)).toBe("Plenipo closed unexpectedly at 3:14 PM");
     expect(recoveryTitle({ ...r, cause: "windowsRestart" }, now)).toBe(
       "Windows closed Plenipo at 3:14 PM (a restart, a shutdown, or signing out)",
+    );
+    // Each system names itself (ADR-155).
+    setSystemWords(SYSTEM_WORDS.mac);
+    expect(recoveryTitle({ ...r, cause: "windowsRestart" }, now)).toBe(
+      "Your Mac closed Plenipo at 3:14 PM (a restart, a shutdown, or logging out)",
+    );
+    setSystemWords(SYSTEM_WORDS.linux);
+    expect(recoveryTitle({ ...r, cause: "windowsRestart" }, now)).toBe(
+      "Your computer closed Plenipo at 3:14 PM (a restart, a shutdown, or signing out)",
     );
     expect(recoveryTitle({ ...r, cause: "unknown", lastSeenAt: null }, now)).toBe(
       "Plenipo did not close normally last time",
@@ -240,7 +252,29 @@ describe("Settings → Start and close", () => {
     expect(
       await screen.findByRole("switch", { name: "Start Plenipo with Windows" }),
     ).toBeDisabled();
-    expect(screen.getByText("Only on Windows.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Starting with Windows is not available on this computer."),
+    ).toBeInTheDocument();
+  });
+
+  it("says it in a Mac's words on a Mac, and Linux's on Linux (ADR-155)", async () => {
+    setSystemWords(SYSTEM_WORDS.mac);
+    const { unmount } = render(<StartAndCloseSettings />);
+    expect(await screen.findByRole("heading", { name: "When you log in" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Open Plenipo when you log in" })).toBeEnabled();
+    expect(screen.getByText(/System Settings → General → Login Items/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("radio", { name: /Keep Plenipo in the menu bar while work is going/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Quit Plenipo from its menu in the menu bar/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/Windows|tray/);
+    unmount();
+    setSystemWords(SYSTEM_WORDS.linux);
+    render(<StartAndCloseSettings />);
+    expect(
+      await screen.findByRole("switch", { name: "Start Plenipo when you sign in" }),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/Windows/);
   });
 });
 

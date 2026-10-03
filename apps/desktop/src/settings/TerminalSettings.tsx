@@ -6,6 +6,7 @@ import { getTerminalSettings, setTerminalShell, toCommandError } from "../api/co
 import { Toggle } from "../components/SwitchSettings";
 import { useLive } from "../pages/useLive";
 import { SCREEN_READER_KEY } from "../terminal/words";
+import { shortcut, systemWords } from "../system/words";
 
 /**
  * Settings → Terminal (ADR-031, the terminal panel): the shell a new terminal on this PC starts —
@@ -58,15 +59,11 @@ export function TerminalSettings() {
   return (
     <div className="settings-terminal">
       <section aria-labelledby="terminal-shell">
-        <h3 id="terminal-shell">The shell on this PC</h3>
-        {s.otherShell && (
-          <p className="muted">
-            This computer is not running Windows, so the terminal uses {s.otherShell}. The choice
-            below applies on Windows.
-          </p>
-        )}
+        <h3 id="terminal-shell">The shell on {systemWords().thisComputer}</h3>
         <fieldset className="fieldset" disabled={pending !== null}>
-          <legend className="visually-hidden">The shell a new terminal on this PC starts</legend>
+          <legend className="visually-hidden">
+            The shell a new terminal on {systemWords().thisComputer} starts
+          </legend>
           {s.shells.map((option) => (
             <label key={option.shell} className="check">
               <input
@@ -78,14 +75,16 @@ export function TerminalSettings() {
               />
               <span>
                 {option.label}
-                {!option.installed && <span className="muted"> — not on this PC</span>}
+                {!option.installed && (
+                  <span className="muted"> — not on {systemWords().thisComputer}</span>
+                )}
               </span>
             </label>
           ))}
         </fieldset>
         <p className="muted">
-          It starts in your home folder, as your own Windows user — never as administrator. Changing
-          it applies to the next terminal you open.
+          It starts in your home folder, {s.runsAs}. Changing it applies to the next terminal you
+          open.
         </p>
         {error && (
           <p className="status status--error" role="alert">
@@ -115,7 +114,7 @@ export function TerminalSettings() {
         />
         <p className="muted">
           In a terminal, Tab belongs to the shell. Press F6 to go back to the terminal&apos;s tabs,
-          and Ctrl+` to hide or show the panel.
+          and {shortcut(["ctrl"], "`")} to hide or show the panel.
         </p>
       </section>
       <section aria-labelledby="terminal-open">
@@ -126,8 +125,8 @@ export function TerminalSettings() {
             : `${s.open.length} ${s.open.length === 1 ? "terminal is" : "terminals are"} open: ${s.open
                 .map((t) => t.title)
                 .join(", ")}.`}{" "}
-          Open and close them from the Terminal button at the top, or with Ctrl+`. What you type is
-          never recorded.
+          Open and close them from the Terminal button at the top, or with {shortcut(["ctrl"], "`")}
+          . What you type is never recorded.
         </p>
       </section>
     </div>

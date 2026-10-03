@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { SYSTEM_WORDS } from "@plenipo/types";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -47,6 +48,7 @@ describe("command client", () => {
       buildProfile: "debug",
       os: "windows",
       arch: "x86_64",
+      words: SYSTEM_WORDS.windows,
     };
     mockedInvoke.mockResolvedValueOnce(info);
     await expect(getAppInfo()).resolves.toEqual(info);

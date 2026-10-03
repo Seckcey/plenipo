@@ -24,6 +24,7 @@ import {
   SIGN_IN_LABEL,
 } from "../../servers/format";
 import { Refusal } from "../models/shared";
+import { systemWords } from "../../system/words";
 
 /**
  * Add or change a server. Keys and passwords typed here go once to the operating system's
@@ -246,7 +247,7 @@ export function ServerForm({
         )}
         <p className="muted">
           {signIn === "agent"
-            ? "Plenipo asks your SSH agent (Windows' OpenSSH Authentication Agent, or Pageant) to sign in with the keys it holds. The agent is never forwarded to the server."
+            ? `Plenipo asks your SSH agent (${systemWords().sshAgent}) to sign in with the keys it holds. The agent is never forwarded to the server.`
             : `Kept in ${snapshot.vault.label}, and never shown again — not here, not to a worker, and not in anything Plenipo records. Never paste it into a chat or an objective.`}
         </p>
       </fieldset>

@@ -3,6 +3,7 @@ import { IconButton, Icon } from "@plenipo/ui";
 
 import { sizeWords } from "./refs";
 import type { ObjectiveFilesState } from "./useObjectiveFiles";
+import { systemWords } from "../system/words";
 
 /** The files on the objective, each with Remove, and how to add more. */
 export function ObjectiveFilesList({
@@ -28,7 +29,7 @@ export function ObjectiveFilesList({
       ) : (
         <p className="muted objective-files__hint">
           {hint ??
-            "Drop files here, from Files or from File Explorer, to put them on the objective."}
+            `Drop files here, from Files or from ${systemWords().fileProgram}, to put them on the objective.`}
         </p>
       )}
       {state.note && (

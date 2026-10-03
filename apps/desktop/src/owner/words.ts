@@ -6,6 +6,8 @@
 
 import type { Mood, OwnerProfile, OwnerStatus } from "@plenipo/types";
 
+import { sentenceStart, systemWords } from "../system/words";
+
 export const STATUS_ORDER: readonly OwnerStatus[] = ["available", "busy", "away", "doNotDisturb"];
 
 export const STATUS_WORDS: Record<OwnerStatus, string> = {
@@ -49,9 +51,11 @@ export const MOOD_FACES: Record<Mood, string> = {
 /** The word for no mood, in the mood picker. */
 export const NO_MOOD_WORD = "None";
 
-/** What Do not disturb does, under the status picker. */
-export const DO_NOT_DISTURB_HINT =
-  "Windows pop-up notices wait while this is on and come as one when you turn it off; the bell still counts them.";
+/** What Do not disturb does, under the status picker (the system's own words, ADR-155). */
+export function doNotDisturbHint(): string {
+  const w = systemWords();
+  return `${sentenceStart(w.notices)} from ${w.theSystem} wait while this is on and come as one when you turn it off; the bell still counts them.`;
+}
 
 /** While your details are being read: Save waits for them, so nothing kept is lost. */
 export const READING_DETAILS = "Reading your details…";
@@ -62,7 +66,9 @@ export function cannotReadDetails(reason: string): string {
 }
 
 /** Where your picture is kept. */
-export const PICTURE_NOTE = "Kept on this PC only. Plenipo never sends it anywhere.";
+export function pictureNote(): string {
+  return `Kept on ${systemWords().thisComputer} only. Plenipo never sends it anywhere.`;
+}
 
 /** The longest message, as the Ledger keeps it. */
 export const MAX_MESSAGE = 80;

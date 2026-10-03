@@ -302,7 +302,8 @@ pub struct ServerTest {
 // ---- The owner's terminal (Phase 12, ADR-031) --------------------------------------------------
 
 /// Which shell the owner's terminal on this PC starts (Settings → Terminal). Never a path: Plenipo
-/// finds each one itself.
+/// finds each one itself. The first three are Windows', the rest a Mac's and Linux's (Phase 23,
+/// ADR-150); a choice another system made means that system's first one here.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -314,6 +315,14 @@ pub enum TerminalShell {
     PowerShell7,
     /// Command Prompt.
     CommandPrompt,
+    /// The owner's own shell on a Mac or a Linux PC (`$SHELL`; the first choice there).
+    YourShell,
+    /// zsh, when it is installed.
+    Zsh,
+    /// bash, when it is installed.
+    Bash,
+    /// fish, when it is installed.
+    Fish,
 }
 
 /// A shell the owner can pick, and whether this PC has it.
@@ -386,7 +395,7 @@ impl<'de> Deserialize<'de> for TerminalPlace {
 #[ts(export)]
 pub struct TerminalInfo {
     pub id: String,
-    /// "This PC" or the server's name.
+    /// "This PC" ("This Mac", "This computer") or the server's name.
     pub title: String,
     pub place: TerminalPlace,
     /// The shell on this PC ("Windows PowerShell"), or who Plenipo signed in as on a server
@@ -404,12 +413,13 @@ pub struct TerminalInfo {
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct TerminalSettings {
-    /// The shell a new terminal on this PC starts.
+    /// The shell a new terminal on this PC starts (one of `shells`).
     pub shell: TerminalShell,
+    /// The shells this system offers, and whether this PC has each.
     pub shells: Vec<ShellOption>,
-    /// Off Windows the choice does not apply: the shell used instead ("/bin/bash").
-    #[ts(optional)]
-    pub other_shell: Option<String>,
+    /// Who the terminal runs as, in this system's words ("as your own Windows user — never as
+    /// administrator"; on a Mac or Linux, "as yourself — never as root"; ADR-155).
+    pub runs_as: String,
     /// The "Remote computers (SSH)" switch: while it is off, no terminal opens on a server.
     pub servers_switched_on: bool,
     pub open: Vec<TerminalInfo>,

@@ -70,13 +70,8 @@ fn plain(error: keyring::Error) -> String {
 
 impl SecretStore for OsSecretStore {
     fn label(&self) -> &str {
-        if cfg!(windows) {
-            "Windows Credential Manager"
-        } else if cfg!(target_os = "macos") {
-            "your Mac's Keychain"
-        } else {
-            "your computer's password store (GNOME Keyring or KWallet)"
-        }
+        // "Windows Credential Manager", "your Mac's Keychain" (ADR-155).
+        plenipo_core::WORDS.key_store
     }
 
     fn check(&self) -> std::result::Result<(), String> {

@@ -7,6 +7,7 @@ import { useRun } from "../../guard/useRun";
 import { when } from "../../pages/words";
 import { Refusal } from "../models/shared";
 import type { Go } from "../views";
+import { systemWords } from "../../system/words";
 
 /** The longest name and key the desktop accepts (as its commands check them). */
 const MAX_NAME = 60;
@@ -15,7 +16,7 @@ const MAX_KEY = 400;
 /**
  * A paid AI tool's key (Phase 16 Wave 3, ADR-085): the name you gave it, Replace and Remove, or
  * the form to add one. The key is typed only here; Plenipo checks it with the AI company, keeps it
- * in the Vault (Windows Credential Manager, as the screen says) if it works, and never shows it
+ * in the Vault (Windows Credential Manager or the system's own, as the screen says) if it works, and never shows it
  * again. A spending limit is up to you (the owner's choice, 2026-09-30): the form and the saved
  * key say so, and no cap is needed. Overview gives each saved key a new instance (`key`), so
  * nothing typed or asked for one key stays for the next.
@@ -44,7 +45,7 @@ export function PaidKey({
   const [key, setKey] = useState("");
   const { pending, error, run, clear } = useRun<AiToolsPage>(onApply);
   const blocked = tool.paidBlocked;
-  const keptIn = tool.keyKeptIn ?? "Windows Credential Manager";
+  const keptIn = tool.keyKeptIn ?? systemWords().keyStore;
   // The keyboard goes to the key box when Replace opens the form.
   const box = useRef<HTMLInputElement>(null);
   useEffect(() => {
