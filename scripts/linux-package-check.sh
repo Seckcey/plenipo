@@ -55,7 +55,9 @@ starts() {
       gnome-keyring-daemon --components=secrets --daemonize --unlock <<< plenipo-check > /dev/null
       xvfb-run -a timeout -k 5 20 "$@"
     ' starts "$@" > "$RUNNER_TEMP/plenipo-start.txt" 2>&1 || status=$?
-  if [ "$status" -ne 124 ]; then
+  # 124: still running when the time was up, and it stopped when asked; 137: it took more than
+  # five seconds to stop, so it was ended. Anything else: it stopped by itself.
+  if [ "$status" -ne 124 ] && [ "$status" -ne 137 ]; then
     cat "$RUNNER_TEMP/plenipo-start.txt"
     fail "$name stopped by itself (exit $status) instead of running"
   fi
@@ -67,9 +69,11 @@ starts() {
 }
 
 sudo apt-get install -y "./$deb"
-program=$(dpkg -L plenipo | grep -E '^/usr/bin/[^/]+$' | head -n 1)
+# The list first, then searched: a search that stops early never fails the listing with it.
+installed_files="$(dpkg -L plenipo)"
+program="$(grep -E '^/usr/bin/[^/]+$' <<< "$installed_files" | sed -n 1p || true)"
 [ -n "$program" ] && [ -x "$program" ] || fail "the .deb put no program in /usr/bin"
-dpkg -L plenipo | grep -qE '^/usr/share/applications/.+\.desktop$' || fail "the .deb has no applications-list entry"
+grep -qE '^/usr/share/applications/.+\.desktop$' <<< "$installed_files" || fail "the .deb has no applications-list entry"
 starts "The installed Plenipo" "$program"
 installed_home="$started_home"
 # The AppImage unpacks itself instead of needing FUSE on the runner.

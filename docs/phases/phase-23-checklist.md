@@ -350,7 +350,10 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       Edit menu so Cmd+C and Cmd+V work, Cmd and Option in labels, "Show in Finder" (`open -R`; today
       it would fail on a Mac).
 - [ ] **The right data folder:** `~/Library/Application Support/com.eightwest.plenipo` (the uninstall
-      code looks in the Linux folder on a Mac today).
+      code looks in the Linux folder on a Mac today). "Delete my Plenipo data" (Wave 2) also
+      deletes the Mac's web-page folders (`~/Library/WebKit` and `~/Library/HTTPStorages`); it
+      still leaves `~/Library/Preferences/com.eightwest.plenipo.plist` and the saved window state,
+      which are not folders named for Plenipo. Add them here.
 - [ ] **Computer use on a Mac** is new work: there is no screen or mouse code for the Mac today. macOS
       makes the owner allow "Accessibility" and "Screen Recording" in System Settings. Plenipo
       explains why, opens the right page, and never works around it. Each step is still asked

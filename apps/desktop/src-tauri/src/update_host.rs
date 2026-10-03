@@ -12,6 +12,7 @@
 //! Release workflow (`PLENIPO_UPDATE_ENDPOINT`, `PLENIPO_UPDATER_PUBLIC_KEY` at build time).
 //! They are never read from a setting or from the environment at run time.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -80,7 +81,29 @@ pub fn own_appimage() -> Option<PathBuf> {
     if !cfg!(target_os = "linux") {
         return None;
     }
-    std::env::var_os("APPIMAGE")
+    own_appimage_from(
+        std::env::var_os("APPIMAGE"),
+        std::env::var_os("APPDIR"),
+        std::env::current_exe().ok(),
+    )
+}
+
+/// `APPIMAGE` names this copy only when the program runs from inside its unpacked folder
+/// (`APPDIR`). A Plenipo installed from the `.deb` and started from inside another AppImage (a
+/// terminal in an editor that is one) inherits that one's settings, and must never replace that
+/// program with Plenipo or start it at sign-in.
+fn own_appimage_from(
+    appimage: Option<OsString>,
+    appdir: Option<OsString>,
+    exe: Option<PathBuf>,
+) -> Option<PathBuf> {
+    let appdir = appdir
+        .map(PathBuf::from)
+        .filter(|d| d.is_absolute() && d.parent().is_some())?;
+    if !exe?.starts_with(&appdir) {
+        return None;
+    }
+    appimage
         .map(PathBuf::from)
         .filter(|p| p.is_absolute() && p.is_file())
 }
@@ -626,6 +649,32 @@ mod tests {
         let refused = tauri::async_runtime::block_on(u.download(&guard)).unwrap_err();
         assert_eq!(refused, BY_HAND);
         assert_eq!(u.status().state, UpdateState::NotChecked);
+    }
+
+    /// Phase 23: `APPIMAGE` counts only when this program runs from inside that AppImage, never
+    /// when Plenipo merely inherited another AppImage's settings.
+    #[test]
+    fn only_plenipos_own_appimage_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("Plenipo.AppImage");
+        std::fs::write(&file, b"x").unwrap();
+        let mount = dir.path().join("mount");
+        let os = |p: &Path| Some(p.as_os_str().to_owned());
+        let inside = Some(mount.join("usr").join("bin").join("plenipo-desktop"));
+        assert_eq!(
+            own_appimage_from(os(&file), os(&mount), inside.clone()),
+            Some(file.clone())
+        );
+        // Installed from the .deb, started from inside another AppImage.
+        let installed = Some(dir.path().join("usr").join("bin").join("plenipo-desktop"));
+        assert_eq!(own_appimage_from(os(&file), os(&mount), installed), None);
+        assert_eq!(own_appimage_from(os(&file), None, inside.clone()), None);
+        assert_eq!(own_appimage_from(os(&file), os(&mount), None), None);
+        assert_eq!(
+            own_appimage_from(os(&dir.path().join("gone")), os(&mount), inside),
+            None,
+            "not a file"
+        );
     }
 
     #[test]

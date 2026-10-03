@@ -655,15 +655,34 @@ async fn install<R: Runtime>(
     log::warn!("installing Plenipo {} (from {version})", release.version);
     crate::stop_work(app).await;
     crate::mark_stopped(app);
-    let started = match &appimage {
-        Some(appimage) => update_host::replace_itself(&path, appimage)
-            .and_then(|()| update_host::start_again(appimage)),
-        None => update_host::start_installer(&path),
+    // `in_place`: the AppImage is already the new version, though it could not start by itself.
+    let (started, in_place) = match &appimage {
+        Some(appimage) => match update_host::replace_itself(&path, appimage) {
+            Ok(()) => (update_host::start_again(appimage), true),
+            Err(e) => (Err(e), false),
+        },
+        None => (update_host::start_installer(&path), false),
     };
     match started {
         Ok(()) => {
             app.exit(0);
             Ok(updates.status())
+        }
+        // Restarting starts the AppImage, which is now the new version.
+        Err(e) if in_place => {
+            log::warn!("the new version is in place but did not start by itself ({e})");
+            let message = format!(
+                "Plenipo {} is in place, but it did not start by itself ({e}). The work that was \
+                 running was stopped. Plenipo restarts now, as the new version.",
+                release.version
+            );
+            if !app.try_state::<SmokeTest>().is_some_and(|s| s.is_enabled()) {
+                if let Ok(data) = app.path().app_local_data_dir() {
+                    start_close::show_after_restart(&data);
+                }
+                app.request_restart();
+            }
+            Err(CommandError::internal(message))
         }
         Err(e) => {
             let what = if appimage.is_some() {
@@ -702,6 +721,16 @@ pub async fn delete_plenipo_data<R: Runtime>(
             "On Windows, remove Plenipo in Settings → Apps and tick \"Also delete my Plenipo data\".",
         ));
     }
+    // Never in a test copy, which keeps its Ledger in memory: the folders and keys it would find
+    // are a real computer's.
+    if !matches!(
+        app.try_state::<Persistence>().as_deref(),
+        Some(Persistence::AppData)
+    ) {
+        return Err(CommandError::invalid_input(
+            "Plenipo's data is deleted only when Plenipo keeps its files",
+        ));
+    }
     if crate::work_going(&app) && !stop_work {
         return Err(CommandError::invalid_input(
             "Work is running. Deleting your data stops it; say so to go ahead.",
@@ -711,49 +740,37 @@ pub async fn delete_plenipo_data<R: Runtime>(
     let data = paths
         .app_local_data_dir()
         .map_err(|e| CommandError::internal(e.to_string()))?;
-    // Its data (with the logs), settings, and cache, and on a Mac the web pages' own folder.
-    let mac_web_pages = paths
+    // Its data (with the logs), settings, and cache, and on a Mac the web pages' own folders.
+    let mac_library = paths
         .home_dir()
         .ok()
         .filter(|_| cfg!(target_os = "macos"))
-        .map(|home| {
-            home.join("Library")
-                .join("WebKit")
-                .join(crate::uninstall::IDENTIFIER)
-        });
+        .map(|home| home.join("Library"));
+    let mac_web_pages = ["WebKit", "HTTPStorages"].map(|kind| {
+        mac_library
+            .as_ref()
+            .map(|library| library.join(kind).join(crate::uninstall::IDENTIFIER))
+    });
     let mut folders: Vec<std::path::PathBuf> = Vec::new();
     for dir in [
         paths.app_local_data_dir().ok(),
         paths.app_data_dir().ok(),
         paths.app_cache_dir().ok(),
         paths.app_config_dir().ok(),
-        mac_web_pages,
     ]
     .into_iter()
+    .chain(mac_web_pages)
     .flatten()
     {
         if !folders.contains(&dir) {
             folders.push(dir);
         }
     }
-    // The keys first: if the password store says no, nothing else is touched. A Linux PC with no
-    // password store at all cannot have any key in one, so there is nothing to remove.
-    let forgotten = tauri::async_runtime::spawn_blocking(move || {
-        let store_for = |id: &str| -> Box<dyn plenipo_capabilities::SecretStore> {
-            Box::new(plenipo_capabilities::OsSecretStore::new(
-                crate::orgs::vault_name(crate::uninstall::IDENTIFIER, id),
-            ))
-        };
-        let none = store_for(crate::orgs::FIRST).check()
-            == Err(plenipo_capabilities::vault::NO_PASSWORD_STORE.to_owned());
-        if none {
-            log::info!("this computer has no password store, so no saved key to remove");
-            return Ok(0);
-        }
-        crate::uninstall::forget_every_organizations_secrets(&data, store_for)
-    })
-    .await
-    .map_err(|e| CommandError::internal(e.to_string()))?;
+    // The keys first: if the password store says no, nothing else is touched.
+    let first = data.clone();
+    let forgotten = tauri::async_runtime::spawn_blocking(move || forget_every_key(&first))
+        .await
+        .map_err(|e| CommandError::internal(e.to_string()))?;
     if let Err(e) = forgotten {
         return Err(CommandError::invalid_input(format!(
             "Plenipo could not remove the keys it saved in {} ({e}), so nothing was deleted. \
@@ -764,6 +781,12 @@ pub async fn delete_plenipo_data<R: Runtime>(
     log::warn!("deleting Plenipo's data, as the owner asked");
     crate::stop_work(&app).await;
     crate::mark_stopped(&app);
+    // Again, now that nothing runs: a sign-in renewed while the work was stopping is not left
+    // behind.
+    if let Ok(Err(e)) = tauri::async_runtime::spawn_blocking(move || forget_every_key(&data)).await
+    {
+        log::warn!("a key saved while the work stopped could not be removed: {e}");
+    }
     if start_close::start_with_windows(&app) == Some(true) {
         let _ = start_close::set_start_with_windows(&app, false);
     }
@@ -780,6 +803,26 @@ pub async fn delete_plenipo_data<R: Runtime>(
             "Some of Plenipo's data could not be deleted: {e}. Quit Plenipo and delete it by hand."
         ))),
     }
+}
+
+/// Remove every key Plenipo saved in this computer's password store, for every organization in
+/// `data` (Delete my Plenipo data). A Linux PC with no password store has none to remove, but
+/// only when no organization says it saved one: a store that is only failing for a moment must
+/// never pass for none, or its keys would be left behind with no list of their names.
+fn forget_every_key(data: &std::path::Path) -> Result<usize, String> {
+    let store_for = |id: &str| -> Box<dyn plenipo_capabilities::SecretStore> {
+        Box::new(plenipo_capabilities::OsSecretStore::new(
+            crate::orgs::vault_name(crate::uninstall::IDENTIFIER, id),
+        ))
+    };
+    if !crate::uninstall::any_saved_ids(data)
+        && store_for(crate::orgs::FIRST).check()
+            == Err(plenipo_capabilities::vault::NO_PASSWORD_STORE.to_owned())
+    {
+        log::info!("this computer has no password store, and no key was saved in one");
+        return Ok(0);
+    }
+    crate::uninstall::forget_every_organizations_secrets(data, store_for)
 }
 
 /// Open GitHub's page for the newest version in the owner's browser, for a copy updated by
