@@ -669,24 +669,20 @@ async fn install<R: Runtime>(
     };
     // Only a download checked against 8 West's updater key can be prepared, and only a
     // prepared version can be started or put in place (`update_host::Checked`, `Prepared`).
-    let (release, checked) = updates
+    let checked = updates
         .download(&guard)
         .await
         .map_err(CommandError::invalid_input)?;
+    let release = checked.release().clone();
     let dir = app
         .path()
         .app_local_data_dir()
         .map_err(|e| CommandError::internal(e.to_string()))?
         .join(update_host::FOLDER);
     let version = app.package_info().version.to_string();
-    let (l, v, r, t) = (
-        Arc::clone(&ledger),
-        version.clone(),
-        release.clone(),
-        target.clone(),
-    );
+    let (l, v, t) = (Arc::clone(&ledger), version.clone(), target.clone());
     let prepared = tauri::async_runtime::spawn_blocking(move || {
-        update_host::prepare(&l, &dir, &v, &r, &checked, t.place())
+        update_host::prepare(&l, &dir, &v, &checked, t.place())
     })
     .await
     .map_err(|e| CommandError::internal(e.to_string()))?;

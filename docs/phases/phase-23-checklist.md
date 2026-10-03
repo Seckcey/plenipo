@@ -420,7 +420,18 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       `tar` into a hidden folder only the owner can open, and must be a real app with Plenipo's own
       program inside. It is swapped in (the old one put back if that fails) and opened again.
       Left for 3C: the release's Mac archive (`.app.tar.gz`), its updater signature, and its
-      `darwin-aarch64` and `darwin-x86_64` entries in `latest.json`.
+      `darwin-aarch64` and `darwin-x86_64` entries in `latest.json`. The release job builds the
+      archive from the runner's own fresh build, never from a downloaded or mounted copy, with
+      every folder and the program at mode 0755, and with `Plenipo.app` at its top. **To check on
+      a real Mac in 3C:** after a swap, `codesign --verify --deep --strict` and `spctl --assess`
+      pass on the new app, and `xattr -l` shows no `com.apple.quarantine` on it; `open -n` really
+      starts the just-renamed app, and it behaves in the Dock; until the app is signed with one
+      identity, each update asks again for Accessibility and Screen Recording (macOS ties them to
+      the app's signature); and an owner who renamed Plenipo is told to name it Plenipo again (the
+      update is refused, safely). **Follow-ups (not in 3A):** the restart after a swap that did
+      not start by itself does not wait for the old copy, so it can meet the old copy's
+      one-at-a-time check (as on Linux); and a start could sweep away leftover `.Plenipo.app.*.new`
+      folders next to the app.
 - [ ] **End-to-end tests on a Mac:** Tauri's own test driver does not support Macs. Use WebdriverIO's
       driver built into **test copies only**; a release check proves it is not inside the real app
       (it would let any program on the Mac drive Plenipo). A paid driver (CrabNebula) is the backup.

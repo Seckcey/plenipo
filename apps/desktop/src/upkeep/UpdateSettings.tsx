@@ -211,9 +211,9 @@ export function UpdateSettings() {
         </li>
         {byHand && systemWords().system === "mac" ? (
           <li>
-            Move Plenipo to your Applications folder, and it updates itself. Until then, Plenipo
-            tells you when a new version is ready, and you download it and install it by hand. Your
-            Ledger and settings are kept.
+            Move Plenipo to the Applications folder on your Mac&apos;s own disk, and it updates
+            itself. Until then, Plenipo tells you when a new version is ready, and you download it
+            and install it by hand. Your Ledger and settings are kept.
           </li>
         ) : byHand ? (
           <li>

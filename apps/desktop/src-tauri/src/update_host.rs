@@ -266,7 +266,7 @@ impl Updates {
 
     /// Download the newer release and check it. Fails, leaving everything as it was, when
     /// there is none, this copy cannot install, or the check fails.
-    pub async fn download(&self, guard: &Guard) -> Result<(Release, Checked), String> {
+    pub async fn download(&self, guard: &Guard) -> Result<Checked, String> {
         let release = self
             .available()
             .ok_or("There is no newer version to install. Check for updates first.")?;
@@ -286,7 +286,7 @@ impl Updates {
             inner.message = None;
         }
         match updates::download(guard, &self.source, &release).await {
-            Ok(bytes) => Ok((release, Checked(bytes))),
+            Ok(bytes) => Ok(Checked { release, bytes }),
             Err(e) => {
                 let message = format!(
                     "The update was not installed: {e}. Plenipo {} is still installed.",
@@ -317,8 +317,9 @@ pub const BY_HAND: &str =
                            updated the same way: choose Download the new version, then install it.";
 /// The same for a Mac app that cannot replace itself where it is (Phase 23).
 pub const BY_HAND_MAC: &str =
-    "Plenipo updates itself once it is in your Applications folder: quit Plenipo, drag it \
-     to Applications, and open it from there. Until then, choose Download the new version.";
+    "Plenipo updates itself once it is in the Applications folder on your Mac's own disk: \
+     quit Plenipo, drag it there, and open it from there. Until then, choose Download the new \
+     version.";
 
 /// Why this copy is updated by hand, in its own system's words.
 pub fn by_hand() -> &'static str {
@@ -347,13 +348,29 @@ fn announce(ledger: &Ledger, version: &str) {
     });
 }
 
-/// A new version's bytes, checked against 8 West's updater key for exactly its version. Only
-/// [`Updates::download`] makes one, so nothing else can be prepared or installed.
-pub struct Checked(Vec<u8>);
+/// A new version's bytes, with the release they were checked for: checked against 8 West's
+/// updater key for exactly that version. Only [`Updates::download`] makes one, so nothing else
+/// can be prepared or installed, and the bytes can never be paired with another version.
+pub struct Checked {
+    release: Release,
+    bytes: Vec<u8>,
+}
+
+impl Checked {
+    /// The release these bytes were checked for.
+    pub fn release(&self) -> &Release {
+        &self.release
+    }
+}
 
 impl std::fmt::Debug for Checked {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Checked({} bytes)", self.0.len())
+        write!(
+            f,
+            "Checked({}, {} bytes)",
+            self.release.version,
+            self.bytes.len()
+        )
     }
 }
 
@@ -380,15 +397,16 @@ pub enum Place<'a> {
 }
 
 /// Before stopping the work: back up the Ledger ("before updating to …"), ready the checked new
-/// version in its `place`, and record what is about to happen.
+/// version in its `place`, and record what is about to happen. The version is the one the bytes
+/// were checked for.
 pub fn prepare(
     ledger: &Ledger,
     dir: &Path,
     from: &str,
-    release: &Release,
     checked: &Checked,
     place: Place<'_>,
 ) -> Result<Prepared, String> {
+    let release = &checked.release;
     let backup = if ledger.path().is_some() {
         let info = ledger
             .backup_of_kind(BackupKind::BeforeUpdate, Some(&release.version))
@@ -414,7 +432,7 @@ pub fn prepare(
         // Next to the app it replaces, on the same disk, so the swap is one step; hidden until
         // then.
         #[cfg(unix)]
-        Place::MacApp(bundle) => unpack_app(checked, bundle, &release.version)?,
+        Place::MacApp(bundle) => unpack_app(checked, bundle)?,
         #[cfg(not(unix))]
         Place::MacApp(_) => return Err("A Mac app is updated on a Mac.".into()),
         Place::AppImage(appimage) => {
@@ -457,7 +475,7 @@ pub fn prepare(
 
 /// Write the checked new version to `path`.
 fn save(path: &Path, checked: &Checked) -> Result<(), String> {
-    std::fs::write(path, &checked.0).map_err(|e| {
+    std::fs::write(path, &checked.bytes).map_err(|e| {
         let folder = path
             .parent()
             .map_or_else(String::new, |p| p.display().to_string());
@@ -545,12 +563,12 @@ fn own_app_bundle_from(program: &Path) -> Option<PathBuf> {
 /// writes outside the folder it is given). The new app must then be a real folder holding a real
 /// `Info.plist` and the same program as this one, never a link.
 #[cfg(unix)]
-fn unpack_app(checked: &Checked, bundle: &Path, version: &str) -> Result<PathBuf, String> {
+fn unpack_app(checked: &Checked, bundle: &Path) -> Result<PathBuf, String> {
     let program = std::env::current_exe()
         .ok()
         .and_then(|p| p.file_name().map(ToOwned::to_owned))
         .ok_or("Plenipo could not tell its own program's name")?;
-    unpack_app_named(&checked.0, bundle, version, &program)
+    unpack_app_named(&checked.bytes, bundle, &checked.release.version, &program)
 }
 
 #[cfg(unix)]
@@ -579,8 +597,8 @@ fn unpack_app_named(
     made.map_err(|e| {
         let _ = std::fs::remove_dir_all(&folder);
         format!(
-            "The update was not installed: Plenipo cannot write next to itself ({e}). Move \
-             Plenipo to your Applications folder, then try again."
+            "The update was not installed: Plenipo cannot write in the folder it is in ({e}). \
+             Download the new version and install it by hand."
         )
     })?;
     let archive = folder.join("update.tar.gz");
@@ -607,10 +625,29 @@ fn unpack_app_named(
         && real(&contents.join("Info.plist"), false)
         && real(&contents.join("MacOS"), true)
         && real(&contents.join("MacOS").join(program), false);
+    // An app the owner renamed: the release's app (`Plenipo.app`) unpacked, under another name.
+    let renamed = unpacked
+        && !whole
+        && std::fs::read_dir(&into).is_ok_and(|mut entries| {
+            entries.any(|e| {
+                e.is_ok_and(|e| {
+                    Path::new(&e.file_name())
+                        .extension()
+                        .is_some_and(|x| x == "app")
+                })
+            })
+        });
     if unpacked && whole {
-        Ok(new)
+        return Ok(new);
+    }
+    let _ = std::fs::remove_dir_all(&folder);
+    if renamed {
+        Err(format!(
+            "The update was not installed: Plenipo was renamed ({}), so the new version could \
+             not take its place. Name it Plenipo again, then try again.",
+            name.to_string_lossy()
+        ))
     } else {
-        let _ = std::fs::remove_dir_all(&folder);
         Err("The update was not installed: the new version could not be unpacked.".into())
     }
 }
@@ -636,8 +673,16 @@ pub fn replace_app(new: &Prepared, bundle: &Path) -> std::io::Result<()> {
         })
         .map(Path::to_path_buf);
     let swapped = std::fs::rename(bundle, &old).and_then(|()| {
-        std::fs::rename(new, bundle).inspect_err(|_| {
-            let _ = std::fs::rename(&old, bundle);
+        std::fs::rename(new, bundle).map_err(|e| match std::fs::rename(&old, bundle) {
+            Ok(()) => e,
+            // Neither is in place: say where the old one is, so the owner can name it back.
+            Err(_) => std::io::Error::other(format!(
+                "{e}; the old Plenipo is kept as {} in {}: rename it back to {}",
+                old.file_name().unwrap_or_default().to_string_lossy(),
+                old.parent()
+                    .map_or_else(String::new, |p| p.display().to_string()),
+                name.to_string_lossy()
+            )),
         })
     });
     if let Some(folder) = hidden {
@@ -804,8 +849,10 @@ mod tests {
             &l,
             &updates,
             "1.9.0",
-            &release("1.10.0"),
-            &Checked(b"MZ installer".to_vec()),
+            &Checked {
+                release: release("1.10.0"),
+                bytes: b"MZ installer".to_vec(),
+            },
             Place::Installer,
         )
         .unwrap();
@@ -837,8 +884,10 @@ mod tests {
             &l,
             &dir.path().join(FOLDER),
             "1.9.0",
-            &release("1.10.0"),
-            &Checked(b"new".to_vec()),
+            &Checked {
+                release: release("1.10.0"),
+                bytes: b"new".to_vec(),
+            },
             Place::AppImage(&appimage),
         )
         .unwrap();
@@ -1015,6 +1064,20 @@ mod tests {
         let macos = linked.join("Plenipo.app").join("Contents").join("MacOS");
         std::os::unix::fs::symlink(macos.join("other"), macos.join("plenipo-desktop")).unwrap();
         assert!(refused(&tar("linked", &linked)));
+        assert!(leftovers().is_empty(), "{:?}", leftovers());
+        // An app the owner renamed: the release's Plenipo.app cannot take its place, and it says why.
+        let renamed = apps.join("Plenipo 2.app");
+        make(&apps, "plenipo-desktop", "old", true);
+        std::fs::rename(&bundle, &renamed).unwrap();
+        let why = unpack_app_named(
+            &pack("for-renamed", "plenipo-desktop", true),
+            &renamed,
+            "1.24.0",
+            program,
+        )
+        .unwrap_err();
+        assert!(why.contains("Plenipo was renamed (Plenipo 2.app)"), "{why}");
+        std::fs::rename(&renamed, &bundle).unwrap();
         assert!(leftovers().is_empty(), "{:?}", leftovers());
 
         let new = unpack_app_named(

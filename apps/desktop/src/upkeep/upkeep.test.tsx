@@ -330,7 +330,7 @@ describe("Settings → Updates", () => {
     inPage(<UpdateSettings />);
     expect(await screen.findByText(/Plenipo 1.10.0 is ready to download/)).toBeInTheDocument();
     expect(
-      screen.getByText(/Move Plenipo to your Applications folder, and it updates itself/),
+      screen.getByText(/Move Plenipo to the Applications folder on your Mac's own disk/),
     ).toBeInTheDocument();
     expect(screen.queryByText(/never changes itself/)).toBeNull();
   });
