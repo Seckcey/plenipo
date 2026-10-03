@@ -13,6 +13,7 @@ import { useAiTools } from "./aiTools/useAiTools";
 import { AUTO_UPDATE_HINT, AUTO_UPDATE_LABEL } from "./aiTools/words";
 import { Toggle } from "./SwitchSettings";
 import type { Go } from "./views";
+import { systemWords } from "../system/words";
 
 /**
  * Each AI tool in one place (Phase 19): sign in, see its usage, see how it is paid for, keep it up
@@ -132,7 +133,7 @@ export function AgentRuntimeCards({
       <p className="muted">
         Plenipo uses the AI tools already signed in on this computer, with their subscriptions, and
         never sees your passwords. To pay per use instead, put your own key in the key box on a
-        card: it is typed only here and kept in Windows Credential Manager. Plenipo never updates an
+        card: it is typed only here and kept in {systemWords().keyStore}. Plenipo never updates an
         AI tool while a task is using it.
       </p>
       {paid.length > 0 && (

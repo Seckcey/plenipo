@@ -341,17 +341,19 @@ pub fn record(
 }
 
 /// What happened, in a plain sentence (times are shown by the window, in local time).
-pub fn sentence(cause: RecoveryCause) -> &'static str {
+pub fn sentence(cause: RecoveryCause) -> String {
     match cause {
-        RecoveryCause::Crash => "Plenipo closed unexpectedly.",
-        RecoveryCause::WindowsRestart => {
-            "Windows closed Plenipo (a restart, a shutdown, or signing out) while it was running."
-        }
-        RecoveryCause::LayoutChange => {
-            "Plenipo was stopped while it was updating the Ledger's layout; the unfinished step \
-             was undone and done again."
-        }
-        RecoveryCause::Unknown => "Plenipo did not close normally last time.",
+        RecoveryCause::Crash => "Plenipo closed unexpectedly.".to_owned(),
+        // "Windows closed Plenipo", "Your Mac closed Plenipo" (ADR-155).
+        RecoveryCause::WindowsRestart => format!(
+            "{} closed Plenipo (a restart, a shutdown, or {}) while it was running.",
+            plenipo_core::words::sentence_start(plenipo_core::WORDS.the_system),
+            plenipo_core::WORDS.signing_out
+        ),
+        RecoveryCause::LayoutChange => "Plenipo was stopped while it was updating the Ledger's \
+                                        layout; the unfinished step was undone and done again."
+            .to_owned(),
+        RecoveryCause::Unknown => "Plenipo did not close normally last time.".to_owned(),
     }
 }
 

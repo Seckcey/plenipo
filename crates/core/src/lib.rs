@@ -7,6 +7,7 @@
 pub mod dto;
 pub mod organizations;
 pub mod upkeep;
+pub mod words;
 pub mod workspace;
 
 pub use dto::{
@@ -20,6 +21,7 @@ pub use upkeep::{
     SettingsProblem, StartAndClose, StartAndCloseInput, StoppedTask, UpdateState, UpdateStatus,
     WindowRecovery,
 };
+pub use words::{System, SystemWords, Words, WORDS};
 pub use workspace::{PanelId, PopOutNotice, WindowPlace};
 
 /// Human-facing product name.

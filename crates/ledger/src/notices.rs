@@ -176,11 +176,15 @@ fn capitalized(s: &str) -> String {
 
 /// Plenipo started again after an unclean end (Phase 13): what happened and what stopped.
 fn recovered_notice(p: &Value) -> Notice {
+    // "Windows closed Plenipo", "Your Mac closed Plenipo" (ADR-155); the cause keeps its name.
     let title = match text(p, "cause") {
-        Some("windowsRestart") => "Windows closed Plenipo while it was running",
-        Some("layoutChange") => "Plenipo was stopped while updating the Ledger",
-        Some("crash") => "Plenipo closed unexpectedly",
-        _ => "Plenipo did not close normally",
+        Some("windowsRestart") => format!(
+            "{} closed Plenipo while it was running",
+            plenipo_core::words::sentence_start(plenipo_core::WORDS.the_system)
+        ),
+        Some("layoutChange") => "Plenipo was stopped while updating the Ledger".to_owned(),
+        Some("crash") => "Plenipo closed unexpectedly".to_owned(),
+        _ => "Plenipo did not close normally".to_owned(),
     };
     let stopped = p["stoppedTasks"].as_array().map_or(0, Vec::len);
     let programs = p["stoppedPrograms"].as_u64().unwrap_or(0);
@@ -931,7 +935,16 @@ mod tests {
         assert!(may_notify(&recovered.event_type));
         let n = l.notice_for(&recovered, &tool).unwrap().unwrap();
         assert_eq!(n.kind, NoticeKind::Plenipo);
-        assert_eq!(n.title, "Windows closed Plenipo while it was running");
+        assert_eq!(
+            n.title,
+            format!(
+                "{} closed Plenipo while it was running",
+                plenipo_core::words::sentence_start(plenipo_core::WORDS.the_system)
+            )
+        );
+        if cfg!(windows) {
+            assert_eq!(n.title, "Windows closed Plenipo while it was running");
+        }
         assert!(n.body.starts_with("2 tasks were stopped."), "{}", n.body);
         // No task, but a program was running: it says so, not "nothing".
         let program = l

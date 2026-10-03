@@ -323,7 +323,7 @@ describe("OwnerButton", () => {
     renderButton();
     const { user, panel } = await openPanel();
     const hint =
-      "Windows pop-up notices wait while this is on and come as one when you turn it off; the bell still counts them.";
+      "Pop-up notices from Windows wait while this is on and come as one when you turn it off; the bell still counts them.";
     expect(within(panel).queryByText(hint)).not.toBeInTheDocument();
     const dnd = within(panel).getByRole("radio", { name: "Do not disturb" });
     await user.click(dnd);

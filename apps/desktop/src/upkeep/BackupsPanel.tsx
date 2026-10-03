@@ -14,6 +14,7 @@ import { useLive } from "../pages/useLive";
 import { when } from "../pages/words";
 import { backupKind } from "./words";
 import { useShown } from "./useShown";
+import { systemWords } from "../system/words";
 
 /**
  * The Ledger's backups and Restore (Phase 13): made once a day, before a new version first
@@ -209,9 +210,9 @@ export function DiagnosticsFileButton() {
         </Button>
       </div>
       <p className="muted">
-        One file to send when something went wrong: this version, Windows, the Ledger&apos;s health,
-        how Plenipo last stopped, the AI tools it found, and its log files. No tasks, no answers,
-        nothing you typed in the terminal, and no secrets.
+        One file to send when something went wrong: this version, {systemWords().systemName}, the
+        Ledger&apos;s health, how Plenipo last stopped, the AI tools it found, and its log files. No
+        tasks, no answers, nothing you typed in the terminal, and no secrets.
       </p>
       {file && (
         <div className="status status--ok" role="status">

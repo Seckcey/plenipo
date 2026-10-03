@@ -4368,6 +4368,7 @@ dependencies = [
  "log",
  "minisign",
  "minisign-verify",
+ "plenipo-core",
  "plenipo-guard",
  "plenipo-ledger",
  "plenipo-liaison",
@@ -4461,6 +4462,7 @@ dependencies = [
 name = "plenipo-ledger"
 version = "1.20.0"
 dependencies = [
+ "plenipo-core",
  "rusqlite",
  "serde",
  "serde_json",
@@ -4544,6 +4546,7 @@ dependencies = [
  "hkdf 0.13.0",
  "log",
  "p256",
+ "plenipo-core",
  "plenipo-guard",
  "plenipo-licensing",
  "plenipo-relay-contract",
@@ -4580,6 +4583,7 @@ dependencies = [
  "dunce",
  "libc",
  "nix 0.31.3",
+ "plenipo-core",
  "process-wrap",
  "serde",
  "serde_json",

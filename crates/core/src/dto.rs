@@ -36,6 +36,8 @@ pub struct AppInfo {
     pub os: String,
     /// CPU architecture, e.g. `x86_64`, `aarch64`.
     pub arch: String,
+    /// The words this system uses on screen (Phase 23, ADR-155).
+    pub words: crate::SystemWords,
 }
 
 impl AppInfo {
@@ -47,6 +49,7 @@ impl AppInfo {
             build_profile: BuildProfile::current(),
             os: std::env::consts::OS.to_owned(),
             arch: std::env::consts::ARCH.to_owned(),
+            words: crate::WORDS.into(),
         }
     }
 }
@@ -139,8 +142,11 @@ mod tests {
             build_profile: BuildProfile::Release,
             os: "windows".into(),
             arch: "x86_64".into(),
+            words: (&crate::words::WINDOWS).into(),
         };
-        let value = serde_json::to_value(&info).unwrap();
+        let mut value = serde_json::to_value(&info).unwrap();
+        assert_eq!(value["words"]["thisComputer"], "this PC");
+        value.as_object_mut().unwrap().remove("words");
         assert_eq!(
             value,
             json!({
@@ -161,6 +167,7 @@ mod tests {
         assert_eq!(info, back);
         assert_eq!(back.name, crate::PRODUCT_NAME);
         assert_eq!(back.os, std::env::consts::OS);
+        assert_eq!(back.words.system, crate::System::current());
     }
 
     #[test]

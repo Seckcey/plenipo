@@ -29,6 +29,7 @@ import { CodeEditor } from "./CodeEditor";
 import { editorState, SAVE_EVENT, type LineMark } from "./editorSetup";
 import { editorStore, useEditorFiles } from "./editorStore";
 import { folderOf, nameOf, parseFileKey, sizeWords } from "./refs";
+import { shortcut, systemWords } from "../system/words";
 
 /** A worker's change to this file, showing as it lands (ADR-093 §15). */
 interface Live {
@@ -362,7 +363,7 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
     ...(view.runs
       ? []
       : [{ id: "outside", label: "Open in another program", icon: "external" as const }]),
-    { id: "folder", label: "Show in folder", icon: "projects" as const },
+    { id: "folder", label: systemWords().showFile, icon: "projects" as const },
   ];
   return (
     <div className="file-editor" ref={box}>
@@ -384,7 +385,7 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
               variant="primary"
               disabled={readOnly || !unsaved || saving || hidden}
               onClick={() => save(false)}
-              title="Save (Ctrl+S)"
+              title={`Save (${shortcut(["mod"], "S")})`}
             >
               Save
             </Button>
@@ -528,7 +529,7 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
                 </Button>
               )}
               <Button size="sm" variant="quiet" onClick={() => act(() => showInFolder(root, path))}>
-                Show in folder
+                {systemWords().showFile}
               </Button>
             </div>
           </EmptyState>

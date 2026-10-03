@@ -19,6 +19,22 @@ const FAKE_AGENT = resolve(
 );
 const PORT = 4444;
 
+/**
+ * The words the app uses on this system ("this PC", "this Mac", "this computer"; Phase 23,
+ * ADR-155), read from the list `pnpm bindings` writes from crates/core/src/words.rs.
+ */
+export const WORDS = (() => {
+  const file = readFileSync(
+    join(root, "packages", "types", "src", "generated", "everySystemsWords.ts"),
+    "utf8",
+  );
+  const all = JSON.parse(file.slice(file.indexOf("= {") + 2, file.lastIndexOf("}") + 1));
+  return all[{ win32: "windows", darwin: "mac" }[process.platform] ?? "linux"];
+})();
+/** "This PC", "This Mac", "This computer". */
+export const THIS_COMPUTER =
+  WORDS.thisComputer.charAt(0).toUpperCase() + WORDS.thisComputer.slice(1);
+
 /** A fresh, isolated HOME so each run has its own app data. */
 export function makeHome() {
   return mkdtempSync(join(tmpdir(), "plenipo-e2e-"));

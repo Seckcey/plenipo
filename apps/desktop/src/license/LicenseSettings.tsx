@@ -11,6 +11,7 @@ import {
 import { when } from "../pages/words";
 import { useLicense } from "./useLicense";
 import { WHERE_TO_BUY, day, editionName, organizationsLine, planLine, reasonWords } from "./words";
+import { sentenceStart, systemWords } from "../system/words";
 
 type Busy = "enter" | "check" | "remove" | null;
 
@@ -78,9 +79,11 @@ export function LicenseSettings() {
       {view.clockAheadDays !== null && (
         <p className="notice-box" role="note">
           <strong>
-            This PC&apos;s clock is {view.clockAheadDays} days ahead of 8 West&apos;s.
+            {sentenceStart(systemWords().thisComputer)}&apos;s clock is {view.clockAheadDays} days
+            ahead of 8 West&apos;s.
           </strong>{" "}
-          Set the right date and time in Windows, then choose <strong>Check now</strong>.
+          Set the right date and time on {systemWords().thisComputer}, then choose{" "}
+          <strong>Check now</strong>.
         </p>
       )}
       {view.problem && view.edition === "pro" && (
@@ -185,8 +188,9 @@ export function LicenseSettings() {
             onChange={(e) => setKey(e.target.value)}
           />
           <small className="muted">
-            Paste the whole key from the email 8 West sent you. It is checked on this PC, kept in
-            the Vault, and never shown again. Pro starts at once, with no restart.
+            Paste the whole key from the email 8 West sent you. It is checked on{" "}
+            {systemWords().thisComputer}, kept in the Vault, and never shown again. Pro starts at
+            once, with no restart.
           </small>
         </label>
         <div className="settings-section__actions">

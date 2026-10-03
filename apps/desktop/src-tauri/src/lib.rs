@@ -3331,7 +3331,8 @@ mod ipc_boundary_tests {
         let app = app();
         let main = window(&app, "main");
         let settings: TerminalSettings = body(invoke(&main, "get_terminal_settings"));
-        assert_eq!(settings.shells.len(), 3);
+        // Windows' three shells, or a Mac's and Linux's four (the owner's own, zsh, bash, fish).
+        assert_eq!(settings.shells.len(), if cfg!(windows) { 3 } else { 4 });
         assert!(settings.open.is_empty());
         let open = |place: serde_json::Value| serde_json::json!({ "place": place, "cols": 80, "rows": 24, "events": "__CHANNEL__:7" });
         // A place, never a program: anything more, or a server ID that is not an ID, is refused.
@@ -3363,7 +3364,10 @@ mod ipc_boundary_tests {
             "open_terminal",
             open(serde_json::json!({ "kind": "thisPc" })),
         ));
-        assert_eq!(info.title, "This PC");
+        assert_eq!(
+            info.title,
+            plenipo_core::words::sentence_start(plenipo_core::WORDS.this_computer)
+        );
         let id = info.id.clone();
         let typed = serde_json::json!({ "terminalId": id, "data": "echo hi\r" });
         let size = serde_json::json!({ "terminalId": id, "cols": 100, "rows": 30 });
@@ -4868,7 +4872,7 @@ mod ipc_boundary_tests {
             (
                 "update_ai_tool",
                 serde_json::json!({ "runtimeId": "codex", "command": "npm install" }),
-                "Codex is not installed on this PC, so there is nothing to update",
+                "so there is nothing to update",
             ),
             (
                 "set_ai_tool_payment",
