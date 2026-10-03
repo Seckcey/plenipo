@@ -39,8 +39,8 @@ const MONTHS = [
 ] as const;
 
 /** A day in Unix seconds, as a date in the person's own language and time zone. */
-function onDate(seconds: bigint | number): string {
-  return new Date(Number(seconds) * 1000).toLocaleDateString([], {
+function onDate(seconds: number): string {
+  return new Date(seconds * 1000).toLocaleDateString([], {
     year: "numeric",
     month: "long",
     day: "numeric",

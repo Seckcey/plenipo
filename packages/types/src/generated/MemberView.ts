@@ -19,4 +19,4 @@ canStart: boolean,
 /**
  * `ok`, `paused`, or `ended`.
  */
-standing: string, pausedUntil: bigint | null, appearOffline: boolean, };
+standing: string, pausedUntil: number | null, appearOffline: boolean, };

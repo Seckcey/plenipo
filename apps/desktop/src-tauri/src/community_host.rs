@@ -38,9 +38,10 @@ pub const COMMUNITY_EVENT: &str = "plenipo://community";
 pub const CONFIG_FILE: &str = "community.json";
 /// 8 West's account service.
 pub const ACCOUNT_ORIGIN: &str = "https://account.getplenipo.com";
-/// The published terms, opened in the owner's own browser (the attorney's approved text lives
-/// there, never in Plenipo: ADR-170 §8).
-pub const TERMS_PAGE: &str = "https://getplenipo.com/legal/terms";
+/// The published terms of service, opened in the owner's own browser. The Community terms join
+/// them once the attorney approves (`docs/legal/phase-24`); the approved text lives there, never
+/// in Plenipo (ADR-170 §8).
+pub const TERMS_PAGE: &str = "https://getplenipo.com/terms/";
 /// How often a closed Community is checked again, while the switch is on (ADR-170 §4).
 const CLOSED_LOOK_EVERY: Duration = Duration::from_secs(60 * 60);
 

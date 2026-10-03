@@ -21,7 +21,7 @@ code: string | null,
 /**
  * When the code runs out (Unix seconds).
  */
-codeExpiresAt: bigint | null, 
+codeExpiresAt: number | null, 
 /**
  * "Signed in as Frank Gonzalez".
  */

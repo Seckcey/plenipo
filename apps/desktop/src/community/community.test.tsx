@@ -55,7 +55,7 @@ function community(patch: Partial<CommunityView> = {}): CommunityView {
   };
 }
 
-const signingIn = community({ stage: "signingIn", code: "4KQ-7TD", codeExpiresAt: 1_790_000_000n });
+const signingIn = community({ stage: "signingIn", code: "4KQ-7TD", codeExpiresAt: 1_790_000_000 });
 const joining = community({
   stage: "joining",
   accountName: "Frank Gonzalez",
@@ -601,7 +601,7 @@ describe("Settings → Community", () => {
     const until = Math.floor(Date.UTC(2026, 10, 15, 12) / 1000);
     api.getCommunity.mockResolvedValue({
       ...signedIn,
-      member: { ...member, standing: "paused", pausedUntil: BigInt(until) },
+      member: { ...member, standing: "paused", pausedUntil: until },
     });
     inPage(<CommunitySettings go={go} />);
     const paused = await screen.findByText(/8 West paused your Community/);
