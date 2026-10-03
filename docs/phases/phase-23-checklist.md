@@ -345,15 +345,47 @@ This is the safety wave. No Mac or Linux download comes from it, and Windows own
       malware check), with the secrets in the GitHub Environment `release` behind the owner's approval,
       like Windows (ADR-052). The release job checks the signature, the notarization, and that macOS
       will open it, just as it checks the Windows signature today.
+      **Waiting (2026-10-03):** 8 West Ventures, LLC has a free Apple account, not the paid Apple
+      Developer Program. A free account cannot make a Developer ID certificate or notarize, so
+      this item and the Mac download wait until the owner enrolls (an organization, $99 a year,
+      with the D-U-N-S number; Apple checks the company first, which can take days).
+      **The other choice: an unsigned test build, for the owner's own MacBook only** (never a
+      public download, never in a release). **Building it:** nothing new. The Release workflow's dry run already builds the Mac app,
+      unsigned, for Apple's chips and Intel. It is kept as a download for 7 days and published
+      nowhere. Signing it with no name ("ad hoc", `signingIdentity: "-"` in
+      `tauri.macos.conf.json`) is worth adding, because an Apple-chip Mac may call an app with
+      no signature at all "damaged". **What the owner sees:** macOS says Apple could not check it for malware and will not open
+      it. On macOS 13 and 14: right-click Plenipo → Open → Open. On macOS 15 and later: try to
+      open it once, then System Settings → Privacy & Security → "Open Anyway". If it says
+      "damaged", the app has no valid signature: in Terminal,
+      `xattr -dr com.apple.quarantine /Applications/Plenipo.app` lets it open. **What does not work the same:** every new test build looks like a different app to
+      macOS, so the Keychain asks again before Plenipo can use its saved keys. Accessibility and
+      Screen Recording (computer use, Wave 3B) must be allowed again for each build. Plenipo
+      does not update itself (its update list has no Mac entry); each test build is downloaded
+      by hand. **So:** the test build is good for checking that Plenipo looks and works right on a Mac
+      (the menu bar, the Dock, copy and paste, the browser, the terminal). It is not for daily
+      use and not for anyone else. Signing waits for the enrollment.
 - [ ] **One download for every Mac** (Apple's chips and Intel), as a `.dmg`.
 - [ ] **Fit in on a Mac:** a menu bar icon, clicking the Dock icon brings the window back, the system's
       Edit menu so Cmd+C and Cmd+V work, Cmd and Option in labels, "Show in Finder" (`open -R`; today
       it would fail on a Mac).
+      **Pop-out windows (unconfirmed, from reading the code):** the page opens a pop-out only after
+      waiting for Plenipo, and Apple's web engine may then block it as a window nobody clicked
+      for. Linux turns on a setting that allows it; on a Mac that setting can only be reached
+      with `unsafe` code, which this workspace forbids. Check on the first Mac test build. If Pop
+      out fails there, the fix is on the page's side: it asks Plenipo before the click finishes,
+      so it opens the window at once (decided 2026-10-03). An exception to the no-`unsafe` rule
+      would need the owner's own decision and is not the plan.
 - [ ] **The right data folder:** `~/Library/Application Support/com.eightwest.plenipo` (the uninstall
       code looks in the Linux folder on a Mac today). "Delete my Plenipo data" (Wave 2) also
-      deletes the Mac's web-page folders (`~/Library/WebKit` and `~/Library/HTTPStorages`); it
-      still leaves `~/Library/Preferences/com.eightwest.plenipo.plist` and the saved window state,
-      which are not folders named for Plenipo. Add them here.
+      deletes Plenipo's own web-page folders, `~/Library/WebKit/com.eightwest.plenipo` and
+      `~/Library/HTTPStorages/com.eightwest.plenipo` (never `~/Library/WebKit` or
+      `~/Library/HTTPStorages` themselves, which belong to every app); it still leaves
+      `~/Library/Preferences/com.eightwest.plenipo.plist` and the saved window state, which are not
+      folders named for Plenipo. Add them here.
+      Wave 3A, step 1: the uninstall code finds the Mac's data folder in Application Support, and
+      `mac_leftovers` / `delete_leftovers` delete those two, only by their exact names in their own
+      `Library` folders; step 2 hooks them into "Delete my Plenipo data".
 - [ ] **Computer use on a Mac** is new work: there is no screen or mouse code for the Mac today. macOS
       makes the owner allow "Accessibility" and "Screen Recording" in System Settings. Plenipo
       explains why, opens the right page, and never works around it. Each step is still asked
