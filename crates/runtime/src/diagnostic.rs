@@ -2,7 +2,8 @@
 //!
 //! Plenipo runs its own executable with `--plenipo-diagnostic=<scenario>` to exercise the
 //! supervisor end to end without depending on any external program. These scenarios only
-//! print text, sleep, and exit; `tree` additionally starts one copy of itself.
+//! print text, sleep, and exit; `tree` and `leaves-its-group` additionally start one copy of
+//! themselves (the second, on a Mac and Linux, in a session of its own, as a daemon does).
 
 use std::io::Write as _;
 use std::time::Duration;
@@ -12,6 +13,9 @@ pub const GREETING_VAR: &str = "PLENIPO_DIAGNOSTIC_GREETING";
 
 /// Safety cap so a diagnostic child can never run forever on its own.
 const MAX_HEARTBEATS: u32 = 1200;
+/// The file, in its working folder, where a `detached` copy writes its process ID once it has
+/// left its group.
+pub const DETACHED_PID_FILE: &str = "detached.pid";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scenario {
@@ -29,6 +33,14 @@ pub enum Scenario {
     Burst,
     /// Reads stdin to the end, echoes each line as `stdin: <line>`, then the byte count.
     Stdin,
+    /// Starts a `detached` copy of itself (holding none of its output), waits until the copy has
+    /// left the group, prints its PID, then heartbeats (ADR-158).
+    LeavesItsGroup,
+    /// As `LeavesItsGroup`, but exits as soon as the copy has left.
+    LeavesItsGroupAndEnds,
+    /// On a Mac and Linux, starts a session of its own (leaving its process group, as a daemon
+    /// does), writes its PID to [`DETACHED_PID_FILE`], then heartbeats.
+    Detached,
 }
 
 impl Scenario {
@@ -41,6 +53,9 @@ impl Scenario {
             Self::Tree => "tree",
             Self::Burst => "burst",
             Self::Stdin => "stdin",
+            Self::LeavesItsGroup => "leaves-its-group",
+            Self::LeavesItsGroupAndEnds => "leaves-its-group-and-ends",
+            Self::Detached => "detached",
         }
     }
 
@@ -53,6 +68,9 @@ impl Scenario {
             Self::Tree,
             Self::Burst,
             Self::Stdin,
+            Self::LeavesItsGroup,
+            Self::LeavesItsGroupAndEnds,
+            Self::Detached,
         ]
         .into_iter()
         .find(|s| s.name() == name)
@@ -98,6 +116,9 @@ pub fn run(scenario: Scenario) -> i32 {
             0
         }
         Scenario::Tree => tree(),
+        Scenario::LeavesItsGroup => leaver(false),
+        Scenario::LeavesItsGroupAndEnds => leaver(true),
+        Scenario::Detached => detached(),
         Scenario::Burst => {
             for i in 1..=5000 {
                 out(&format!("burst line {i}"));
@@ -180,6 +201,58 @@ fn tree() -> i32 {
     }
 }
 
+/// Start a `detached` copy holding none of this run's output, wait until it has left the group
+/// (its PID file appears), print its PID, then heartbeat or end.
+fn leaver(ends: bool) -> i32 {
+    use std::process::Stdio;
+
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            err(&format!("cannot locate executable: {e}"));
+            return 1;
+        }
+    };
+    let _ = std::fs::remove_file(DETACHED_PID_FILE);
+    let child = match std::process::Command::new(exe)
+        .arg(arg(Scenario::Detached))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(e) => {
+            err(&format!("cannot start child: {e}"));
+            return 1;
+        }
+    };
+    for _ in 0..100 {
+        if std::fs::read_to_string(DETACHED_PID_FILE).is_ok_and(|t| !t.trim().is_empty()) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    out(&format!("child-pid:{}", child.id()));
+    if ends {
+        0
+    } else {
+        heartbeat("parent heartbeat")
+    }
+}
+
+/// Leave the process group in a session of its own (a Mac and Linux), say so in the PID file,
+/// then heartbeat until ended (capped, like every scenario).
+fn detached() -> i32 {
+    #[cfg(unix)]
+    if let Err(e) = nix::unistd::setsid() {
+        err(&format!("cannot start a session: {e}"));
+        return 1;
+    }
+    let _ = std::fs::write(DETACHED_PID_FILE, std::process::id().to_string());
+    heartbeat("detached heartbeat")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,6 +267,9 @@ mod tests {
             Scenario::Tree,
             Scenario::Burst,
             Scenario::Stdin,
+            Scenario::LeavesItsGroup,
+            Scenario::LeavesItsGroupAndEnds,
+            Scenario::Detached,
         ] {
             assert_eq!(Scenario::parse(s.name()), Some(s));
         }
