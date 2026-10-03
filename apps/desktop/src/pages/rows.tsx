@@ -13,7 +13,7 @@ import { StatusPill, type RowItem, type Status } from "@plenipo/ui";
 
 import { StopButton } from "../components/stop/StopWork";
 import { WatchButton } from "../components/stop/WatchButton";
-import { isStoppable, workToStop } from "../components/stop/stopWork";
+import { isStoppable, workToStop } from "../components/stop/whatToStop";
 import type { Go } from "../components/views";
 import { describeEvent } from "../ledger/format";
 import { POSITION_STATUS } from "../org/cards";

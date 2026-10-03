@@ -9,7 +9,7 @@ import { Button } from "@plenipo/ui";
 import { cancelAgentTurn, toCommandError } from "../../api/commands";
 import { AgentsContext } from "../../agents/context";
 import { ConfirmDialog } from "../org/Modal";
-import { stopQuestion, type StopTarget } from "./stopWork";
+import { stopQuestion, type StopTarget } from "./whatToStop";
 
 /** The question, then Stop: ends each task's turn. */
 export function StopConfirm({

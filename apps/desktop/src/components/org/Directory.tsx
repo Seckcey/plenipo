@@ -5,7 +5,7 @@ import { Button, StatusPill, Tabs } from "@plenipo/ui";
 import { liveWork } from "../../live/words";
 import { useOpenWatch } from "../../terminal/useTerminal";
 import { StopButton } from "../stop/StopWork";
-import { workToStop } from "../stop/stopWork";
+import { workToStop } from "../stop/whatToStop";
 import { WatchButton } from "../stop/WatchButton";
 import type { ArchivedKind } from "../../api/commands";
 import { POSITION_STATUS } from "../../org/cards";

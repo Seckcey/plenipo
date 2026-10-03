@@ -15,7 +15,7 @@ import {
 import { LiveConversation } from "../live/LiveConversation";
 import { useOpenWatch } from "../terminal/useTerminal";
 import { StopButton } from "../components/stop/StopWork";
-import { isStoppable } from "../components/stop/stopWork";
+import { isStoppable } from "../components/stop/whatToStop";
 import { getTaskEvents, getTaskRecord, getTaskTimeline, getTaskTree } from "../api/commands";
 import { ObjectiveResult } from "../components/ObjectiveResult";
 import type { Go } from "../components/views";

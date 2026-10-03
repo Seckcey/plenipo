@@ -23,7 +23,7 @@ import { AskQuestionButton } from "../components/sideChat/AskQuestion";
 import { LiveConversation } from "../live/LiveConversation";
 import { liveWork } from "../live/words";
 import { StopButton } from "../components/stop/StopWork";
-import { workToStop } from "../components/stop/stopWork";
+import { workToStop } from "../components/stop/whatToStop";
 import { getAgentSession, getPermissions, getScopeEvents, getWork } from "../api/commands";
 import type { Go } from "../components/views";
 import { OUTCOME_LABEL, outcomeTone } from "../agents/format";

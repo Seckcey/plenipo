@@ -58,7 +58,7 @@ import { nodeAt, type LayoutNode, type OrgLayout, type Point } from "../../org/l
 import type { HandoffMark, WhereLine } from "../../org/live";
 import type { DropState, NodeContext } from "../../org/nodes";
 import type { PointerMode } from "../../org/tour";
-import { workToStop } from "../stop/stopWork";
+import { workToStop } from "../stop/whatToStop";
 import { CanvasControlsContext } from "./canvasContext";
 import { Glyph } from "./Glyph";
 import { OrgNode } from "./OrgNode";

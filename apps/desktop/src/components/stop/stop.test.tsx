@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as commands from "../../api/commands";
 import { position, worker } from "../../test/orgFixtures";
 import { StopButton } from "./StopWork";
-import { stopQuestion, workToStop } from "./stopWork";
+import { stopQuestion, workToStop } from "./whatToStop";
 
 vi.mock("../../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();

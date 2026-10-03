@@ -123,7 +123,7 @@ import { searchMatches } from "../org/search";
 import { rankName, roleLabel, titleSet, withArticle } from "../org/titles";
 import { StopAllButton } from "../components/stop/StopAll";
 import { StopConfirm } from "../components/stop/StopWork";
-import { workToStop } from "../components/stop/stopWork";
+import { workToStop } from "../components/stop/whatToStop";
 import type { Control } from "../control/useControl";
 import { useSetupTourRunning } from "../tour/store";
 import { LEGEND_KEY, TOUR_KEY, readFlag, writeFlag, type PointerMode } from "../org/tour";

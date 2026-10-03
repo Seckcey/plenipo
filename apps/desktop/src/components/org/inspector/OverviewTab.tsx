@@ -19,7 +19,7 @@ import { liveWork } from "../../../live/words";
 import { AskQuestionButton } from "../../sideChat/AskQuestion";
 import { canAsk } from "../../sideChat/canAsk";
 import { StopButton } from "../../stop/StopWork";
-import { workToStop } from "../../stop/stopWork";
+import { workToStop } from "../../stop/whatToStop";
 import { Glyph } from "../Glyph";
 import { Field, ItemLink, Option, Options, Refusal, Section, TaskRow } from "./parts";
 import type { InspectorActions } from "./types";
