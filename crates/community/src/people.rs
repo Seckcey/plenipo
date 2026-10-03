@@ -284,6 +284,8 @@ impl<T: Transport> Community<T> {
             Err(failure) => return Err(Refused(words(&failure))),
         };
         let value: serde_json::Value = client::read(answer, 200).map_err(|f| Refused(words(&f)))?;
+        // Getting started: you found someone (ADR-169 §5).
+        self.change_settings(|s| s.found_someone = true);
         if value.get("request_only") == Some(&serde_json::Value::Bool(true)) {
             let only: wire::RequestOnly =
                 serde_json::from_value(value).map_err(|_| Refused(words(&Failure::BadAnswer)))?;

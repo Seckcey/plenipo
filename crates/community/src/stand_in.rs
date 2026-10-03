@@ -45,7 +45,7 @@ use tokio::time::Instant;
 use crate::client::{self, Answer, Request, Transport};
 use crate::ids::{self, new_id, IdKind};
 use crate::wire::{
-    self, AgeGroup, BusinessKind, CardStatus, HiddenPart, InboxKind, ItemKind, NoticeType,
+    self, AgeGroup, Badge, BusinessKind, CardStatus, HiddenPart, InboxKind, ItemKind, NoticeType,
     PointsReason, ReportOutcome, Standing,
 };
 use crate::{b64, item, seal, session, stamp};
@@ -913,6 +913,8 @@ struct State {
     blocks: Vec<BlockRec>,
     reports: Vec<KeptReport>,
     points: Vec<PointChange>,
+    /// Badges 8 West worked out, by member (the tests give them).
+    badges: HashMap<String, Vec<Badge>>,
     /// A first message accepted already gave its points: (sender, who accepted).
     awarded: HashSet<(String, String)>,
     /// Cards seen: (member, day number).
@@ -976,6 +978,7 @@ impl State {
             blocks: Vec::new(),
             reports: Vec::new(),
             points: Vec::new(),
+            badges: HashMap::new(),
             awarded: HashSet::new(),
             cards_seen: HashMap::new(),
             invitations: Vec::new(),
@@ -1137,7 +1140,7 @@ impl State {
             region: m.profile.region.clone(),
             has_picture: Self::has_picture(m),
             picture_version: m.picture_version.clone().filter(|_| Self::has_picture(m)),
-            badges: Vec::new(),
+            badges: self.badges.get(&m.id).cloned().unwrap_or_default(),
             points: self.points_of(&m.id, None),
             thanked_by: 0,
         }
@@ -2941,7 +2944,7 @@ impl State {
                 week_started_at: week,
                 place_week: place(Some(week)),
                 place_all: place(None),
-                badges: Vec::new(),
+                badges: self.badges.get(&me).cloned().unwrap_or_default(),
                 thanked_by: 0,
                 recent,
                 free_months: adult.then_some(wire::FreeMonths {
@@ -2971,7 +2974,7 @@ impl State {
                 display_name: m.profile.display_name.clone(),
                 has_picture: Self::has_picture(m),
                 picture_version: m.picture_version.clone().filter(|_| Self::has_picture(m)),
-                badges: Vec::new(),
+                badges: self.badges.get(&m.id).cloned().unwrap_or_default(),
                 points: *points,
             })
             .collect();
@@ -3284,6 +3287,13 @@ impl StandIn {
                 at,
                 from: None,
             });
+        });
+    }
+
+    /// Set the badges 8 West worked out for a member.
+    pub fn set_badges(&self, member_id: &str, badges: &[Badge]) {
+        self.with(|s| {
+            s.badges.insert(member_id.to_owned(), badges.to_vec());
         });
     }
 
