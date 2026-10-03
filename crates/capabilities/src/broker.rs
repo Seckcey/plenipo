@@ -3996,25 +3996,40 @@ fn prepare(
             // blocked list stays out of git's hands too.
             let mut files = Vec::new();
             let mut look = None;
+            // With no path, git looks at the project folder only (`.`: `git -C <folder>` makes
+            // it the folder, wherever the repository's top is), never the rest of a repository
+            // the folder is part of (P-GUARD-2).
             let (summary, op): (String, Vec<String>) = match git_action {
-                Action::GitStatus => (
-                    "git status".into(),
-                    vec!["status".into(), "--short".into(), "--branch".into()],
-                ),
+                Action::GitStatus => {
+                    // It names files: blocked ones are left out, as a diff leaves them out.
+                    look = Some(GitLook::Status);
+                    (
+                        "git status".into(),
+                        ["status", "--short", "--branch", "--", "."]
+                            .map(String::from)
+                            .to_vec(),
+                    )
+                }
                 Action::GitDiff { staged, path } => {
                     let mut op = vec!["diff".to_owned()];
                     if staged {
                         op.push("--cached".into());
                     }
-                    let mut of = None;
-                    if let Some(p) = path {
-                        // A diff shows contents: a blocked path is refused like a read.
-                        let r = rel(&p)?;
-                        of = Some(r.shown().to_owned());
-                        op.extend(["--".into(), r.shown().to_owned()]);
-                        files.push(r);
-                    }
-                    look = Some(GitLook::Diff { staged, path: of });
+                    let of = match path {
+                        Some(p) => {
+                            // A diff shows contents: a blocked path is refused like a read.
+                            let r = rel(&p)?;
+                            let of = r.shown().to_owned();
+                            files.push(r);
+                            of
+                        }
+                        None => ".".to_owned(),
+                    };
+                    op.extend(["--".into(), of.clone()]);
+                    look = Some(GitLook::Diff {
+                        staged,
+                        path: Some(of),
+                    });
                     ("git diff".into(), op)
                 }
                 Action::GitLog { count, path } => {
@@ -4026,9 +4041,18 @@ fn prepare(
                         "-n".into(),
                         count.to_string(),
                     ];
-                    if let Some(p) = path {
-                        op.extend(["--".into(), rel(&p)?.shown().to_owned()]);
-                    }
+                    let of = match path {
+                        Some(p) => {
+                            // A blocked path is refused, as for a diff: its commits would name
+                            // it (P-GUARD-6).
+                            let r = rel(&p)?;
+                            let of = r.shown().to_owned();
+                            files.push(r);
+                            of
+                        }
+                        None => ".".to_owned(),
+                    };
+                    op.extend(["--".into(), of]);
                     ("git log".into(), op)
                 }
                 Action::GitAdd { paths } => {
@@ -4531,5 +4555,71 @@ mod tests {
             Some(Work::Program { github: None, .. }) | Some(Work::Missing(_)) => {}
             _ => panic!("git's output is the program's own words"),
         }
+    }
+
+    /// With no path, `git status`, `git diff`, and `git log` look at the project folder only,
+    /// not the whole repository it may be part of (P-GUARD-2); a path named for `git log` goes
+    /// to Guard's blocked-files check, as a diff's does (P-GUARD-6).
+    #[test]
+    fn git_looks_at_the_project_folder_and_names_its_paths_to_guard() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::open(&dir.path().display().to_string()).unwrap();
+        let at = Where {
+            ws: Some(&ws),
+            branch: None,
+            base: None,
+            repo: None,
+            gh: None,
+            search: None,
+        };
+        let prepared = |name: &str, args: serde_json::Value| {
+            let tool = tools::find(name).unwrap();
+            let action = tools::parse(tool, &args).unwrap();
+            let Ok(p) = prepare(tool, action, &at, Duration::from_secs(30)) else {
+                panic!("{name} was refused");
+            };
+            p
+        };
+        let ends_with_folder = |p: &Prepared| {
+            if let Work::Program { args, .. } = &p.work {
+                assert!(
+                    args.ends_with(&["--".to_owned(), ".".to_owned()]),
+                    "{args:?}"
+                );
+            }
+            assert!(p.detail.ends_with(" -- ."), "{}", p.detail);
+        };
+        let status = prepared("git_status", json!({}));
+        assert_eq!(status.detail, "git status --short --branch -- .");
+        assert_eq!(status.git, Some(GitLook::Status));
+        ends_with_folder(&status);
+        for staged in [false, true] {
+            let diff = prepared("git_diff", json!({ "staged": staged }));
+            ends_with_folder(&diff);
+            assert_eq!(
+                diff.git,
+                Some(GitLook::Diff {
+                    staged,
+                    path: Some(".".into())
+                })
+            );
+            assert!(diff.files.is_empty());
+        }
+        let log = prepared("git_log", json!({}));
+        ends_with_folder(&log);
+        assert!(log.files.is_empty());
+        let log = prepared("git_log", json!({ "path": ".env" }));
+        assert!(log.detail.ends_with(" -- .env"), "{}", log.detail);
+        let named: Vec<&str> = log.files.iter().map(Resolved::shown).collect();
+        assert_eq!(named, [".env"]);
+        let diff = prepared("git_diff", json!({ "path": "src" }));
+        assert!(diff.detail.ends_with(" -- src"), "{}", diff.detail);
+        assert_eq!(
+            diff.git,
+            Some(GitLook::Diff {
+                staged: false,
+                path: Some("src".into())
+            })
+        );
     }
 }

@@ -6,13 +6,16 @@
 //!
 //! - `git add`: the files it would stage join the files Guard checks, so a blocked file is
 //!   refused whether it was named or found under a folder.
-//! - `git diff`: blocked files are left out of the diff, and the worker hears how many.
+//! - `git diff` and `git status`: blocked files are left out of what they show, and the worker
+//!   hears how many.
 //! - `git commit`: a blocked file among the staged files stops the commit; the worker unstages
 //!   it (Plenipo never changes the index for it).
 //! - `git push` (and the push of a pull request): the approval card names the blocked files
 //!   the commits change, or says the check could not run. The owner decides.
 //!
-//! `git status` and `git log` show names and commit lines, never contents, and stay as they are.
+//! `git log` shows commit lines, never contents or file names; a blocked path named for it is
+//! refused like a read. With no path, `git status`, `git diff`, and `git log` look at the
+//! project folder only, even when it is a folder inside a larger repository (P-GUARD-2, 6).
 
 use std::path::Path;
 
@@ -28,6 +31,8 @@ pub(super) enum GitLook {
     Add { paths: Vec<String> },
     /// `git diff`, staged or not, of one path or everything: the blocked files it would show.
     Diff { staged: bool, path: Option<String> },
+    /// `git status` of the project folder: the blocked files it would name.
+    Status,
     /// `git commit`: the blocked files staged.
     Commit,
     /// `git push` of a branch (`None`: the current one) to a remote: the blocked files in the
@@ -43,8 +48,8 @@ pub(super) enum GitLook {
 pub(super) enum Found {
     /// `git add`: the files it would stage, as the folder sees them (blocked or not).
     Staging(Vec<String>),
-    /// `git diff`: the blocked files it would show, as paths from the repository's top (the
-    /// form a pathspec that leaves them out takes).
+    /// `git diff` or `git status`: the blocked files it would show, as paths from the
+    /// repository's top (the form a pathspec that leaves them out takes).
     Showing(Vec<String>),
     /// `git commit`: the blocked files staged, as the folder sees them.
     Staged(Vec<String>),
@@ -97,6 +102,40 @@ pub(super) fn would_stage(run: Run<'_>, paths: &[String]) -> Result<Vec<String>,
     ];
     args.extend(paths.iter().map(String::as_str));
     let mut files = paths_z(&run(&args)?);
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
+
+/// The files `git status` of the project folder would name, from the repository's top: changed
+/// (staged or not) and not yet tracked (ignored ones left out, as `git status` leaves them).
+fn status_names(run: Run<'_>) -> Result<Vec<String>, String> {
+    let mut files = paths_z(&run(&[
+        "diff",
+        "--no-renames",
+        "--name-only",
+        "-z",
+        "--",
+        ".",
+    ])?);
+    files.extend(paths_z(&run(&[
+        "diff",
+        "--cached",
+        "--no-renames",
+        "--name-only",
+        "-z",
+        "--",
+        ".",
+    ])?));
+    files.extend(paths_z(&run(&[
+        "ls-files",
+        "-z",
+        "--others",
+        "--exclude-standard",
+        "--full-name",
+        "--",
+        ".",
+    ])?));
     files.sort();
     files.dedup();
     Ok(files)
@@ -204,6 +243,16 @@ pub(super) fn look_at(
                 args.extend(["--", p.as_str()]);
             }
             let files = paths_z(&run(&args)?);
+            Ok(Found::Showing(
+                blocked_among(blocked, &prefix, &files)
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect(),
+            ))
+        }
+        GitLook::Status => {
+            let prefix = prefix(run)?;
+            let files = status_names(run)?;
             Ok(Found::Showing(
                 blocked_among(blocked, &prefix, &files)
                     .into_iter()
@@ -638,6 +687,88 @@ mod tests {
             )
             .unwrap();
         assert!(shown.trim().is_empty(), "{shown}");
+        // With no path the broker asks for `.`: the folder's own changes, never a change above
+        // it (P-GUARD-2).
+        r.write("a.txt", "changed above the folder\n");
+        let unstaged = GitLook::Diff {
+            staged: false,
+            path: Some(".".into()),
+        };
+        assert_eq!(
+            look_at(&run, &unstaged, &blocked(), None).unwrap(),
+            Found::Showing(vec![])
+        );
+        let in_sub = |args: &[&str]| r.git.run(&r.top().join("sub"), args).unwrap();
+        assert!(in_sub(&["diff"]).contains("above the folder"));
+        let shown = in_sub(&["diff", "--", "."]);
+        assert!(!shown.contains("a.txt"), "{shown}");
+        assert!(!shown.contains("above the folder"), "{shown}");
+        let staged = in_sub(&["diff", "--cached", "--", "."]);
+        assert!(staged.contains("b.txt"), "{staged}");
+        // The same for git log: only the commits that change the folder.
+        r.git(&["commit", "-q", "-m", "Change the folder", "--", "sub"]);
+        r.git(&["commit", "-q", "-am", "Change the top"]);
+        let log = in_sub(&["log", "--oneline", "--", "."]);
+        assert!(log.contains("Change the folder"), "{log}");
+        assert!(!log.contains("Change the top"), "{log}");
+    }
+
+    /// `git status` names the folder's own files only, and leaves blocked ones out by their
+    /// path from the top, also inside a folder git has not seen yet (P-GUARD-2, 6).
+    #[test]
+    fn a_status_stays_in_the_folder_and_leaves_blocked_files_out() {
+        let r = Repo::new();
+        r.write(".env.top", "TOP=1\n");
+        r.write("a.txt", "changed above the folder\n");
+        r.write("sub/b.txt", "changed\n");
+        r.write("sub/config/.env.local", "SECRET=1\n");
+        std::fs::create_dir_all(r.top().join("sub/fresh")).unwrap();
+        r.write("sub/fresh/.env.production", "SECRET=2\n");
+        r.write("sub/fresh/notes.txt", "n\n");
+        r.write("sub/server.key", "KEY\n");
+        r.git(&["add", "sub/server.key"]);
+        let run = r.in_sub();
+        let Found::Showing(out) = look_at(&run, &GitLook::Status, &blocked(), None).unwrap() else {
+            panic!("not a status");
+        };
+        assert_eq!(
+            out,
+            strings(&[
+                "sub/config/.env.local",
+                "sub/fresh/.env.production",
+                "sub/server.key"
+            ])
+        );
+        let mut args = vec!["status", "--short", "--branch", "--", "."];
+        let excludes: Vec<String> = out.iter().map(|p| leave_out(p)).collect();
+        args.extend(excludes.iter().map(String::as_str));
+        let shown = r.git.run(&r.top().join("sub"), &args).unwrap();
+        assert!(shown.contains("b.txt"), "{shown}");
+        assert!(shown.starts_with("## main"), "{shown}");
+        for hidden in [".env", "server.key", "a.txt"] {
+            assert!(!shown.contains(hidden), "{hidden} in {shown}");
+        }
+        // Without the pathspecs, git would have named them all.
+        let all = r
+            .git
+            .run(&r.top().join("sub"), &["status", "--short", "-uall"])
+            .unwrap();
+        for named in [".env.top", "a.txt", ".env.local", "server.key"] {
+            assert!(all.contains(named), "{named} not in {all}");
+        }
+        // At the top, a blocked file there is left out too.
+        let top = r.at_top();
+        let Found::Showing(out) = look_at(&top, &GitLook::Status, &blocked(), None).unwrap() else {
+            panic!("not a status");
+        };
+        assert!(out.contains(&".env.top".to_owned()), "{out:?}");
+        // Nothing blocked: nothing to leave out.
+        let clean = Repo::new();
+        clean.write("a.txt", "changed\n");
+        assert_eq!(
+            look_at(&clean.at_top(), &GitLook::Status, &blocked(), None).unwrap(),
+            Found::Showing(vec![])
+        );
     }
 
     #[test]
