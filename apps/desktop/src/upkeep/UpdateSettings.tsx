@@ -12,6 +12,7 @@ import {
 import type { Go } from "../components/views";
 import { useLive } from "../pages/useLive";
 import { when } from "../pages/words";
+import { systemWords } from "../system/words";
 import { updateLine } from "./words";
 import { useShown } from "./useShown";
 
@@ -208,7 +209,13 @@ export function UpdateSettings() {
           Plenipo checks GitHub for a new version a few minutes after it starts, then once a day,
           for Free and Pro alike. The check sends nothing about you or your work.
         </li>
-        {byHand ? (
+        {byHand && systemWords().system === "mac" ? (
+          <li>
+            Move Plenipo to your Applications folder, and it updates itself. Until then, Plenipo
+            tells you when a new version is ready, and you download it and install it by hand. Your
+            Ledger and settings are kept.
+          </li>
+        ) : byHand ? (
           <li>
             Plenipo tells you when a new version is ready, and never changes itself: you download it
             and install it the way you installed this one. Your Ledger and settings are kept.

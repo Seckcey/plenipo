@@ -324,6 +324,17 @@ describe("Settings → Updates", () => {
     expect(a11yProblems(container)).toEqual([]);
   });
 
+  it("a Mac copy that cannot update itself says to move it to Applications (Phase 23)", async () => {
+    setSystemWords(SYSTEM_WORDS.mac);
+    api.getUpdateStatus.mockResolvedValue({ ...updateReady(), how: "byHand" });
+    inPage(<UpdateSettings />);
+    expect(await screen.findByText(/Plenipo 1.10.0 is ready to download/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Move Plenipo to your Applications folder, and it updates itself/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/never changes itself/)).toBeNull();
+  });
+
   it("says when this copy cannot install updates", async () => {
     api.getUpdateStatus.mockResolvedValue({
       ...updateReady(),
