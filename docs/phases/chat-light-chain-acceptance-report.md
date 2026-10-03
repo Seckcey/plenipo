@@ -6,7 +6,7 @@
 | **Branch**   | `claude/fervent-dirac-h0fove` ([PR #165](https://github.com/Seckcey/plenipo/pull/165))                                                                                                                                                                                             |
 | **Verified** | Locally on Linux: `pnpm check`, `cargo fmt`, `cargo clippy`, `cargo test` (one package at a time, as a non-administrator user; see §3), and `pnpm bindings` with no change. The chat drawn in a real Chromium with sample data for the screenshots. GitHub CI on the pull request. |
 | **Date**     | 2026-10-03                                                                                                                                                                                                                                                                         |
-| **Result**   | Every item in the [checklist](chat-light-chain-checklist.md) is built and tested. The owner's Windows check is in the checklist.                                                                                                                                                   |
+| **Result**   | Every item in the [checklist](chat-light-chain-checklist.md) is built and tested, and released in v1.23.0. The owner's Windows check is in the checklist.                                                                                                                          |
 
 Screenshots (the chat drawn in Chromium with sample data, from this branch):
 

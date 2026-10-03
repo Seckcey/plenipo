@@ -1,7 +1,8 @@
 # A live chat with each agent, light by default, and the chain of command — Checklist
 
-**Status:** built on `claude/fervent-dirac-h0fove`, for the owner's review. See the
-[acceptance report](chat-light-chain-acceptance-report.md).
+**Status:** delivered in v1.23.0 ([pull request #165](https://github.com/Seckcey/plenipo/pull/165)).
+See the [acceptance report](chat-light-chain-acceptance-report.md). The owner's check on Windows is
+at the end.
 
 On 2026-10-03 the owner asked for:
 
