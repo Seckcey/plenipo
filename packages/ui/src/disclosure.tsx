@@ -30,8 +30,11 @@ export function Disclosure({
   summary?: ReactNode;
   /** The light beside the name. */
   status?: { status: Status; label: string } | undefined;
-  /** Buttons in the header, usable while it is closed (they never open or close it). */
-  actions?: ReactNode;
+  /**
+   * Buttons in the header, usable while it is closed (they never open or close it). A function
+   * gets whether it is open, for buttons shown only while it is closed (the same ones are inside).
+   */
+  actions?: ReactNode | ((open: boolean) => ReactNode);
   children: ReactNode;
   /** Open to begin with, when nothing is remembered. */
   defaultOpen?: boolean;
@@ -61,6 +64,7 @@ export function Disclosure({
     needed.current = openWhen;
   }, [openWhen, setOpen]);
   const Heading = `h${headingLevel}` as const;
+  const shownActions = typeof actions === "function" ? actions(open) : actions;
 
   return (
     <section
@@ -82,7 +86,7 @@ export function Disclosure({
           </button>
         </Heading>
         {status && <StatusPill status={status.status} label={status.label} />}
-        {actions && <div className="ui-disclosure__actions">{actions}</div>}
+        {shownActions && <div className="ui-disclosure__actions">{shownActions}</div>}
         {summary && <div className="ui-disclosure__summary">{summary}</div>}
       </header>
       <div className="ui-disclosure__body" id={bodyId} hidden={!open}>

@@ -23,6 +23,7 @@ import type { KeyCard } from "./AiToolCard";
 import { OPENROUTER } from "./keyFor";
 import { PaidKey } from "./PaidKey";
 import { SignIn } from "./SignIn";
+import { useToolUsage } from "./useAiTools";
 import {
   atLimit,
   countsNothing,
@@ -62,6 +63,7 @@ export function Overview({
   onRouting,
   go,
   keyCard,
+  keyWeek,
 }: {
   info: AgentRuntimeInfo;
   /** The page's part for this tool; `undefined` while it loads. */
@@ -76,6 +78,8 @@ export function Overview({
   go?: Go | undefined;
   /** A subscription AI tool's key box: the paid AI tool whose key it saves. */
   keyCard?: KeyCard | undefined;
+  /** This week's work with that key, as a second line (Phase 25, item 2.1). */
+  keyWeek?: ReactNode;
 }) {
   const install = info.installation.state;
   const paid = tool?.payment === "paidKey";
@@ -182,6 +186,7 @@ export function Overview({
       <dt>This week</dt>
       <dd>
         <WeekLine label={info.label} usage={usage} />
+        {keyWeek}
       </dd>
     </dl>
   );
@@ -212,9 +217,11 @@ function PayPerUse({
         {keyCard.info.id === OPENROUTER
           ? `${label} has no key of its own for paying per use; an OpenRouter key reaches the same kinds of models, and many more.`
           : `Your ${company} key goes here.`}{" "}
-        It is the same key as on the {company} card under Paid per use with your key. Work on it
-        runs on Plenipo&apos;s {company} AI tool and is priced and listed under Spending caps;{" "}
-        {label} itself keeps using your subscription.
+        {keyCard.info.id === OPENROUTER
+          ? "It is the same key as on the OpenRouter card under Paid per use with your key. "
+          : ""}
+        Work on it runs on Plenipo&apos;s {company} AI tool and is priced and listed under Spending
+        caps; {label} itself keeps using your subscription.
       </p>
       {keyCard.tool.paidKey && (
         <KeyCheck
@@ -570,6 +577,28 @@ function PlanLeft({
         {plan.plan ? ` · your plan: ${plan.plan}` : ""}
       </span>
       {ask}
+    </div>
+  );
+}
+
+/**
+ * This week's work with a subscription AI tool's key, as a second line under its own (Phase 25,
+ * item 2.1): read only while the card shows it.
+ */
+export function KeyWeekLine({
+  keyCard,
+  revision,
+  today,
+}: {
+  keyCard: KeyCard;
+  revision: number;
+  today: number;
+}) {
+  const usage = useToolUsage(keyCard.info.id, revision, today);
+  return (
+    <div>
+      <span className="muted">With your key: </span>
+      <WeekLine label={keyCard.info.label} usage={usage} />
     </div>
   );
 }

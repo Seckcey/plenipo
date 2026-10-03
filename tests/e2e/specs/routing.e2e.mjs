@@ -540,6 +540,14 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     await screenshot(browser, "models-usage-limit");
     // The usage limit and Try again now are on Codex's card (Phase 19, ADR-060).
     await nav(browser, "AI tools");
+    // AI tool cards start closed (Phase 25, item 2.1): open Codex's.
+    await browser.execute(() =>
+      document
+        .querySelector(
+          'li[aria-label="Codex AI tool"] .ui-disclosure__toggle[aria-expanded="false"]',
+        )
+        ?.click(),
+    );
     const again = await browser.$(
       '//li[@aria-label="Codex AI tool"]//button[normalize-space()="Try again now"]',
     );

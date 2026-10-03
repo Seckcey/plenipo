@@ -303,15 +303,19 @@ simpler screens.
   (`AiToolCard.tsx`). About ten company key cards and OpenRouter are listed fully open too. The
   plan name (for example "Claude Max") is buried inside Overview. The light says only "Ready".
 - **Do:**
-  - [ ] Each card starts closed. Its header shows the light from 1.3, one line like "Subscription
-        connected · Claude Max", and a **Sign in** (or **Reconnect**) button.
-  - [ ] A card opens by itself when it needs you, or when a link points at it. Plenipo remembers
+  - [x] Each card starts closed. Its header shows the light from 1.3 ("Subscription connected"),
+        one line ("AI company: Anthropic · Claude subscription (max)", and the saved key's name),
+        and a **Sign in** (or **Reconnect**) button.
+  - [x] A card opens by itself when it needs you (installed but not signed in, given no tasks, or
+        installed in a way Plenipo can't use), or when a link points at it. Plenipo remembers
         which cards you opened.
-  - [ ] Uses the shared open/close part from 2.2.
-  - [ ] From 1.3: fold the company key cards (Anthropic, OpenAI, xAI, Moonshot, Google) into their
-        subscription card; OpenRouter and the companies with no subscription keep their own.
-  - [ ] From 1.2: the subscription card shows its key's usage as a second line ("with your key").
-- **Tests:** `aiTools.test.tsx` (tests open the card first).
+  - [x] Uses the shared open/close part from 2.2.
+  - [x] From 1.3: fold the company key cards (Anthropic, OpenAI, xAI, Moonshot, Google) into their
+        subscription card; OpenRouter and the companies with no subscription keep their own. A
+        link to a folded key card shows its subscription card.
+  - [x] From 1.2: the subscription card shows its key's usage as a second line ("With your key").
+- **Tests:** [x] `aiTools.test.tsx` (tests open the card first; new tests for closed cards, a card
+  that needs you, and links); the real-app tests open the cards.
 
 ### 2.2 Connections cards start closed — M
 

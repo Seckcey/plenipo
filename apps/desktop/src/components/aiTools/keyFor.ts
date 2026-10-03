@@ -20,3 +20,12 @@ const KEY_FOR: Readonly<Record<string, string>> = {
 export function keyToolFor(runtimeId: string): string {
   return KEY_FOR[runtimeId] ?? OPENROUTER;
 }
+
+/**
+ * The subscription AI tool whose card a company's key card is folded into (Phase 25, item 2.1):
+ * Anthropic's into Claude Code's, and so on. `null`: it keeps its own card (OpenRouter, and the
+ * AI companies with no subscription AI tool in Plenipo).
+ */
+export function foldedInto(paidId: string): string | null {
+  return Object.entries(KEY_FOR).find(([, key]) => key === paidId)?.[0] ?? null;
+}

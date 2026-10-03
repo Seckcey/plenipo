@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type {
   AgentRuntimeInfo,
@@ -181,8 +181,15 @@ function Page({ toolId = null }: { toolId?: string | null }) {
   );
 }
 
-/** One AI tool's card. */
-const card = (label: string) => screen.getByRole("listitem", { name: `${label} AI tool` });
+/** A card, opened: cards start closed (Phase 25, item 2.1). */
+const card = (label: string) => {
+  const item = screen.getByRole("listitem", { name: `${label} AI tool` });
+  const toggle = within(item).queryByRole("button", { name: label, expanded: false });
+  if (toggle) fireEvent.click(toggle);
+  return item;
+};
+/** A card as it is, open or closed. */
+const cardAsIs = (label: string) => screen.getByRole("listitem", { name: `${label} AI tool` });
 
 async function show(toolId: string | null = null) {
   const view = render(<Page toolId={toolId} />);
@@ -1449,6 +1456,67 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(heading).toHaveFocus();
   });
 
+  it("starts each card closed with its light, one line, and Sign in or Reconnect; one that needs you opens (Phase 25, item 2.1)", async () => {
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: runtimes({
+        grok: { ready: false, auth: { state: "signedOut", method: null, detail: null } },
+      }),
+      sessions: [],
+      notices: [],
+    });
+    await show();
+    const kimi = cardAsIs("Kimi");
+    const toggle = within(kimi).getByRole("button", { name: "Kimi" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(kimi).toHaveTextContent("Subscription connected");
+    expect(kimi).toHaveTextContent("AI company: Moonshot AI · Kimi subscription");
+    expect(within(kimi).queryByRole("tab", { name: "Overview" })).toBeNull();
+    // Closed, it still offers Reconnect; open, the button inside does (only one of them shows).
+    expect(within(kimi).getByRole("button", { name: "Reconnect Kimi" })).toBeVisible();
+    fireEvent.click(toggle);
+    expect(within(kimi).getByRole("tab", { name: "Overview" })).toBeVisible();
+    expect(within(kimi).getAllByRole("button", { name: "Reconnect Kimi" })).toHaveLength(1);
+    // Grok isn't signed in: its card opened by itself, with Sign in.
+    const grok = cardAsIs("Grok");
+    expect(within(grok).getByRole("button", { name: "Grok" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(within(grok).getAllByRole("button", { name: "Sign in to Grok" })).toHaveLength(1);
+    // Antigravity is fine: closed.
+    expect(
+      within(cardAsIs("Antigravity")).getByRole("button", { name: "Antigravity" }),
+    ).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("a link to a card opens it; a link to a company's key opens its subscription card (Phase 25, item 2.1)", async () => {
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [
+        ...runtimes(),
+        aiRuntime("anthropic-key", "1.17.0", {
+          ready: false,
+          auth: { state: "signedOut", method: null, detail: null },
+        }),
+      ],
+      sessions: [],
+      notices: [],
+    });
+    api.getAiTools.mockResolvedValue(aiPage([...page().tools, aiTool("anthropic-key")]));
+    await show("anthropic-key");
+    const claude = cardAsIs("Claude Code");
+    await waitFor(() =>
+      expect(within(claude).getByRole("button", { name: "Claude Code" })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      ),
+    );
+    expect(screen.queryByRole("listitem", { name: "Anthropic AI tool" })).toBeNull();
+    expect(within(cardAsIs("Kimi")).getByRole("button", { name: "Kimi" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
   it("a subscription card is green when its subscription or its key works, and says which (Phase 25, item 1.3)", async () => {
     const keyReady = aiRuntime("anthropic-key", "1.17.0", {
       ready: true,
@@ -1510,9 +1578,9 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(claude).toHaveTextContent("Claude Code always uses your subscription.");
     const box = within(claude).getByRole("group", { name: "Pay per use instead" });
     expect(box).toHaveTextContent("Your Anthropic key goes here.");
-    expect(box).toHaveTextContent(
-      "It is the same key as on the Anthropic card under Paid per use with your key.",
-    );
+    // The Anthropic key's own card is folded into Claude Code's (Phase 25, item 2.1).
+    expect(box).not.toHaveTextContent("under Paid per use with your key");
+    expect(screen.queryByRole("listitem", { name: "Anthropic AI tool" })).toBeNull();
     expect(box).toHaveTextContent("Claude Code itself keeps using your subscription.");
     expect(box).toHaveTextContent("it is not required");
     const form = within(box).getByRole("form", {
@@ -1525,7 +1593,8 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     expect(api.savePaidKey).toHaveBeenCalledTimes(1);
     expect(api.savePaidKey).toHaveBeenCalledWith("anthropic-key", "Anthropic key", KEY);
     await waitFor(() => expect(box).toHaveTextContent("Key saved: Anthropic key"));
-    expect(card("Anthropic")).toHaveTextContent("Key saved: Anthropic key");
+    // The closed card's line names the saved key.
+    expect(claude).toHaveTextContent("Your Anthropic key: Anthropic key");
     expect(screen.queryByDisplayValue(KEY)).toBeNull();
     // Codex's AI company has no paid AI tool here: no key box.
     expect(within(card("Codex")).queryByRole("group", { name: "Pay per use instead" })).toBeNull();
@@ -1548,6 +1617,7 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
       ).toBeVisible();
     }
     // Each form has its own name: the three OpenRouter forms are told apart.
+    card("OpenRouter");
     expect(screen.getAllByRole("form", { name: /^Add a key for OpenRouter/ })).toHaveLength(3);
     const box = within(card("Ollama")).getByRole("group", { name: "Pay per use instead" });
     await user.type(within(box).getByLabelText("OpenRouter key"), KEY);

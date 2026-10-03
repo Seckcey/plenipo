@@ -208,3 +208,34 @@ export function SignIn({ info, checking }: { info: AgentRuntimeInfo; checking: b
     </div>
   );
 }
+
+/**
+ * A closed card's **Sign in** or **Reconnect** (Phase 25, item 2.1): the same as the button inside
+ * the card, which shows once it is open. While a task is using the tool, the tab waits, as inside.
+ */
+export function QuickSignIn({ info, checking }: { info: AgentRuntimeInfo; checking: boolean }) {
+  const terminal = useTerminalIfAny();
+  const { state } = useAgents();
+  if (!terminal || info.account.signIn === null || info.installation.state !== "installed") {
+    return null;
+  }
+  const busy = tasksUsing(state.sessions, info.id);
+  const wait = terminal.aiToolWaits[info.id] ?? null;
+  const waiting = wait !== null && !wait.stopped;
+  const signedIn = SIGNED_IN.has(info.auth.state);
+  const press = () => {
+    if (busy > 0) terminal.waitForAiTool(info.id, info.label, "signIn");
+    else terminal.openAiTool(info.id, info.label, "signIn");
+  };
+  return (
+    <Button
+      size="sm"
+      variant={signedIn ? "secondary" : "primary"}
+      disabled={checking || waiting}
+      aria-label={signedIn ? `Reconnect ${info.label}` : `Sign in to ${info.label}`}
+      onClick={press}
+    >
+      {waiting ? "Waiting…" : signedIn ? "Reconnect" : "Sign in"}
+    </Button>
+  );
+}

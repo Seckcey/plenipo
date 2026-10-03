@@ -41,6 +41,21 @@ describe("Disclosure (Phase 25, item 2.2)", () => {
     expect(screen.queryByText("Installed 2.1.999")).toBeNull();
   });
 
+  it("shows header buttons meant only for a closed card only while it is closed", async () => {
+    const user = userEvent.setup();
+    render(
+      <Disclosure
+        title="Codex"
+        actions={(open) => (open ? null : <Button size="sm">Sign in</Button>)}
+      >
+        <Button size="sm">Sign in</Button>
+      </Disclosure>,
+    );
+    expect(screen.getAllByRole("button", { name: "Sign in" })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Codex" }));
+    expect(screen.getAllByRole("button", { name: "Sign in" })).toHaveLength(1);
+  });
+
   it("remembers that it was left open", async () => {
     const user = userEvent.setup();
     const card = (

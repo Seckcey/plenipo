@@ -107,6 +107,20 @@ const showCard = (browser, label) =>
     card(label),
   );
 
+/**
+ * AI tool cards start closed (Phase 25, item 2.1): open every card shown. An opened card is
+ * remembered, so it stays open while the test works in it.
+ */
+async function openCards(browser) {
+  await browser.execute(() => {
+    for (const toggle of document.querySelectorAll(
+      'li[aria-label$=" AI tool"] .ui-disclosure__toggle[aria-expanded="false"]',
+    )) {
+      toggle.click();
+    }
+  });
+}
+
 async function openAiTools(browser) {
   await nav(browser, "AI tools");
   await waitUntil(
@@ -115,6 +129,7 @@ async function openAiTools(browser) {
       (await textOf(browser, PAGE)).match(/(?:Subscription|API key) connected/g)?.length >= 4,
     "every AI tool ready",
   );
+  await openCards(browser);
 }
 
 async function startTask(browser, runtimeLabel, objective) {

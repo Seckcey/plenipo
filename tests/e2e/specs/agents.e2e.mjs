@@ -55,6 +55,20 @@ const waitForTurn = (browser, n, predicate, what, timeoutMs = 30_000) =>
     timeoutMs,
   );
 
+/**
+ * AI tool cards start closed (Phase 25, item 2.1): open every card shown. An opened card is
+ * remembered, so it stays open while the test works in it.
+ */
+async function openCards(browser) {
+  await browser.execute(() => {
+    for (const toggle of document.querySelectorAll(
+      'li[aria-label$=" AI tool"] .ui-disclosure__toggle[aria-expanded="false"]',
+    )) {
+      toggle.click();
+    }
+  });
+}
+
 async function startTask(browser, runtimeLabel, objective) {
   await nav(browser, "Workers");
   const radio = await browser.$(`//label[.//span[normalize-space()="${runtimeLabel}"]]//input`);
@@ -112,6 +126,7 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
         (await textOf(browser, cards)).match(/(?:Subscription|API key) connected/g)?.length >= 4,
       "every AI tool ready",
     );
+    await openCards(browser);
     const text = await textOf(browser, cards);
     // Each card shows the sign-in first, then the version (Phase 19).
     assert.match(text, /Claude Code[\s\S]*Signed in \(subscription\)[\s\S]*Installed 2\.1\.999/);
