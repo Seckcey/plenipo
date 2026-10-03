@@ -2,6 +2,9 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "bundle": {
     "targets": ["app", "dmg"],
+    "publisher": "8 West Ventures, LLC",
+    "copyright": "© 8 West Ventures, LLC",
+    "category": "Business",
     "macOS": {
       "minimumSystemVersion": "13.0"
     }
