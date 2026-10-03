@@ -1,7 +1,8 @@
 # Phase 25 — Implementation Checklist
 
-**Status: started 2026-10-03, beside Phases 23 and 24. Waves 1 to 3 are built; in Wave 4, items
-all of Wave 4 (4.1 to 4.8) is built.** The owner answered
+**Status: started 2026-10-03, beside Phases 23 and 24. All four waves are built. Each wave's
+acceptance report is in this folder (`phase-25-wave-1-acceptance-report.md` to `-4-`); the owner's
+checks on Windows 11 are next.** The owner answered
 ADR-190's six questions the same day ([the owner's answers](../adr/ADR-190-phase-25-starts.md#the-owners-answers-2026-10-03)). Builds on v1.20.0. Below, "[x]"
 is done.
 Plenipo is made by 8 West Ventures, LLC.
