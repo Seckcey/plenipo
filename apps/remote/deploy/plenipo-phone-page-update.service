@@ -1,4 +1,5 @@
-# Plenipo on your phone: serve the phone's page from each release (Phase 14, ADR-146 and ADR-148).
+# Plenipo on your phone: serve the phone's page from each release (Phase 14, ADR-146 and ADR-148;
+# ADR-210, the page and the relay are signed like the installer).
 # Installed to /etc/systemd/system/ on the page's own server; see apps/remote/deploy/README.md.
 [Unit]
 Description=Plenipo on your phone: serve the newest release of the phone's page
@@ -16,3 +17,17 @@ Nice=10
 IOSchedulingClass=idle
 NoNewPrivileges=yes
 PrivateTmp=yes
+# It sees as little as it can: home folders read-only (Docker reads its settings there), nothing
+# of the kernel's, and /usr, /boot, and /etc read-only (it writes under /srv only).
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native

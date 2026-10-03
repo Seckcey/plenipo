@@ -33,17 +33,19 @@ only when it names the Environment `release`, only from `main` or a `v*` tag, an
 have approved the run. A repository secret, by contrast, can be read by a workflow run on any
 branch — the workflow file on that branch decides what happens to it — with nobody asked.
 
-| Secret                               | Where it comes from                                                                           |
-| ------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `AZURE_TENANT_ID`                    | App registration → Overview → Directory (tenant) ID                                           |
-| `AZURE_CLIENT_ID`                    | App registration → Overview → Application (client) ID                                         |
-| `AZURE_CLIENT_SECRET`                | App registration → Certificates & secrets → the secret's Value                                |
-| `TAURI_SIGNING_PRIVATE_KEY`          | The updater key's private half ([the updater key](#updates-the-updater-key-phase-13-adr-038)) |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Its password                                                                                  |
+| Secret                                | Where it comes from                                                                           |
+| ------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `AZURE_TENANT_ID`                     | App registration → Overview → Directory (tenant) ID                                           |
+| `AZURE_CLIENT_ID`                     | App registration → Overview → Application (client) ID                                         |
+| `AZURE_CLIENT_SECRET`                 | App registration → Certificates & secrets → the secret's Value                                |
+| `TAURI_SIGNING_PRIVATE_KEY`           | The updater key's private half ([the updater key](#updates-the-updater-key-phase-13-adr-038)) |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`  | Its password                                                                                  |
+| `PLENIPO_SERVER_SIGNING_KEY`          | The server key's private half ([the server key](#the-server-key-adr-210))                     |
+| `PLENIPO_SERVER_SIGNING_KEY_PASSWORD` | Its password                                                                                  |
 
 If any is missing, the Release workflow stops at the step **Signing secrets are set** and says
 which one (`Environment secret … is not set`). Until the Environment is set up as below and holds
-all five, every release run stops there as soon as the repository-level copies are gone.
+all seven, every release run stops there as soon as the repository-level copies are gone.
 
 ### Set it up once (about 15 minutes)
 
@@ -216,3 +218,86 @@ If any of the three is missing, the Release workflow stops before building and s
 - **CI and the E2E tests** make a throwaway key in each run and build a copy that trusts it and
   looks for updates on `127.0.0.1` only, so they can install a test update. That copy is never a
   release; its installer (a CI download) is for testing only.
+
+## The server key (ADR-210)
+
+Each release also carries Plenipo's relay (`plenipo-relay-<version>-linux-x86_64`) and the
+phone's page (`plenipo-phone-page-<version>.zip`), and two small servers install them from the
+release every 15 minutes. They install a file only when it carries a signature made with the
+**server key**, for that file and that version
+([ADR-210 (the page and the relay are signed like the installer)](../adr/ADR-210-the-page-and-the-relay-are-signed-like-the-installer.md)).
+It is a second key like the updater key, made the same way and kept the same way, and **it must
+be a key of its own**: with one key for both, a signed installer could be passed off as a relay
+program. The Release workflow refuses to run if the two are the same.
+
+| Name                                  | Kind                | What                                                     |
+| ------------------------------------- | ------------------- | -------------------------------------------------------- |
+| `PLENIPO_SERVER_SIGNING_KEY`          | Environment secret  | Everything in `plenipo-server.key` (the private half)    |
+| `PLENIPO_SERVER_SIGNING_KEY_PASSWORD` | Environment secret  | Its password                                             |
+| `PLENIPO_SERVER_SIGNING_PUBLIC_KEY`   | Repository variable | Everything in `plenipo-server.key.pub` (the public half) |
+
+### Step by step (once, about 15 minutes, then one release)
+
+Never paste the key or its password into a chat, an issue, or a file in the repository. **Do the
+steps in this order:** the key first, then a release, then the servers. The servers' new updater
+refuses every release until one carries the signatures, so a server set up first simply keeps
+what it runs; a release made before the key exists stops at **Signing secrets are set**.
+
+1. **Make the key.** Open PowerShell (Start → type "PowerShell" → Enter) and run:
+
+   ```powershell
+   npx --yes @tauri-apps/cli@2.11.5 signer generate -w "$env:USERPROFILE\.tauri\plenipo-server.key"
+   ```
+
+   It asks for a password twice: make a strong one, **not the updater key's**, and save it in
+   your password manager now. You get `plenipo-server.key` (secret) and `plenipo-server.key.pub`
+   (not secret) in `C:\Users\<you>\.tauri\`.
+
+2. **The private key.** On GitHub, **Seckcey/plenipo → Settings → Environments → `release`** →
+   under **Environment secrets**, **Add environment secret**. Name: `PLENIPO_SERVER_SIGNING_KEY`.
+   Copy the value without showing it on screen:
+
+   ```powershell
+   (Get-Content "$env:USERPROFILE\.tauri\plenipo-server.key" -Raw).Trim() | Set-Clipboard
+   ```
+
+   Click in the **Value** box, press Ctrl+V, then **Add secret**.
+
+3. **Its password.** **Add environment secret** again. Name:
+   `PLENIPO_SERVER_SIGNING_KEY_PASSWORD`. Value: the password from step 1. **Add secret**.
+
+4. **The public key.** **Settings → Secrets and variables → Actions** → the **Variables** tab →
+   **New repository variable**. Name: `PLENIPO_SERVER_SIGNING_PUBLIC_KEY`. Copy the value:
+
+   ```powershell
+   (Get-Content "$env:USERPROFILE\.tauri\plenipo-server.key.pub" -Raw).Trim() | Set-Clipboard
+   ```
+
+   Paste it, then **Add variable**. Keep that value at hand: each server gets it in step 7.
+
+5. **Back it up.** Save `plenipo-server.key` (the file, or its text) in your password manager
+   next to its password, apart from the updater key.
+
+6. **Release.** The next release (a pre-release `X.Y.Z-rc.1` will do; installed copies never
+   offer one as an update) signs both files, checks the signatures, and attaches
+   `plenipo-relay-<version>-linux-x86_64.sig` and `plenipo-phone-page-<version>.zip.sig`. A green
+   run means the key signs and the check accepts it. The servers still run their old updater, so
+   nothing changes there yet. (The servers skip pre-releases, so once set up they install from
+   the next full release on.)
+
+7. **The servers.** On each server, put the public key where the updater looks, root-owned, then
+   install the new updater. The steps, with the commands, are in each server's README:
+   [the relay's](../../crates/relay/deploy/README.md#the-server-key) and
+   [the page's](../../apps/remote/deploy/README.md#the-server-key). From then on, each server
+   installs a release only when its signature passes, and says so in its log
+   (`journalctl -u plenipo-relay-update`, `journalctl -u plenipo-phone-page-update`).
+
+- **Losing the private key or its password:** make a new key (steps 1 to 5), add its public half
+  on each server next to the old one (the folder may hold several), release, then remove the old
+  `.pub` once no older release matters. The servers are not stuck: they keep the version they run
+  until a release signed with a key they trust appears.
+- **Leaking it:** remove its `.pub` from both servers at once (the updater then installs
+  nothing), make a new key, and release at once. A version already installed stays until that
+  release replaces it; to step a server back by hand, see "Going back" in its README.
+- **The order of the steps** keeps a server from refusing every release for want of a signature,
+  but even then nothing breaks: the running version keeps running.
