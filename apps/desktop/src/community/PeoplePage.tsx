@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
   type FormEvent,
-  type ReactNode,
+  type RefObject,
 } from "react";
 import type { CardView, Found, MemberView, PeoplePage as Page, ShareProfile } from "@plenipo/types";
 import { Button, CountBadge, ErrorState, LoadingState, Select, Tabs } from "@plenipo/ui";
@@ -25,11 +25,15 @@ import { BlockDialog } from "./BlockDialog";
 import { UNBLOCK_IN_SETTINGS, blockedWords } from "./blockReportWords";
 import { CommunityCard, type CardActions } from "./CommunityCard";
 import type { Target } from "./Conversation";
+import { GettingStartedPanel } from "./GettingStartedPanel";
+import { Leaderboard } from "./Leaderboard";
 import { Messages } from "./Messages";
+import { Part } from "./Part";
 import { BUSINESS_KINDS, regionOptions } from "./profileWords";
 import { ReportDialog } from "./ReportDialog";
 import { oneLine } from "./safeText";
 import { useCommunity } from "./useCommunity";
+import { useGettingStarted } from "./useGettingStarted";
 import { unseenCount, useMessages } from "./useMessages";
 
 /** The longest search, as the account service counts it. */
@@ -164,24 +168,20 @@ function PeopleList({ pages, label, empty }: { pages: PagesState; label: string;
   );
 }
 
-/** A part of the People page, with its title. */
-function Part({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
-  const id = useId();
-  return (
-    <section className="people-part" aria-labelledby={id}>
-      <h2 id={id}>{title}</h2>
-      {hint && <p className="muted">{hint}</p>}
-      {children}
-    </section>
-  );
-}
-
 /**
  * **Find someone**: an exact Community name. The answer is a card, "can only be sent a message
  * request", or "No one…", and nothing else: it never hints at whether a person exists beyond that
  * (ADR-163 §6). What was typed is sent as it is; Plenipo makes the letters small and drops the "@".
  */
-function FindSomeone() {
+function FindSomeone({
+  inputRef,
+  onAsked,
+}: {
+  /** The box, so **Getting started** can put the cursor in it. */
+  inputRef: RefObject<HTMLInputElement | null>;
+  /** A name was looked up (**Getting started** ticks **Find someone**). */
+  onAsked: () => void;
+}) {
   const messaging = useContext(Messaging);
   const inputId = useId();
   const [typed, setTyped] = useState("");
@@ -216,6 +216,7 @@ function FindSomeone() {
       })
       .finally(() => {
         if (mine === turn.current) setBusy(false);
+        onAsked();
       });
   };
   return (
@@ -229,6 +230,7 @@ function FindSomeone() {
             </span>
             <input
               id={inputId}
+              ref={inputRef}
               value={typed}
               maxLength={40}
               autoComplete="off"
@@ -480,14 +482,38 @@ function ShareMyProfile() {
   );
 }
 
-/** The parts of the Community section. Points joins them later. */
-type CommunityTab = "people" | "messages";
+/** The parts of the Community section. */
+type CommunityTab = "people" | "messages" | "leaderboard";
 
-/** The People tab: finding people, and being found. */
-function People() {
+/** The People tab: **Getting started** (for you only), finding people, and being found. */
+function People({
+  go,
+  started,
+  onMessages,
+}: {
+  go: Go;
+  started: ReturnType<typeof useGettingStarted>;
+  /** Open the Messages tab. */
+  onMessages: () => void;
+}) {
+  const findBox = useRef<HTMLInputElement>(null);
+  const close = () => {
+    void started.close().then((closed) => {
+      // The button that was pressed is gone: the cursor goes back to the tabs.
+      if (closed) document.getElementById("community-tab-people")?.focus();
+    });
+  };
   return (
     <div className="people">
-      <FindSomeone />
+      <GettingStartedPanel
+        state={started.state}
+        error={started.error}
+        onProfile={() => go({ view: "settings", id: "community" })}
+        onFind={() => findBox.current?.focus()}
+        onMessage={onMessages}
+        onClose={close}
+      />
+      <FindSomeone inputRef={findBox} onAsked={started.reload} />
       <Directory />
       <NewThisWeek />
       <InviteByEmail />
@@ -500,7 +526,8 @@ function People() {
  * The tabs, once you are signed in. Messages is read here, so its unseen count is on the tab
  * whichever tab is open. The People tab stays as it is while Messages is open (its search is
  * kept); Messages is there only while it is open, so a conversation is read, and marked seen,
- * only when you are looking at it.
+ * only when you are looking at it. The Leaderboard is there only while it is open too, so it asks
+ * 8 West for the points and the board once each time it is shown (never on a timer).
  */
 function SignedIn({ go, member }: { go: Go; member: MemberView | null }) {
   const [tab, setTab] = useState<CommunityTab>("people");
@@ -513,6 +540,8 @@ function SignedIn({ go, member }: { go: Go; member: MemberView | null }) {
   } | null>(null);
   const [blockedNote, setBlockedNote] = useState<string | null>(null);
   const messages = useMessages();
+  // Getting started is read when the People tab shows, and when messages change (one was sent).
+  const started = useGettingStarted(tab === "people", messages.changes);
   const unseen = unseenCount(messages.list);
   const own = member?.name ?? "";
   // A card, or a request-only name: the Messages tab opens a box for that person, even when
@@ -552,6 +581,7 @@ function SignedIn({ go, member }: { go: Go; member: MemberView | null }) {
             label: "Messages",
             badge: <CountBadge count={unseen} label="unseen" />,
           },
+          { value: "leaderboard", label: "Leaderboard" },
         ]}
       />
       {blockedNote && (
@@ -566,7 +596,7 @@ function SignedIn({ go, member }: { go: Go; member: MemberView | null }) {
         hidden={tab !== "people"}
       >
         <Messaging.Provider value={messaging}>
-          <People />
+          <People go={go} started={started} onMessages={() => setTab("messages")} />
         </Messaging.Provider>
       </div>
       {tab === "messages" && (
@@ -578,6 +608,15 @@ function SignedIn({ go, member }: { go: Go; member: MemberView | null }) {
             adult={member?.adult !== false}
             go={go}
           />
+        </div>
+      )}
+      {tab === "leaderboard" && (
+        <div
+          role="tabpanel"
+          id="community-panel-leaderboard"
+          aria-labelledby="community-tab-leaderboard"
+        >
+          <Leaderboard adult={member?.adult !== false} own={own} onMessage={open} />
         </div>
       )}
       {asking?.kind === "report" && (

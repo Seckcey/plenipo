@@ -5531,6 +5531,300 @@ body.popout {
   margin-top: var(--ui-space-2);
 }
 
+/* ---- Community → Getting started, points, and the leaderboard (Phase 24, ADR-169, ADR-172) --- */
+
+/* Getting started: a box at the top of the People tab, three steps, and a close button. */
+.getting-started {
+  display: grid;
+  gap: var(--ui-space-3);
+  box-sizing: border-box;
+  max-width: 560px;
+  min-width: 0;
+  padding: var(--ui-space-4);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface-raised);
+}
+
+.getting-started p,
+.view .getting-started h2 {
+  margin: 0;
+}
+
+.getting-started__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-space-3);
+}
+
+.getting-started__steps {
+  display: grid;
+  gap: var(--ui-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.getting-started__step {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-3);
+  min-width: 0;
+}
+
+/* The tick: an empty ring, and a filled one with a check mark when the step is done. */
+.getting-started__mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  border: 2px solid var(--ui-border-strong);
+  border-radius: 50%;
+}
+
+.getting-started__step--done .getting-started__mark {
+  border-color: var(--ui-ok-text);
+  background: var(--ui-ok-soft);
+  color: var(--ui-ok-text);
+}
+
+/* The two choices sit at their own width, not stretched across the part. */
+.people-part > .ui-segmented {
+  justify-self: start;
+  max-width: 100%;
+}
+
+/* Your points: the totals side by side, then badges and changes. */
+.points {
+  display: grid;
+  gap: var(--ui-space-3);
+  min-width: 0;
+}
+
+.points p {
+  margin: 0;
+}
+
+.view .points h3 {
+  margin: var(--ui-space-2) 0 0;
+  font-size: var(--ui-font-md);
+}
+
+.points__totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3) var(--ui-space-7);
+  margin: 0;
+}
+
+.points__totals dt {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.points__totals dd {
+  margin: 0;
+  color: var(--ui-text-primary);
+  font-size: var(--ui-font-lg);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.points__changes {
+  display: grid;
+  gap: var(--ui-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.points__changes li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ui-space-1) var(--ui-space-3);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.points__amount {
+  min-width: 5.5rem;
+  font-weight: var(--ui-weight-semibold);
+}
+
+.points__changes time {
+  font-size: var(--ui-font-sm);
+}
+
+/* Badges under your name in Settings → Community. */
+.community-standing {
+  display: grid;
+  gap: var(--ui-space-2);
+}
+
+/* How to earn points: a section that opens. */
+.earn {
+  max-width: 640px;
+  min-width: 0;
+}
+
+.earn summary {
+  width: fit-content;
+  max-width: 100%;
+  color: var(--ui-text-primary);
+  font-weight: var(--ui-weight-semibold);
+  cursor: pointer;
+}
+
+.earn__body {
+  display: grid;
+  gap: var(--ui-space-3);
+  margin-top: var(--ui-space-3);
+}
+
+.earn__body p {
+  margin: 0;
+}
+
+.earn__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.earn__table th,
+.earn__table td {
+  padding: var(--ui-space-2) var(--ui-space-3);
+  border-bottom: 1px solid var(--ui-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.earn__table th {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.earn__table th:last-child,
+.earn__table .earn__points {
+  width: 4.5rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* The leaderboard: one place a row. The points and Message move below the names when narrow. */
+.leaders__mine {
+  margin: 0;
+  color: var(--ui-text-primary);
+}
+
+.leaders {
+  display: grid;
+  gap: var(--ui-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.leaders__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-3) var(--ui-space-4);
+  box-sizing: border-box;
+  min-width: 0;
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface-raised);
+}
+
+.leaders__place {
+  flex: none;
+  min-width: 2rem;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-lg);
+  font-weight: var(--ui-weight-semibold);
+  text-align: right;
+}
+
+.people-card__picture--small {
+  width: 40px;
+  height: 40px;
+}
+
+/* Long names break instead of pushing the row wider than the window. */
+.leaders__lines {
+  display: grid;
+  flex: 1 1 12rem;
+  gap: var(--ui-space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.leaders__lines p {
+  margin: 0;
+}
+
+.leaders__name {
+  color: var(--ui-text-primary);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.leaders__handle {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.leaders__you {
+  margin-left: var(--ui-space-2);
+  padding: 1px var(--ui-space-2);
+  border-radius: var(--ui-radius-pill);
+  background: var(--ui-accent-soft);
+  color: var(--ui-accent);
+  font-size: var(--ui-font-xs);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.leaders__side {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-2) var(--ui-space-4);
+}
+
+.leaders__points {
+  margin: 0;
+  color: var(--ui-text-primary);
+  font-weight: var(--ui-weight-semibold);
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .leaders__row {
+    padding: var(--ui-space-3);
+  }
+
+  .leaders__place {
+    min-width: 1.5rem;
+  }
+
+  /* The points and Message take a line of their own, under the names. */
+  .leaders__side {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+
+  .points__amount {
+    min-width: 0;
+  }
+}
+
 /* ---- Community → Messages: private messages, sealed (Phase 24, ADR-164) --------------------- */
 
 /* The list beside the open conversation; one at a time on a narrow window. */

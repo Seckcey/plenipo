@@ -252,6 +252,10 @@ const COMMANDS: &[&str] = &[
     "community_blocked",
     "report_in_community",
     "delete_my_community_data",
+    "community_points",
+    "community_leaderboard",
+    "community_getting_started",
+    "close_community_getting_started",
 ];
 
 fn main() {

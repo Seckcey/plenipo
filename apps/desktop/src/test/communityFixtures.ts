@@ -5,8 +5,12 @@ import type {
   CommunityView,
   ConversationSummary,
   ConversationView,
+  GettingStarted,
+  LeaderboardView,
+  LeaderView,
   MessageView,
   PeoplePage,
+  PointsView,
   ProfileDraft,
 } from "@plenipo/types";
 
@@ -120,4 +124,46 @@ export function conversationView(
 ): ConversationView {
   // Opening a conversation marks its messages seen: its line has none unseen.
   return { person: { ...person, unseen: 0 }, safetyCode, messages };
+}
+
+/** Your points, as the app gives them: none yet, no places, no badges, and no changes. */
+export function pointsView(patch: Partial<PointsView> = {}): PointsView {
+  return {
+    total: 0,
+    week: 0,
+    placeWeek: null,
+    placeAll: null,
+    badges: [],
+    thankedBy: 0,
+    recent: [],
+    ...patch,
+  };
+}
+
+/** One place on the leaderboard: first, Pat Lee, no picture, no badges, no points. */
+export function leaderView(patch: Partial<LeaderView> = {}): LeaderView {
+  return {
+    place: 1,
+    memberId: "cm_01J9Z8Y7X6W5V4T3S2R1Q0P9N8",
+    name: "pat-lee",
+    displayName: "Pat Lee",
+    hasPicture: false,
+    pictureVersion: null,
+    badges: [],
+    points: 0,
+    ...patch,
+  };
+}
+
+/** The leaderboard for This week, with these places, and you not on it. */
+export function leaderboardView(
+  top: LeaderView[] = [],
+  patch: Partial<LeaderboardView> = {},
+): LeaderboardView {
+  return { allTime: false, since: null, top, myPlace: null, myPoints: 0, ...patch };
+}
+
+/** Getting started: no step done, and not closed. */
+export function gettingStarted(patch: Partial<GettingStarted> = {}): GettingStarted {
+  return { profile: false, foundSomeone: false, sentAMessage: false, closed: false, ...patch };
 }

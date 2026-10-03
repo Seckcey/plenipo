@@ -548,6 +548,10 @@ impl<T: Transport> Community<T> {
                             Some(&sent.stamp),
                         )
                         .map_err(kept)?;
+                    if kind == ItemKind::Message {
+                        // Getting started: you sent a message (ADR-169 §5).
+                        self.change_settings(|s| s.sent_a_message = true);
+                    }
                     if sent.request && kind == ItemKind::Message {
                         set_state(ledger, to, PersonState::RequestedByMe)?;
                         self.record(

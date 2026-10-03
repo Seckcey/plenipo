@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-community-getting-started"
+description = "Enables the community_getting_started command without any pre-configured scope."
+commands.allow = ["community_getting_started"]
+
+[[permission]]
+identifier = "deny-community-getting-started"
+description = "Denies the community_getting_started command without any pre-configured scope."
+commands.deny = ["community_getting_started"]

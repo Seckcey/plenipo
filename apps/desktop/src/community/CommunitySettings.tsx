@@ -15,13 +15,16 @@ import {
 } from "../api/commands";
 import type { Go } from "../components/views";
 import { sentenceStart, systemWords } from "../system/words";
+import { BadgeList } from "./Badges";
 import { BlockedPeople } from "./BlockedPeople";
 import { DeleteMyData } from "./DeleteMyData";
 import { LeaveCommunityDialog } from "./LeaveCommunity";
 import { onDate } from "./messageWords";
+import { thankedWords } from "./peopleWords";
 import { sameProfile } from "./profileWords";
 import { oneLine } from "./safeText";
 import { useCommunity } from "./useCommunity";
+import { usePoints } from "./usePoints";
 import { WhatPeopleSee } from "./WhatPeopleSee";
 
 const NOT_REACHED = "Community can't be reached right now. Nothing was changed.";
@@ -225,6 +228,24 @@ function AppearOffline({
 }
 
 /**
+ * What others see of your standing, under your name: "Thanked by 12 people" and your badges, each
+ * with its reason. Your points are read once, when this shows. When they can't be read, or there
+ * is nothing to say yet, nothing is shown (the Community page says why).
+ */
+function YourStanding() {
+  const { points } = usePoints();
+  const thanked = points ? thankedWords(points.thankedBy) : null;
+  const badges = points?.badges ?? [];
+  if (!thanked && badges.length === 0) return null;
+  return (
+    <div className="community-standing">
+      {thanked && <p>{thanked}</p>}
+      <BadgeList badges={badges} label="Your badges" />
+    </div>
+  );
+}
+
+/**
  * Settings → Community (Phase 24, ADR-162, ADR-170): your 8 West account in Plenipo. Sign in with
  * a code on the account site (Plenipo never sees your password), choose your name in Community,
  * and sign out or leave. Nothing is sent to 8 West until you turn Community on in Settings →
@@ -359,6 +380,7 @@ export function CommunitySettings({ go }: { go: Go }) {
               <p>
                 Your name in Community: <strong>@{oneLine(member.name)}</strong>
               </p>
+              <YourStanding />
               {member.standing === "paused" && (
                 <p className="notice-box" role="note">
                   8 West paused your Community

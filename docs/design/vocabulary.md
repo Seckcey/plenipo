@@ -381,6 +381,16 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Report first (offered before Leave this conversation)                          | escalate first, flag before leaving                                                        |
 | Thanks. 8 West will look at this. (after a report is sent)                     | ticket created, case opened, report submitted                                              |
 | Delete my Community data from this PC (others keep their copies)               | wipe local cache, purge local data, factory reset                                          |
+| Points (what you earn when other people agree you helped; no money value)      | reward points, karma points, reputation score                                              |
+| How to earn points (the eight ways, and what each is worth)                    | earning rules, points schedule, reward table                                               |
+| Leaderboard (the top 50 by points, and your own place)                         | high-score table, ranking table, top users list                                            |
+| This week / All time (the two lists; a week starts Monday, Pacific time)       | weekly period, lifetime total, rolling total                                               |
+| Top helper this week (the badge for the most points last week)                 | weekly winner, top contributor, leaderboard champion                                       |
+| Badges (small marks on your card; each says why you have it)                   | achievements unlocked, trophies earned, reputation tiers                                   |
+| Founding member / Helper / Connector / Good neighbor / Trusted (the badges)    | achievement names, trust levels, status ranks                                              |
+| Thanked by 12 people (different people, not presses)                           | thanks count, kudos total, upvotes received                                                |
+| Getting started (Fill in your profile, Find someone, Send a message)           | onboarding checklist, first-run wizard, setup tour                                         |
+| Only people you invite by email count (for points)                             | referral link, invite code, share-link referral                                            |
 
 ## Words that change with the system
 

@@ -57,6 +57,20 @@ pub struct Settings {
     /// The picture last sent, as a SHA-256 in hex, so the same one is not sent again.
     #[serde(default)]
     pub picture_sent: Option<String>,
+    /// **Getting started** on this PC (ADR-169 §5): you found someone, sent a message, or closed
+    /// it.
+    #[serde(default)]
+    pub found_someone: bool,
+    #[serde(default)]
+    pub sent_a_message: bool,
+    #[serde(default)]
+    pub getting_started_closed: bool,
+    /// The newest change to your points this PC has recorded (Unix seconds), and the badges it
+    /// last saw, so the Ledger records each once (ADR-169 §8).
+    #[serde(default)]
+    pub points_seen_at: i64,
+    #[serde(default)]
+    pub badges_seen: Vec<String>,
 }
 
 /// Where Community stands on this PC.
@@ -318,6 +332,18 @@ impl<T: Transport> Community<T> {
             .as_ref()
             .and_then(|me| me.member.as_ref())
             .map(|m| m.member_id.clone())
+    }
+
+    /// What this PC keeps about Community, as it is now.
+    pub fn settings(&self) -> Settings {
+        lock(&self.state).settings.clone()
+    }
+
+    /// Change what this PC keeps about Community, and save it.
+    pub(crate) fn change_settings(&self, change: impl FnOnce(&mut Settings)) {
+        let mut s = lock(&self.state);
+        change(&mut s.settings);
+        self.save_settings(&mut s);
     }
 
     /// Now, by this PC's clock (Unix seconds).

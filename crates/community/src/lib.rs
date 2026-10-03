@@ -27,6 +27,7 @@ pub mod keys;
 pub mod messages;
 pub mod people;
 pub mod profile;
+pub mod rewards;
 pub mod safety;
 pub mod seal;
 pub mod service;
