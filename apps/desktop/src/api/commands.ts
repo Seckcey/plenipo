@@ -4,6 +4,7 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  BlockedPerson,
   CardView,
   CommunityView,
   ConversationSummary,
@@ -13,6 +14,7 @@ import type {
   MessageView,
   PeoplePage,
   RemoteSettings,
+  ReportOf,
   LiveView,
   LoanUntil,
   OwnerProfile,
@@ -1655,4 +1657,61 @@ export function giveCommunityMessageToWorker(
     positionId,
     note,
   });
+}
+
+// ---- Community → Block, Report, and Delete my Community data (Phase 24, ADR-167, ADR-168) ----
+
+/**
+ * **Block** someone, by their ID and Community name. They can't message you, find your card, or
+ * link with you, and they are not told. What is on this computer stays.
+ */
+export function blockInCommunity(memberId: string, name: string): Promise<void> {
+  return call<void>("block_in_community", { memberId, name });
+}
+
+/** **Unblock** someone. Links that the block ended do not come back by themselves. */
+export function unblockInCommunity(memberId: string): Promise<void> {
+  return call<void>("unblock_in_community", { memberId });
+}
+
+/** The people you blocked, for Settings → Community → **Blocked**. */
+export function communityBlocked(): Promise<BlockedPerson[]> {
+  return call<BlockedPerson[]>("community_blocked");
+}
+
+/** **What is wrong?**, as a report sends it (the app's names; the screen has plain words). */
+export type ReportReason =
+  | "spam"
+  | "harassment"
+  | "scam"
+  | "hate"
+  | "sexual"
+  | "under13"
+  | "youngPersonRisk"
+  | "impersonation"
+  | "cheating"
+  | "other";
+
+/**
+ * **Report** a person, their profile, or messages they sent you (1 to 20, each with its proof) to
+ * 8 West. A report carries only what `of` names, the reason, and `note` (up to 1,000 characters).
+ * `block` also blocks the person once the report is made.
+ */
+export function reportInCommunity(
+  memberId: string,
+  name: string,
+  of: ReportOf,
+  reason: ReportReason,
+  note: string,
+  block: boolean,
+): Promise<void> {
+  return call<void>("report_in_community", { memberId, name, of, reason, note, block });
+}
+
+/**
+ * **Delete my Community data from this PC**: every Community conversation and message on this
+ * computer. Nothing is sent; 8 West and the other people keep theirs. Ask first.
+ */
+export function deleteMyCommunityData(): Promise<void> {
+  return call<void>("delete_my_community_data");
 }

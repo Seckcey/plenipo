@@ -85,6 +85,7 @@ export function ConfirmDialog({
   message,
   confirmLabel,
   danger = false,
+  extra,
   onConfirm,
   onCancel,
 }: {
@@ -92,6 +93,8 @@ export function ConfirmDialog({
   message: ReactNode;
   confirmLabel: string;
   danger?: boolean;
+  /** Another button, on the left of the footer (for a step to take first). */
+  extra?: ReactNode;
   /** Resolves with an error message, or `null` when done. */
   onConfirm: () => Promise<string | null>;
   onCancel: () => void;
@@ -113,6 +116,7 @@ export function ConfirmDialog({
         </p>
       )}
       <footer className="modal__footer">
+        {extra && <div className="modal__extra">{extra}</div>}
         <Button variant="quiet" onClick={onCancel}>
           Cancel
         </Button>

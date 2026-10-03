@@ -12,7 +12,8 @@ import { oneLine } from "./safeText";
  * wrote is text only (`MessageText`, `oneLine`).
  *
  * What can be done is one row of buttons, in order: **React**, **Reply**, **Delete for me**,
- * **Give to a worker**. Report and Block join that row later (ADR-167).
+ * **Give to a worker**, **Report** (ADR-167). **Report** is only on a message that can be
+ * reported (theirs, with its proof), and only where `onReport` is given.
  */
 export function MessageItem({
   message,
@@ -23,6 +24,7 @@ export function MessageItem({
   onReply,
   onDelete,
   onGive,
+  onReport,
   onOpenLink,
 }: {
   message: MessageView;
@@ -40,6 +42,8 @@ export function MessageItem({
   onReply: (message: MessageView) => void;
   onDelete: (message: MessageView) => void;
   onGive: (message: MessageView) => void;
+  /** Report this message (it is ticked in the Report window). */
+  onReport?: ((message: MessageView) => void) | undefined;
   onOpenLink: (address: string) => void;
 }) {
   const pickerId = useId();
@@ -102,6 +106,11 @@ export function MessageItem({
         {hasWords && (
           <Button size="sm" variant="quiet" onClick={() => onGive(message)}>
             Give to a worker
+          </Button>
+        )}
+        {message.reportable && onReport && (
+          <Button size="sm" variant="quiet" onClick={() => onReport(message)}>
+            Report
           </Button>
         )}
       </div>

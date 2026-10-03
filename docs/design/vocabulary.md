@@ -373,6 +373,14 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Give to a worker (a message's words go to a worker as outside words)           | forward to agent, send to bot, assign message                                              |
 | Photos can't be sent in Community                                              | attachments not supported, image upload blocked, file upload error                         |
 | Open this link in your web browser?                                            | follow this link, navigate to URL, external link warning                                   |
+| Block (they can't message you or find your card; they aren't told)             | ban user, mute user, restrict account                                                      |
+| Unblock (take a block back, in the conversation or in Settings)                | unban user, lift restriction, restore access                                               |
+| Blocked (the people you blocked, in Settings → Community)                      | block list, ban list, muted users                                                          |
+| Report (tell 8 West about a person, a profile, or messages you tick)           | flag content, file a complaint, abuse ticket                                               |
+| What is wrong? (the reason you pick for a report: Spam, A scam, Hate, …)       | violation category, abuse type, policy breach                                              |
+| Report first (offered before Leave this conversation)                          | escalate first, flag before leaving                                                        |
+| Thanks. 8 West will look at this. (after a report is sent)                     | ticket created, case opened, report submitted                                              |
+| Delete my Community data from this PC (others keep their copies)               | wipe local cache, purge local data, factory reset                                          |
 
 ## Words that change with the system
 

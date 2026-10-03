@@ -62,22 +62,31 @@ function Picture({ card }: { card: CardView }) {
   );
 }
 
+/** What a card can offer, each asked with the person's ID and their Community name as it came. */
+export interface CardActions {
+  /** Open a conversation with this person. */
+  onMessage?: ((memberId: string, name: string) => void) | undefined;
+  /** Report this person, or their profile. */
+  onReport?: ((memberId: string, name: string) => void) | undefined;
+  /** Block this person. */
+  onBlock?: ((memberId: string, name: string) => void) | undefined;
+}
+
 /**
  * One person in Community (Phase 24, ADR-163 §4, ADR-169): picture, names, status, mood, message,
  * company, what the business does, where, badges, points, and thanks. A part the person hides is
  * simply not there. Everything another person wrote is plain text on one line (`oneLine`): a
- * hidden character shows as a mark, and nothing is ever a web page or a link. With `onMessage` (the
- * People tab gives it) the card has one button of Plenipo's own, **Message**, that opens a
- * conversation with that person.
+ * hidden character shows as a mark, and nothing is ever a web page or a link. With `onMessage`,
+ * `onReport`, and `onBlock` (the People tab gives them, for everyone but you) the card has buttons
+ * of Plenipo's own: **Message**, which opens a conversation with that person, **Report**, and
+ * **Block** (ADR-167). Each is asked with the person's ID and their Community name as it came.
  */
 export function CommunityCard({
   card,
   onMessage,
-}: {
-  card: CardView;
-  /** Open a conversation with this person (their ID and Community name). */
-  onMessage?: ((memberId: string, name: string) => void) | undefined;
-}) {
+  onReport,
+  onBlock,
+}: { card: CardView } & CardActions) {
   const nameId = useId();
   const name = oneLine(card.name);
   const display = line(card.displayName);
@@ -142,11 +151,23 @@ export function CommunityCard({
           <span>{pointsWords(card.points)}</span>
           {thanked && <span>{thanked}</span>}
         </p>
-        {onMessage && (
+        {(onMessage || onReport || onBlock) && (
           <div className="people-card__actions">
-            <Button size="sm" onClick={() => onMessage(card.memberId, card.name)}>
-              Message
-            </Button>
+            {onMessage && (
+              <Button size="sm" onClick={() => onMessage(card.memberId, card.name)}>
+                Message
+              </Button>
+            )}
+            {onReport && (
+              <Button size="sm" variant="quiet" onClick={() => onReport(card.memberId, card.name)}>
+                Report
+              </Button>
+            )}
+            {onBlock && (
+              <Button size="sm" variant="quiet" onClick={() => onBlock(card.memberId, card.name)}>
+                Block
+              </Button>
+            )}
           </div>
         )}
       </div>

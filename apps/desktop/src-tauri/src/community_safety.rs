@@ -120,7 +120,13 @@ pub async fn report_in_community<R: Runtime>(
     if block {
         let done = state.community.block(&ledger, &member_id, &name).await;
         messages_changed(&app);
-        done.map_err(refused)?;
+        // The report went; say so, so it is never sent twice for a block that didn't.
+        done.map_err(|r| {
+            CommandError::invalid_input(format!(
+                "Your report was sent. Blocking didn't work: {} Press Block to try again.",
+                r.0
+            ))
+        })?;
     }
     Ok(())
 }
