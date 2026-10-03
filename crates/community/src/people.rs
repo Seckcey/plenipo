@@ -72,7 +72,7 @@ pub struct PeoplePage {
 pub enum Found {
     /// Their card.
     #[serde(rename_all = "camelCase")]
-    Card { card: CardView },
+    Card { card: Box<CardView> },
     /// A member under 18, or one who appears offline: only **Send a message request**.
     #[serde(rename_all = "camelCase")]
     RequestOnly { member_id: String, name: String },
@@ -191,6 +191,44 @@ pub fn share_link(name: &str) -> Option<String> {
     client::is_community_name(name).then(|| format!("{SHARE_PAGE}{name}"))
 }
 
+/// **Share my profile** (ADR-163 §6): the link, and its picture code (QR code) for a business
+/// card or an email.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ShareProfile {
+    /// `https://getplenipo.com/c/frank-g`: the same page for every name.
+    pub link: String,
+    /// The picture code: `qrSize` × `qrSize` squares, row by row, `1` dark and `0` light. The
+    /// screen draws it, with a quiet border of its own.
+    pub qr_size: u32,
+    pub qr_cells: String,
+}
+
+impl ShareProfile {
+    /// For a Community name; `None` if it isn't one.
+    pub fn of(name: &str) -> Option<Self> {
+        use qrcode::{Color, EcLevel, QrCode};
+        let link = share_link(name)?;
+        let code = QrCode::with_error_correction_level(link.as_bytes(), EcLevel::M).ok()?;
+        Some(Self {
+            qr_size: u32::try_from(code.width()).ok()?,
+            qr_cells: code
+                .to_colors()
+                .into_iter()
+                .map(|c| if c == Color::Dark { '1' } else { '0' })
+                .collect(),
+            link,
+        })
+    }
+}
+
+/// A picture's bytes as the screen shows them: standard base64, for a `data:image/png` address.
+pub fn picture_text(png: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(png)
+}
+
 impl<T: Transport> Community<T> {
     /// The Community directory (ADR-163 §4): adults listed, most points first, 20 at a time.
     /// `q` matches a name, a company, or a line about a business; `kind` is one business kind;
@@ -257,7 +295,7 @@ impl<T: Transport> Community<T> {
         let card: wire::Card =
             serde_json::from_value(value).map_err(|_| Refused(words(&Failure::BadAnswer)))?;
         Ok(Found::Card {
-            card: CardView::of(card),
+            card: Box::new(CardView::of(card)),
         })
     }
 
@@ -346,6 +384,20 @@ mod tests {
         let mut broken = ok.clone();
         broken.truncate(ok.len() - 20);
         assert!(!is_safe_picture(&broken));
+    }
+
+    #[test]
+    fn the_share_picture_code_is_a_square_of_the_link() {
+        let share = ShareProfile::of("frank-g").unwrap();
+        assert_eq!(share.link, "https://getplenipo.com/c/frank-g");
+        assert!(share.qr_size >= 21);
+        assert_eq!(
+            share.qr_cells.len(),
+            (share.qr_size * share.qr_size) as usize
+        );
+        assert!(share.qr_cells.starts_with("1111111"));
+        assert_eq!(ShareProfile::of("Not A Name"), None);
+        assert_eq!(picture_text(&[0x89, b'P', b'N', b'G']), "iVBORw==");
     }
 
     #[test]

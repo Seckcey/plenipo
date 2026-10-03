@@ -12,6 +12,7 @@ export function Sidebar({
   activeCount,
   workingCount,
   approvalCount = 0,
+  communityOn = false,
 }: {
   current: ViewId;
   onNavigate: (view: ViewId) => void;
@@ -20,6 +21,11 @@ export function Sidebar({
   workingCount: number;
   /** Requests waiting for the owner's approval. */
   approvalCount?: number;
+  /**
+   * Community's switch is on. Only then is the Community section on the strip: someone who never
+   * turns Community on never sees it (Phase 24).
+   */
+  communityOn?: boolean;
 }) {
   const badge = (id: ViewId): RailItem<ViewId>["badge"] => {
     if (id === "runtimes" && activeCount > 0)
@@ -37,7 +43,7 @@ export function Sidebar({
       onSelect={onNavigate}
       // The logo from the owner's brand kit: the P, "lenipo", and Pip on the n.
       brand={<PlenipoLogo height={28} />}
-      items={VIEWS.map((v) => {
+      items={VIEWS.filter((v) => v.id !== "community" || communityOn).map((v) => {
         const b = badge(v.id);
         return {
           id: v.id,

@@ -5319,3 +5319,206 @@ body.popout {
   color: var(--ui-text-secondary);
   font-size: var(--ui-font-sm);
 }
+
+/* ---- Community → People: finding people (Phase 24, ADR-163) -------------------------------- */
+
+/* Before you are signed in: a short note and a way to Settings → Community. */
+.community-view__note {
+  display: grid;
+  gap: var(--ui-space-4);
+  max-width: 480px;
+}
+
+.community-view__note p {
+  margin: 0;
+}
+
+.community-view .ui-tabs {
+  margin-bottom: var(--ui-space-5);
+}
+
+.people {
+  display: grid;
+  gap: var(--ui-space-7);
+  min-width: 0;
+}
+
+.people-part {
+  display: grid;
+  gap: var(--ui-space-3);
+  min-width: 0;
+}
+
+.people-part p {
+  margin: 0;
+}
+
+.view .people-part h2 {
+  margin: 0;
+}
+
+.people-form {
+  display: grid;
+  gap: var(--ui-space-3);
+  max-width: 560px;
+}
+
+/* A box with its button beside it (and the "@" before a name): one row, wrapping on a narrow window. */
+.people-form__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-2);
+}
+
+.people-form__row input {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.people-form__pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-3);
+}
+
+.people-form__pickers .ui-field {
+  max-width: 100%;
+}
+
+.people-form__pickers select {
+  max-width: 100%;
+}
+
+/* Cards in as many columns as fit: one on a narrow window. */
+.people-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: var(--ui-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.people-grid--one {
+  grid-template-columns: minmax(0, min(100%, 360px));
+}
+
+.people-grid > li {
+  min-width: 0;
+}
+
+.people-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ui-space-4);
+  box-sizing: border-box;
+  min-width: 0;
+  height: 100%;
+  padding: var(--ui-space-4);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-surface-raised);
+}
+
+.people-card__picture {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.people-card__picture--none {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ui-surface-sunken);
+  color: var(--ui-text-secondary);
+}
+
+/* Long words break instead of pushing the card wider than the window. */
+.people-card__lines {
+  display: grid;
+  gap: var(--ui-space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.people-card__lines p {
+  margin: 0;
+}
+
+.people-card__name {
+  color: var(--ui-text-primary);
+  font-weight: var(--ui-weight-semibold);
+}
+
+.people-card__handle,
+.people-card__business,
+.people-card__line,
+.people-card__place,
+.people-card__points {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.people-card__tile,
+.people-card__points {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-1) var(--ui-space-4);
+}
+
+.people-card__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+}
+
+.people-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-1) var(--ui-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.people-card__badges li {
+  padding: 1px var(--ui-space-2);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-pill);
+  font-size: var(--ui-font-sm);
+}
+
+/* Share my profile: the link and its picture code side by side, one above the other when narrow. */
+.people-share {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-5);
+  align-items: flex-start;
+}
+
+.people-share__text {
+  display: grid;
+  flex: 1 1 16rem;
+  gap: var(--ui-space-3);
+  min-width: 0;
+}
+
+.people-share__text p {
+  margin: 0;
+}
+
+.people-share__link {
+  display: block;
+  padding: var(--ui-space-2) var(--ui-space-3);
+  border: 1px solid var(--ui-border);
+  border-radius: 6px;
+  background: var(--ui-surface-sunken);
+  color: var(--ui-text-primary);
+  font-family: var(--ui-font-mono);
+  overflow-wrap: anywhere;
+  user-select: all;
+}

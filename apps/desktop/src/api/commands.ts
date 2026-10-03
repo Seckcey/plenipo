@@ -4,8 +4,11 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  CardView,
   CommunityView,
+  Found,
   KeptOnPc,
+  PeoplePage,
   RemoteSettings,
   LiveView,
   LoanUntil,
@@ -72,6 +75,7 @@ import type {
   PermissionsSnapshot,
   PositionPatchInput,
   ProfileDraft,
+  ShareProfile,
   ProjectInput,
   ProjectWork,
   RoleInput,
@@ -1503,4 +1507,59 @@ export function signOutOfCommunity(): Promise<CommunityView> {
 /** Open the sign-in page, or the Community terms, in your own web browser. */
 export function openCommunityPage(page: "signIn" | "terms"): Promise<void> {
   return call<void>("open_community_page", { page });
+}
+
+// ---- Community → People: finding people (Phase 24, ADR-163 §4, §6) ---------------------------
+
+/**
+ * **Directory**: 20 cards at a time. `q` is up to 60 characters (a name, a company, or what a
+ * business does), `kind` one business kind (`""` for any), `region` a country (`US`) or a state
+ * (`US-CA`), or `""` for anywhere. `cursor` is the `next` of the page before, or `""` for the first.
+ */
+export function communityDirectory(
+  q: string,
+  kind: string,
+  region: string,
+  cursor: string,
+): Promise<PeoplePage> {
+  return call<PeoplePage>("community_directory", { q, kind, region, cursor });
+}
+
+/** **New this week**: people who joined in the last 7 days, 20 at a time. */
+export function communityNewThisWeek(cursor: string): Promise<PeoplePage> {
+  return call<PeoplePage>("community_new_this_week", { cursor });
+}
+
+/**
+ * **Find someone** by their exact Community name (an "@" before it is fine; Plenipo makes the
+ * letters small). It answers a card, "request only", or no one, and nothing more.
+ */
+export function findInCommunity(name: string): Promise<Found> {
+  return call<Found>("find_in_community", { name });
+}
+
+/** One member's card, or `null` when you may not see it. */
+export function communityCard(memberId: string): Promise<CardView | null> {
+  return call<CardView | null>("community_card", { memberId });
+}
+
+/**
+ * One member's picture as standard base64 (a real PNG, at most 256 × 256, checked by Plenipo), or
+ * `null` when there is none. Show it only as `data:image/png;base64,…`.
+ */
+export function communityPicture(memberId: string): Promise<string | null> {
+  return call<string | null>("community_picture", { memberId });
+}
+
+/**
+ * **Invite by email**: 8 West emails the address a link to join. The answer is the same whether or
+ * not the address has an account. It needs Pro; if not, the error says so in plain words.
+ */
+export function inviteToCommunity(email: string): Promise<void> {
+  return call<void>("invite_to_community", { email });
+}
+
+/** **Share my profile**: your share link and its picture code. Nothing is sent. */
+export function shareMyCommunityProfile(): Promise<ShareProfile> {
+  return call<ShareProfile>("share_my_community_profile");
 }

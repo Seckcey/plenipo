@@ -755,6 +755,13 @@ pub fn configure<R: Runtime>(
             community_commands::open_community_page,
             community_commands::save_community_profile,
             community_commands::set_community_appear_offline,
+            community_commands::community_directory,
+            community_commands::community_new_this_week,
+            community_commands::find_in_community,
+            community_commands::community_card,
+            community_commands::community_picture,
+            community_commands::invite_to_community,
+            community_commands::share_my_community_profile,
         ])
 }
 
@@ -3838,7 +3845,7 @@ mod ipc_boundary_tests {
 
     /// Settings → Community: turning it on and signing in reach 8 West for the owner, so they are
     /// the main window's alone (ADR-162 §8).
-    const COMMUNITY: [&str; 9] = [
+    const COMMUNITY: [&str; 16] = [
         "get_community",
         "set_community_switch",
         "check_community_again",
@@ -3848,6 +3855,13 @@ mod ipc_boundary_tests {
         "open_community_page",
         "save_community_profile",
         "set_community_appear_offline",
+        "community_directory",
+        "community_new_this_week",
+        "find_in_community",
+        "community_card",
+        "community_picture",
+        "invite_to_community",
+        "share_my_community_profile",
     ];
 
     #[test]
@@ -3859,6 +3873,8 @@ mod ipc_boundary_tests {
         let args = serde_json::json!({
             "on": false, "name": "pat-lee", "birthMonth": 3, "birthYear": 1980,
             "terms": "2026-10-01", "page": "terms", "profile": {}, "offline": true,
+            "q": "", "kind": "", "region": "", "cursor": "", "memberId": "cm_x",
+            "email": "pat@example.com",
         });
         for cmd in COMMUNITY {
             let refused = |answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
@@ -3911,8 +3927,25 @@ mod ipc_boundary_tests {
         )
         .unwrap_err();
         assert_eq!(err["kind"], "invalidInput");
-        // So are saving a profile and appearing offline.
+        // So are saving a profile, appearing offline, and finding and inviting people.
         for (cmd, args) in [
+            (
+                "community_directory",
+                serde_json::json!({ "q": "", "kind": "", "region": "", "cursor": "" }),
+            ),
+            (
+                "community_new_this_week",
+                serde_json::json!({ "cursor": "" }),
+            ),
+            (
+                "find_in_community",
+                serde_json::json!({ "name": "pat-lee" }),
+            ),
+            (
+                "invite_to_community",
+                serde_json::json!({ "email": "pat@example.com" }),
+            ),
+            ("share_my_community_profile", serde_json::json!({})),
             (
                 "save_community_profile",
                 serde_json::json!({ "profile": {} }),

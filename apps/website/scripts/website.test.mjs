@@ -187,7 +187,11 @@ test("Share my profile is one plain page for every name, never in a search engin
     assert.ok(!/<script(?![^>]*src="\/c\/share\.js")/.test(page), "only share.js runs");
     assert.ok(!/fetch|XMLHttpRequest|https?:\/\//.test(page.replace(/<a href="\/[^"]*"/g, "")));
     const script = await readFile(join(output, "c", "share.js"), "utf8");
-    assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|fetch|XMLHttpRequest|eval/.test(script));
+    assert.ok(
+      !/innerHTML|outerHTML|insertAdjacentHTML|document\.write|fetch|XMLHttpRequest|eval/.test(
+        script,
+      ),
+    );
     assert.match(script, /textContent/);
     const sitemap = await readFile(join(output, "sitemap.xml"), "utf8");
     assert.ok(!sitemap.includes("/c/"), "never in the sitemap");

@@ -132,7 +132,7 @@ are written and tested; they reach the live service, still switched off, when th
       and **What people see** (ADR-163)
 - [x] Turning Community on says "**You'll be listed in the Community directory**", and **Appear
       offline** sits beside your status (ADR-163 §1, §5)
-- [ ] The directory, **Find someone**, **Invite by email**, and **Share my profile** (ADR-163 §4,
+- [x] The directory, **Find someone**, **Invite by email**, and **Share my profile** (ADR-163 §4,
       §6), with the share page on the website (the same page for every name)
 - [ ] Messages: HPKE sealing with test answers, signing, **Requests**, the safety code, "**Pat's
       computers changed**", **Delete for me** (ADR-164)

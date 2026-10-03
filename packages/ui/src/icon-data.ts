@@ -23,6 +23,14 @@ export const ICONS = {
     d: "M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.3 3.3 0 0 1 0 6.3M18 14.5a5.5 5.5 0 0 1 3.5 5.5",
     circles: [[9, 7.5, 3.5]],
   },
+  // Two people side by side: Community, the people who use Plenipo (Phase 24).
+  community: {
+    d: "M2.5 19a4.5 4.5 0 0 1 9 0M12.5 19a4.5 4.5 0 0 1 9 0",
+    circles: [
+      [7, 8.5, 2.5],
+      [17, 8.5, 2.5],
+    ],
+  },
   user: { d: "M4 21a8 8 0 0 1 16 0", circles: [[12, 8, 4]] },
   phone: {
     d: "M8 2.5h8A1.5 1.5 0 0 1 17.5 4v16a1.5 1.5 0 0 1-1.5 1.5H8A1.5 1.5 0 0 1 6.5 20V4A1.5 1.5 0 0 1 8 2.5zM10.5 18.5h3",
