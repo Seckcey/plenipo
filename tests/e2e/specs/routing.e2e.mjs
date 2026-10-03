@@ -470,7 +470,7 @@ describe("Phase 6 model policy and role routing (real app, fake CLIs)", () => {
     );
     assert.match(
       await roleRow(browser, "Senior Developer"),
-      /Claude Code \(default model\) · high effort/,
+      /Claude Code: its own choice · high effort/,
     );
     const second = await delegate(
       browser,
