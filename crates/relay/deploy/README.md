@@ -109,19 +109,28 @@ It adds the system user `plenipo-relay`, `/opt/plenipo-relay`, `/etc/plenipo-rel
 the services, downloads the newest release's relay, checks its signature and the rest, and starts
 it. The last line starts with `Done. The relay runs as plenipo-relay on …`.
 
-**Already installed before the signatures (ADR-210)?** Put the key in place (step 2), then copy
-the new updater and its service file over the old ones and reload:
+**Already installed before the signatures (ADR-210)?** Put the key in place (step 2) and fetch
+the new files (step 1). Before copying them, make sure they are what was merged:
+`sha256sum update-relay.sh plenipo-relay-update.service` on the server must print the same sums
+as those two files at the merged commit on GitHub (in a checkout:
+`git show <commit>:crates/relay/deploy/update-relay.sh | sha256sum`, and the same for the
+service file). Then copy them over the old ones, reload, and run the updater once through its
+service, so its new sandbox is tried right away:
 
 ```sh
 cp update-relay.sh /opt/plenipo-relay/deploy/update-relay.sh && chmod 0755 /opt/plenipo-relay/deploy/update-relay.sh
 cp plenipo-relay-update.service /etc/systemd/system/plenipo-relay-update.service
 systemctl daemon-reload
-/opt/plenipo-relay/deploy/update-relay.sh --check
+systemctl start plenipo-relay-update.service && journalctl -u plenipo-relay-update -n 20
 ```
 
-The check says `… is signed with 8 West's server key` for the newest release, or why it would
-stop. Until a release carries the signatures, it stops with `has no … .sig attached`, and the
-relay running now keeps running.
+A good run ends with `Up to date and healthy. Nothing to do.` (the newest full release is the one
+running), or with `… is signed with 8 West's server key (8west-server-2026.pub) for X.Y.Z.` and
+`Running vX.Y.Z.` (it installed one; this is the run that proves `runuser` works inside the
+sandbox). Until a full release carries the signatures (the updater skips pre-releases), it ends
+with `STOPPED: vX.Y.Z has no … .sig attached`, and the relay running now keeps running. Anything
+else (`Permission denied`, a `runuser` or `systemctl` error, `Failed`): stop and ask; nothing has
+changed yet.
 
 ### 5. Check it, on the server and from the proxy
 

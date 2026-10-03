@@ -7,9 +7,9 @@
 # stand-ins for systemctl and docker, and a small web server for each health check, and checks:
 #   - a release signed with the trusted key is installed (the relay) and served (the page);
 #   - a release with no signature, one made with another key, one made for another file (the
-#     installer's name on the relay's program, the relay's on the page), or one made for another
-#     version is refused before the file is used at all: the relay's program never runs, and the
-#     page is never unpacked;
+#     installer's name on the relay's program, the relay's on the page), one made for another
+#     version, or a file changed after it was signed is refused before the file is used at all:
+#     the relay's program never runs, and the page is never unpacked;
 #   - a damaged download (checksum) is still refused, before the program runs;
 #   - an older "latest" release is refused, and --version takes the step back on purpose;
 #   - the relay's program never runs as root;
@@ -98,7 +98,7 @@ publish() { # publish <version> <latest: yes|no> <asset names...>: the release's
   fi
 }
 
-make_relay() { # make_relay <version> <how: good|garbage|other|wrongfile|wrongversion|badsum>
+make_relay() { # make_relay <version> <how: good|garbage|other|wrongfile|wrongversion|badsum|tampered>
   local version="$1" how="$2" name="plenipo-relay-$1-linux-x86_64" dir="$DL/v$1"
   rm -rf "$dir"
   mkdir -p "$dir"
@@ -116,11 +116,15 @@ make_relay() { # make_relay <version> <how: good|garbage|other|wrongfile|wrongve
       sign "$dir/$name" "$T/server.key" "$name" "$version"
       echo "0000000000000000000000000000000000000000000000000000000000000000  $name" > "$dir/$name.sha256"
       ;;
+    tampered) # signed, then changed: one byte more
+      sign "$dir/$name" "$T/server.key" "$name" "$version"
+      printf 'x' >> "$dir/$name"
+      ;;
   esac
   publish "$version" yes "$name" "$name.sig" "$name.sha256"
 }
 
-make_page() { # make_page <version> <how: good|garbage|other|wrongfile|wrongversion>
+make_page() { # make_page <version> <how: good|garbage|other|wrongfile|wrongversion|tampered>
   local version="$1" how="$2" name="plenipo-phone-page-$1.zip" dir="$DL/v$1" src="$T/page-src"
   rm -rf "$dir" "$src"
   mkdir -p "$dir" "$src"
@@ -135,6 +139,10 @@ make_page() { # make_page <version> <how: good|garbage|other|wrongfile|wrongvers
     other) sign "$dir/$name" "$T/other.key" "$name" "$version" ;;
     wrongfile) sign "$dir/$name" "$T/server.key" "plenipo-relay-$version-linux-x86_64" "$version" ;;
     wrongversion) sign "$dir/$name" "$T/server.key" "$name" "9.9.9" ;;
+    tampered) # signed, then changed: one byte more
+      sign "$dir/$name" "$T/server.key" "$name" "$version"
+      printf 'x' >> "$dir/$name"
+      ;;
   esac
   publish "$version" yes "$name" "$name.sig" "$name.sha256"
 }
@@ -310,6 +318,14 @@ stopped_with "$RELAY_NAME was signed as version \"9.9.9\", but the release says 
 relay_never_ran
 pass
 
+case="a file changed after it was signed: refused before the program runs"
+reset_relay
+make_relay "$V" tampered
+run_relay --
+stopped_with "$RELAY_NAME is not signed with 8 West's server key"
+relay_never_ran
+pass
+
 case="a damaged download: refused before the program runs"
 reset_relay
 make_relay "$V" badsum
@@ -413,6 +429,14 @@ reset_page
 make_page "$V" wrongversion
 run_page --
 stopped_with "$PAGE_NAME was signed as version \"9.9.9\", but the release says $V"
+page_never_unpacked
+pass
+
+case="a file changed after it was signed: refused before the page is unpacked"
+reset_page
+make_page "$V" tampered
+run_page --
+stopped_with "$PAGE_NAME is not signed with 8 West's server key"
 page_never_unpacked
 pass
 

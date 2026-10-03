@@ -153,7 +153,7 @@ done
 systemctl daemon-reload
 # The newest release's program, checked, then the service starts on it.
 systemctl enable plenipo-relay.service > /dev/null 2>&1 || true
-APP_DIR="$APP_DIR" ENV_FILE="$ETC_DIR/relay.env" "$APP_DIR/deploy/update-relay.sh" --force
+APP_DIR="$APP_DIR" ENV_FILE="$ETC_DIR/relay.env" TRUSTED_KEYS_DIR="$KEYS_DIR" "$APP_DIR/deploy/update-relay.sh" --force
 systemctl enable --now plenipo-relay-update.timer
 log "Done. The relay runs as $USER_NAME on $listen; the timer checks GitHub every 15 minutes and installs only what 8 West's server key signed."
 log "Next: the proxy host for relay.getplenipo.com in Nginx Proxy Manager, then the Cloudflare record (README)."

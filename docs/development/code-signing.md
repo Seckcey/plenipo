@@ -282,7 +282,8 @@ what it runs; a release made before the key exists stops at **Signing secrets ar
    offer one as an update) signs both files, checks the signatures, and attaches
    `plenipo-relay-<version>-linux-x86_64.sig` and `plenipo-phone-page-<version>.zip.sig`. A green
    run means the key signs and the check accepts it. The servers still run their old updater, so
-   nothing changes there yet.
+   nothing changes there yet. (The servers skip pre-releases, so once set up they install from
+   the next full release on.)
 
 7. **The servers.** On each server, put the public key where the updater looks, root-owned, then
    install the new updater. The steps, with the commands, are in each server's README:

@@ -128,7 +128,12 @@ Sign in to the page's server as `ubuntu` (never run the updater as root).
    `https://remote.getplenipo.com/` shows **Pair this phone**.
 
 **Already set up before the signatures (ADR-210)?** Install `minisign` and the server key (step
-1), then copy the new updater and its service file over the old ones and reload:
+1). Fetch the new files, and before copying them make sure they are what was merged:
+`sha256sum /tmp/plenipo/apps/remote/deploy/update-page.sh /tmp/plenipo/apps/remote/deploy/plenipo-phone-page-update.service`
+must print the same sums as those two files at the merged commit on GitHub (in a checkout:
+`git show <commit>:apps/remote/deploy/update-page.sh | sha256sum`, and the same for the service
+file). Then copy them over the old ones, reload, and run the updater once through its service, so
+its new sandbox is tried right away:
 
 ```sh
 git clone --depth 1 https://github.com/Seckcey/plenipo /tmp/plenipo
@@ -137,12 +142,15 @@ chmod +x /srv/8west/apps/plenipo-phone-page/deploy/update-page.sh
 sed 's/DEPLOY_USER/ubuntu/' /tmp/plenipo/apps/remote/deploy/plenipo-phone-page-update.service | sudo tee /etc/systemd/system/plenipo-phone-page-update.service > /dev/null
 sudo systemctl daemon-reload
 rm -rf /tmp/plenipo
-/srv/8west/apps/plenipo-phone-page/deploy/update-page.sh --check
+sudo systemctl start plenipo-phone-page-update.service && sudo journalctl -u plenipo-phone-page-update -n 20
 ```
 
-The check says `… is signed with 8 West's server key` for the newest release, or why it would
-stop. Until a release carries the signatures, it stops with `has no … .sig attached`, and the
-page served now stays as it is.
+A good run ends with `Up to date. Nothing to do.` (the newest full release is the one served), or
+with `… is signed with 8 West's server key (8west-server-2026.pub) for X.Y.Z.` and
+`Serving vX.Y.Z.` (it served a new one; this is the run that proves `docker` works inside the
+sandbox). Until a full release carries the signatures (the updater skips pre-releases), it ends
+with `STOPPED: vX.Y.Z has no … .sig attached`, and the page served now stays as it is. Anything
+else (`Permission denied`, a `docker` error, `Failed`): stop and ask; nothing has changed yet.
 
 ## On a shared machine
 
