@@ -4428,6 +4428,7 @@ dependencies = [
  "hpke",
  "log",
  "plenipo-community",
+ "plenipo-ledger",
  "png 0.18.1",
  "qrcode",
  "rand_core 0.10.1",

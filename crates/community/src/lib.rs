@@ -23,6 +23,7 @@ pub mod client;
 pub mod ids;
 pub mod item;
 pub mod keys;
+pub mod messages;
 pub mod people;
 pub mod profile;
 pub mod safety;
