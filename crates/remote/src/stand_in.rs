@@ -238,6 +238,8 @@ struct Hub {
     refused: Vec<String>,
     /// Every message a PC sent, as it arrived (to check what Plenipo sends, ADR-143 §10).
     pc_said: Vec<String>,
+    /// Every connection a PC asked to close, in order (to check which ones the PC gives up).
+    closed_by_pc: Vec<String>,
 }
 
 /// A stand-in for 8 West's relay on 127.0.0.1.
@@ -313,6 +315,16 @@ impl Relay {
     /// Every message a PC sent the relay, as it arrived.
     pub fn pc_said(&self) -> Vec<String> {
         lock(&self.hub).pc_said.clone()
+    }
+
+    /// Every connection a PC asked the relay to close, in order.
+    pub fn closed_by_pc(&self) -> Vec<String> {
+        lock(&self.hub).closed_by_pc.clone()
+    }
+
+    /// The newest phone connection's name, if any.
+    pub fn newest_phone_conn(&self) -> Option<String> {
+        lock(&self.hub).phones.keys().max().cloned()
     }
 
     /// Is a PC connected?
@@ -542,6 +554,7 @@ impl Relay {
                     }
                 }
                 PcToRelay::Close { conn } => {
+                    hub.closed_by_pc.push(conn.clone());
                     if hub.phones.get(&conn).is_some_and(|l| l.pc == pc) {
                         if let Some(l) = hub.phones.remove(&conn) {
                             let _ = l.out.send(Message::Close(None));
@@ -759,6 +772,10 @@ pub struct NetPhone {
     pub welcome: Option<MeetingWelcome>,
     /// Events the PC sent while the phone waited for a reply.
     pub events: Vec<Event>,
+    /// The six digits this phone shows while pairing (ADR-212), from its own first meeting.
+    pub check: Option<String>,
+    /// A first meeting's third message, ready to send, and the PC's key it learned.
+    hello: Option<(Vec<u8>, [u8; 32])>,
 }
 
 /// What went wrong for the stand-in phone.
@@ -772,6 +789,8 @@ pub enum PhoneError {
     Meeting,
     /// No answer in time.
     Timeout,
+    /// The PC turned the phone away, in words (a pairing step).
+    Refused(String),
     Other(String),
 }
 
@@ -787,6 +806,8 @@ impl NetPhone {
             assembler: Assembler::default(),
             welcome: None,
             events: Vec::new(),
+            check: None,
+            hello: None,
         }
     }
 
@@ -891,6 +912,22 @@ impl NetPhone {
         psk: [u8; 32],
         name: &str,
     ) -> Result<(), PhoneError> {
+        self.begin_pairing_with_psk(code, psk, name).await?;
+        self.send_hello().await
+    }
+
+    /// The first meeting up to its third message, which is ready but not sent: a second phone
+    /// can get this far with the same code before either says who it is (ADR-212).
+    pub async fn begin_pairing(&mut self, code: &Code, name: &str) -> Result<(), PhoneError> {
+        self.begin_pairing_with_psk(code, code.psk(), name).await
+    }
+
+    async fn begin_pairing_with_psk(
+        &mut self,
+        code: &Code,
+        psk: [u8; 32],
+        name: &str,
+    ) -> Result<(), PhoneError> {
         self.open(&PhoneToRelay::Mailbox {
             mailbox: code.mailbox(),
         })
@@ -906,16 +943,28 @@ impl NetPhone {
         };
         let m3 = noise::write(&mut hs, &serde_json::to_vec(&hello).expect("JSON"))
             .map_err(|_| PhoneError::Meeting)?;
+        self.check = Some(noise::check_digits(hs.get_handshake_hash()));
         let pc_key: [u8; 32] = hs
             .get_remote_static()
             .and_then(|k| k.try_into().ok())
             .ok_or(PhoneError::Meeting)?;
         self.line = Some(hs.into_transport_mode().map_err(|_| PhoneError::Meeting)?);
+        self.hello = Some((m3, pc_key));
+        Ok(())
+    }
+
+    /// The first meeting's third message (who the phone is), then the PC's first step:
+    /// "Is this your phone?" is being asked, or why not.
+    pub async fn send_hello(&mut self) -> Result<(), PhoneError> {
+        let (m3, pc_key) = self.hello.take().ok_or(PhoneError::Meeting)?;
         self.send_raw(m3).await?;
         match self.hear().await? {
             PcSays::Pair {
                 pair: PairStep::Waiting,
             } => {}
+            PcSays::Pair {
+                pair: PairStep::Refused { message },
+            } => return Err(PhoneError::Refused(message)),
             other => return Err(PhoneError::Other(format!("{other:?}"))),
         }
         self.paired = Some(Paired {

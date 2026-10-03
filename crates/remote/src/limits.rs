@@ -34,6 +34,19 @@ pub const CHECK_WINDOW_MS: u64 = 10 * 60_000;
 /// This many pause the phone.
 pub const CHECK_FAILURES: usize = 3;
 
+/// Connections the PC keeps open for one phone at once (a phone with a page open in two tabs, or
+/// one that came back before the relay said it left). The relay is not trusted to say `left`
+/// (ADR-143): over this, the PC closes the new one and counts a failed meeting.
+pub const CONNS_PER_DEVICE: usize = 4;
+/// Connections the PC keeps open for all its phones and the pairing mailbox together. More than
+/// `MAX_DEVICES` phones times `CONNS_PER_DEVICE`, plus the mailbox's.
+pub const MAX_CONNS: usize = 96;
+/// A meeting (three small messages) must finish within this. A connection still meeting after
+/// it is closed, so a slot cannot be held by one that joined and went quiet. Not counted as a
+/// failed meeting: a held slot is not a wrong try, and counting it would let a stranger trip the
+/// stop on purpose.
+pub const MEETING_DEADLINE_MS: u64 = 60_000;
+
 fn forget_before(times: &mut VecDeque<u64>, since: u64) {
     while times.front().is_some_and(|&t| t < since) {
         times.pop_front();

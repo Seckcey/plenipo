@@ -9,6 +9,11 @@
 //! stays on for 30 days after 8 West's last signed answer, so winding the PC's clock back never
 //! extends it (ADR-116). Nothing is deleted when Pro ends (ADR-021).
 //!
+//! The record's entry time and 8 West's newest signed answer are also kept in the Vault next to
+//! the key (P-DESK-1, ADR-211), and on start the newer of the two is used. A record that is
+//! deleted or lost then starts nothing again, and a paying owner who loses it loses nothing. It
+//! raises the bar for someone who deletes files; it is not a wall against the PC's owner.
+//!
 //! Where the check goes is built into each copy: 8 West's address, or, in copies built for the
 //! tests only, a stand-in on this computer (`PLENIPO_LICENSE_STAND_IN` at build time). Never a
 //! setting, never an environment variable at run time.
@@ -23,7 +28,7 @@ use plenipo_guard::{Guard, OutboundRules};
 use plenipo_ledger::{Ledger, NewEvent};
 use plenipo_licensing::{
     CheckOutcome, Entitlements, License, LicenseKey, LicenseReason, LicenseView, Limit, Record,
-    Usage,
+    RecordCopy, Usage,
 };
 use serde_json::json;
 use tauri::{AppHandle, Emitter as _, Manager as _, Runtime};
@@ -34,6 +39,9 @@ use crate::orgs::Orgs;
 pub const VAULT_ID: &str = "plenipo-license-key";
 /// The record (the last answer, the clock, the last try), in Plenipo's data folder.
 pub const RECORD_FILE: &str = "license.json";
+/// The record's copy in the Vault, next to the key: its entry time and 8 West's newest signed
+/// answer, never the key (P-DESK-1, ADR-211).
+pub const RECORD_COPY_ID: &str = "plenipo-license-record";
 /// Told to every window when the license changes (Settings → License reads it again).
 pub const LICENSE_EVENT: &str = "plenipo://license";
 /// Ledger events (the first organization's). Never the key itself: its ID only.
@@ -127,6 +135,8 @@ pub struct LicenseHost {
     unreadable: Mutex<Option<String>>,
     /// The record as last written (nothing is written when it has not changed).
     saved: Mutex<Vec<u8>>,
+    /// The record's copy as last read or kept in the Vault (`None`: not known).
+    copy_kept: Mutex<Option<RecordCopy>>,
     /// One check at a time.
     checking: tokio::sync::Mutex<()>,
 }
@@ -152,7 +162,8 @@ impl LicenseHost {
         let now = (clocks.pc)();
         let (text, unreadable) = read_key(store.as_ref());
         let saved = read_record_bytes(record_file.as_deref());
-        let record: Record = serde_json::from_slice(&saved).unwrap_or_default();
+        let copy = read_copy(store.as_ref());
+        let record = kept_record(&saved, copy.as_ref(), text.as_deref(), now);
         let license = License::load(text.as_deref(), record, now);
         let entitlements = Entitlements::new(license.edition(now));
         entitlements.set_organizations(license.key().and_then(LicenseKey::organizations));
@@ -168,6 +179,7 @@ impl LicenseHost {
             license: Mutex::new(license),
             unreadable: Mutex::new(unreadable),
             saved: Mutex::new(saved),
+            copy_kept: Mutex::new(copy),
             checking: tokio::sync::Mutex::new(()),
         });
         host.save(&lock(&host.license));
@@ -233,6 +245,10 @@ impl LicenseHost {
                     serde_json::from_slice(&read_record_bytes(self.record_file.as_deref()))
                         .unwrap_or_default();
                 *license = License::load(None, record, now);
+            }
+            // A key entered again after its record was lost carries on where it was.
+            if let Some(copy) = read_copy(self.store.as_ref()) {
+                license.restore(&copy, key.key_id(), now);
             }
             license
                 .enter(key.text(), now)
@@ -351,9 +367,12 @@ impl LicenseHost {
             return false;
         };
         let now = self.now();
-        let record: Record =
-            serde_json::from_slice(&read_record_bytes(self.record_file.as_deref()))
-                .unwrap_or_default();
+        let record = kept_record(
+            &read_record_bytes(self.record_file.as_deref()),
+            read_copy(self.store.as_ref()).as_ref(),
+            text.as_deref(),
+            now,
+        );
         let events: Vec<Event> = {
             let mut license = lock(&self.license);
             *license = License::load(text.as_deref(), record, now);
@@ -400,6 +419,7 @@ impl LicenseHost {
         let Some(file) = &self.record_file else {
             return;
         };
+        self.keep_copy(license.record());
         let Ok(bytes) = serde_json::to_vec_pretty(license.record()) else {
             return;
         };
@@ -412,6 +432,70 @@ impl LicenseHost {
             Err(e) => log::warn!("could not keep the license record: {e}"),
         }
     }
+
+    /// Keep the record's copy in the Vault when it changed. What is there is merged in first,
+    /// so a record that lost something (deleted, unreadable, or read while the Vault did not
+    /// answer) never makes the copy lose it too: the copy only moves forward. When the Vault
+    /// cannot be read, the copy is left as it is.
+    fn keep_copy(&self, record: &Record) {
+        let mine = record.copy();
+        let Some(key_id) = mine.key_id.clone() else {
+            return;
+        };
+        let mut kept = lock(&self.copy_kept);
+        if kept.as_ref() == Some(&mine) {
+            return;
+        }
+        let stored = match vault::read(self.store.as_ref(), RECORD_COPY_ID) {
+            Ok(text) => text.and_then(|t| serde_json::from_str::<RecordCopy>(&t).ok()),
+            Err(e) => {
+                log::warn!("could not read the license record's copy: {e}");
+                return;
+            }
+        };
+        let mut merged = record.clone();
+        if let Some(stored) = &stored {
+            merged.restore(stored, &key_id, self.now());
+        }
+        let next = merged.copy();
+        if stored.as_ref() != Some(&next) {
+            let Ok(text) = serde_json::to_string(&next) else {
+                return;
+            };
+            if let Err(e) = vault::put(self.store.as_ref(), RECORD_COPY_ID, &text) {
+                log::warn!("could not keep the license record's copy: {e}");
+                return;
+            }
+        }
+        *kept = Some(mine);
+    }
+}
+
+/// The record's copy kept in the Vault (`None`: none, or it could not be read).
+fn read_copy(store: &dyn SecretStore) -> Option<RecordCopy> {
+    match vault::read(store, RECORD_COPY_ID) {
+        Ok(text) => text.and_then(|t| serde_json::from_str(&t).ok()),
+        Err(e) => {
+            log::warn!("could not read the license record's copy: {e}");
+            None
+        }
+    }
+}
+
+/// The record kept on disk (nothing known when it is missing or cannot be read), with what the
+/// Vault's copy keeps for the key in `key_text` taken back (P-DESK-1).
+fn kept_record(
+    saved: &[u8],
+    copy: Option<&RecordCopy>,
+    key_text: Option<&str>,
+    clock: i64,
+) -> Record {
+    let mut record: Record = serde_json::from_slice(saved).unwrap_or_default();
+    let key = key_text.and_then(|t| plenipo_licensing::key::parse(t).ok());
+    if let (Some(copy), Some(key)) = (copy, key) {
+        record.restore(copy, key.key_id(), clock);
+    }
+    record
 }
 
 /// The key kept in the Vault, or why it could not be read (in plain words).
@@ -918,6 +1002,276 @@ mod tests {
         RUNNING.store(0, Ordering::SeqCst);
         assert_eq!(h.entitlements().edition(), Edition::Free);
         assert_eq!(h.view().reason, LicenseReason::NoCheck);
+    }
+
+    /// A monthly key from the test signer, paid through `paid_through`. A renewal never mails a
+    /// new key, so its own date goes stale while 8 West's answers move on.
+    fn monthly_key(paid_through: i64) -> String {
+        plenipo_licensing::key::mint(
+            &plenipo_licensing::key::KeyPayload {
+                v: 1,
+                edition: "pro".into(),
+                organizations: plenipo_licensing::Organizations::Up(3),
+                key_id: "lk_01J9XW3T5B8K2M4N6P7Q8R9S0M".into(),
+                holder: "Contoso IT".into(),
+                plan: plenipo_licensing::Plan::Monthly,
+                paid_through,
+                issued_at: paid_through - 30 * 86_400,
+                signer: trust::TEST_KEY_ID.into(),
+            },
+            &trust::test_signing_key(),
+        )
+    }
+
+    /// A PC with only `key` kept in the Vault: no record, no copy (both deleted, or never kept).
+    fn only_the_key(key: &str, port: u16) -> (tempfile::TempDir, Arc<LicenseHost>) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(MemorySecretStore::default());
+        vault::put(store.as_ref(), VAULT_ID, key).unwrap();
+        let h = host(store, Some(dir.path().join(RECORD_FILE)), port);
+        (dir, h)
+    }
+
+    fn kept_copy(store: &MemorySecretStore) -> Option<RecordCopy> {
+        vault::read(store, RECORD_COPY_ID)
+            .unwrap()
+            .map(|t| serde_json::from_str(&t).unwrap())
+    }
+
+    /// P-DESK-1: deleting the record, or breaking it, does not start the 30 days again. Its
+    /// copy in the Vault (never the key) keeps the entry time and 8 West's newest answer, and
+    /// the record is written again from it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn deleting_or_breaking_the_record_does_not_start_the_30_days_again() {
+        let _one = CLOCK.lock().await;
+        let start = clock();
+        let s = service().await;
+        let (ledger, guard) = ledger();
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(RECORD_FILE);
+        let store = Arc::new(MemorySecretStore::default());
+        let h = host(store.clone(), Some(file.clone()), s.port);
+        let text = test_key();
+        h.enter(&text, &ledger).unwrap();
+        *lock(&s.says) = Some((SubscriptionState::Active, start));
+        assert_eq!(h.check(&guard, &ledger).await.reason, LicenseReason::Active);
+        let copy = kept_copy(&store).unwrap();
+        assert_eq!(copy.key_id, Some(key_id(&text)));
+        assert!(copy.answer.is_some());
+        let copy_text = vault::read(store.as_ref(), RECORD_COPY_ID)
+            .unwrap()
+            .unwrap();
+        assert!(!copy_text.contains(&text), "never the key itself");
+        // 8 West is down from now on. Day 20: the record deleted, Plenipo starts again.
+        *lock(&s.says) = None;
+        set_clock(start + 20 * 86_400);
+        std::fs::remove_file(&file).unwrap();
+        let again = host(store.clone(), Some(file.clone()), s.port);
+        let view = again.view();
+        assert_eq!(view.edition, Edition::Pro);
+        assert_eq!(view.reason, LicenseReason::Active);
+        assert_eq!(
+            view.grace_ends,
+            Some((start + 30 * 86_400) * 1000),
+            "the same"
+        );
+        assert!(file.exists(), "the record is written again");
+        // Day 31: Free. Deleting the record again, or breaking it, changes nothing.
+        set_clock(start + 31 * 86_400);
+        again.look(&guard, &ledger).await;
+        assert_eq!(again.entitlements().edition(), Edition::Free);
+        for broken in [None, Some(b"{not a record".as_slice())] {
+            match broken {
+                None => std::fs::remove_file(&file).unwrap(),
+                Some(bytes) => std::fs::write(&file, bytes).unwrap(),
+            }
+            let after = host(store.clone(), Some(file.clone()), s.port);
+            assert_eq!(after.entitlements().edition(), Edition::Free);
+            assert_eq!(after.view().reason, LicenseReason::NoCheck);
+        }
+        // 8 West answers again: Pro.
+        *lock(&s.says) = Some((SubscriptionState::Active, start + 31 * 86_400));
+        let back = host(store.clone(), Some(file), s.port);
+        assert_eq!(back.check(&guard, &ledger).await.edition, Edition::Pro);
+        set_clock(start);
+    }
+
+    /// P-DESK-1: with the record and its copy both gone, Pro lasts at most 30 days past the
+    /// key's own paid-through date. A yearly key still in its year keeps Pro. A monthly key whose
+    /// month and 30 days are over is Free until 8 West answers; a "paid" answer (renewed) brings
+    /// Pro at once, and "unknown" keeps Pro on, as ADR-022 §3 says, through a restart.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn with_nothing_kept_pro_lasts_at_most_30_days_past_the_keys_paid_period() {
+        let _one = CLOCK.lock().await;
+        let start = clock();
+        let s = service().await;
+        let (ledger, guard) = ledger();
+        *lock(&s.says) = None;
+        let (_yearly_dir, yearly) = only_the_key(&test_key(), s.port);
+        assert_eq!(yearly.entitlements().edition(), Edition::Pro);
+        assert_eq!(yearly.view().reason, LicenseReason::NotCheckedYet);
+        assert_eq!(yearly.view().grace_ends, Some((start + 30 * 86_400) * 1000));
+        let paid = start - 60 * 86_400;
+        let stale = monthly_key(paid);
+        let (_dir, h) = only_the_key(&stale, s.port);
+        assert_eq!(h.entitlements().edition(), Edition::Free);
+        let view = h.view();
+        assert_eq!(view.reason, LicenseReason::NoCheck);
+        assert_eq!(view.grace_ends, Some((paid + 30 * 86_400) * 1000));
+        // Its first check goes at once; with no answer it stays Free.
+        assert!(h.look(&guard, &ledger).await);
+        assert_eq!(lock(&s.seen).len(), 1);
+        assert_eq!(h.entitlements().edition(), Edition::Free);
+        // 8 West answers "paid": Pro.
+        *lock(&s.says) = Some((SubscriptionState::Active, start));
+        assert_eq!(h.check(&guard, &ledger).await.reason, LicenseReason::Active);
+        assert_eq!(h.entitlements().edition(), Edition::Pro);
+        // 8 West doesn't know the key: Pro stays on, as before, and through a restart.
+        *lock(&s.says) = Some((SubscriptionState::Unknown, start));
+        let (dir, h) = only_the_key(&stale, s.port);
+        let view = h.check(&guard, &ledger).await;
+        assert_eq!(view.edition, Edition::Pro);
+        assert_eq!(view.reason, LicenseReason::NotCheckedYet);
+        *lock(&s.says) = None;
+        let store = Arc::new(MemorySecretStore::default());
+        vault::put(store.as_ref(), VAULT_ID, &stale).unwrap();
+        let again = host(store, Some(dir.path().join(RECORD_FILE)), s.port);
+        assert_eq!(again.entitlements().edition(), Edition::Pro);
+    }
+
+    /// An honest owner on a monthly key, renewed every month (the key's own date long past),
+    /// offline with the record whole: Pro for the 30 days after 8 West's last answer, exactly as
+    /// before, through a restart.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_renewed_monthly_key_offline_keeps_its_30_days() {
+        let _one = CLOCK.lock().await;
+        let start = clock();
+        let s = service().await;
+        let (ledger, guard) = ledger();
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(RECORD_FILE);
+        let store = Arc::new(MemorySecretStore::default());
+        let h = host(store.clone(), Some(file.clone()), s.port);
+        h.enter(&monthly_key(start - 300 * 86_400), &ledger)
+            .unwrap();
+        *lock(&s.says) = Some((SubscriptionState::Active, start));
+        assert_eq!(h.check(&guard, &ledger).await.edition, Edition::Pro);
+        *lock(&s.says) = None;
+        set_clock(start + 29 * 86_400);
+        h.look(&guard, &ledger).await;
+        assert_eq!(h.entitlements().edition(), Edition::Pro);
+        let again = host(store.clone(), Some(file.clone()), s.port);
+        assert_eq!(again.entitlements().edition(), Edition::Pro);
+        set_clock(start + 30 * 86_400 + 1);
+        again.look(&guard, &ledger).await;
+        assert_eq!(again.entitlements().edition(), Edition::Free);
+        assert_eq!(again.view().reason, LicenseReason::NoCheck);
+        set_clock(start);
+    }
+
+    /// The clock with the record lost and its copy kept. Moved back, an honest owner keeps Pro
+    /// with the same date. Moved forward by mistake past the paid period, Pro drops, and 8
+    /// West's next answer, at its own time, brings it back.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_clock_moved_back_or_forward_with_the_record_lost() {
+        let _one = CLOCK.lock().await;
+        let start = clock();
+        let s = service().await;
+        let (ledger, guard) = ledger();
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(RECORD_FILE);
+        let store = Arc::new(MemorySecretStore::default());
+        let h = host(store.clone(), Some(file.clone()), s.port);
+        h.enter(&monthly_key(start + 10 * 86_400), &ledger).unwrap();
+        *lock(&s.says) = Some((SubscriptionState::Active, start));
+        assert_eq!(h.check(&guard, &ledger).await.edition, Edition::Pro);
+        *lock(&s.says) = None;
+        set_clock(start - 5 * 86_400);
+        std::fs::remove_file(&file).unwrap();
+        let back = host(store.clone(), Some(file.clone()), s.port);
+        assert_eq!(back.entitlements().edition(), Edition::Pro);
+        assert_eq!(back.view().grace_ends, Some((start + 30 * 86_400) * 1000));
+        set_clock(start + 90 * 86_400);
+        std::fs::remove_file(&file).unwrap();
+        let ahead = host(store.clone(), Some(file.clone()), s.port);
+        assert_eq!(ahead.entitlements().edition(), Edition::Free);
+        set_clock(start + 2 * 86_400);
+        *lock(&s.says) = Some((SubscriptionState::Active, start + 2 * 86_400));
+        assert_eq!(ahead.check(&guard, &ledger).await.edition, Edition::Pro);
+        assert_eq!(ahead.entitlements().edition(), Edition::Pro);
+        set_clock(start);
+    }
+
+    /// The copy only moves forward. A start where the Vault did not give the copy back, with
+    /// the record lost too, never writes less over it; the next start takes it back.
+    #[test]
+    fn a_record_that_lost_something_never_makes_the_copy_lose_it() {
+        let _one = CLOCK.blocking_lock();
+        let now = clock();
+        let text = test_key();
+        let id = key_id(&text);
+        let payload = AnswerPayload {
+            v: 1,
+            key_id: id.clone(),
+            state: SubscriptionState::Ended,
+            paid_through: Some(now - 86_400),
+            ends_at: Some(now - 86_400),
+            as_of: now - 3600,
+            signer: trust::TEST_KEY_ID.to_owned(),
+        };
+        let copy = RecordCopy {
+            key_id: Some(id),
+            entered_at: Some(now - 200 * 86_400),
+            answer: Some(answer::sign(&payload, &trust::test_signing_key())),
+        };
+        let inner = Arc::new(MemorySecretStore::default());
+        vault::put(inner.as_ref(), VAULT_ID, &text).unwrap();
+        vault::put(
+            inner.as_ref(),
+            RECORD_COPY_ID,
+            &serde_json::to_string(&copy).unwrap(),
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(RECORD_FILE);
+        let hiding = Arc::new(CopyHiddenOnce {
+            inner: inner.clone(),
+            hidden: std::sync::atomic::AtomicBool::new(true),
+        });
+        let h = host(hiding, Some(file.clone()), 9);
+        // Without the copy, this start knows nothing: a key entered now.
+        assert_eq!(h.view().reason, LicenseReason::NotCheckedYet);
+        assert_eq!(kept_copy(&inner), Some(copy), "the copy is as it was");
+        let next = host(inner, Some(file), 9);
+        assert_eq!(next.entitlements().edition(), Edition::Free);
+        assert_eq!(next.view().reason, LicenseReason::Ended);
+    }
+
+    /// A store that does not give the record's copy back the first time it is asked.
+    struct CopyHiddenOnce {
+        inner: Arc<MemorySecretStore>,
+        hidden: std::sync::atomic::AtomicBool,
+    }
+
+    impl SecretStore for CopyHiddenOnce {
+        fn label(&self) -> &str {
+            "Windows Credential Manager"
+        }
+        fn check(&self) -> Result<(), String> {
+            self.inner.check()
+        }
+        fn set(&self, id: &str, value: &str) -> Result<(), String> {
+            self.inner.set(id, value)
+        }
+        fn get(&self, id: &str) -> Result<Option<String>, String> {
+            if id == RECORD_COPY_ID && self.hidden.swap(false, Ordering::SeqCst) {
+                return Err("busy".into());
+            }
+            self.inner.get(id)
+        }
+        fn delete(&self, id: &str) -> Result<(), String> {
+            self.inner.delete(id)
+        }
     }
 
     /// A store that fails until told otherwise.

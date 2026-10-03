@@ -17,8 +17,9 @@ use plenipo_remote::link::{self, LinkHost};
 use plenipo_remote::protocol::{
     Ask, Changed, Event, NoticeAbout, PairStep, PhoneNotice, SignedOutWhy,
 };
-use plenipo_remote::service::PairingView;
+use plenipo_remote::service::{PairingView, ToRelay};
 use plenipo_remote::stand_in::{Bad, NetPhone, PhoneError, Relay};
+use plenipo_remote::wire::RelayToPc;
 use plenipo_remote::{b64, Change, Clock, Host, Phone, Remote, Settings};
 use serde_json::{json, Value};
 
@@ -453,6 +454,54 @@ async fn nothing_is_added_until_the_owner_says_yes() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn two_phones_with_one_code_show_the_owner_which_one_got_in() {
+    let w = World::new().await;
+    let code = w.new_code().await;
+    // Both phones are at the mailbox before either says who it is (someone who saw the screen
+    // scanned first); the first to finish the meeting is the one the PC asks about.
+    let mut stranger = NetPhone::new(&w.relay.phone_address());
+    let mut mine = NetPhone::new(&w.relay.phone_address());
+    stranger.begin_pairing(&code, "iPhone").await.unwrap();
+    mine.begin_pairing(&code, "iPhone").await.unwrap();
+    stranger.send_hello().await.unwrap();
+    wait_for(
+        || matches!(w.remote.view().pairing, Some(PairingView::Asking { .. })),
+        "Is this your phone?",
+    )
+    .await;
+    let Some(PairingView::Asking { name, check, .. }) = w.remote.view().pairing else {
+        panic!("not asking");
+    };
+    // Both phones call themselves "iPhone": the six digits are what tells them apart. The PC
+    // shows the digits of the meeting it is asking about, and only that phone has the same.
+    assert_eq!(name, "iPhone");
+    assert_eq!(check.len(), 6);
+    assert!(check.bytes().all(|b| b.is_ascii_digit()), "{check}");
+    assert_eq!(stranger.check.as_deref(), Some(check.as_str()));
+    // (Two meetings agree on all six digits once in a million times.)
+    assert_ne!(mine.check.as_deref(), Some(check.as_str()));
+    // The owner's own phone is told why, instead of being cut off without a word.
+    assert_eq!(
+        mine.send_hello().await.unwrap_err(),
+        PhoneError::Refused(
+            "Another phone already used this code. If that was not you, click Cancel on your PC \
+             and start again."
+                .into()
+        )
+    );
+    let refused = w.app.records("remote.pairing_refused");
+    assert_eq!(refused.last().unwrap()["reason"], "used");
+    assert_eq!(refused.last().unwrap()["name"], "iPhone");
+    // The owner compares the digits, sees they differ, and clicks Cancel: nothing is added.
+    w.remote.answer_pairing(false).unwrap();
+    assert!(matches!(
+        stranger.finish_pairing().await.unwrap(),
+        PairStep::Refused { .. }
+    ));
+    assert!(w.remote.view().devices.is_empty());
+}
+
 // ---- Meetings, sign-in, and ending them (ADR-142, ADR-143) ---------------------------------
 
 #[tokio::test(flavor = "multi_thread")]
@@ -756,6 +805,42 @@ async fn signing_out_and_lapsing_end_the_sign_in() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_page_the_phone_reads_again_by_itself_does_not_keep_it_signed_in() {
+    // P-SRV-3 (ADR-212): the page re-reads with `again: true` whenever the PC says something
+    // changed, every few seconds while workers run. Those re-reads must not move the 30-minute
+    // clock, or a phone left unlocked on a desk stays signed in for 12 hours.
+    let w = World::new().await;
+    let mut phone = w.paired_phone("Phone").await;
+    phone.meet(false).await.unwrap();
+    w.clock.advance(29 * 60 * 1000);
+    let reply = phone
+        .ask_with(&b64::encode(&[7u8; 16]), true, Ask::ReadControl)
+        .await
+        .unwrap();
+    assert!(
+        reply.ok.is_some(),
+        "still signed in at 29 minutes: {reply:?}"
+    );
+    w.clock.advance(2 * 60 * 1000);
+    w.remote.tick();
+    assert_eq!(
+        phone.event().await.unwrap(),
+        Event::SignedOut {
+            why: SignedOutWhy::Idle
+        }
+    );
+    // A request the owner made (`again: false`) is what keeps a phone signed in.
+    phone.close().await;
+    phone.meet(false).await.unwrap();
+    phone.sign_in().await.unwrap();
+    w.clock.advance(29 * 60 * 1000);
+    phone.ask(Ask::ReadControl).await.unwrap();
+    w.clock.advance(2 * 60 * 1000);
+    w.remote.tick();
+    assert!(phone.ask(Ask::ReadControl).await.unwrap().ok.is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn switching_off_cuts_every_phone_off_at_once() {
     let w = World::new().await;
     let mut a = w.paired_phone("A").await;
@@ -926,6 +1011,281 @@ async fn the_relay_cannot_read_change_replay_or_invent_a_request() {
         phone.ask(Ask::ReadControl).await.unwrap_err(),
         PhoneError::Timeout
     );
+}
+
+/// A relay by hand, in place of the stand-in: every command the PC sends lands in the receiver.
+fn relay_by_hand(w: &World) -> tokio::sync::mpsc::UnboundedReceiver<ToRelay> {
+    let (out, commands) = tokio::sync::mpsc::unbounded_channel();
+    w.remote.relay_up(out);
+    commands
+}
+
+/// The connections the PC asked the relay to close, in order.
+fn closed_conns(commands: &mut tokio::sync::mpsc::UnboundedReceiver<ToRelay>) -> Vec<String> {
+    let mut closed = Vec::new();
+    while let Ok(command) = commands.try_recv() {
+        if let ToRelay::Close { conn } = command {
+            closed.push(conn);
+        }
+    }
+    closed
+}
+
+fn closes(commands: &mut tokio::sync::mpsc::UnboundedReceiver<ToRelay>) -> usize {
+    closed_conns(commands).len()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_that_keeps_saying_a_phone_joined_keeps_the_newest_and_does_not_stop_the_pc() {
+    let mut w = World::new().await;
+    let phone = w.paired_phone("Mine").await;
+    let id = phone.paired.as_ref().unwrap().phone.clone();
+    w.disconnect().await;
+    let mut commands = relay_by_hand(&w);
+    // The relay knows a paired phone's ID; it says that phone joined, over and over, on a fresh
+    // connection each time, and never says it left.
+    for n in 0..1000 {
+        w.remote.from_relay(RelayToPc::Joined {
+            conn: format!("c{n:06}"),
+            phone: Some(id.clone()),
+            mailbox: false,
+        });
+    }
+    // The PC keeps the phone's newest few and closes the rest, one old one for each new one.
+    // That is not a failed meeting: the same thing happens to an honest phone that changes
+    // networks, whose old connections the relay reports gone only after its idle time.
+    assert_eq!(
+        closes(&mut commands),
+        1000 - plenipo_remote::limits::CONNS_PER_DEVICE
+    );
+    assert!(w.remote.view().meetings_stopped_until.is_none());
+    assert!(w.app.records("remote.meetings_stopped").is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stolen_pass_cannot_push_out_the_owners_open_lines() {
+    let w = World::new().await;
+    // The owner's phone, with its page and its notice line open and signed in.
+    let mut page = w.paired_phone("Mine").await;
+    page.meet(false).await.unwrap();
+    let mut notice = NetPhone::new(&w.relay.phone_address());
+    notice.paired = page.paired.clone();
+    notice.noise = page.noise;
+    notice.meet(true).await.unwrap();
+    assert!(page.ask(Ask::ReadControl).await.unwrap().ok.is_some());
+    let id = page.paired.as_ref().unwrap().phone.clone();
+    let before = w.relay.closed_by_pc().len();
+    // Four joins with the phone's pass that never say a word (a stolen pass), told to the PC
+    // straight from "the relay", one after another.
+    for n in 1..=4 {
+        w.remote.from_relay(RelayToPc::Joined {
+            conn: format!("s{n:06}"),
+            phone: Some(id.clone()),
+            mailbox: false,
+        });
+        w.clock.advance(1);
+    }
+    // The ones that give way are the silent ones, oldest first; never the owner's two.
+    wait_for(
+        || w.relay.closed_by_pc().len() == before + 2,
+        "the PC to close two connections",
+    )
+    .await;
+    assert_eq!(w.relay.closed_by_pc()[before..], ["s000001", "s000002"]);
+    assert!(page.ask(Ask::ReadControl).await.unwrap().ok.is_some());
+    // A notice line may only say no (ADR-142 §5), so it answers "refused": still open.
+    assert!(
+        notice
+            .ask(Ask::ReadControl)
+            .await
+            .unwrap()
+            .refused
+            .is_some(),
+        "the notice line still answers"
+    );
+    assert!(w.remote.view().meetings_stopped_until.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_with_four_open_lines_gives_up_the_oldest_for_a_fifth() {
+    let w = World::new().await;
+    let mut first = w.paired_phone("Mine").await;
+    first.meet(false).await.unwrap();
+    let first_conn = w.relay.newest_phone_conn().unwrap();
+    w.clock.advance(1);
+    let before = w.relay.closed_by_pc().len();
+    let mut more = Vec::new();
+    for _ in 0..4 {
+        let mut line = NetPhone::new(&w.relay.phone_address());
+        line.paired = first.paired.clone();
+        line.noise = first.noise;
+        line.meet(false).await.unwrap();
+        w.clock.advance(1);
+        more.push(line);
+    }
+    // Nothing unfinished to give way: the oldest open line (the first) went for the fifth.
+    wait_for(
+        || w.relay.closed_by_pc().len() == before + 1,
+        "the PC to close one connection",
+    )
+    .await;
+    assert_eq!(w.relay.closed_by_pc()[before..], [first_conn]);
+    assert!(
+        first.ask(Ask::ReadControl).await.is_err(),
+        "the first is gone"
+    );
+    for line in &mut more {
+        assert!(line.ask(Ask::ReadControl).await.unwrap().ok.is_some());
+    }
+    assert!(w.remote.view().meetings_stopped_until.is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_phone_that_reconnects_with_stale_connections_is_kept() {
+    let mut w = World::new().await;
+    let phone = w.paired_phone("Mine").await;
+    let id = phone.paired.as_ref().unwrap().phone.clone();
+    w.disconnect().await;
+    let mut commands = relay_by_hand(&w);
+    // Four connections from before a network change, which the relay has not yet reported
+    // gone (a page and a notice line, twice).
+    let mut n = 0;
+    for _ in 0..4 {
+        silent_join(&w, &mut n, Some(&id));
+        w.clock.advance(1);
+    }
+    assert_eq!(closes(&mut commands), 0);
+    // The phone comes back twice more: each new connection is kept, and the oldest goes.
+    silent_join(&w, &mut n, Some(&id));
+    w.clock.advance(1);
+    silent_join(&w, &mut n, Some(&id));
+    assert_eq!(closed_conns(&mut commands), ["c000001", "c000002"]);
+    assert!(w.remote.view().meetings_stopped_until.is_none());
+    assert!(w.app.records("remote.meetings_stopped").is_empty());
+    assert_eq!(w.remote.view().devices.len(), 1, "still paired");
+}
+
+/// Say a phone joined, by hand, on a fresh connection; the phone then says nothing.
+fn silent_join(w: &World, n: &mut u32, phone: Option<&str>) {
+    *n += 1;
+    w.remote.from_relay(RelayToPc::Joined {
+        conn: format!("c{n:06}"),
+        phone: phone.map(str::to_owned),
+        mailbox: phone.is_none(),
+    });
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_meeting_that_never_finishes_is_closed_after_the_deadline_and_not_counted() {
+    let mut w = World::new().await;
+    let first = w.paired_phone("Mine").await;
+    let second = w.paired_phone("Second").await;
+    let (first, second) = (
+        first.paired.as_ref().unwrap().phone.clone(),
+        second.paired.as_ref().unwrap().phone.clone(),
+    );
+    w.disconnect().await;
+    w.remote.start_pairing().unwrap();
+    let mut commands = relay_by_hand(&w);
+    // Twelve connections join (the mailbox's four, and four for each phone, as with a stolen
+    // pass) and never send a word: each holds a slot.
+    let mut n = 0;
+    for _ in 0..4 {
+        silent_join(&w, &mut n, None);
+        silent_join(&w, &mut n, Some(&first));
+        silent_join(&w, &mut n, Some(&second));
+    }
+    assert_eq!(closes(&mut commands), 0);
+    w.clock.advance(30_000);
+    w.remote.tick();
+    assert_eq!(closes(&mut commands), 0, "half a minute is not too long");
+    // A minute on, every one of them is closed...
+    w.clock
+        .advance(plenipo_remote::limits::MEETING_DEADLINE_MS - 30_000 + 1000);
+    w.remote.tick();
+    assert_eq!(closes(&mut commands), 12);
+    // ...and none counts as a failed meeting: twelve would have stopped the PC (ADR-143 §8),
+    // which is exactly what a stranger holding slots must not be able to do.
+    assert!(w.remote.view().meetings_stopped_until.is_none());
+    assert!(w.app.records("remote.meetings_stopped").is_empty());
+    // The slots are free: the owner's phone joins and is kept.
+    silent_join(&w, &mut n, Some(&first));
+    silent_join(&w, &mut n, None);
+    assert_eq!(closes(&mut commands), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stolen_pass_cannot_hold_a_phones_slots_past_the_deadline() {
+    let mut w = World::new().await;
+    let phone = w.paired_phone("Mine").await;
+    let id = phone.paired.as_ref().unwrap().phone.clone();
+    w.disconnect().await;
+    let mut commands = relay_by_hand(&w);
+    let mut n = 0;
+    for _ in 0..4 {
+        silent_join(&w, &mut n, Some(&id));
+    }
+    // The fifth is over the phone's cap: the oldest held one is closed to make room for it.
+    silent_join(&w, &mut n, Some(&id));
+    assert_eq!(closes(&mut commands), 1);
+    // A minute on, the four held slots are closed and the real phone gets in.
+    w.clock
+        .advance(plenipo_remote::limits::MEETING_DEADLINE_MS + 1000);
+    w.remote.tick();
+    assert_eq!(closes(&mut commands), 4);
+    silent_join(&w, &mut n, Some(&id));
+    assert_eq!(closes(&mut commands), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_code_closes_the_old_mailbox_connections() {
+    let mut w = World::new().await;
+    w.disconnect().await;
+    w.remote.start_pairing().unwrap();
+    let mut commands = relay_by_hand(&w);
+    let mut n = 0;
+    for _ in 0..4 {
+        silent_join(&w, &mut n, None);
+    }
+    assert_eq!(closes(&mut commands), 0);
+    // A new code: the old mailbox's connections can never pair on it, so they go...
+    w.remote.start_pairing().unwrap();
+    assert_eq!(closes(&mut commands), 4);
+    assert!(w.remote.view().meetings_stopped_until.is_none());
+    // ...and the owner's phone joins the new mailbox with room to spare.
+    silent_join(&w, &mut n, None);
+    assert_eq!(closes(&mut commands), 0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_code_leaves_a_signed_in_phone_alone() {
+    let w = World::new().await;
+    let mut phone = w.paired_phone("Mine").await;
+    phone.meet(false).await.unwrap();
+    assert!(phone.ask(Ask::ReadControl).await.unwrap().ok.is_some());
+    w.remote.start_pairing().unwrap();
+    w.remote.start_pairing().unwrap();
+    assert!(phone.ask(Ask::ReadControl).await.unwrap().ok.is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_relay_that_keeps_saying_a_phone_joined_the_mailbox_is_cut_off() {
+    let mut w = World::new().await;
+    w.disconnect().await;
+    w.remote.start_pairing().unwrap();
+    let mut commands = relay_by_hand(&w);
+    for n in 0..1000 {
+        w.remote.from_relay(RelayToPc::Joined {
+            conn: format!("c{n:06}"),
+            phone: None,
+            mailbox: true,
+        });
+    }
+    assert_eq!(
+        closes(&mut commands),
+        1000 - plenipo_remote::limits::CONNS_PER_DEVICE
+    );
+    assert!(w.remote.view().meetings_stopped_until.is_some());
 }
 
 // ---- Guard decides every request (ADR-145) ------------------------------------------------

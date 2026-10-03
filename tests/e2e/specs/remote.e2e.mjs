@@ -716,7 +716,13 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
       await box.waitForExist({ timeout: 15_000 });
       await box.setValue(code);
       await tap(phone, "Pair this phone");
-      await phoneSays(phone, "That code didn't work.");
+      // A closed mailbox (ADR-212): the page says to look at the PC first, because the code may
+      // have been used by another phone the PC is now asking about.
+      await phoneSays(
+        phone,
+        "This code was already used, or mistyped, or your PC stopped adding a phone.",
+      );
+      await phoneSays(phone, "Look at your PC");
     }
     await screenshot(phone, "phone-pair-wrong-code");
     assert.ok(relayCount("refused mailbox_closed") >= 2);
@@ -759,6 +765,14 @@ describe("Phase 14 Plenipo on your phone (real app, a test browser as the phone)
       '[role="alertdialog"][aria-labelledby="pairing-ask"]',
       "Chrome on Android phone",
     );
+    // Both screens show the same six digits, from the meeting itself (ADR-212): the PC's
+    // "Is this your phone?" and the phone's "Your PC is asking".
+    const asking = (await remoteNow(browser)).remote.pairing;
+    assert.equal(asking.step, "asking");
+    assert.match(asking.check, /^[0-9]{6}$/, "six check digits");
+    const digits = `${asking.check.slice(0, 3)} ${asking.check.slice(3)}`;
+    await waitForText(browser, '[role="alertdialog"][aria-labelledby="pairing-ask"]', digits);
+    await phoneSays(phone, digits);
     assert.deepEqual((await remoteNow(browser)).remote.devices, []);
     await screenshot(browser, "phone-devices-ask");
     await screenshot(phone, "phone-pair-waiting");

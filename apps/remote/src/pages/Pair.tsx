@@ -16,9 +16,14 @@ type Step =
   | { kind: "start" }
   | { kind: "scanning" }
   | { kind: "meeting" }
-  | { kind: "waiting" }
+  | { kind: "waiting"; check: string }
   | { kind: "accepted"; accepted: Extract<PairStep, { step: "accepted" }> }
   | { kind: "finishing" };
+
+/** "088923" as "088 923": easier to compare with the PC's screen. */
+function shownDigits(check: string): string {
+  return `${check.slice(0, 3)} ${check.slice(3)}`;
+}
 
 /** The camera, reading a picture code (QR code) until one holds a pairing code. */
 function Scanner({
@@ -129,7 +134,7 @@ export function PairPage({
         });
         // The code is used: take it out of the address.
         if (window.location.hash) history.replaceState(null, "", window.location.pathname);
-        setStep({ kind: "waiting" });
+        setStep({ kind: "waiting", check: pairing.current.check });
         const answer = await pairing.current.ownersAnswer();
         if (answer.step === "accepted") {
           setStep({ kind: "accepted", accepted: answer });
@@ -220,8 +225,10 @@ export function PairPage({
       {step.kind === "meeting" && <p role="status">Meeting your PC…</p>}
       {step.kind === "waiting" && (
         <p className="notice-box" role="status">
-          <strong>Your PC is asking: Is this your phone?</strong> Click <strong>Add</strong> on your
-          PC.
+          <strong>Your PC is asking: Is this your phone?</strong> Your PC shows the same six digits
+          as this phone: <strong className="pair__check">{shownDigits(step.check)}</strong>. If it
+          does, click <strong>Add</strong> on your PC. If your PC shows other digits, another phone
+          used your code: click <strong>Cancel</strong> on your PC and start again.
         </p>
       )}
       {step.kind === "accepted" && (
