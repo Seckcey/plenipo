@@ -784,7 +784,7 @@ impl<T: Transport> Community<T> {
                 } else {
                     ItemState::Received
                 },
-                proof: (!outgoing).then(|| ItemProof {
+                proof: (!outgoing).then_some(ItemProof {
                     payload: opened.kept.payload,
                     sig: opened.kept.sig,
                     fk: opened.kept.fk,
@@ -987,6 +987,9 @@ mod tests {
         assert!(arrived_reaction(&json!({ "item": item, "emoji": "x".repeat(17) })).is_none());
         assert!(arrived_reaction(&json!({ "item": "nope", "emoji": "👍" })).is_none());
     }
+
+    /// Picking up never waits longer than the contract allows (contract §6).
+    const _: () = assert!(PICK_UP_WAIT_SECS <= 25);
 
     #[test]
     fn the_safety_code_is_kept_as_digits_and_shown_in_groups() {

@@ -5,7 +5,7 @@
 mod common;
 
 use common::{Pc, World};
-use plenipo_community::messages::{self, PICK_UP_WAIT_SECS};
+use plenipo_community::messages;
 use plenipo_community::stand_in::Bad;
 
 const HELLO: &str = "Hi Pat, do you build decks?";
@@ -356,8 +356,6 @@ async fn what_cannot_be_a_message_is_refused_before_anything_is_sent() {
         .is_err());
     assert_eq!(world.service.seen().len(), before, "nothing was sent");
     assert!(messages::conversations(&frank.ledger).unwrap().is_empty());
-    // Waiting never longer than the contract allows.
-    assert!(PICK_UP_WAIT_SECS <= 25);
 }
 
 #[tokio::test]
