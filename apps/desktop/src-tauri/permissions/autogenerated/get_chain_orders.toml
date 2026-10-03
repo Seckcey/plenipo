@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-chain-orders"
+description = "Enables the get_chain_orders command without any pre-configured scope."
+commands.allow = ["get_chain_orders"]
+
+[[permission]]
+identifier = "deny-get-chain-orders"
+description = "Denies the get_chain_orders command without any pre-configured scope."
+commands.deny = ["get_chain_orders"]

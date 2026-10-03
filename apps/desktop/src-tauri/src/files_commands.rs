@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use plenipo_capabilities::dto::{
-    ChangingFile, FileRoots, FileView, FolderListing, LineEnding, SaveOutcome,
+    ChangingFile, FileRoots, FileView, FolderListing, LineEnding, SaveOutcome, WorkFolder,
 };
 use plenipo_capabilities::Broker;
 use plenipo_core::CommandError;
@@ -228,6 +228,59 @@ pub async fn show_in_folder(
         .open(supervisor.inner().clone(), file, true)
         .await
         .map_err(|e| CommandError::internal(format!("Plenipo could not show it: {e}")))
+}
+
+fn check_task(task_id: &str) -> Result<(), CommandError> {
+    if task_id.is_empty()
+        || task_id.len() > 64
+        || !task_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(CommandError::invalid_input(
+            "That is not a task Plenipo knows.",
+        ));
+    }
+    Ok(())
+}
+
+/// Where a task's worker kept its files (ADR-201): Plenipo's own folder, the project's folder, or
+/// a working copy. Nothing when it had no folder.
+#[tauri::command]
+pub async fn get_work_folder(
+    broker: Org<'_, Broker>,
+    task_id: String,
+) -> Result<Option<WorkFolder>, CommandError> {
+    check_task(&task_id)?;
+    blocking(&broker, move |b| b.work_folder(&task_id)).await
+}
+
+/// Open the folder where a task's worker kept its files, in File Explorer. Plenipo finds the
+/// folder in its own record of the work: the page names only the task, never a path, and only
+/// a folder is ever opened (never a file, so nothing can run).
+#[tauri::command]
+pub async fn open_work_folder(
+    broker: Org<'_, Broker>,
+    supervisor: Org<'_, Supervisor>,
+    outside: State<'_, Outside>,
+    task_id: String,
+) -> Result<(), CommandError> {
+    check_task(&task_id)?;
+    let folder = blocking(&broker, move |b| b.work_folder(&task_id))
+        .await?
+        .ok_or_else(|| CommandError::invalid_input("That work has no folder."))?;
+    let path = PathBuf::from(&folder.path);
+    if !path.is_dir() {
+        return Err(CommandError::invalid_input(format!(
+            "The folder {} is not there any more.",
+            folder.path
+        )));
+    }
+    outside
+        .0
+        .open(supervisor.inner().clone(), path, false)
+        .await
+        .map_err(|e| CommandError::internal(format!("Plenipo could not open it: {e}")))
 }
 
 /// The files workers are changing now.

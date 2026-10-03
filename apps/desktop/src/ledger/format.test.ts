@@ -709,3 +709,50 @@ describe("describeEvent (Phase 19 AI tools)", () => {
     ).toBe("Blocked: Kimi has no sign-out command of its own.");
   });
 });
+
+describe("describeEvent (the chain of command, ADR-202)", () => {
+  it("says your order, the leads it went past, and each report passed up", () => {
+    expect(
+      describeEvent(
+        event("chain.order", {
+          position: "Website Supervisor",
+          via: null,
+          leads: [
+            { positionId: "m", title: "Development Manager" },
+            { positionId: "v", title: "VP" },
+          ],
+          words: "Fix the login page",
+        }),
+      ),
+    ).toBe(
+      "You asked Website Supervisor directly: “Fix the login page”. Plenipo told Development Manager, VP",
+    );
+    expect(
+      describeEvent(
+        event("chain.order", {
+          position: "Developer",
+          via: { positionId: "s", title: "Website Supervisor" },
+          leads: [],
+          words: "Write the tests",
+        }),
+      ),
+    ).toBe("You asked Developer through Website Supervisor: “Write the tests”");
+    expect(
+      describeEvent(
+        event("chain.report", {
+          from: "Website Supervisor",
+          to: "Development Manager",
+          result: "Fixed: the button works again.",
+        }),
+      ),
+    ).toBe(
+      "Plenipo passed Website Supervisor's report up to Development Manager: Fixed: the button works again.",
+    );
+    expect(describeEvent(event("chain.report", { from: "A", to: "B", result: "" }))).toBe(
+      "Plenipo passed A's report up to B: no answer",
+    );
+    expect(describeEvent(event("chain.told", { positionId: "m", upTo: 9 }))).toBe(
+      "A lead's agent heard the news from its team",
+    );
+  });
+});

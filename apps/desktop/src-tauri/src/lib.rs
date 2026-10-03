@@ -575,6 +575,7 @@ pub fn configure<R: Runtime>(
             commands::cancel_agent_turn,
             commands::close_agent_session,
             commands::get_task_handoffs,
+            commands::get_chain_orders,
             commands::get_task_tree,
             commands::get_liaison_overview,
             commands::get_organization,
@@ -696,6 +697,7 @@ pub fn configure<R: Runtime>(
             commands::allow_control,
             commands::set_website_rules,
             commands::set_switches,
+            commands::set_safety,
             commands::get_learning,
             commands::set_learning,
             commands::set_role_learning,
@@ -741,6 +743,8 @@ pub fn configure<R: Runtime>(
             files_commands::save_file,
             files_commands::open_file_outside,
             files_commands::show_in_folder,
+            files_commands::get_work_folder,
+            files_commands::open_work_folder,
             files_commands::get_changing_files,
             workspace_commands::close_pop_out,
             org_commands::get_organizations,
@@ -3852,6 +3856,7 @@ mod ipc_boundary_tests {
             "allow_control",
             "set_website_rules",
             "set_switches",
+            "set_safety",
             "get_browser_status",
             "set_browser_choice",
             "open_browser",
@@ -6067,7 +6072,7 @@ mod ipc_boundary_tests {
 
     // ---- Phase 21: the workspace (ADR-092, ADR-093) --------------------------------------------
 
-    const PHASE_21: [&str; 11] = [
+    const PHASE_21: [&str; 13] = [
         "prepare_pop_out",
         "focus_pop_out",
         "close_pop_out",
@@ -6078,6 +6083,8 @@ mod ipc_boundary_tests {
         "save_file",
         "open_file_outside",
         "show_in_folder",
+        "get_work_folder",
+        "open_work_folder",
         "get_changing_files",
     ];
 
@@ -6085,7 +6092,7 @@ mod ipc_boundary_tests {
     fn phase_21_args() -> serde_json::Value {
         serde_json::json!({
             "panel": "terminal", "place": null, "root": "project:nope", "path": "README.md",
-            "text": "x", "bom": false, "lineEnding": "lf", "base": null,
+            "text": "x", "bom": false, "lineEnding": "lf", "base": null, "taskId": "nope",
         })
     }
 
@@ -6940,6 +6947,125 @@ mod ipc_boundary_tests {
         assert!(snap.settings.switches.paid_ai_keys);
         // The other switches keep their defaults when a setting names only this one.
         assert!(snap.settings.switches.browser && !snap.settings.switches.servers);
+    }
+
+    #[test]
+    fn safety_starts_light_and_the_owner_can_turn_it_up() {
+        // ADR-201: agents save files and run programs without asking until the owner says
+        // otherwise.
+        let app = app();
+        let main = window(&app, "main");
+        let snap: plenipo_capabilities::PermissionsSnapshot =
+            body(invoke(&main, "get_permissions"));
+        assert_eq!(snap.settings.safety, plenipo_guard::dto::Safety::Light);
+        let snap: plenipo_capabilities::PermissionsSnapshot = body(invoke_json(
+            &main,
+            "set_safety",
+            serde_json::json!({ "safety": "careful" }),
+        ));
+        assert_eq!(snap.settings.safety, plenipo_guard::dto::Safety::Careful);
+        let snap: plenipo_capabilities::PermissionsSnapshot = body(invoke_json(
+            &main,
+            "set_safety",
+            serde_json::json!({ "safety": "strict" }),
+        ));
+        assert_eq!(snap.settings.safety, plenipo_guard::dto::Safety::Strict);
+        // Only the three choices exist.
+        let err = invoke_json(
+            &main,
+            "set_safety",
+            serde_json::json!({ "safety": "reckless" }),
+        )
+        .expect_err("no such choice");
+        assert!(err.to_string().contains("unknown variant"), "{err}");
+        // The sign window, other windows, and web pages cannot change it.
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        assert!(invoke_json(
+            &other,
+            "set_safety",
+            serde_json::json!({ "safety": "light" })
+        )
+        .is_err());
+        assert!(invoke_json(
+            &sign,
+            "set_safety",
+            serde_json::json!({ "safety": "light" })
+        )
+        .is_err());
+        assert!(invoke_with(
+            &main,
+            "set_safety",
+            serde_json::json!({ "safety": "light" }),
+            "https://example.com"
+        )
+        .is_err());
+    }
+
+    /// The chain of command (ADR-202) is read by position, from an organization's window only.
+    #[test]
+    fn the_chain_of_command_is_read_by_position() {
+        let app = app();
+        let main = window(&app, "main");
+        let orders: Vec<plenipo_workforce::ChainOrder> = body(invoke_json(
+            &main,
+            "get_chain_orders",
+            serde_json::json!({ "positionId": "0f8fad5b-d9cb-469f-a165-70867728950e" }),
+        ));
+        assert!(orders.is_empty());
+        let err = invoke_json(
+            &main,
+            "get_chain_orders",
+            serde_json::json!({ "positionId": "../../etc" }),
+        )
+        .expect_err("not a position");
+        assert_eq!(err["kind"], "invalidInput", "{err}");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for w in [&other, &sign] {
+            assert!(invoke_json(
+                w,
+                "get_chain_orders",
+                serde_json::json!({ "positionId": "0f8fad5b-d9cb-469f-a165-70867728950e" }),
+            )
+            .is_err());
+        }
+    }
+
+    /// "Open folder" (ADR-201): the page names a task, never a path. Plenipo answers from its own
+    /// record of the work, and work that never had a folder has none to open.
+    #[test]
+    fn the_work_folder_comes_from_plenipos_own_record() {
+        let app = app();
+        let main = window(&app, "main");
+        let task: plenipo_ledger::Task = body(invoke(&main, "create_synthetic_task"));
+        let found: Option<plenipo_capabilities::dto::WorkFolder> = body(invoke_json(
+            &main,
+            "get_work_folder",
+            serde_json::json!({ "taskId": task.id }),
+        ));
+        assert_eq!(found, None);
+        let err = invoke_json(
+            &main,
+            "open_work_folder",
+            serde_json::json!({ "taskId": task.id }),
+        )
+        .expect_err("no folder to open");
+        assert_eq!(err["kind"], "invalidInput", "{err}");
+        assert!(
+            err["message"].as_str().unwrap().contains("no folder"),
+            "{err}"
+        );
+        // Only a task's ID, never a place on the PC.
+        for bad in ["", "../Windows", "C:\\Windows", "a b", "x/y"] {
+            let err = invoke_json(
+                &main,
+                "open_work_folder",
+                serde_json::json!({ "taskId": bad }),
+            )
+            .expect_err(bad);
+            assert_eq!(err["kind"], "invalidInput", "{bad}: {err}");
+        }
     }
 
     // ---- Phase 16 Wave 3: paid AI keys (ADR-085) ----

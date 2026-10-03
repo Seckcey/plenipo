@@ -18,7 +18,7 @@ use crate::agent::adapter::{
 use crate::agent::discovery::HostEnv;
 use crate::agent::dto::{
     makers, AccountAction, AgentEvent, AuthState, AuthStatus, Effort, KnownModel, NoticeLevel,
-    PlanReport, PlanWindow, RuntimeCapabilities, TurnOutcome, TurnResult,
+    PlanReport, PlanWindow, RuntimeCapabilities, StatusPhase, TurnOutcome, TurnResult,
 };
 use crate::agent::preview::{
     plenipo_write_tool, preview_of, PreviewPace, WriteTool, MAX_PREVIEW_JSON,
@@ -218,6 +218,11 @@ impl RuntimeAdapter for ClaudeCode {
         }
         if let Some(effort) = request.effort {
             args.extend(["--effort".into(), effort.as_str().into()]);
+        }
+        // A summary of what the model thinks, so the owner sees it think (ADR-200). Only for a
+        // version the option was checked on: an option an older one does not know stops it.
+        if supports_thinking_display(request.cli_version.as_deref()) {
+            args.extend(["--thinking-display".into(), "summarized".into()]);
         }
         if let Some(tools) = &request.tools {
             // Plenipo's tool server only (Phase 7): its tools need no prompt from Claude Code,
@@ -545,6 +550,10 @@ impl Parser {
                     }
                 }
                 Some("tool_use") => parsed.events.push(AgentEvent::ToolUse {
+                    id: block
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map(|id| cap(id, 128)),
                     tool: cap(
                         block.get("name").and_then(Value::as_str).unwrap_or("tool"),
                         80,
@@ -580,6 +589,10 @@ impl Parser {
                 _ => String::new(),
             };
             parsed.events.push(AgentEvent::ToolResult {
+                id: block
+                    .get("tool_use_id")
+                    .and_then(Value::as_str)
+                    .map(|id| cap(id, 128)),
                 tool: None,
                 is_error: block
                     .get("is_error")
@@ -694,6 +707,87 @@ pub(crate) fn epoch_ms(value: f64) -> Option<u64> {
     (ms < 1e15).then_some(ms as u64)
 }
 
+/// The first Claude Code version `--thinking-display` was checked on, read from the program
+/// itself (2.1.288).
+const THINKING_DISPLAY_SINCE: (u64, u64, u64) = (2, 1, 288);
+
+/// Whether an installed version (`2.1.288`, or `2.1.288 (Claude Code)`) is one the option was
+/// checked on. An unknown version is not.
+fn supports_thinking_display(version: Option<&str>) -> bool {
+    let Some(first) = version.and_then(|v| v.split_whitespace().next()) else {
+        return false;
+    };
+    let mut parts = first.split('.').map(|p| p.parse::<u64>().ok());
+    match (
+        parts.next().flatten(),
+        parts.next().flatten(),
+        parts.next().flatten(),
+    ) {
+        (Some(a), Some(b), Some(c)) => (a, b, c) >= THINKING_DISPLAY_SINCE,
+        _ => false,
+    }
+}
+
+/// Thinking as the model streams it (ADR-200): the words of its summary as they come, and a
+/// sign that it began even when the words are left out. `None` for any other stream event.
+fn thinking(v: &Value) -> Option<Parsed> {
+    let event = v.get("event")?;
+    match event.get("type").and_then(Value::as_str)? {
+        "content_block_start" => {
+            let block = event.get("content_block")?;
+            (block.get("type").and_then(Value::as_str) == Some("thinking")).then(|| {
+                Parsed::one(AgentEvent::Status {
+                    phase: StatusPhase::Thinking,
+                    text: "Thinking".into(),
+                })
+            })
+        }
+        "content_block_delta" => {
+            let delta = event.get("delta")?;
+            match delta.get("type").and_then(Value::as_str)? {
+                "thinking_delta" => Some(match delta.get("thinking").and_then(Value::as_str) {
+                    Some(text) if !text.is_empty() => Parsed::one(AgentEvent::Reasoning {
+                        text: text.to_owned(),
+                    }),
+                    _ => Parsed::none(),
+                }),
+                "signature_delta" => Some(Parsed::none()),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Claude Code's `system` line `api_retry` in plain words: why it is waiting, how long, and
+/// which try it is on. The fields are the ones Claude Code's own output schema names
+/// (`attempt`, `max_retries`, `retry_delay_ms`, `error_status`, `error`, `no_response`).
+fn retry_words(v: &Value) -> String {
+    let number = |k: &str| v.get(k).and_then(Value::as_u64);
+    let attempt = number("attempt").unwrap_or(1);
+    let most = number("max_retries").unwrap_or(10).max(attempt);
+    let wait = number("retry_delay_ms").map_or(0, |ms| ms.div_ceil(1000));
+    let status = v.get("error_status").and_then(Value::as_u64);
+    let error = v.get("error").and_then(Value::as_str).unwrap_or("");
+    let waited = v
+        .pointer("/no_response/waited_ms")
+        .and_then(Value::as_u64)
+        .map(|ms| ms / 1000);
+    let why = match (status, error) {
+        (Some(429), _) | (_, "rate_limit") => "Anthropic asked Plenipo to slow down".to_owned(),
+        (Some(529), _) | (_, "overloaded" | "overloaded_error") => {
+            "Anthropic's servers are busy".to_owned()
+        }
+        (Some(code), _) if code >= 500 => "Anthropic had a problem on its side".to_owned(),
+        (None, _) if waited.is_some() => format!(
+            "Anthropic has not answered for {} s",
+            waited.unwrap_or_default()
+        ),
+        _ => "Anthropic could not answer yet".to_owned(),
+    };
+    format!("{why}. Asking again in {wait} s (try {attempt} of {most}).")
+}
+
 impl TurnParser for Parser {
     fn line(&mut self, text: &str, truncated: bool) -> Parsed {
         let Ok(v) = serde_json::from_str::<Value>(text) else {
@@ -719,7 +813,10 @@ impl TurnParser for Parser {
                     (Some("content_block_delta"), Some("text_delta"), Some(t)) => {
                         Parsed::one(AgentEvent::TextDelta { text: t.to_owned() })
                     }
-                    _ => self.tool_input(&v),
+                    _ => match thinking(&v) {
+                        Some(parsed) => parsed,
+                        None => self.tool_input(&v),
+                    },
                 }
             }
             Some("assistant") => self.assistant(&v),
@@ -745,6 +842,24 @@ impl TurnParser for Parser {
                     detail: "Claude Code shortened its memory of this conversation: it keeps a \
                              summary of the earlier part."
                         .into(),
+                })
+            }
+            // The AI company was busy or slow and Claude Code is asking again: said at once,
+            // not after minutes of silence (ADR-200).
+            Some("system") if v.get("subtype").and_then(Value::as_str) == Some("api_retry") => {
+                Parsed::one(AgentEvent::Status {
+                    phase: StatusPhase::Waiting,
+                    text: retry_words(&v),
+                })
+            }
+            // The request went out and the first words have not come yet.
+            Some("system")
+                if v.get("subtype").and_then(Value::as_str) == Some("status")
+                    && v.get("status").and_then(Value::as_str) == Some("requesting") =>
+            {
+                Parsed::one(AgentEvent::Status {
+                    phase: StatusPhase::Waiting,
+                    text: "Asked Anthropic. Waiting for the first words.".into(),
                 })
             }
             Some("system") => Parsed::none(),
@@ -807,6 +922,153 @@ mod tests {
             billing_confirmed: true,
             tools: None,
             working_dir: PathBuf::new(),
+            cli_version: None,
+        }
+    }
+
+    #[test]
+    fn thinking_summaries_are_asked_for_only_on_a_version_they_were_checked_on() {
+        for (version, yes) in [
+            (Some("2.1.288"), true),
+            (Some("2.1.288 (Claude Code)"), true),
+            (Some("2.1.300"), true),
+            (Some("2.2.0"), true),
+            (Some("3.0.0"), true),
+            (Some("2.1.287"), false),
+            (Some("2.0.999"), false),
+            (Some("1.9.9"), false),
+            (Some("garbage"), false),
+            (Some(""), false),
+            (None, false),
+        ] {
+            assert_eq!(supports_thinking_display(version), yes, "{version:?}");
+            let request = TurnRequest {
+                cli_version: version.map(str::to_owned),
+                ..new_request()
+            };
+            let args = ClaudeCode.turn_args(&request);
+            let asked = args
+                .windows(2)
+                .any(|w| w == ["--thinking-display", "summarized"]);
+            assert_eq!(asked, yes, "{version:?}: {args:?}");
+        }
+    }
+
+    #[test]
+    fn thinking_streams_as_reasoning_and_a_start_sign_even_when_the_words_are_left_out() {
+        let mut p = ClaudeCode.parser(&new_request());
+        let events = feed(
+            p.as_mut(),
+            &[
+                json!({ "type": "system", "subtype": "init", "session_id":
+                    "11111111-1111-4111-8111-111111111111", "model": "claude-sonnet-5-5",
+                    "apiKeySource": "none" }),
+                json!({ "type": "stream_event", "event": { "type": "content_block_start",
+                    "index": 0, "content_block": { "type": "thinking", "thinking": "" } } }),
+                json!({ "type": "stream_event", "event": { "type": "content_block_delta",
+                    "index": 0, "delta": { "type": "thinking_delta", "thinking": "The owner " } } }),
+                json!({ "type": "stream_event", "event": { "type": "content_block_delta",
+                    "index": 0, "delta": { "type": "thinking_delta", "thinking": "wants a script." } } }),
+                json!({ "type": "stream_event", "event": { "type": "content_block_delta",
+                    "index": 0, "delta": { "type": "thinking_delta", "thinking": "" } } }),
+                json!({ "type": "stream_event", "event": { "type": "content_block_delta",
+                    "index": 0, "delta": { "type": "signature_delta", "signature": "abc" } } }),
+            ],
+        );
+        assert!(matches!(
+            &events[1],
+            AgentEvent::Status { phase: StatusPhase::Thinking, text } if text == "Thinking"
+        ));
+        let thoughts: Vec<&str> = events
+            .iter()
+            .filter_map(|e| match e {
+                AgentEvent::Reasoning { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(thoughts, ["The owner ", "wants a script."]);
+        // An empty piece and a signature say nothing.
+        assert_eq!(events.len(), 4, "{events:?}");
+    }
+
+    #[test]
+    fn waiting_and_asking_again_are_said_at_once_in_plain_words() {
+        let mut p = ClaudeCode.parser(&new_request());
+        let events = feed(
+            p.as_mut(),
+            &[
+                json!({ "type": "system", "subtype": "init", "session_id":
+                    "11111111-1111-4111-8111-111111111111", "apiKeySource": "none" }),
+                json!({ "type": "system", "subtype": "status", "status": "requesting" }),
+                json!({ "type": "system", "subtype": "api_retry", "attempt": 3, "max_retries": 10,
+                    "retry_delay_ms": 4400, "error_status": 529, "error": "overloaded" }),
+                json!({ "type": "system", "subtype": "api_retry", "attempt": 1, "max_retries": 10,
+                    "retry_delay_ms": 500, "error_status": 429, "error": "rate_limit" }),
+                json!({ "type": "system", "subtype": "api_retry", "attempt": 2, "max_retries": 10,
+                    "retry_delay_ms": 1100, "error_status": null, "error": "unknown",
+                    "no_response": { "waited_ms": 45000, "retry_wait_ms": 1100 } }),
+                json!({ "type": "system", "subtype": "api_retry", "attempt": 4, "max_retries": 10,
+                    "retry_delay_ms": 8500, "error_status": 503, "error": "server_error" }),
+                // Other system lines still say nothing.
+                json!({ "type": "system", "subtype": "thinking_tokens", "tokens": 5 }),
+            ],
+        );
+        let said: Vec<&str> = events
+            .iter()
+            .filter_map(|e| match e {
+                AgentEvent::Status {
+                    phase: StatusPhase::Waiting,
+                    text,
+                } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            said,
+            [
+                "Asked Anthropic. Waiting for the first words.",
+                "Anthropic's servers are busy. Asking again in 5 s (try 3 of 10).",
+                "Anthropic asked Plenipo to slow down. Asking again in 1 s (try 1 of 10).",
+                "Anthropic has not answered for 45 s. Asking again in 2 s (try 2 of 10).",
+                "Anthropic had a problem on its side. Asking again in 9 s (try 4 of 10).",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tool_call_and_its_result_carry_the_same_id() {
+        let mut p = ClaudeCode.parser(&new_request());
+        let events = feed(
+            p.as_mut(),
+            &[
+                json!({ "type": "system", "subtype": "init", "session_id":
+                    "11111111-1111-4111-8111-111111111111", "apiKeySource": "none" }),
+                json!({ "type": "assistant", "message": { "content": [
+                    { "type": "tool_use", "id": "toolu_01", "name": "mcp__plenipo__write_file",
+                      "input": { "path": "clear-temp.ps1", "content": "x" } } ] } }),
+                json!({ "type": "user", "message": { "content": [
+                    { "type": "tool_result", "tool_use_id": "toolu_01", "content": "Created", 
+                      "is_error": false } ] } }),
+            ],
+        );
+        match (&events[1], &events[2]) {
+            (
+                AgentEvent::ToolUse {
+                    id: Some(a),
+                    tool,
+                    summary,
+                },
+                AgentEvent::ToolResult {
+                    id: Some(b),
+                    is_error: false,
+                    ..
+                },
+            ) => {
+                assert_eq!((a.as_str(), b.as_str()), ("toolu_01", "toolu_01"));
+                assert_eq!(tool, "mcp__plenipo__write_file");
+                assert_eq!(summary, "clear-temp.ps1");
+            }
+            other => panic!("{other:?}"),
         }
     }
 
@@ -880,6 +1142,7 @@ mod tests {
             billing_confirmed: true,
             tools: None,
             working_dir: PathBuf::new(),
+            cli_version: None,
         });
         assert!(resume.ends_with(&["--resume".into(), "abc".into()]));
         let m = resume.iter().position(|a| a == "--model").unwrap();
@@ -1018,10 +1281,12 @@ mod tests {
                     text: "Hello".into()
                 },
                 AgentEvent::ToolUse {
+                    id: None,
                     tool: "Read".into(),
                     summary: "/tmp/x".into()
                 },
                 AgentEvent::ToolResult {
+                    id: None,
                     tool: None,
                     is_error: true,
                     summary: "denied".into()
@@ -1228,6 +1493,7 @@ mod tests {
             billing_confirmed: true,
             tools: None,
             working_dir: PathBuf::new(),
+            cli_version: None,
         });
         let events = feed(
             p.as_mut(),
@@ -1323,6 +1589,7 @@ mod ai_tools_page_tests {
             billing_confirmed: true,
             tools: None,
             working_dir: PathBuf::new(),
+            cli_version: None,
         }
     }
 

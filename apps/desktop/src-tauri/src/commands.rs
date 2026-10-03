@@ -1187,6 +1187,17 @@ pub async fn ask_side_question(
         .map_err(workforce_error)
 }
 
+/// A position's chain of command (ADR-202): the owner's orders it was given, that went through
+/// it, or that went past it, newest first, with where each stands and what came back up to it.
+#[tauri::command]
+pub async fn get_chain_orders(
+    workforce: Org<'_, Workforce>,
+    position_id: String,
+) -> Result<Vec<plenipo_workforce::ChainOrder>, CommandError> {
+    validate_id("position", &position_id)?;
+    with_workforce(&workforce, move |w| w.chain_orders(&position_id)).await
+}
+
 /// Give a staffed persistent position's agent an objective. Core builds its instructions and
 /// chooses its session; the UI names only the position and, optionally, the project the
 /// objective is about (one its team runs, Phase 8).
@@ -1666,6 +1677,16 @@ pub async fn set_switches(
         crate::spending_commands::recheck_paid_tools(&agents);
     }
     Ok(snapshot)
+}
+
+/// How much Plenipo asks before an agent saves files or runs programs (ADR-201): Light (the
+/// starting choice), Careful, or Strict. An unknown name is refused.
+#[tauri::command]
+pub async fn set_safety(
+    broker: Org<'_, Broker>,
+    safety: plenipo_guard::dto::Safety,
+) -> Result<PermissionsSnapshot, CommandError> {
+    with_guard(&broker, move |g| g.set_safety(safety)).await
 }
 
 /// Store a secret: its value goes to the operating system's protected storage, only its

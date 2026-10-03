@@ -238,5 +238,7 @@ export function describeActivity(e: AgentEvent): {
       const done = e.steps.filter((s) => s.status === "done").length;
       return { label: "Plan", text: `${done} of ${e.steps.length} steps done` };
     }
+    case "status":
+      return { label: e.phase === "thinking" ? "Thinking" : "Waiting", text: e.text };
   }
 }

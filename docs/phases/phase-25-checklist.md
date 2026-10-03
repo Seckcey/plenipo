@@ -535,6 +535,12 @@ About 5 to 7 build sessions.
 
 ### 3.1 Watch the worker think and type, live — M–L
 
+> **With the Chat panel (2026-10-03).** Another session built a live chat with each agent on
+> `main` ([ADR-200 (a live chat with each agent)](../adr/ADR-200-a-live-chat-with-each-agent.md)),
+> beside this item. Both stay: the Chat panel is where you talk to an agent; the live
+> conversation here is the short live view inside the Task and Worker pages, the details panel,
+> and Watch. Its **Open in Chat** button opens the same conversation in the Chat panel.
+
 - **You said:** "We need the output to output like regular chatbots in the browser or in their IDE.
   The output streams in real time. Plenipo just says 'Working' and that's it. We don't know what
   it's working on or how far along it is."
@@ -630,6 +636,10 @@ About 5 to 7 build sessions.
         …")
 
 ### 3.5 Side chats with any manager or supervisor — M–L
+
+> **With the Chat panel (2026-10-03).** ADR-200's chat sends your message into the agent's own
+> conversation (it waits its turn while the agent works). A side chat is a separate conversation
+> that only answers and never touches the work. Both stay, for those two different jobs.
 
 - **You said:** "We need a way to open side chats to ask each agent a question if I don't want to
   go through the chain of command. Mainly with managers and supervisors while they wait for workers

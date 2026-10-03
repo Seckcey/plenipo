@@ -2,12 +2,15 @@
  * The live conversation (Phase 25, item 3.1): a worker's words as it types them, its steps in
  * plain words, and how far along it is — like a chat in the browser or the AI tool's own window.
  * The words come live from Claude Code, Grok, Kimi, and the paid AI tools; Codex sends whole
- * messages. The Watch tab, the Task and Worker pages, and the details panel show it.
+ * messages. The Watch tab, the Task and Worker pages, and the details panel show it. **Open in
+ * Chat** opens the same conversation in the Chat panel (ADR-200), to talk to the agent.
  */
 import { useContext, useEffect, useLayoutEffect, useRef } from "react";
 import type { AgentActivity } from "@plenipo/types";
+import { Button } from "@plenipo/ui";
 
 import { AgentsContext } from "../agents/context";
+import { useChatIfAny } from "../chat/context";
 import { activityItems } from "../agents/store";
 import { useNow } from "../runtime/useNow";
 import { liveProgress, progressWords, stepWords } from "./words";
@@ -79,6 +82,7 @@ export function LiveConversation({
   lines?: number;
 }) {
   const agents = useContext(AgentsContext);
+  const chat = useChatIfAny();
   const activity = agents?.state.activity[taskId] ?? [];
   const loaded = sessionId ? agents?.state.loaded[sessionId] === true : true;
   const load = agents?.loadSession;
@@ -103,11 +107,26 @@ export function LiveConversation({
       className={`live${last !== undefined ? " live--short" : ""}`}
       aria-label={`${who}'s live conversation`}
     >
-      {progress && (
-        <p className="live__progress" aria-label="How far along">
-          {running && <span className="live__dot" aria-hidden="true" />}
-          {progress}
-        </p>
+      {(progress || (chat && sessionId)) && (
+        <div className="live__head">
+          {progress && (
+            <p className="live__progress" aria-label="How far along">
+              {running && <span className="live__dot" aria-hidden="true" />}
+              {progress}
+            </p>
+          )}
+          {chat && sessionId && (
+            <Button
+              size="sm"
+              variant="quiet"
+              icon="chat"
+              aria-label={`Open ${who}'s conversation in Chat`}
+              onClick={() => chat.open({ sessionId, title: who })}
+            >
+              Open in Chat
+            </Button>
+          )}
+        </div>
       )}
       {shown.length === 0 ? (
         <p className="muted live__empty">

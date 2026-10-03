@@ -1,8 +1,10 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { AgentActivity, AgentEvent } from "@plenipo/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AgentsContext, type AgentsContextValue } from "../agents/context";
+import { ChatContext, type ChatApi } from "../chat/context";
 import { initialAgentState } from "../agents/store";
 import { position, worker } from "../test/orgFixtures";
 import { LiveConversation } from "./LiveConversation";
@@ -173,6 +175,19 @@ describe("the live conversation on screen (Phase 25, item 3.1)", () => {
         .map((l) => l.textContent),
     ).toEqual(["Reading b.ts", "Reading c.ts", "Reading d.ts"]);
     expect(load).toHaveBeenCalledWith("s-9");
+  });
+
+  it("opens the same conversation in the Chat panel (ADR-200)", async () => {
+    const open = vi.fn();
+    const chat = { open } as unknown as ChatApi;
+    render(
+      <ChatContext.Provider value={chat}>
+        <LiveConversation taskId="t-1" sessionId="s-1" startedAt={null} running who="Alex" />
+      </ChatContext.Provider>,
+      { wrapper: provide({ "t-1": [] }) },
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Open Alex's conversation in Chat" }));
+    expect(open).toHaveBeenCalledWith({ sessionId: "s-1", title: "Alex" });
   });
 
   it("puts what a working tile is doing now in its one line", () => {

@@ -87,6 +87,9 @@ pub struct TurnRequest {
     /// The conversation's own folder, where the process runs (absolute). AI tools that talk
     /// over ACP (ADR-015) also name it in their messages.
     pub working_dir: PathBuf,
+    /// The installed AI tool's version, when the check before the turn read it (ADR-200): an
+    /// option is passed only to a version it was checked on.
+    pub cli_version: Option<String>,
 }
 
 /// Why a parser asks Plenipo to stop the process immediately.

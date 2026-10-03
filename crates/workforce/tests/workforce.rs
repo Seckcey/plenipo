@@ -21,9 +21,9 @@ use plenipo_runtime::{
 };
 use plenipo_workforce::directory::WorkforceDirectory;
 use plenipo_workforce::{
-    DepartmentInput, HireInput, LeadInput, OrgSnapshot, OversightRole, PositionInfo, PositionKind,
-    PositionStatus, ProjectInput, RoleInput, RoleJob, RoleUpdate, Staffing, Workforce,
-    WorkforceError,
+    ChainPart, ChainStanding, DepartmentInput, HireInput, LeadInput, OrgSnapshot, OversightRole,
+    PositionInfo, PositionKind, PositionStatus, ProjectInput, RoleInput, RoleJob, RoleUpdate,
+    Staffing, Workforce, WorkforceError,
 };
 
 const WAIT: Duration = Duration::from_secs(60);
@@ -333,6 +333,31 @@ impl H {
 
     fn task(&self, id: &str) -> Task {
         self.ledger.task(id).unwrap().unwrap()
+    }
+
+    /// Task `id`'s records of type `event_type`, oldest first.
+    fn records(&self, id: &str, event_type: &str) -> Vec<serde_json::Value> {
+        self.ledger
+            .events_for_task(id)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.event_type == event_type)
+            .map(|e| e.payload)
+            .collect()
+    }
+
+    /// Wait until Plenipo has passed task `id`'s result up `n` levels (ADR-202): its reports are
+    /// written just after the task ends, on their own thread.
+    async fn reports(&self, id: &str, n: usize) -> Vec<serde_json::Value> {
+        let deadline = Instant::now() + WAIT;
+        loop {
+            let found = self.records(id, "chain.report");
+            if found.len() >= n {
+                return found;
+            }
+            assert!(Instant::now() < deadline, "no reports for {id}");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
     }
 
     /// Wait until task `id` has finished and its session no longer holds it. A turn's task is
@@ -1216,7 +1241,6 @@ async fn requests_outside_the_team_are_refused_and_explained() {
 async fn objectives_go_only_to_staffed_persistent_positions() {
     let h = harness().await;
     let o = h.development();
-    assert!(refusal(h.workforce.give_objective(&o.developer, "x", None).await).contains("on-call"));
     assert!(h
         .workforce
         .give_objective("0f8fad5b-d9cb-469f-a165-70867728950e", "x", None)
@@ -2884,4 +2908,99 @@ async fn pro_never_waits_for_frees_limit() {
         .events_of_types(&["liaison.waiting_for_free_slot"], 10)
         .unwrap()
         .is_empty());
+}
+
+/// The chain of command (ADR-202): an order that skips a level is recorded with the leads it went
+/// past, the result goes back up one level at a time, and the lead's agent hears the news with
+/// its next objective, once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_order_that_skips_a_level_is_told_to_the_lead_and_reported_back_up() {
+    let h = harness().await;
+    let o = h.development();
+    let task = h.objective(&o.coordinator, "Fix the login page").await;
+    let order = h.records(&task, "chain.order");
+    assert_eq!(order.len(), 1);
+    assert_eq!(order[0]["position"], "Cloudline Coordinator");
+    assert_eq!(order[0]["words"], "Fix the login page");
+    assert!(order[0]["via"].is_null());
+    assert_eq!(order[0]["leads"][0]["title"], "Development Manager");
+    assert_eq!(order[0]["leads"].as_array().unwrap().len(), 1);
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    let reports = h.reports(&task, 1).await;
+    assert_eq!(reports.len(), 1, "one level up, once");
+    assert_eq!(reports[0]["from"], "Cloudline Coordinator");
+    assert_eq!(reports[0]["to"], "Development Manager");
+    assert_eq!(reports[0]["standing"], "done");
+    assert_eq!(reports[0]["level"], 1);
+
+    // Each one's list says its part.
+    let told = h.workforce.chain_orders(&o.head).unwrap();
+    assert_eq!(told.len(), 1);
+    assert_eq!(told[0].part, ChainPart::Told);
+    assert_eq!(told[0].standing, ChainStanding::Done);
+    assert_eq!(told[0].position, "Cloudline Coordinator");
+    assert!(told[0].reported_at.is_some());
+    let doer = h.workforce.chain_orders(&o.coordinator).unwrap();
+    assert_eq!(doer[0].part, ChainPart::Doer);
+    assert_eq!(doer[0].leads, ["Development Manager"]);
+    assert!(h.workforce.chain_orders(&o.qa).unwrap().is_empty());
+
+    // The lead's agent hears it with its next objective, once.
+    let next = h.objective(&o.head, "Plan next week").await;
+    let asked = h.task(&next).objective;
+    assert!(asked.starts_with("Plan next week"), "{asked}");
+    assert!(asked.contains("News from your team"), "{asked}");
+    assert!(
+        asked.contains("The owner asked Cloudline Coordinator directly: \"Fix the login page\""),
+        "{asked}"
+    );
+    // An order to the top of a team skips no one: nothing to record.
+    assert!(h.records(&next, "chain.order").is_empty());
+    assert_eq!(h.finished(&next).await.state, TaskState::Succeeded);
+    let again = h.objective(&o.head, "And the week after").await;
+    assert!(!h.task(&again).objective.contains("News from your team"));
+}
+
+/// An on-call position takes its work from its lead (ADR-202): the owner's order goes to the
+/// lead's conversation, which is asked to hand it on, and the leads above are told.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_order_for_an_on_call_position_goes_through_its_lead() {
+    let h = harness().await;
+    let o = h.development();
+    let detail = h
+        .workforce
+        .give_objective(&o.developer, "Write the tests", None)
+        .await
+        .unwrap();
+    assert_eq!(
+        detail.session.metadata["workforce"]["positionId"], o.coordinator,
+        "the lead's conversation took it"
+    );
+    let task = detail.turns.last().unwrap().task_id.clone();
+    let asked = h.task(&task).objective;
+    assert!(asked.starts_with("Write the tests"), "{asked}");
+    assert!(
+        asked.contains("hand it to role:Senior Developer"),
+        "{asked}"
+    );
+    let order = h.records(&task, "chain.order");
+    assert_eq!(order[0]["position"], "Senior Developer");
+    assert_eq!(order[0]["via"]["title"], "Cloudline Coordinator");
+    assert_eq!(order[0]["leads"][0]["title"], "Development Manager");
+    h.finished(&task).await;
+    let reports = h.reports(&task, 1).await;
+    assert_eq!(reports[0]["from"], "Cloudline Coordinator");
+    assert_eq!(reports[0]["to"], "Development Manager");
+    assert_eq!(reports[0]["about"], "Senior Developer");
+    let parts = |id: &str| {
+        h.workforce
+            .chain_orders(id)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.part)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(parts(&o.developer), [ChainPart::Doer]);
+    assert_eq!(parts(&o.coordinator), [ChainPart::Via]);
+    assert_eq!(parts(&o.head), [ChainPart::Told]);
 }

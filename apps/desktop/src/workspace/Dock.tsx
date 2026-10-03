@@ -26,6 +26,7 @@ import { dropPlace, insideWindow, outsideWindow } from "./popout";
 const PANEL_BUTTONS: Record<PanelId, string> = {
   terminal: "terminal-button",
   files: "files-button",
+  chat: "chat-button",
 };
 
 /** How far the pointer moves before a press on a tab becomes a drag. */

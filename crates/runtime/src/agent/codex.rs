@@ -599,10 +599,12 @@ impl Parser {
     fn item_started(item: &Value) -> Parsed {
         match item_type(item) {
             Some("command_execution") => Parsed::one(AgentEvent::ToolUse {
+                id: None,
                 tool: "shell".into(),
                 summary: first_line(&str_of(item, "command").replace('\n', " "), MAX_SUMMARY),
             }),
             Some("mcp_tool_call") => Parsed::one(AgentEvent::ToolUse {
+                id: None,
                 tool: cap(
                     &format!("{}/{}", str_of(item, "server"), str_of(item, "tool")),
                     80,
@@ -633,12 +635,14 @@ impl Parser {
             Some("command_execution") => {
                 let code = item.get("exit_code").and_then(Value::as_i64);
                 Parsed::one(AgentEvent::ToolResult {
+                    id: None,
                     tool: Some("shell".into()),
                     is_error: code != Some(0) || matches!(status, "failed" | "declined"),
                     summary: code.map_or_else(|| status.to_owned(), |c| format!("exit {c}")),
                 })
             }
             Some("mcp_tool_call") => Parsed::one(AgentEvent::ToolResult {
+                id: None,
                 tool: Some(cap(
                     &format!("{}/{}", str_of(item, "server"), str_of(item, "tool")),
                     80,
@@ -653,11 +657,13 @@ impl Parser {
                     .map(|c| c.iter().map(|c| str_of(c, "path")).collect())
                     .unwrap_or_default();
                 Parsed::one(AgentEvent::ToolUse {
+                    id: None,
                     tool: "file change".into(),
                     summary: first_line(&paths.join(", "), MAX_SUMMARY),
                 })
             }
             Some("web_search") => Parsed::one(AgentEvent::ToolUse {
+                id: None,
                 tool: "web search".into(),
                 summary: first_line(str_of(item, "query"), MAX_SUMMARY),
             }),
@@ -780,6 +786,7 @@ mod tests {
             billing_confirmed: true,
             tools: None,
             working_dir: PathBuf::new(),
+            cli_version: None,
         }
     }
 
@@ -808,6 +815,7 @@ mod tests {
             billing_confirmed: true,
             tools: Some(tools),
             working_dir: PathBuf::new(),
+            cli_version: None,
         });
         let settings: Vec<&String> = args
             .iter()
@@ -861,6 +869,7 @@ mod tests {
             billing_confirmed: true,
             tools: None,
             working_dir: PathBuf::new(),
+            cli_version: None,
         });
         assert_eq!(
             resume,
@@ -900,6 +909,7 @@ mod tests {
                 billing_confirmed: true,
                 tools: None,
                 working_dir: PathBuf::new(),
+                cli_version: None,
             },
         ] {
             let args = Codex.turn_args(&request);
@@ -986,6 +996,7 @@ mod tests {
         assert_eq!(
             events,
             [AgentEvent::ToolUse {
+                id: None,
                 tool: "plenipo/run_command".into(),
                 summary: "git --version".into()
             }]
@@ -1060,10 +1071,12 @@ mod tests {
                     model: None
                 },
                 AgentEvent::ToolUse {
+                    id: None,
                     tool: "shell".into(),
                     summary: "bash -lc ls".into()
                 },
                 AgentEvent::ToolResult {
+                    id: None,
                     tool: Some("shell".into()),
                     is_error: false,
                     summary: "exit 0".into()

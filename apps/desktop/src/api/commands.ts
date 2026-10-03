@@ -4,6 +4,7 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  Safety,
   BlockedPerson,
   CardView,
   CommunityView,
@@ -129,6 +130,8 @@ import type {
   WindowPlace,
   ChangingFile,
   FileRoots,
+  WorkFolder,
+  ChainOrder,
   FileView,
   FolderListing,
   LineEnding,
@@ -659,6 +662,14 @@ export function saveOrganizationTemplate(name: string): Promise<OrgListing> {
   return call<OrgListing>("save_organization_template", { name });
 }
 
+/**
+ * A position's chain of command (ADR-202): the owner's orders it was given, that went through
+ * it, or that went past it, newest first, with where each stands and what came back up to it.
+ */
+export function getChainOrders(positionId: string): Promise<ChainOrder[]> {
+  return call<ChainOrder[]>("get_chain_orders", { positionId });
+}
+
 /** Plenipo's result for an objective (any task of it), built from the Ledger. */
 export function getObjectiveReport(taskId: string): Promise<ObjectiveReport> {
   return call<ObjectiveReport>("get_objective_report", { taskId });
@@ -876,6 +887,11 @@ export function removeLesson(lessonId: string): Promise<LearningSnapshot> {
  * any worker using it now. */
 export function setSwitches(switches: Switches): Promise<PermissionsSnapshot> {
   return call("set_switches", { switches });
+}
+
+/** How much Plenipo asks before an agent saves files or runs programs (ADR-201). */
+export function setSafety(safety: Safety): Promise<PermissionsSnapshot> {
+  return call("set_safety", { safety });
 }
 
 export function getBrowserStatus(): Promise<BrowserStatus> {
@@ -1373,6 +1389,19 @@ export function openFileOutside(root: string, path: string): Promise<void> {
 /** Show a file in File Explorer. */
 export function showInFolder(root: string, path: string): Promise<void> {
   return call<void>("show_in_folder", { root, path });
+}
+
+/**
+ * Where a task's worker kept its files (ADR-201): Plenipo's own folder in Documents, the
+ * project's folder, or a working copy. `null` when it had no folder.
+ */
+export function getWorkFolder(taskId: string): Promise<WorkFolder | null> {
+  return call<WorkFolder | null>("get_work_folder", { taskId });
+}
+
+/** Open the folder where a task's worker kept its files, in File Explorer. */
+export function openWorkFolder(taskId: string): Promise<void> {
+  return call<void>("open_work_folder", { taskId });
 }
 
 /** The files workers are changing now. */

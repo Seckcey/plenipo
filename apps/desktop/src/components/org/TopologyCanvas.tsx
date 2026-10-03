@@ -28,6 +28,7 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
+import { Icon } from "@plenipo/ui";
 
 import {
   DRAG_THRESHOLD,
@@ -59,6 +60,7 @@ import type { HandoffMark, WhereLine } from "../../org/live";
 import type { DropState, NodeContext } from "../../org/nodes";
 import type { PointerMode } from "../../org/tour";
 import { workToStop } from "../stop/whatToStop";
+import { canTakeObjective } from "../../org/rules";
 import { CanvasControlsContext } from "./canvasContext";
 import { Glyph } from "./Glyph";
 import { OrgNode } from "./OrgNode";
@@ -137,6 +139,11 @@ interface Props {
   onWatch?: ((positionId: string) => void) | null;
   /** Stop a tile's work now, after a question (Phase 25, item 3.3). */
   onStop?: ((positionId: string) => void) | null;
+  /**
+   * Chat with an agent, or watch an on-call worker's chat (ADR-200; `null` when there is no Chat
+   * panel). Its button shows on the chosen tile, and on each one at work.
+   */
+  onChat?: ((node: LayoutNode) => void) | null;
   live?: CanvasLive | null;
   /** The toolbar (it reads the zoom and the trash can's drop state from the canvas). */
   toolbar?: ReactNode;
@@ -251,6 +258,7 @@ export function TopologyCanvas({
   onLent,
   onWatch = null,
   onStop = null,
+  onChat = null,
   live: liveView = null,
   toolbar,
   onSelect,
@@ -1054,6 +1062,7 @@ export function TopologyCanvas({
           onLent={onLent}
           onWatch={onWatch}
           onStop={onStop}
+          onChat={onChat}
         />
       </div>
       {children}
@@ -1106,6 +1115,7 @@ const World = memo(function World({
   onLent,
   onWatch,
   onStop,
+  onChat,
 }: {
   layout: OrgLayout;
   ctx: NodeContext;
@@ -1125,6 +1135,7 @@ const World = memo(function World({
   onLent: ((positionId: string, at: { x: number; y: number }) => void) | undefined;
   onWatch: ((positionId: string) => void) | null;
   onStop: ((positionId: string) => void) | null;
+  onChat: ((node: LayoutNode) => void) | null;
 }) {
   const oversight = showOversight ? layout.oversight : [];
   const handoffs = live?.handoffs ?? [];
@@ -1293,6 +1304,32 @@ const World = memo(function World({
             </div>
           );
         })}
+      {onChat &&
+        layout.nodes.map((n) => {
+          const target = chatTarget(n, ctx);
+          if (!target || (n.id !== selectedId && !target.working)) return null;
+          return (
+            <button
+              key={`chat:${n.id}`}
+              type="button"
+              data-canvas-ui
+              className="topo-watch topo-chat"
+              style={{ left: n.x, top: n.y + n.h }}
+              aria-label={
+                target.watch ? `Watch ${target.title}'s chat` : `Chat with ${target.title}`
+              }
+              title={
+                target.watch
+                  ? `Watch ${target.title} work, live`
+                  : `Chat with ${target.title}: talk to it and watch it work, live`
+              }
+              onClick={() => onChat(n)}
+            >
+              <Icon name="chat" size={13} />
+              Chat
+            </button>
+          );
+        })}
       {layout.nodes.map((n) => {
         if (n.kind !== "position") return null;
         const p = n.position;
@@ -1335,13 +1372,14 @@ const World = memo(function World({
                 Watch
               </button>
             )}
-            {/* Stop, while it has work to stop (Phase 25, item 3.3). */}
+            {/* Stop, while it has work to stop (Phase 25, item 3.3): in the middle of the
+                tile's bottom edge, between Chat (left) and Watch (right). */}
             {onStop && p.active && workToStop(p).length > 0 && (
               <button
                 type="button"
                 data-canvas-ui
                 className="topo-stop"
-                style={{ left: n.x, top: n.y + n.h }}
+                style={{ left: n.x + n.w / 2, top: n.y + n.h }}
                 aria-label={`Stop ${p.title}`}
                 title={`Stop ${p.title}'s work now`}
                 onClick={() => onStop(p.id)}
@@ -1397,6 +1435,31 @@ interface Handle {
 }
 
 /** The selected agent's line ends (ADR-053 §7): buttons to drag, or to choose where they go. */
+/**
+ * Who a tile's Chat button reaches (ADR-200): a full-time agent you can talk to; an on-call
+ * position, whose messages go through its lead (ADR-202); or an on-call worker you can watch.
+ * `null` for a tile with no chat.
+ */
+function chatTarget(
+  n: LayoutNode,
+  ctx: NodeContext,
+): { title: string; watch: boolean; working: boolean } | null {
+  if (n.kind === "position") {
+    const p = n.position;
+    const onCall = p.active && p.staffing === "onDemand" && p.reportsTo !== null;
+    if (!canTakeObjective(p) && !onCall) return null;
+    return {
+      title: p.title,
+      watch: false,
+      working: p.status === "working" || p.status === "waiting",
+    };
+  }
+  if (n.kind === "worker" && n.worker.sessionId) {
+    return { title: ctx.title(n.positionId), watch: true, working: n.worker.state === "running" };
+  }
+  return null;
+}
+
 function handlesFor(
   layout: OrgLayout,
   ctx: NodeContext,

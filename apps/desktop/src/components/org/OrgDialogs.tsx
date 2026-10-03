@@ -840,7 +840,7 @@ function ProjectSettingsFields({
       </Field>
       <Field
         label="Project folder (optional)"
-        hint="Its workers' file, program, and git tools work only inside this folder. Without one they get none."
+        hint="Its workers' file, program, and git tools work only inside this folder. Without one, they work in Plenipo's own folder inside Documents."
       >
         <input
           value={value.localPath}

@@ -317,6 +317,10 @@ pub struct AgentRuntimeInfo {
     pub reported_models: Option<ReportedModels>,
     /// Why new tasks on it wait for now: its sign-in tab is open, or it is being updated.
     pub held: Option<HoldFor>,
+    /// It can use Plenipo's tools, so an agent on it can save files and run programs. `false`:
+    /// it only answers in words, whatever the agent's permissions (ADR-200, ADR-131).
+    #[serde(default)]
+    pub uses_tools: bool,
 }
 
 // ---- The AI tools page (Phase 19, ADR-058 to ADR-060) ------------------------------------
@@ -587,11 +591,20 @@ pub enum AgentEvent {
     ToolUse {
         tool: String,
         summary: String,
+        /// The AI tool's own ID for the call, when it gives one, so its result can be matched
+        /// to it (ADR-200).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        id: Option<String>,
     },
     ToolResult {
         tool: Option<String>,
         is_error: bool,
         summary: String,
+        /// The ID of the call this answers, when the AI tool says (ADR-200).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        id: Option<String>,
     },
     Notice {
         level: NoticeLevel,
@@ -611,6 +624,14 @@ pub enum AgentEvent {
     /// view only.
     Plan {
         steps: Vec<PlanStep>,
+    },
+    /// What the AI tool is doing or waiting for between words: it asked again because its AI
+    /// company was busy, it sent the request and waits for the first words, or it is thinking.
+    /// Shown live in a conversation until the next words, never stored (ADR-200).
+    Status {
+        phase: StatusPhase,
+        /// In plain words, for the owner.
+        text: String,
     },
 }
 
@@ -676,6 +697,17 @@ pub fn plan_steps(items: &serde_json::Value, text_keys: &[&str]) -> Vec<PlanStep
         .collect()
 }
 
+/// What a [`AgentEvent::Status`] is about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum StatusPhase {
+    /// Waiting for the AI company: the request was sent, or it is being asked again.
+    Waiting,
+    /// The model is thinking, before it writes.
+    Thinking,
+}
+
 impl AgentEvent {
     /// Ledger event type for activity worth keeping, `None` for live-only activity.
     pub fn ledger_type(&self) -> Option<&'static str> {
@@ -689,7 +721,8 @@ impl AgentEvent {
             Self::TextDelta { .. }
             | Self::Reasoning { .. }
             | Self::Usage { .. }
-            | Self::Plan { .. } => None,
+            | Self::Plan { .. }
+            | Self::Status { .. } => None,
         }
     }
 }
@@ -913,11 +946,37 @@ mod tests {
             tool: None,
             is_error: true,
             summary: "x".into(),
+            id: None,
         };
+        // Without an ID the field is left out, so events stored before it still match.
         assert_eq!(
             serde_json::to_value(&event).unwrap(),
             json!({ "type": "toolResult", "tool": null, "isError": true, "summary": "x" })
         );
+        let event = AgentEvent::ToolUse {
+            tool: "write_file".into(),
+            summary: "a.txt".into(),
+            id: Some("toolu_1".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(&event).unwrap(),
+            json!({ "type": "toolUse", "tool": "write_file", "summary": "a.txt", "id": "toolu_1" })
+        );
+        let old: AgentEvent = serde_json::from_value(
+            json!({ "type": "toolUse", "tool": "write_file", "summary": "a.txt" }),
+        )
+        .unwrap();
+        assert!(matches!(old, AgentEvent::ToolUse { id: None, .. }));
+        // What the AI tool is waiting for is shown live and never stored.
+        let event = AgentEvent::Status {
+            phase: StatusPhase::Waiting,
+            text: "Anthropic's servers are busy.".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(&event).unwrap(),
+            json!({ "type": "status", "phase": "waiting", "text": "Anthropic's servers are busy." })
+        );
+        assert_eq!(event.ledger_type(), None);
         assert_eq!(
             serde_json::to_value(TurnOutcome::BillingNotAllowed).unwrap(),
             json!("billingNotAllowed")

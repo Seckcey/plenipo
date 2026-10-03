@@ -8,6 +8,7 @@ export type SettingsSection =
   | "aiModels"
   | "spending"
   | "permissions"
+  | "safety"
   | "organization"
   | "servers"
   | "connections"
@@ -55,6 +56,12 @@ export const SETTINGS_SECTIONS: readonly {
     label: "Permissions",
     icon: "shield",
     lead: "What workers may do on this computer, what always asks you first, and the secrets they may use.",
+  },
+  {
+    id: "safety",
+    label: "Safety",
+    icon: "lock",
+    lead: "How much Plenipo asks you before an agent saves files or runs programs, and what always asks you first.",
   },
   {
     id: "organization",

@@ -1069,6 +1069,7 @@ mod tests {
             billing_confirmed: false,
             tools: None,
             working_dir: PathBuf::from("."),
+            cli_version: None,
         };
         let args = OpenRouter.turn_args(&request);
         assert_eq!(

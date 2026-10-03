@@ -523,6 +523,7 @@ mod reported_models_tests {
             account: AccountCommands::default(),
             reported_models: reported,
             held: None,
+            uses_tools: true,
         }
     }
 

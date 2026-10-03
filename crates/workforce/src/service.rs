@@ -228,6 +228,8 @@ impl Workforce {
         }
         // Lessons from workers' answers (ADR-024).
         crate::learning::watch(&ledger, entitlements.clone());
+        // Results passed up the chain of command when the owner's orders end (ADR-202).
+        crate::chain::watch(&ledger);
         liaison.set_directory(Arc::new(WorkforceDirectory::with_entitlements(
             ledger,
             router,
@@ -1998,13 +2000,29 @@ impl Workforce {
         }
         let this = self.clone();
         let (id, project) = (position_id.to_owned(), project_id.map(str::to_owned));
-        let (plan, project_note) =
-            tokio::task::spawn_blocking(move || this.plan_objective(&id, project.as_deref()))
-                .await
-                .map_err(|e| WorkforceError::Internal(e.to_string()))??;
-        let objective = match project_note {
-            Some(note) => format!("{}\n\n{note}", objective.trim()),
-            None => objective.to_owned(),
+        let ObjectivePlan {
+            plan,
+            project_note,
+            order,
+            news,
+        } = tokio::task::spawn_blocking(move || this.plan_objective(&id, project.as_deref()))
+            .await
+            .map_err(|e| WorkforceError::Internal(e.to_string()))??;
+        // What the agent is asked: the owner's words; for an on-call position's lead, to hand
+        // them on (ADR-202); the project; and the news from its team it has not heard.
+        let mut notes = Vec::new();
+        if order.taker.id != order.doer.id {
+            notes.push(crate::chain::through_words(&order.doer));
+        }
+        notes.extend(project_note);
+        if let Some((note, _)) = &news {
+            notes.push(note.clone());
+        }
+        let words = objective.trim().to_owned();
+        let objective = if notes.is_empty() {
+            objective.to_owned()
+        } else {
+            format!("{words}\n\n{}", notes.join("\n\n"))
         };
         let liaison = &self.inner.liaison;
         let detail = if plan.existing {
@@ -2033,6 +2051,12 @@ impl Workforce {
                 )
                 .await?
         };
+        // The chain of command's records, once the turn has started (ADR-202).
+        let this = self.clone();
+        let task_id = detail.turns.last().map(|t| t.task_id.clone());
+        let _ =
+            tokio::task::spawn_blocking(move || this.record_chain(task_id, &order, news, &words))
+                .await;
         Ok(detail)
     }
 
@@ -2104,25 +2128,74 @@ impl Workforce {
             .await?)
     }
 
+    /// Write the chain of command's records for an order whose turn has started (ADR-202): the
+    /// lead heard its news, and the order itself. A turn that ended before its order was
+    /// written reports at once. A record that cannot be written is logged; the order stands.
+    fn record_chain(
+        &self,
+        task_id: Option<String>,
+        order: &OrderPlan,
+        news: Option<(String, u64)>,
+        words: &str,
+    ) {
+        let l = self.ledger();
+        if let Some((_, up_to)) = news {
+            if let Err(e) = crate::chain::record_told(l, &order.taker.id, up_to) {
+                log::warn!("could not record that a lead heard its news: {e}");
+            }
+        }
+        let Some(task_id) = task_id else {
+            return;
+        };
+        let via = (order.taker.id != order.doer.id).then_some(&order.taker);
+        let leads: Vec<&plenipo_ledger::Position> = order.leads.iter().collect();
+        match crate::chain::record_order(l, &task_id, &order.doer, via, &leads, words) {
+            Ok(true) => {
+                if let Err(e) = crate::chain::report(l, &task_id) {
+                    log::warn!("the chain of command's report could not be recorded: {e}");
+                }
+            }
+            Ok(false) => {}
+            Err(e) => log::warn!("the owner's order could not be recorded: {e}"),
+        }
+    }
+
     /// Check that `position_id` can take an objective and find its agent's conversation — or,
     /// for a new one, the AI tool and model to start it on. With `project_id`, the objective
     /// belongs to that project, which must be run by the position's team; the second value is
     /// the line that names it for the agent.
-    fn plan_objective(
-        &self,
-        position_id: &str,
-        project_id: Option<&str>,
-    ) -> Result<(ConversationPlan, Option<String>)> {
+    fn plan_objective(&self, position_id: &str, project_id: Option<&str>) -> Result<ObjectivePlan> {
         let l = self.ledger();
         let records = l.org_records()?;
         let view = OrgView::new(&records);
-        let position = view.position(position_id).ok_or_else(|| {
+        let doer = view.position(position_id).ok_or_else(|| {
             WorkforceError::Ledger(plenipo_ledger::LedgerError::NotFound(format!(
                 "position {position_id}"
             )))
         })?;
+        // An on-call position takes its work from its lead (ADR-202): the owner's order goes to
+        // the lead's conversation, which hands it on. One with no lead is refused below.
+        let position = match view.lead_of(&doer.id) {
+            Some(lead)
+                if doer.state == plenipo_ledger::PositionState::Active
+                    && !view.persistent(doer)
+                    && lead.id != doer.id =>
+            {
+                lead
+            }
+            _ => doer,
+        };
         let planner = self.inner.router.planner()?;
-        let mut plan = conversation::plan(l, &planner, &view, position)?;
+        let mut plan = conversation::plan(l, &planner, &view, position).map_err(|e| {
+            if position.id == doer.id {
+                e
+            } else {
+                invalid(format!(
+                    "{} takes its work through {}: {e}",
+                    doer.title, position.title
+                ))
+            }
+        })?;
         let mut note = None;
         if let Some(project_id) = project_id {
             let project = records
@@ -2153,8 +2226,47 @@ impl Workforce {
                 });
             }
         }
-        Ok((plan, note))
+        let news = crate::chain::news_for(l, &position.id)?;
+        Ok(ObjectivePlan {
+            plan,
+            project_note: note,
+            order: OrderPlan {
+                doer: doer.clone(),
+                taker: position.clone(),
+                leads: view
+                    .leads_above(&position.id)
+                    .into_iter()
+                    .cloned()
+                    .collect(),
+            },
+            news,
+        })
     }
+
+    // ---- The chain of command (ADR-202) ------------------------------------------------------
+
+    /// A position's chain of command: the owner's orders it was given, that went through it, or
+    /// that went past it, newest first, with where each stands and what came back up to it.
+    pub fn chain_orders(&self, position_id: &str) -> Result<Vec<ChainOrder>> {
+        crate::chain::orders_for(self.ledger(), position_id)
+    }
+}
+
+/// What `plan_objective` found: the conversation that takes the order, the line naming its
+/// project, the order's place in the chain of command, and the news its taker has not heard.
+struct ObjectivePlan {
+    plan: ConversationPlan,
+    project_note: Option<String>,
+    order: OrderPlan,
+    news: Option<(String, u64)>,
+}
+
+/// An order in the chain of command (ADR-202): who it is for, whose conversation takes it (the
+/// same position, or an on-call position's lead), and the leads above the taker, nearest first.
+struct OrderPlan {
+    doer: plenipo_ledger::Position,
+    taker: plenipo_ledger::Position,
+    leads: Vec<plenipo_ledger::Position>,
 }
 
 /// Longest answer an objective's summary keeps (characters).

@@ -529,6 +529,37 @@ impl Broker {
         })
     }
 
+    /// Where a task's worker kept its files (ADR-201): the folder the task's newest grant opened
+    /// in, from Plenipo's own record of it. `None` when the worker had no folder (no file tools,
+    /// or work that never started).
+    pub fn work_folder(&self, task_id: &str) -> Result<Option<WorkFolder>> {
+        let events = self.ledger().events_for_task(task_id)?;
+        let Some(opened) = events.iter().rev().find(|e| {
+            e.event_type == "guard.grant_opened"
+                && e.payload["folder"].as_str().is_some_and(|f| !f.is_empty())
+        }) else {
+            return Ok(None);
+        };
+        let path = opened.payload["folder"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let plenipo_files = self
+            .inner
+            .config
+            .files_dir
+            .as_ref()
+            .is_some_and(|base| Path::new(&path).starts_with(base));
+        let text = |v: &serde_json::Value| v.as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+        Ok(Some(WorkFolder {
+            exists: Path::new(&path).is_dir(),
+            project: text(&opened.payload["project"]),
+            branch: text(&opened.payload["workspace"]["branch"]),
+            plenipo_files,
+            path,
+        }))
+    }
+
     /// Who is writing where now, by top folder.
     fn folder_writers(&self) -> std::collections::HashMap<String, FolderWriter> {
         let s = self.state();

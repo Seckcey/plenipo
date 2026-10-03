@@ -165,6 +165,9 @@ architecture must be recorded here.
 | [197](ADR-197-templates.md)                                          | Templates for organizations, departments, and projects, and saving yours as one (part of parked Phase 15)              | Accepted |
 | [198](ADR-198-the-setup-tour.md)                                     | The setup tour, with Driver.js: nine steps that move on when each is done (amends 030, 053)                            | Accepted |
 | [199](ADR-199-stop-all-work.md)                                      | Stop on every worker, and Stop all work: every task stops and nothing starts until Allow again (amends 020, 094)       | Accepted |
+| [200](ADR-200-a-live-chat-with-each-agent.md)                        | A live chat with each agent, as in Claude Code: streaming, what it is doing now, files saved                           | Proposed |
+| [201](ADR-201-light-by-default.md)                                   | Light by default: agents save files and run programs; Settings → Safety; Plenipo's own folder                          | Proposed |
+| [202](ADR-202-the-chain-of-command.md)                               | The chain of command: skipped leads are told, reports come back up one level at a time                                 | Proposed |
 | [250](ADR-250-watch-shows-changes-made-by-commands.md)               | Watch shows changes made by commands too: files noted before and compared after (amends 055)                           | Accepted |
 | [251](ADR-251-side-chats.md)                                         | Side chats with a manager or supervisor: answer only, briefed on what the agent knows                                  | Accepted |
 | [252](ADR-252-prompt-caching-for-anthropic-models.md)                | Prompt caching for Anthropic models on your key and through OpenRouter (amends 085 §3.5)                               | Accepted |

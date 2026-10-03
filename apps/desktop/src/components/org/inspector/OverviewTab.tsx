@@ -13,6 +13,7 @@ import { ObjectiveFilesList } from "../../../files/ObjectiveFiles";
 import { useObjectiveFiles } from "../../../files/useObjectiveFiles";
 import { EFFORT_LABEL } from "../../../routing/format";
 import { useOpenWatch } from "../../../terminal/useTerminal";
+import { useChatIfAny } from "../../../chat/context";
 import { PILL_TONE } from "../../tones";
 import { LiveConversation } from "../../../live/LiveConversation";
 import { liveWork } from "../../../live/words";
@@ -85,6 +86,12 @@ export function OverviewTab({
   const watch =
     openWatch && p.active && (p.agent || p.staffing !== "persistent")
       ? () => openWatch(p.id, p.title)
+      : null;
+  const chat = useChatIfAny();
+  // An on-call position's messages go through its lead (ADR-202).
+  const chatWith =
+    chat && (canTakeObjective(p) || (p.active && p.staffing === "onDemand" && p.reportsTo !== null))
+      ? () => chat.open({ positionId: p.id, sessionId: p.agent?.sessionId ?? null, title: p.title })
       : null;
 
   return (
@@ -212,8 +219,17 @@ export function OverviewTab({
         </Section>
       )}
 
-      {(actions.openPage || sessionId || watch) && (
+      {(actions.openPage || sessionId || watch || chatWith) && (
         <Options>
+          {chatWith && (
+            <Option
+              label="Chat"
+              icon="chat"
+              ariaLabel={`Chat with ${p.title}`}
+              hint="Talk to its agent and watch it work, live, in the Chat panel."
+              onClick={chatWith}
+            />
+          )}
           {watch && (
             <Option
               label="Watch"

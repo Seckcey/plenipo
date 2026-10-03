@@ -300,6 +300,20 @@ fn narrowed(
             reason = off.to_owned();
         }
     }
+    // The owner's Safety setting (ADR-201): Careful asks before a script runs; Strict leaves
+    // agents reading only. Light (the starting choice) caps nothing.
+    if let Some((cap, note)) = safety_cap(config, c) {
+        checks.push(Check {
+            layer: Layer::Rule,
+            verdict: verdict_of(cap),
+            note: note.to_owned(),
+        });
+        if level > cap {
+            level = cap;
+            layer = Layer::Rule;
+            reason = note.to_owned();
+        }
+    }
     LevelFor {
         level,
         layer,
@@ -320,6 +334,29 @@ pub fn switched_off(config: &GuardConfig, c: Capability) -> Option<&'static str>
         Capability::SshConnect if !config.switches.servers => {
             Some("remote computers (SSH) are switched off (Settings → Switches)")
         }
+        _ => None,
+    }
+}
+
+/// The most `c` may be, because of the owner's Safety setting (ADR-201), and the plain words
+/// for why. `None`: the setting caps nothing here.
+pub fn safety_cap(config: &GuardConfig, c: Capability) -> Option<(Level, &'static str)> {
+    match (config.safety, c) {
+        (
+            Safety::Strict,
+            Capability::FilesystemWrite
+            | Capability::ShellExec
+            | Capability::PowershellExec
+            | Capability::GitWrite
+            | Capability::GithubWrite,
+        ) => Some((
+            Level::Blocked,
+            "Safety is set to Strict, so agents only read (Settings → Safety)",
+        )),
+        (Safety::Careful, Capability::PowershellExec) => Some((
+            Level::Ask,
+            "Safety is set to Careful, so a PowerShell script asks first (Settings → Safety)",
+        )),
         _ => None,
     }
 }
@@ -787,7 +824,11 @@ pub fn evaluate(
             .is_some_and(|cmd| rule_matches(&r.rule, cmd))
     };
     if let Some(cmd) = request.command {
-        if first_match(&config.commands.approved, cmd).is_none()
+        // Light (ADR-201): a program that is on no list runs without asking. The never-run list,
+        // the always-ask list, and anything sensitive about the command were checked above, so
+        // they still stop it or ask.
+        if config.safety != Safety::Light
+            && first_match(&config.commands.approved, cmd).is_none()
             && !config.commands.with_secrets.iter().any(names_program)
         {
             return decision(
@@ -1414,7 +1455,9 @@ mod tests {
 
     #[test]
     fn command_allow_ask_and_deny() {
-        let c = config();
+        // Careful keeps how earlier versions started: a program on no list asks (ADR-201).
+        let mut c = config();
+        c.safety = Safety::Careful;
         let s = scope("dev", None);
         let run = |line: &str| {
             let mut w = line.split_whitespace();
@@ -1558,9 +1601,134 @@ mod tests {
         script.script = Some("Get-ChildItem");
         assert_eq!(
             eval(&c, &s, &script).verdict,
-            Verdict::Ask,
-            "developers ask for scripts"
+            Verdict::Allow,
+            "developers run scripts when Safety is Light"
         );
+        let mut careful = c.clone();
+        careful.safety = Safety::Careful;
+        assert_eq!(
+            eval(&careful, &s, &script).verdict,
+            Verdict::Ask,
+            "developers ask for scripts when Safety is Careful"
+        );
+    }
+
+    /// An agent of `role` that has the permission set `set`.
+    fn with_set(c: &mut GuardConfig, role: &str, name: &str, set: &str) -> Scope {
+        c.assign_role(role, Some(set)).unwrap();
+        Scope {
+            role_id: role.into(),
+            role_name: name.into(),
+            ..scope("dev", None)
+        }
+    }
+
+    #[test]
+    fn light_runs_programs_without_asking_but_keeps_the_stops() {
+        // ADR-201: the starting choice. A VP with Everyday work saves a file, runs a program that
+        // is on no list, and runs a script, all without asking.
+        let mut c = config();
+        assert_eq!(c.safety, Safety::Light);
+        let vp = with_set(&mut c, "vp", "VP", "everyday");
+        let files = vec!["clear-temp.ps1".to_owned()];
+        let save = eval(&c, &vp, &request(Capability::FilesystemWrite, &files, None));
+        assert_eq!(save.verdict, Verdict::Allow, "{}", save.reason);
+        let run = |c: &GuardConfig, line: &str| {
+            let mut w = line.split_whitespace();
+            let cmd = CommandLine {
+                program: w.next().unwrap().to_owned(),
+                args: w.map(str::to_owned).collect(),
+            };
+            eval(c, &vp, &request(Capability::ShellExec, &[], Some(&cmd)))
+        };
+        assert_eq!(run(&c, "cargo run").verdict, Verdict::Allow);
+        assert_eq!(run(&c, "python tidy.py").verdict, Verdict::Allow);
+        let mut script = request(Capability::PowershellExec, &[], None);
+        script.script = Some("Get-ChildItem");
+        assert_eq!(eval(&c, &vp, &script).verdict, Verdict::Allow);
+        // What stays: the never-run list, the always-ask list, and sensitive actions.
+        let blocked = run(&c, "curl https://example.com");
+        assert_eq!(blocked.verdict, Verdict::Deny, "{}", blocked.reason);
+        let deploy = run(&c, "npm run deploy");
+        assert_eq!((deploy.verdict, deploy.layer), (Verdict::Ask, Layer::Risk));
+        let outside = run(&c, "rm -rf ../other");
+        assert_eq!(
+            outside.verdict,
+            Verdict::Deny,
+            "rm is on the never-run list"
+        );
+        let mut asks = c.clone();
+        asks.commands.ask.push("python *".into());
+        assert_eq!(run(&asks, "python tidy.py").verdict, Verdict::Ask);
+        // Blocked files stay blocked.
+        let secret = vec![".env".to_owned()];
+        let d = eval(&c, &vp, &request(Capability::FilesystemRead, &secret, None));
+        assert_eq!(d.verdict, Verdict::Deny);
+    }
+
+    #[test]
+    fn careful_asks_before_a_script_and_an_unlisted_program() {
+        let mut c = config();
+        c.safety = Safety::Careful;
+        let vp = with_set(&mut c, "vp", "VP", "everyday");
+        let cmd = CommandLine::new("python", &["tidy.py"]);
+        let d = eval(&c, &vp, &request(Capability::ShellExec, &[], Some(&cmd)));
+        assert_eq!((d.verdict, d.layer), (Verdict::Ask, Layer::Rule));
+        let mut script = request(Capability::PowershellExec, &[], None);
+        script.script = Some("Get-ChildItem");
+        let d = eval(&c, &vp, &script);
+        assert_eq!(d.verdict, Verdict::Ask);
+        assert!(d.reason.contains("Careful"), "{}", d.reason);
+        // Saving a file in the folder, and approved programs, still go ahead.
+        let files = vec!["notes.md".to_owned()];
+        assert_eq!(
+            eval(&c, &vp, &request(Capability::FilesystemWrite, &files, None)).verdict,
+            Verdict::Allow
+        );
+        let cmd = CommandLine::new("cargo", &["test"]);
+        assert_eq!(
+            eval(&c, &vp, &request(Capability::ShellExec, &[], Some(&cmd))).verdict,
+            Verdict::Allow
+        );
+    }
+
+    #[test]
+    fn strict_leaves_agents_reading_only() {
+        let mut c = config();
+        c.safety = Safety::Strict;
+        let dev = scope("dev", None);
+        let files = vec!["a.txt".to_owned()];
+        let d = eval(&c, &dev, &request(Capability::FilesystemRead, &files, None));
+        assert_eq!(d.verdict, Verdict::Allow);
+        for capability in [
+            Capability::FilesystemWrite,
+            Capability::ShellExec,
+            Capability::PowershellExec,
+            Capability::GitWrite,
+            Capability::GithubWrite,
+        ] {
+            let cmd = CommandLine::new("cargo", &["test"]);
+            let command = (capability == Capability::ShellExec).then_some(&cmd);
+            let d = eval(&c, &dev, &request(capability, &files, command));
+            assert_eq!(d.verdict, Verdict::Deny, "{capability:?}: {}", d.reason);
+            assert!(d.reason.contains("Strict"), "{}", d.reason);
+        }
+        // What the owner sees for each capability agrees with what a tool call gets.
+        let levels = levels_for(&c, &dev);
+        assert_eq!(levels[&Capability::FilesystemWrite], Level::Blocked);
+        assert_eq!(levels[&Capability::FilesystemRead], Level::Allowed);
+    }
+
+    #[test]
+    fn an_older_settings_document_without_safety_reads_as_light() {
+        let c = GuardConfig::from_value(serde_json::json!({ "roles": {} })).unwrap();
+        assert_eq!(c.safety, Safety::Light);
+        let again = GuardConfig::from_value(c.to_value()).unwrap();
+        assert_eq!(again.safety, Safety::Light);
+        let mut strict = c.clone();
+        strict.safety = Safety::Strict;
+        let again = GuardConfig::from_value(strict.to_value()).unwrap();
+        assert_eq!(again.safety, Safety::Strict);
     }
 
     #[test]

@@ -800,6 +800,7 @@ impl AcpTurn {
                 }
                 let input = update.get("rawInput").unwrap_or(&Value::Null);
                 parsed.events.push(AgentEvent::ToolUse {
+                    id: None,
                     tool: call_name(update),
                     summary: tool_summary(input),
                 });
@@ -915,6 +916,7 @@ impl AcpTurn {
             .and_then(Value::as_str)
             .unwrap_or("");
         let result = AgentEvent::ToolResult {
+            id: None,
             tool: tool.clone(),
             is_error: status == Some("failed"),
             summary: first_line(text, 200),
@@ -1402,6 +1404,7 @@ mod tests {
                     text: "Let me look.".into()
                 },
                 AgentEvent::ToolUse {
+                    id: None,
                     tool: "Read".into(),
                     summary: "src/main.rs".into()
                 }
@@ -1417,6 +1420,7 @@ mod tests {
         assert_eq!(
             p.events,
             [AgentEvent::ToolResult {
+                id: None,
                 tool: Some("Read".into()),
                 is_error: true,
                 summary: "denied".into()
