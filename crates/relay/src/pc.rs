@@ -78,16 +78,28 @@ pub(crate) async fn serve(hub: &Hub, line: &mut Line, address: AddressKey) {
         return;
     }
     // 8 West's signature with the public license keys, then what the answer says. The key ID
-    // inside is looked at here and nowhere else: never kept, never logged.
+    // inside is looked at here and nowhere else: never kept, never logged. What stays, while
+    // this PC is connected, is its mark (a salted hash this run alone can make), to count the
+    // PCs on one license.
     let now = hub.now();
-    let pro = plenipo_licensing::answer::verify(&answer).is_ok_and(|a| shows_pro(&a, now));
+    let checked = plenipo_licensing::answer::verify(&answer)
+        .ok()
+        .filter(|a| shows_pro(a, now));
     drop(answer);
-    if !pro {
+    let Some(checked) = checked else {
         refuse(hub, line, address, codes::NOT_PRO);
         return;
-    }
+    };
+    let license = hub.license_mark(&checked.key_id);
+    drop(checked);
     let pc = fingerprint(&key);
-    let generation = hub.register_pc(&pc, key, line.link.clone());
+    let generation = match hub.register_pc(&pc, key, line.link.clone(), license, address) {
+        Ok(generation) => generation,
+        Err(code) => {
+            refuse(hub, line, address, code);
+            return;
+        }
+    };
     line.link
         .send(wire::write(&RelayToPc::Welcome { pc: pc.clone() }));
     log::info!("pc connected ({address})");
