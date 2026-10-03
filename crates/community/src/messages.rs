@@ -901,12 +901,12 @@ fn summary_of(p: &CommunityPerson, unseen: u32) -> ConversationSummary {
     }
 }
 
-/// One conversation: up to 100 messages before `before` (`None`: the newest), with their
-/// reactions. Opening it marks its messages seen.
+/// One conversation: up to 100 messages and reactions before the item `before` (`None`: the
+/// newest). Opening it marks its messages seen.
 pub fn conversation(
     ledger: &Ledger,
     member_id: &str,
-    before: Option<i64>,
+    before: Option<&str>,
 ) -> Result<Option<ConversationView>, Refused> {
     let Some(person) = ledger.community_person(member_id).map_err(kept)? else {
         return Ok(None);

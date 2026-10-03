@@ -25,10 +25,12 @@ vi.mock("../api/commands", async (importOriginal) => {
     communityPicture: vi.fn(),
     inviteToCommunity: vi.fn(),
     shareMyCommunityProfile: vi.fn(),
+    communityConversations: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
   subscribeCommunity: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeCommunityMessages: vi.fn(() => Promise.resolve(() => undefined)),
 }));
 
 const api = vi.mocked(commands);
@@ -81,6 +83,8 @@ const HIDDEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u20
 beforeEach(() => {
   vi.clearAllMocks();
   forgetPictures();
+  // The Messages tab's number: no conversations, unless a test says there are.
+  api.communityConversations.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -130,10 +134,12 @@ describe("Community on the strip", () => {
 });
 
 describe("The Community section", () => {
-  it("has one tab, People, and the parts of it", async () => {
+  it("has two tabs, People and Messages, and People has its parts", async () => {
     const { container } = await inPage();
     expect(screen.getByRole("heading", { level: 1, name: "Community" })).toBeInTheDocument();
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["People", "Messages"]);
     expect(screen.getByRole("tab", { name: "People" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Messages" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tabpanel", { name: "People" })).toBeInTheDocument();
     for (const title of [
       "Find someone",

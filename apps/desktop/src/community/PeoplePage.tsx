@@ -1,6 +1,14 @@
-import { useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import type { CardView, Found, PeoplePage as Page, ShareProfile } from "@plenipo/types";
-import { Button, ErrorState, LoadingState, Select, Tabs } from "@plenipo/ui";
+import {
+  createContext,
+  useContext,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import type { CardView, Found, MemberView, PeoplePage as Page, ShareProfile } from "@plenipo/types";
+import { Button, CountBadge, ErrorState, LoadingState, Select, Tabs } from "@plenipo/ui";
 
 import {
   communityDirectory,
@@ -14,9 +22,12 @@ import type { Go } from "../components/views";
 import { PictureCode } from "../remote/DevicesSettings";
 import { systemWords } from "../system/words";
 import { CommunityCard } from "./CommunityCard";
+import type { Target } from "./Conversation";
+import { Messages } from "./Messages";
 import { BUSINESS_KINDS, regionOptions } from "./profileWords";
 import { oneLine } from "./safeText";
 import { useCommunity } from "./useCommunity";
+import { unseenCount, useMessages } from "./useMessages";
 
 /** The longest search, as the account service counts it. */
 const MOST_SEARCH = 60;
@@ -32,6 +43,16 @@ function requestOnlyWords(name: string): string {
 
 /** Said when **Find someone** finds no one: the same words for every reason (ADR-163 §6). */
 export const NO_ONE = "No one in Community has that name.";
+
+/**
+ * How the People tab opens a conversation (the Messages tab with a box for that person), and who
+ * you are, so your own card has no **Message** button. Without it (a card on its own), no button.
+ */
+const Messaging = createContext<{
+  open: (memberId: string, name: string) => void;
+  /** Gives the opener for a card with this Community name, or none for your own. */
+  to: (name: string) => ((memberId: string, name: string) => void) | undefined;
+} | null>(null);
 
 /** A page of cards at a time: what is shown, where the next page starts, and what is going on. */
 interface Pages {
@@ -101,6 +122,7 @@ type PagesState = ReturnType<typeof usePages>;
 
 /** A grid of cards, with "Show more" when there are more, and plain words when there are none. */
 function PeopleList({ pages, label, empty }: { pages: PagesState; label: string; empty: string }) {
+  const messaging = useContext(Messaging);
   return (
     <>
       {pages.busy && pages.cards.length === 0 && (
@@ -117,7 +139,7 @@ function PeopleList({ pages, label, empty }: { pages: PagesState; label: string;
         <ul className="people-grid" aria-label={label}>
           {pages.cards.map((card) => (
             <li key={card.memberId}>
-              <CommunityCard card={card} />
+              <CommunityCard card={card} onMessage={messaging?.to(card.name)} />
             </li>
           ))}
         </ul>
@@ -156,6 +178,7 @@ function Part({ title, hint, children }: { title: string; hint?: string; childre
  * (ADR-163 §6). What was typed is sent as it is; Plenipo makes the letters small and drops the "@".
  */
 function FindSomeone() {
+  const messaging = useContext(Messaging);
   const inputId = useId();
   const [typed, setTyped] = useState("");
   const [found, setFound] = useState<Found | null>(null);
@@ -217,11 +240,22 @@ function FindSomeone() {
       {found?.kind === "card" && (
         <ul className="people-grid people-grid--one" aria-label="Who was found">
           <li>
-            <CommunityCard card={found.card} />
+            <CommunityCard card={found.card} onMessage={messaging?.to(found.card.name)} />
           </li>
         </ul>
       )}
-      {found?.kind === "requestOnly" && <p role="status">{requestOnlyWords(found.name)}</p>}
+      {found?.kind === "requestOnly" && (
+        <>
+          <p role="status">{requestOnlyWords(found.name)}</p>
+          {messaging && (
+            <div className="settings-section__actions">
+              <Button variant="primary" onClick={() => messaging.open(found.memberId, found.name)}>
+                Send a message request
+              </Button>
+            </div>
+          )}
+        </>
+      )}
       {found?.kind === "noOne" && <p role="status">{NO_ONE}</p>}
       {error && (
         <p className="form-error" role="alert">
@@ -442,8 +476,8 @@ function ShareMyProfile() {
   );
 }
 
-/** The parts of the Community section. Messages and Points join People later. */
-type CommunityTab = "people";
+/** The parts of the Community section. Points joins them later. */
+type CommunityTab = "people" | "messages";
 
 /** The People tab: finding people, and being found. */
 function People() {
@@ -459,13 +493,72 @@ function People() {
 }
 
 /**
+ * The tabs, once you are signed in. Messages is read here, so its unseen count is on the tab
+ * whichever tab is open. The People tab stays as it is while Messages is open (its search is
+ * kept); Messages is there only while it is open, so a conversation is read, and marked seen,
+ * only when you are looking at it.
+ */
+function SignedIn({ go, member }: { go: Go; member: MemberView | null }) {
+  const [tab, setTab] = useState<CommunityTab>("people");
+  const [target, setTarget] = useState<Target | null>(null);
+  const messages = useMessages();
+  const unseen = unseenCount(messages.list);
+  const own = member?.name ?? "";
+  // A card, or a request-only name: the Messages tab opens a box for that person, even when
+  // there is no conversation yet.
+  const open = (memberId: string, name: string) => {
+    setTarget({ memberId, name });
+    setTab("messages");
+  };
+  const messaging = { open, to: (name: string) => (name === own ? undefined : open) };
+  return (
+    <>
+      <Tabs<CommunityTab>
+        label="Community sections"
+        idPrefix="community"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { value: "people", label: "People" },
+          {
+            value: "messages",
+            label: "Messages",
+            badge: <CountBadge count={unseen} label="unseen" />,
+          },
+        ]}
+      />
+      <div
+        role="tabpanel"
+        id="community-panel-people"
+        aria-labelledby="community-tab-people"
+        hidden={tab !== "people"}
+      >
+        <Messaging.Provider value={messaging}>
+          <People />
+        </Messaging.Provider>
+      </div>
+      {tab === "messages" && (
+        <div role="tabpanel" id="community-panel-messages" aria-labelledby="community-tab-messages">
+          <Messages
+            messages={messages}
+            target={target}
+            onTarget={setTarget}
+            adult={member?.adult !== false}
+            go={go}
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
  * The Community section on the strip (Phase 24, ADR-163): find people who use Plenipo. It is
  * there only while Community's switch is on. It works once you are signed in; before that it
  * says so, with a way to Settings → Community.
  */
 export function PeoplePage({ go }: { go: Go }) {
   const { view, error, reload } = useCommunity();
-  const [tab, setTab] = useState<CommunityTab>("people");
   return (
     <section className="view community-view" aria-labelledby="community-title">
       <h1 id="community-title">Community</h1>
@@ -489,22 +582,7 @@ export function PeoplePage({ go }: { go: Go }) {
           </div>
         </div>
       ) : (
-        <>
-          <Tabs<CommunityTab>
-            label="Community sections"
-            idPrefix="community"
-            value={tab}
-            onChange={setTab}
-            tabs={[{ value: "people", label: "People" }]}
-          />
-          <div
-            role="tabpanel"
-            id={`community-panel-${tab}`}
-            aria-labelledby={`community-tab-${tab}`}
-          >
-            {tab === "people" && <People />}
-          </div>
-        </>
+        <SignedIn go={go} member={view.member} />
       )}
     </section>
   );

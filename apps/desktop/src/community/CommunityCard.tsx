@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import type { CardView } from "@plenipo/types";
-import { Icon } from "@plenipo/ui";
+import { Button, Icon } from "@plenipo/ui";
 
 import { OwnerLight } from "../owner/OwnerFace";
 import { MOOD_FACES, MOOD_WORDS } from "../owner/words";
@@ -66,9 +66,18 @@ function Picture({ card }: { card: CardView }) {
  * One person in Community (Phase 24, ADR-163 §4, ADR-169): picture, names, status, mood, message,
  * company, what the business does, where, badges, points, and thanks. A part the person hides is
  * simply not there. Everything another person wrote is plain text on one line (`oneLine`): a
- * hidden character shows as a mark, and nothing is ever a web page, a link, or a button.
+ * hidden character shows as a mark, and nothing is ever a web page or a link. With `onMessage` (the
+ * People tab gives it) the card has one button of Plenipo's own, **Message**, that opens a
+ * conversation with that person.
  */
-export function CommunityCard({ card }: { card: CardView }) {
+export function CommunityCard({
+  card,
+  onMessage,
+}: {
+  card: CardView;
+  /** Open a conversation with this person (their ID and Community name). */
+  onMessage?: ((memberId: string, name: string) => void) | undefined;
+}) {
   const nameId = useId();
   const name = oneLine(card.name);
   const display = line(card.displayName);
@@ -133,6 +142,13 @@ export function CommunityCard({ card }: { card: CardView }) {
           <span>{pointsWords(card.points)}</span>
           {thanked && <span>{thanked}</span>}
         </p>
+        {onMessage && (
+          <div className="people-card__actions">
+            <Button size="sm" onClick={() => onMessage(card.memberId, card.name)}>
+              Message
+            </Button>
+          </div>
+        )}
       </div>
     </article>
   );
