@@ -60,7 +60,8 @@ license record that is deleted or lost then starts nothing again.
 5. **Plain words.** Settings → License says: "Without a check, Pro never runs more than 30 days past
    your paid-through date." When Pro is off for this reason, it says Plenipo hasn't been able to
    confirm the subscription with 8 West in time, to connect to the internet and choose **Check
-   now**, and that everything made is still here.
+   now**, and that everything made is still here. After a check that failed, it also names the
+   address Plenipo needs to reach, `account.getplenipo.com`, so a work network can allow it.
 
 ## Consequences
 
@@ -70,8 +71,10 @@ license record that is deleted or lost then starts nothing again.
   only if the key's own paid-through date is less than 30 days past. A monthly key from many months
   ago is on Free until the first check goes through. That check runs as soon as Plenipo starts, so
   online it takes a few seconds. Nothing is ever deleted (ADR-021).
-- The account service must fill the paid-through date in every answer, which it does (seen in the
-  service's code by the Development Coordinator, 2026-10-03; not tested here).
+- The ceiling does **not** depend on the account service filling the paid-through date in every
+  answer. When an answer has none, its own "as of" day is used, and a test covers that. A filled
+  date is a nicety, not a condition. (The service does fill it: seen in its code by the Development
+  Coordinator, 2026-10-03; not tested here.)
 
 ## What this does not stop
 
@@ -80,6 +83,10 @@ license record that is deleted or lost then starts nothing again.
   30 days after 8 West's newest answer: never more than those 30 days, and never past an "ended"
   answer. A possible follow-up is to keep that clock time in the copy too, written at most once a
   day. It is left out here to keep this change small.
+- A yearly key whose subscription ended early (a refund or a chargeback) still carries its own
+  paid-through date. With the record file and the Vault copy both gone and no check able to go
+  through, Pro comes back until that date plus 30 days. Online, the first check ends it within
+  seconds.
 
 ## Alternatives considered
 

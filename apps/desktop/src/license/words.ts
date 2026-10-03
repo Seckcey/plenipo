@@ -57,6 +57,12 @@ export function organizationsLine(
 /** Where to buy or renew Pro. */
 export const WHERE_TO_BUY = "getplenipo.com";
 
+/**
+ * Where the weekly check goes (ADR-105: `CHECK_ADDRESS` in crates/licensing), so a work network's
+ * firewall can allow it (P-DESK-1).
+ */
+export const CHECK_HOST = "account.getplenipo.com";
+
 /** Why the edition is what it is, in a sentence or two. */
 export function reasonWords(view: LicenseView, now: number = Date.now()): string {
   switch (view.reason) {

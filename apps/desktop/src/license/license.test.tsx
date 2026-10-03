@@ -154,6 +154,23 @@ describe("Settings → License", () => {
     expect(await screen.findByText(/You're on Free/)).toBeTruthy();
   });
 
+  it("names the address to allow when Pro is off because no check went through (P-DESK-1)", async () => {
+    api.getLicense.mockResolvedValue(
+      free({ reason: "noCheck", keyId: KEY_ID, lastTried: NOW, problem: "No internet." }),
+    );
+    const { unmount } = render(<LicenseSettings />);
+    expect((await screen.findByText(/Why: No internet\./)).textContent).toMatch(
+      /Plenipo needs to reach account\.getplenipo\.com\. On a work network, ask whoever runs it to allow that address\./,
+    );
+    unmount();
+    api.getLicense.mockResolvedValue(
+      free({ reason: "ended", keyId: KEY_ID, lastTried: NOW, problem: "No internet." }),
+    );
+    render(<LicenseSettings />);
+    expect(await screen.findByText(/Why: No internet\./)).toBeTruthy();
+    expect(screen.queryByText(/account\.getplenipo\.com/)).toBeNull();
+  });
+
   it("says when the PC's clock is ahead of 8 West's", async () => {
     api.getLicense.mockResolvedValue(
       free({ reason: "noCheck", keyId: KEY_ID, clockAheadDays: 40 }),

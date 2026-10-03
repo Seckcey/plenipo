@@ -10,7 +10,15 @@ import {
 } from "../api/commands";
 import { when } from "../pages/words";
 import { useLicense } from "./useLicense";
-import { WHERE_TO_BUY, day, editionName, organizationsLine, planLine, reasonWords } from "./words";
+import {
+  CHECK_HOST,
+  WHERE_TO_BUY,
+  day,
+  editionName,
+  organizationsLine,
+  planLine,
+  reasonWords,
+} from "./words";
 import { sentenceStart, systemWords } from "../system/words";
 
 type Busy = "enter" | "check" | "remove" | null;
@@ -94,6 +102,13 @@ export function LicenseSettings() {
       {view.problem && view.edition === "free" && hasKey && (
         <p className="muted" role="status">
           Why: {view.problem}
+          {view.reason === "noCheck" && (
+            <>
+              {" "}
+              Plenipo needs to reach <strong>{CHECK_HOST}</strong>. On a work network, ask whoever
+              runs it to allow that address.
+            </>
+          )}
         </p>
       )}
       {view.problem && !hasKey && (
