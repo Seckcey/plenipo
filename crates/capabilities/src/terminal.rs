@@ -748,13 +748,27 @@ mod tests {
     #[test]
     fn every_shell_has_a_plain_name_and_one_is_the_default() {
         let options = shell_options();
-        assert_eq!(options.len(), 3);
         assert_eq!(TerminalShell::default(), TerminalShell::WindowsPowerShell);
         let labels: Vec<_> = options.iter().map(|o| o.label.as_str()).collect();
-        assert_eq!(
-            labels,
-            ["Windows PowerShell", "PowerShell 7", "Command Prompt"]
-        );
+        if cfg!(windows) {
+            assert_eq!(
+                labels,
+                ["Windows PowerShell", "PowerShell 7", "Command Prompt"]
+            );
+        } else {
+            // Each system's own (ADR-155): the owner's shell, named, then zsh, bash, and fish.
+            assert_eq!(labels.len(), 4, "{labels:?}");
+            assert!(labels[0].starts_with("Your shell"), "{labels:?}");
+            assert_eq!(labels[1..], ["zsh", "bash", "fish"]);
+            assert!(
+                options[0].installed,
+                "the owner's own shell is always there"
+            );
+            assert_eq!(
+                effective_shell(TerminalShell::default()),
+                TerminalShell::YourShell
+            );
+        }
     }
 
     #[cfg(not(windows))]
