@@ -35,6 +35,11 @@ export type StepId =
 
 export interface SetupStep {
   id: StepId;
+  /**
+   * The title and words are written into the page as HTML by Driver.js: keep both fixed text
+   * written here, never anything the owner or a worker typed (an organization's or a position's
+   * name).
+   */
   title: string;
   words: string;
   /** The page it shows (`null`: the page you're on). */

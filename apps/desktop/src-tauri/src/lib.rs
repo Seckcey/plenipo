@@ -2257,6 +2257,9 @@ mod ipc_boundary_tests {
             "pick_up_work_now",
             "leave_work_stopped",
             "open_reset_page",
+            "add_department_from_template",
+            "apply_organization_template",
+            "save_organization_template",
         ] {
             let args = serde_json::json!({ "positionId": SESSION, "objective": "x" });
             assert!(invoke_json(&other, cmd, args.clone()).is_err(), "{cmd}");
@@ -2264,6 +2267,50 @@ mod ipc_boundary_tests {
                 invoke_with(&main, cmd, args, "https://example.com").is_err(),
                 "{cmd}"
             );
+        }
+    }
+
+    /// The templates' commands (Phase 25, item 2.8) are the main window's alone: another window,
+    /// the sign, and a web page are refused by the permissions themselves, with arguments the
+    /// command would take; the main window reaches each one.
+    #[test]
+    fn template_commands_are_the_main_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for (cmd, args) in [
+            (
+                "add_department_from_template",
+                serde_json::json!({ "id": "marketing" }),
+            ),
+            (
+                "apply_organization_template",
+                serde_json::json!({ "id": "agency" }),
+            ),
+            (
+                "save_organization_template",
+                serde_json::json!({ "name": "Ours" }),
+            ),
+        ] {
+            let refused = |answer: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
+                           from: &str| {
+                let err = answer.expect_err(from);
+                assert!(
+                    err.to_string().contains("not allowed"),
+                    "{cmd} from {from}: {err}"
+                );
+            };
+            refused(invoke_json(&other, cmd, args.clone()), "another window");
+            refused(invoke_json(&sign, cmd, args.clone()), "the sign");
+            refused(
+                invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                "a web page",
+            );
+            // The main window reaches it: any answer is the command's own.
+            if let Err(err) = invoke_json(&main, cmd, args) {
+                assert!(!err.to_string().contains("not allowed"), "{cmd}: {err}");
+            }
         }
     }
 
