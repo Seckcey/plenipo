@@ -264,63 +264,83 @@ fn list(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| (*s).to_owned()).collect()
 }
 
-/// Everyday build, test, and lint commands; programs that delete, download, reach other
-/// computers, run a shell, or change the system. Script runners (`npm run`, `make test`) run
-/// a project's own scripts with the owner's account, so they are not approved for every
-/// project: the owner approves them where the project is trusted (ADR-034).
+/// Which version of the default approved commands a saved settings document has had (ADR-213):
+/// 0 before the build and test commands that run a project's own code left the list.
+pub const COMMANDS_VERSION: u32 = 1;
+
+/// The approved commands Plenipo started with before ADR-213. An entry a saved list still has
+/// word for word, and that is no longer a default, leaves it once (`trim_old_default_commands`).
+pub fn earlier_approved_commands() -> Vec<String> {
+    list(&[
+        "cargo build *",
+        "cargo check *",
+        "cargo test *",
+        "cargo fmt *",
+        "cargo clippy *",
+        "cargo doc *",
+        "cargo tree *",
+        "npm test *",
+        "npx tsc *",
+        "npx eslint *",
+        "npx prettier *",
+        "npx vitest *",
+        "npx jest *",
+        "pnpm test *",
+        "pnpm lint *",
+        "pnpm build *",
+        "pnpm typecheck *",
+        "pnpm check *",
+        "yarn test *",
+        "yarn build *",
+        "yarn lint *",
+        "tsc *",
+        "eslint *",
+        "prettier *",
+        "vitest *",
+        "jest *",
+        "python -m pytest *",
+        "python -m unittest *",
+        "py -m pytest *",
+        "pytest *",
+        "ruff *",
+        "black *",
+        "mypy *",
+        "go build *",
+        "go test *",
+        "go vet *",
+        "gofmt *",
+        "dotnet build *",
+        "dotnet test *",
+        "dotnet format *",
+        "mvn test *",
+        "mvn verify *",
+        "mvn package *",
+        "gradle test *",
+        "gradle build *",
+        "./gradlew test *",
+        "./gradlew build *",
+        "make lint *",
+        "make check *",
+    ])
+}
+
+/// Formatters and a type checker that read a project's files but never run its code; programs
+/// that delete, download, reach other computers, run a shell, or change the system.
+///
+/// Build, test, and lint commands are not approved for every project (ADR-034, ADR-213): each
+/// runs code the project itself holds, and a worker that can change the project's files can
+/// put any program there. `npm test`, `pnpm build`, and `make check` run the project's
+/// scripts; `cargo` runs its build scripts and macros (and its own aliases: `cargo fmt` can be
+/// one); tests and their setup files are code (`pytest`, `jest`, `vitest`, `go test`,
+/// `dotnet test`, `mvn`, `gradle`); `eslint`, `prettier`, and `mypy` load settings files and
+/// plug-ins that are code; `npx` starts the project's own copy of a program; `go build` and
+/// `go vet` start any program their options name; and a program inside the project folder
+/// (`./gradlew`) is a file a worker can write. Under Light (ADR-201) they run without asking,
+/// as every program on no list does; under Careful they ask each time, until the owner adds
+/// them for a project they trust.
 pub fn default_commands() -> CommandRules {
     CommandRules {
-        approved: list(&[
-            "cargo build *",
-            "cargo check *",
-            "cargo test *",
-            "cargo fmt *",
-            "cargo clippy *",
-            "cargo doc *",
-            "cargo tree *",
-            "npm test *",
-            "npx tsc *",
-            "npx eslint *",
-            "npx prettier *",
-            "npx vitest *",
-            "npx jest *",
-            "pnpm test *",
-            "pnpm lint *",
-            "pnpm build *",
-            "pnpm typecheck *",
-            "pnpm check *",
-            "yarn test *",
-            "yarn build *",
-            "yarn lint *",
-            "tsc *",
-            "eslint *",
-            "prettier *",
-            "vitest *",
-            "jest *",
-            "python -m pytest *",
-            "python -m unittest *",
-            "py -m pytest *",
-            "pytest *",
-            "ruff *",
-            "black *",
-            "mypy *",
-            "go build *",
-            "go test *",
-            "go vet *",
-            "gofmt *",
-            "dotnet build *",
-            "dotnet test *",
-            "dotnet format *",
-            "mvn test *",
-            "mvn verify *",
-            "mvn package *",
-            "gradle test *",
-            "gradle build *",
-            "./gradlew test *",
-            "./gradlew build *",
-            "make lint *",
-            "make check *",
-        ]),
+        approved: list(&["tsc *", "ruff *", "black *", "gofmt *"]),
         // Programs that open a file, a web page, or another app the way the owner's desktop
         // would (Phase 23, ADR-150): a worker asks first. Linux desktops have several.
         ask: list(&[
@@ -569,27 +589,66 @@ mod tests {
         }
     }
 
-    /// Script runners run a project's own scripts with the owner's account, so they are
-    /// approved per project, never for everyone (ADR-034).
+    /// Script runners, and every build, test, and lint command that runs a project's own code,
+    /// are approved by the owner for a project they trust, never for everyone (ADR-034,
+    /// ADR-213, P-GUARD-1).
     #[test]
-    fn script_runners_are_not_approved_by_default() {
+    fn commands_that_run_project_code_are_not_approved_by_default() {
+        use crate::commands::{first_match, CommandLine};
         let c = default_commands();
-        for runner in [
-            "npm run *",
-            "pnpm run *",
-            "yarn run *",
-            "make test *",
-            "make build *",
+        for line in [
+            "npm run build",
+            "pnpm run test",
+            "yarn run lint",
+            "make test",
+            "make build",
+            "make check",
+            "make lint",
+            "npm test",
+            "pnpm test",
+            "pnpm build",
+            "pnpm check",
+            "yarn test",
+            "cargo test --workspace",
+            "cargo build",
+            "cargo check",
+            "cargo clippy",
+            "cargo fmt --check",
+            "cargo doc",
+            "python -m pytest -q",
+            "py -m pytest",
+            "pytest",
+            "mypy src",
+            "jest",
+            "vitest run",
+            "npx tsc --noEmit",
+            "eslint .",
+            "prettier --check .",
+            "go test ./...",
+            "go build -toolexec=./x",
+            "go vet -vettool=./x",
+            "dotnet test",
+            "dotnet format",
+            "mvn test",
+            "gradle build",
+            "./gradlew test",
+            "./gradlew build",
         ] {
-            assert!(!c.approved.contains(&runner.to_owned()), "{runner}");
+            let mut words = line.split_whitespace();
+            let program = words.next().unwrap();
+            let args: Vec<&str> = words.collect();
+            let cmd = CommandLine::new(program, &args);
+            assert_eq!(first_match(&c.approved, &cmd), None, "{line}");
         }
-        for kept in [
-            "cargo test *",
-            "cargo build *",
-            "python -m pytest *",
-            "./gradlew test *",
-        ] {
-            assert!(c.approved.contains(&kept.to_owned()), "{kept}");
+        // What stays reads the project's files and runs none of its code.
+        assert_eq!(c.approved, ["tsc *", "ruff *", "black *", "gofmt *"]);
+        // Each one was a default before, so no saved list loses it (`trim_old_default_commands`).
+        let earlier = earlier_approved_commands();
+        for kept in &c.approved {
+            assert!(earlier.contains(kept), "{kept}");
+        }
+        for r in &earlier {
+            assert_eq!(&valid_rule(r).unwrap(), r);
         }
     }
 }

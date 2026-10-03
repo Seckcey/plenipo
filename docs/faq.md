@@ -61,6 +61,50 @@ commands ask every time. Review your permissions before delegating, and use **St
 **Take over** when needed. See [the security policy](../SECURITY.md) and the
 [v1.6.0 release notes](https://github.com/Seckcey/plenipo/releases/tag/v1.6.0) for known limits.
 
+## Which programs run a project's own code?
+
+Most build, test, and lint commands do. `npm test`, `pnpm build`, `yarn lint`, and `make check`
+run the scripts written in the project. `cargo build` and `cargo test` run the project's build
+scripts. `pytest`, `jest`, `vitest`, `go test`, `dotnet test`, `mvn`, and `gradle` run its tests
+and their setup files. `eslint`, `prettier`, and `mypy` load settings files that can hold code.
+`npx` starts the project's own copy of a program. A program inside the project folder, like
+`./gradlew`, is a file a worker can write itself.
+
+So a worker that can change a project's files can make any of these do whatever it likes, with
+your account. Plenipo's starting **Approved** list keeps only `tsc`, `ruff`, `black`, and `gofmt`,
+which read a project's files but never run its code.
+
+What you see depends on **Settings → Safety**:
+
+- **Light** (where Plenipo starts): every program that is not on a list runs without asking,
+  these included.
+- **Careful**: these ask you each time. To stop the asking for a project you trust, add the
+  command to **Approved** under **Settings → Permissions**. A program inside the project folder
+  (`./gradlew`) is approved only by a line that names its path, like `./gradlew test *`, never by
+  a pattern such as `* *`.
+- **Strict**: workers do not run programs at all.
+
+Earlier versions started with these build and test commands on the **Approved** list. When you
+update, Plenipo takes them off once, and only the lines you never changed. The **Activity** trail lists the ones it
+took off ([ADR-213 (build and test commands ask first)](adr/ADR-213-build-and-test-commands-ask-first.md)).
+
+## Why can't a worker type some emoji, or some Persian and Urdu words?
+
+When a worker types on your screen, you approve the text first, on a card. So the text may hold
+only characters you can see, plus tabs and line breaks. A character you cannot see could make the
+card show different words from the ones typed. Plenipo refuses these, among others:
+
+- **Zero-width joiners and non-joiners** (U+200C and U+200D). Persian and Urdu text uses them
+  between letters, and joined emoji use them too, such as the family emoji and the rainbow flag.
+  Plenipo refused these before as well.
+- **Tag characters** (U+E0000 to U+E007F), which make the England, Scotland, and Wales flags.
+  Plenipo refused these before as well.
+- **Every other invisible formatting character**, blank letters, and the extra style selectors
+  U+E0100 to U+E01EF. These are new.
+
+Plain emoji, such as 👍 and ❤️, still work. Refusing all of these is the safe choice. If you need
+to type text with them, tell us. A later version could allow a narrower set.
+
 ## Can Plenipo handle CAPTCHAs?
 
 Plenipo can handle some CAPTCHAs automatically and can hand checks to you. Development changes

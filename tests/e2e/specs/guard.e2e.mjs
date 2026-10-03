@@ -151,7 +151,7 @@ describe("Phase 7 Guard, capability broker, and approvals (real app, fake CLIs)"
       "textarea",
     );
     await approved.addValue("\uE007git --version *");
-    assert.match(await approved.getValue(), /\nmake check \*\ngit --version \*$/);
+    assert.match(await approved.getValue(), /\ngofmt \*\ngit --version \*$/);
     await clickButton(browser, "Save command lists");
     // Saved: it is still there after leaving the page and coming back.
     await browser.pause(500);

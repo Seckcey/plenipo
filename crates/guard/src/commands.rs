@@ -173,6 +173,26 @@ pub fn first_match<'a>(rules: &'a [String], cmd: &CommandLine) -> Option<&'a str
         .find(|r| rule_matches(r, cmd))
 }
 
+/// `rule` approves `cmd` to run without asking (`rule_matches`). A program inside the project
+/// folder (`./path`) is a file a worker can write, so only a rule that names that path itself,
+/// with no `*` or `?` in it, approves it; a pattern never does (P-GUARD-1, ADR-213).
+pub fn rule_approves(rule: &str, cmd: &CommandLine) -> bool {
+    let in_project = program_key(&cmd.program).starts_with("./");
+    let names_the_path = rule
+        .split_whitespace()
+        .next()
+        .is_some_and(|p| (p.starts_with("./") || p.starts_with(".\\")) && !p.contains(['*', '?']));
+    (!in_project || names_the_path) && rule_matches(rule, cmd)
+}
+
+/// The first rule in `rules` that approves `cmd` (`rule_approves`): for the approved list.
+pub fn first_approval<'a>(rules: &'a [String], cmd: &CommandLine) -> Option<&'a str> {
+    rules
+        .iter()
+        .map(String::as_str)
+        .find(|r| rule_approves(r, cmd))
+}
+
 /// The first rule in `rules` that catches `cmd` (`rule_catches`): for the blocked and
 /// always-ask lists.
 pub fn first_catch<'a>(rules: &'a [String], cmd: &CommandLine) -> Option<&'a str> {
@@ -259,6 +279,45 @@ mod tests {
             Some("cargo test *")
         );
         assert_eq!(first_match(&rules, &cmd("cargo run")), None);
+    }
+
+    /// P-GUARD-1 (ADR-213): a program inside the project folder is approved only by a rule
+    /// that names its path, never by a pattern that happens to match it.
+    #[test]
+    fn a_program_in_the_project_is_approved_only_by_its_own_path() {
+        assert!(rule_approves("./gradlew test *", &cmd("./gradlew test")));
+        assert!(rule_approves(".\\gradlew test *", &cmd("./gradlew test")));
+        assert!(rule_approves("./tools/check", &cmd("tools/check")));
+        assert!(!rule_approves("./gradlew test *", &cmd("./gradlew build")));
+        for pattern in [
+            "* *",
+            "* test *",
+            "./* *",
+            "./grad* test *",
+            "./gradle? test",
+            "gradlew *",
+        ] {
+            assert!(rule_matches(pattern, &cmd("./gradlew test")) || pattern == "gradlew *");
+            assert!(!rule_approves(pattern, &cmd("./gradlew test")), "{pattern}");
+        }
+        // An installed program is approved by a pattern as before.
+        assert!(rule_approves("docker*", &cmd("docker-compose")));
+        assert!(rule_approves("cargo test *", &cmd("cargo test -q")));
+        let rules = vec!["* *".to_owned(), "./deploy now".to_owned()];
+        assert_eq!(
+            first_approval(&rules, &cmd("./deploy now")),
+            Some("./deploy now")
+        );
+        assert_eq!(first_approval(&rules, &cmd("./other")), None);
+        assert_eq!(first_approval(&rules, &cmd("git status")), Some("* *"));
+        if cfg!(windows) {
+            // The run extension Windows adds does not make it another program.
+            assert!(rule_approves(
+                "./gradlew test *",
+                &cmd("./gradlew.bat test")
+            ));
+            assert!(!rule_approves("./grad*", &cmd("./gradlew.bat test")));
+        }
     }
 
     /// ADR-150: a rule that allows names a program the way this system tells programs apart;

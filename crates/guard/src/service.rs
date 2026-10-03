@@ -266,6 +266,14 @@ impl Guard {
                 Ok((!updated.is_empty()).then(|| (json!({ "sets": updated }), ())))
             })?;
         }
+        // Once (ADR-213): approved commands still exactly as Plenipo started them, that run a
+        // project's own code, leave the list; recorded even when none did, so it stays done.
+        if self.config()?.commands_version < crate::defaults::COMMANDS_VERSION {
+            self.update("guard.commands_trimmed", PLENIPO, |c| {
+                Ok(c.trim_old_default_commands()
+                    .map(|removed| (json!({ "removed": removed }), ())))
+            })?;
+        }
         Ok(())
     }
 
@@ -868,6 +876,59 @@ mod tests {
         assert!(types.contains(&"guard.defaults_added".to_owned()));
         assert!(types.contains(&"guard.roles_seeded".to_owned()));
         assert!(types.contains(&"guard.role_assigned".to_owned()));
+    }
+
+    /// ADR-213 (P-GUARD-1): an install from before keeps its own approved commands and loses,
+    /// once, the old defaults that run a project's own code; a new install has nothing to lose.
+    #[test]
+    fn old_default_commands_leave_once_at_start() {
+        let l = ledger();
+        let g = Guard::new(l.clone());
+        assert_eq!(
+            g.config().unwrap().commands,
+            crate::defaults::default_commands()
+        );
+        assert!(l
+            .events_of_types(&["guard.commands_trimmed"], 10)
+            .unwrap()
+            .is_empty());
+        // As an older version saved it: no version, the old defaults, and one of the owner's.
+        g.update("guard.commands_changed", OWNER, |c| {
+            c.commands_version = 0;
+            c.commands.approved = crate::defaults::earlier_approved_commands();
+            c.commands.approved.push("cargo test --workspace *".into());
+            Ok(Some((json!({}), ())))
+        })
+        .unwrap();
+        let g = Guard::new(l.clone());
+        let approved = g.config().unwrap().commands.approved;
+        assert!(
+            !approved.contains(&"cargo test *".to_owned()),
+            "{approved:?}"
+        );
+        assert!(!approved.contains(&"npm test *".to_owned()), "{approved:?}");
+        assert!(approved.contains(&"cargo test --workspace *".to_owned()));
+        assert!(approved.contains(&"tsc *".to_owned()));
+        let trimmed = l.events_of_types(&["guard.commands_trimmed"], 10).unwrap();
+        assert_eq!(trimmed.len(), 1);
+        let removed = trimmed[0].payload["removed"].as_array().unwrap();
+        assert!(removed.iter().any(|r| r == "./gradlew test *"));
+        assert_eq!(trimmed[0].source, PLENIPO);
+        // The owner adds one back; the next start leaves it, and records nothing.
+        g.update("guard.commands_changed", OWNER, |c| {
+            c.commands.approved.push("cargo test *".into());
+            Ok(Some((json!({}), ())))
+        })
+        .unwrap();
+        let before = l.recent_events(100).unwrap().len();
+        let g = Guard::new(l.clone());
+        assert!(g
+            .config()
+            .unwrap()
+            .commands
+            .approved
+            .contains(&"cargo test *".to_owned()));
+        assert_eq!(l.recent_events(100).unwrap().len(), before);
     }
 
     /// A ledger with the three leader templates, as Plenipo seeds them.
