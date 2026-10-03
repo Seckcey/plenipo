@@ -4386,6 +4386,7 @@ dependencies = [
  "log",
  "minisign",
  "minisign-verify",
+ "plenipo-community",
  "plenipo-core",
  "plenipo-guard",
  "plenipo-ledger",
@@ -4426,11 +4427,13 @@ dependencies = [
  "getrandom 0.3.4",
  "hmac 0.13.0",
  "hpke",
+ "plenipo-community",
  "rand_core 0.10.1",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

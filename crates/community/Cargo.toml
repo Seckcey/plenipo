@@ -7,6 +7,11 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+# A stand-in for 8 West's account service, for the tests only (contract `contracts/community/v1`).
+# A release never builds it.
+stand-in = ["dep:tokio"]
+
 [dependencies]
 base64 = "0.22"
 # Each PC's signing key (ADR-162 §3, contract §7).
@@ -23,6 +28,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
 thiserror = "2"
+# Only the stand-in service uses it: its sockets, its clock for waiting, and its pick-up wake-up.
+tokio = { version = "1", features = ["net", "time", "sync", "rt", "macros", "io-util"], optional = true }
+
+[dev-dependencies]
+# The tests in `tests/` use the stand-in service.
+plenipo-community = { path = ".", features = ["stand-in"] }
+tokio = { version = "1", features = ["net", "time", "sync", "rt", "rt-multi-thread", "macros", "io-util"] }
 
 [lints]
 workspace = true
