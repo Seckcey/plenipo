@@ -629,6 +629,172 @@ const SHELL_PREFIXES: &[&str] = &[
     "exec", "command", "builtin", "env", "nohup", "time", "nice", "ionice",
 ];
 
+const SPLIT_STRING: &str = "runs a command that env splits itself (env -S)";
+const PREFIX_OPTION: &str = "has an option Plenipo does not know before the program it runs";
+
+/// A prefix's own options, as bash's builtins and the GNU and BSD programs take them: letters
+/// that stand alone, letters that take a value (the rest of the word, or the next word), and
+/// the same for `--long` names (`--name=value` or `--name value`).
+struct PrefixOptions {
+    flags: &'static str,
+    valued: &'static str,
+    long_flags: &'static [&'static str],
+    long_valued: &'static [&'static str],
+}
+
+fn prefix_options(prefix: &str) -> PrefixOptions {
+    let none = PrefixOptions {
+        flags: "",
+        valued: "",
+        long_flags: &["help", "version"],
+        long_valued: &[],
+    };
+    match prefix {
+        // bash: `exec [-cl] [-a name] [command]`.
+        "exec" => PrefixOptions {
+            flags: "cl",
+            valued: "a",
+            long_flags: &[],
+            long_valued: &[],
+        },
+        // bash: `command [-pVv] command`.
+        "command" => PrefixOptions {
+            flags: "pVv",
+            valued: "",
+            long_flags: &[],
+            long_valued: &[],
+        },
+        // GNU env, and BSD env (macOS): `-P altpath`, `-L` and `-U user`.
+        "env" => PrefixOptions {
+            flags: "i0v",
+            valued: "uCSPLU",
+            long_flags: &[
+                "ignore-environment",
+                "null",
+                "debug",
+                "list-signal-handling",
+                "block-signal",
+                "default-signal",
+                "ignore-signal",
+                "help",
+                "version",
+            ],
+            long_valued: &["unset", "chdir", "split-string"],
+        },
+        // GNU time, and BSD time.
+        "time" => PrefixOptions {
+            flags: "apqvVhl",
+            valued: "of",
+            long_flags: &[
+                "append",
+                "portability",
+                "quiet",
+                "verbose",
+                "help",
+                "version",
+            ],
+            long_valued: &["output", "format"],
+        },
+        "nice" => PrefixOptions {
+            flags: "",
+            valued: "n",
+            long_flags: &["help", "version"],
+            long_valued: &["adjustment"],
+        },
+        // util-linux ionice: `-p`, `-P` and `-u` name running processes, not a program.
+        "ionice" => PrefixOptions {
+            flags: "t",
+            valued: "cnpPu",
+            long_flags: &["ignore", "help", "version"],
+            long_valued: &["class", "classdata", "pid", "pgid", "uid"],
+        },
+        _ => none,
+    }
+}
+
+/// What a prefix's options leave: the words from the program on, or no program at all
+/// (`command -v rm` looks `rm` up; `ionice -p 42` changes a running process), or something the
+/// reader cannot follow.
+enum AfterOptions<'a> {
+    Program(&'a [String]),
+    NoProgram,
+    Opaque(&'static str),
+}
+
+/// Step over `prefix`'s own options in `words` (the words after the prefix), values included.
+fn after_prefix_options<'a>(prefix: &str, mut words: &'a [String]) -> AfterOptions<'a> {
+    let spec = prefix_options(prefix);
+    let mut no_program = false;
+    while let Some(word) = words.first() {
+        if word == "--" {
+            words = &words[1..];
+            break;
+        }
+        if !word.starts_with('-') {
+            break;
+        }
+        words = &words[1..];
+        if word == "-" {
+            // `env -` is `env -i`; nothing else takes it.
+            if prefix == "env" {
+                continue;
+            }
+            return AfterOptions::Opaque(PREFIX_OPTION);
+        }
+        if let Some(long) = word.strip_prefix("--") {
+            let (name, joined) = match long.split_once('=') {
+                Some((name, _)) => (name, true),
+                None => (long, false),
+            };
+            if prefix == "env" && name == "split-string" {
+                return AfterOptions::Opaque(SPLIT_STRING);
+            }
+            if prefix == "ionice" && matches!(name, "pid" | "pgid" | "uid") {
+                no_program = true;
+            }
+            if spec.long_valued.contains(&name) {
+                if !joined {
+                    words = words.get(1..).unwrap_or_default();
+                }
+            } else if !spec.long_flags.contains(&name) {
+                return AfterOptions::Opaque(PREFIX_OPTION);
+            }
+            continue;
+        }
+        // Old-style `nice -10 rm x`: a number as the option.
+        let letters = &word[1..];
+        if prefix == "nice" && letters.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        for (i, letter) in letters.char_indices() {
+            if prefix == "command" && matches!(letter, 'v' | 'V') {
+                no_program = true;
+            }
+            if prefix == "env" && letter == 'S' {
+                return AfterOptions::Opaque(SPLIT_STRING);
+            }
+            if prefix == "ionice" && matches!(letter, 'p' | 'P' | 'u') {
+                no_program = true;
+            }
+            if spec.valued.contains(letter) {
+                // The value is the rest of this word, or the next word.
+                if letters[i + letter.len_utf8()..].is_empty() {
+                    words = words.get(1..).unwrap_or_default();
+                }
+                break;
+            }
+            if !spec.flags.contains(letter) {
+                return AfterOptions::Opaque(PREFIX_OPTION);
+            }
+        }
+    }
+    if no_program {
+        AfterOptions::NoProgram
+    } else {
+        AfterOptions::Program(words)
+    }
+}
+
 /// One statement of a POSIX shell or cmd: `VAR=x program args`, `exec program args`, and
 /// `program args`. A prefix is a statement of its own as well as the program after it, so a
 /// rule naming either catches it (`nohup *` and `rm *` both catch `nohup rm x`), as they would
@@ -652,22 +818,18 @@ fn read_shell(line: usize, words: &[String], out: &mut Vec<Statement>) {
                     args: words[1..].iter().map(|a| unquoted(a)).collect(),
                 }),
             });
-            words = &words[1..];
-            // The prefix's own options (`env -i`, `nice -n 10`, `ionice -c 3`, `command -v`).
-            let takes_a_number = matches!(lower.as_str(), "nice" | "ionice");
-            let mut looks_up = false;
-            while let Some(option) = words.first().filter(|w| {
-                w.starts_with('-') || (takes_a_number && w.chars().all(|c| c.is_ascii_digit()))
-            }) {
-                // `command -v`, `-V`, and the two run together with `-p` (`-pv`).
-                looks_up |= lower == "command"
-                    && option.starts_with('-')
-                    && !option.starts_with("--")
-                    && option[1..].contains(['v', 'V']);
-                words = &words[1..];
-            }
-            if looks_up {
-                return;
+            // The prefix's own options, with their values (`env -u NAME`, `nice -n 10`,
+            // `exec -a NAME`, `time -o FILE`), so a value is never taken for the program.
+            match after_prefix_options(&lower, &words[1..]) {
+                AfterOptions::Program(rest) => words = rest,
+                AfterOptions::NoProgram => return,
+                AfterOptions::Opaque(why) => {
+                    out.push(Statement {
+                        line,
+                        kind: StatementKind::Opaque(why),
+                    });
+                    return;
+                }
             }
         } else {
             break;
@@ -972,6 +1134,96 @@ mod tests {
             first_opaque(&statements("& (Get-Command rm) x")).map(|w| w.0),
             Some(BY_VARIABLE)
         );
+    }
+
+    /// A prefix option's value is never taken for the program: the program after it is still
+    /// named. What env splits itself, and an option Plenipo does not know, are said so.
+    #[test]
+    fn a_prefix_options_value_is_never_the_program() {
+        let blocked = vec!["rm *".to_owned()];
+        let bash = |text: &str| inner_statements(&CommandLine::new("bash", &["-c", text]));
+        for text in [
+            "exec -a NAME rm x",
+            "exec -cl -a NAME rm x",
+            "env -u NAME rm x",
+            "env -uNAME rm x",
+            "env -iu NAME rm x",
+            "env -C /tmp rm x",
+            "env --unset=NAME rm x",
+            "env --unset NAME rm x",
+            "env --chdir=/tmp rm x",
+            "env --chdir /tmp rm x",
+            "env - FOO=1 rm x",
+            "env -i -- rm x",
+            "time -o out.txt rm x",
+            "time -f %e rm x",
+            "time --output=out.txt rm x",
+            "time -p rm x",
+            "nice -n 10 rm x",
+            "nice -10 rm x",
+            "nice --adjustment=5 rm x",
+            "nice --adjustment 5 rm x",
+            "ionice -c 3 -n 7 rm x",
+            "ionice -c3 rm x",
+            "ionice -t -c 2 rm x",
+            "ionice --class 2 --classdata 4 rm x",
+            "env -u A exec -a B nice -n 1 rm x",
+        ] {
+            assert_eq!(
+                first_caught(&blocked, &bash(text)).map(|f| f.1),
+                Some("rm".to_owned()),
+                "{text}"
+            );
+        }
+        // env -S splits a string into a command itself: the reader says it cannot follow it.
+        for text in [
+            "env -S 'rm x'",
+            "env -iS 'rm x'",
+            "env --split-string='rm x'",
+            "env --split-string 'rm x'",
+        ] {
+            assert_eq!(
+                first_opaque(&bash(text)).map(|w| w.0),
+                Some(SPLIT_STRING),
+                "{text}"
+            );
+        }
+        // An option Plenipo does not know: never a guess about which word is the program.
+        for text in [
+            "nohup -x rm x",
+            "env --frobnicate rm x",
+            "exec -z rm x",
+            "nice --10 rm x",
+        ] {
+            assert_eq!(
+                first_opaque(&bash(text)).map(|w| w.0),
+                Some(PREFIX_OPTION),
+                "{text}"
+            );
+        }
+        // ionice on a running process names no program.
+        for text in ["ionice -p 4242", "ionice -c 3 -P 7", "ionice --uid 1000"] {
+            let statements = bash(text);
+            assert_eq!(first_caught(&blocked, &statements), None, "{text}");
+            assert_eq!(first_opaque(&statements), None, "{text}");
+        }
+        // Ordinary commands behind a prefix: nothing new is refused or asked.
+        let make = vec!["make *".to_owned()];
+        for text in [
+            "env -u FOO make",
+            "nice -n 10 make test",
+            "time -p make",
+            "nohup make &",
+        ] {
+            let statements = bash(text);
+            assert_eq!(first_caught(&blocked, &statements), None, "{text}");
+            assert_eq!(first_opaque(&statements), None, "{text}");
+            assert_eq!(
+                first_caught(&make, &statements).map(|f| f.1),
+                Some("make".to_owned()),
+                "{text}"
+            );
+        }
     }
 
     /// A prefix is a statement of its own as well as the program after it, so an owner's rule
