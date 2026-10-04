@@ -6,6 +6,7 @@
 
 #![allow(dead_code)]
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -26,6 +27,8 @@ pub struct Received {
 pub struct Site {
     pub port: u16,
     received: Arc<Mutex<Vec<Received>>>,
+    /// The pages a test has let change their controls (`/may-change/<page>` says yes).
+    released: Arc<Mutex<HashSet<String>>>,
     task: Arc<tokio::task::JoinHandle<()>>,
 }
 
@@ -53,23 +56,31 @@ impl Site {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let received = Arc::new(Mutex::new(Vec::new()));
-        let log = Arc::clone(&received);
+        let released = Arc::new(Mutex::new(HashSet::new()));
+        let (log, pages) = (Arc::clone(&received), Arc::clone(&released));
         let task = tokio::spawn(async move {
             loop {
                 let Ok((stream, _)) = listener.accept().await else {
                     break;
                 };
-                let log = Arc::clone(&log);
+                let (log, pages) = (Arc::clone(&log), Arc::clone(&pages));
                 tokio::spawn(async move {
-                    let _ = serve(stream, port, log).await;
+                    let _ = serve(stream, port, log, pages).await;
                 });
             }
         });
         Self {
             port,
             received,
+            released,
             task: Arc::new(task),
         }
+    }
+
+    /// Let `page` change its control now: it asks `/may-change/<page>` until this, then changes
+    /// and tells the site (`/changed/<page>`). A test calls it once Plenipo has read the page.
+    pub fn let_change(&self, page: &str) {
+        self.released.lock().unwrap().insert(page.to_owned());
     }
 
     /// `http://<host>.test:<port><path>`.
@@ -99,6 +110,7 @@ async fn serve(
     mut stream: TcpStream,
     port: u16,
     log: Arc<Mutex<Vec<Received>>>,
+    released: Arc<Mutex<HashSet<String>>>,
 ) -> std::io::Result<()> {
     if let Some(path) = websocket_upgrade(&stream).await? {
         return serve_socket(stream, path, log).await;
@@ -137,7 +149,17 @@ async fn serve(
         path: path.clone(),
         body: body.clone(),
     });
-    let (status, location, html) = route(&method, &path, &body, port);
+    let (status, location, html) = match path.strip_prefix("/may-change/") {
+        // Whether the test has let this page change its control yet.
+        Some(page) if method == "GET" => {
+            if released.lock().unwrap().contains(page) {
+                ("200 OK", None, "yes".to_owned())
+            } else {
+                ("204 No Content", None, String::new())
+            }
+        }
+        _ => route(&method, &path, &body, port),
+    };
     if path == "/slow" {
         // Never answers: the browser's time limit must end it.
         tokio::time::sleep(Duration::from_secs(600)).await;
@@ -364,25 +386,29 @@ fn route(
             Some(format!("http://blocked.test:{port}/")),
             String::new(),
         ),
-        // A form whose script re-aims it at another website a moment after the page loads
-        // (while the owner decides on the click, say): the button the owner saw is not the one
-        // there when the click would happen. Once changed, it tells the site (`/changed/swap`),
-        // so a test can wait for the change instead of guessing how long it takes.
+        // A form whose script re-aims it at another website while the owner decides on the
+        // click: the button the owner saw is not the one there when the click would happen. It
+        // changes only when the test lets it (`Site::let_change`, asked at `/may-change/swap`),
+        // once Plenipo has read the page, then tells the site (`/changed/swap`).
         ("GET", "/swap") => ok(page(
             "Swap",
             "<form id=f method=post action=\"/send\"><input name=name value=me>\
              <button type=submit>Send message</button></form>\
-             <script>setTimeout(() => { document.getElementById('f').action = \
-             'http://other.test/send'; fetch('/changed/swap'); }, 700)</script>",
+             <script>const ask = () => fetch('/may-change/swap').then((r) => { \
+             if (r.status !== 200) return setTimeout(ask, 100); \
+             document.getElementById('f').action = 'http://other.test/send'; \
+             fetch('/changed/swap'); }, () => setTimeout(ask, 100)); ask();</script>",
         )),
-        // A plain field that becomes a password field a moment after the page loads, and then
-        // tells the site (`/changed/turncoat`).
+        // A plain field that becomes a password field while the owner decides, when the test
+        // lets it (`/may-change/turncoat`), then tells the site (`/changed/turncoat`).
         ("GET", "/turncoat") => ok(page(
             "Becomes a password",
             "<form method=post action=\"/send\"><label>Note <input id=n name=note></label>\
              <button type=submit>Send message</button></form>\
-             <script>setTimeout(() => { document.getElementById('n').type = 'password'; \
-             fetch('/changed/turncoat'); }, 700)</script>",
+             <script>const ask = () => fetch('/may-change/turncoat').then((r) => { \
+             if (r.status !== 200) return setTimeout(ask, 100); \
+             document.getElementById('n').type = 'password'; \
+             fetch('/changed/turncoat'); }, () => setTimeout(ask, 100)); ask();</script>",
         )),
         // A page that hides the owner's sign once (it should be put back); one that removes it
         // again and again (it should be stopped); and one whose own dialog, top-most widget, and
