@@ -3,6 +3,7 @@ import type { LedgerEvent } from "@plenipo/types";
 
 import { toCommandError } from "../api/commands";
 import { subscribeLedgerEvents } from "../api/events";
+import { Newest } from "../api/newest";
 
 /** A page's data: loading, couldn't load, or ready (with the last refresh's error, if any). */
 export interface Live<T> {
@@ -15,7 +16,8 @@ export interface Live<T> {
 /**
  * What Core says about one thing (a department, project, worker, or task), kept live: loaded
  * when `key` changes and reloaded, at most every `wait` ms, after the Ledger events that may
- * change it. An answer for an earlier key that arrives late is dropped. `key` null: nothing.
+ * change it. An answer for an earlier key that arrives late is dropped, and so is an older
+ * answer for the same key ({@link Newest}). `key` null: nothing.
  */
 export function useLive<T>(
   key: string | null,
@@ -36,19 +38,21 @@ export function useLive<T>(
   // The key shown now: a load for an earlier one that finishes late is dropped.
   const latest = useRef(key);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [order] = useState(() => new Newest());
 
   const fetchNow = useCallback(async () => {
     if (key === null) return;
+    const newest = order.start();
     try {
       const value = await loadRef.current(key);
-      if (latest.current === key) setState({ key, value, error: null });
+      if (latest.current === key && newest.take()) setState({ key, value, error: null });
     } catch (reason) {
       const error = toCommandError(reason).message;
-      if (latest.current === key) {
+      if (latest.current === key && newest.fresh()) {
         setState((s) => ({ key, value: s.key === key ? s.value : null, error }));
       }
     }
-  }, [key]);
+  }, [key, order]);
 
   useEffect(() => {
     latest.current = key;
