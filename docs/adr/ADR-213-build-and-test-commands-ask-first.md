@@ -1,7 +1,7 @@
 # ADR-213: Build and test commands ask first under Careful
 
-- **Status:** Proposed (the Development Coordinator chose the option below on 2026-10-03; the owner
-  accepts it at review)
+- **Status:** Accepted (2026-10-04). The Development Coordinator chose the option below on
+  2026-10-03.
 - **Date:** 2026-10-03
 - **Phase:** none (security hardening, finding P-GUARD-1 of the 2026-10-02 security review)
 - **Amends:** [ADR-034 (approved programs run as the owner)](ADR-034-approved-programs-run-as-the-owner.md),

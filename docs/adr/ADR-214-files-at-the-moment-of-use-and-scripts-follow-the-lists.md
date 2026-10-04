@@ -1,7 +1,7 @@
 # ADR-214: Files are checked at the moment of use, and scripts follow the command lists
 
-- **Status:** Proposed (the Development Coordinator and the independent security reviewer settled
-  the design on 2026-10-04; the owner accepts it at review)
+- **Status:** Accepted (2026-10-04). The Development Coordinator and the independent security
+  reviewer settled the design on 2026-10-04.
 - **Date:** 2026-10-04
 - **Phase:** none (security hardening: findings P-GUARD-3 and P-GUARD-4 of the 2026-10-02 security
   review; the first part of P-GUARD-3 was done in Phase 23, Wave 1, as finding G23-3)

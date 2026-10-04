@@ -168,9 +168,10 @@ architecture must be recorded here.
 | [200](ADR-200-a-live-chat-with-each-agent.md)                        | A live chat with each agent, as in Claude Code: streaming, what it is doing now, files saved                           | Proposed |
 | [201](ADR-201-light-by-default.md)                                   | Light by default: agents save files and run programs; Settings → Safety; Plenipo's own folder                          | Proposed |
 | [202](ADR-202-the-chain-of-command.md)                               | The chain of command: skipped leads are told, reports come back up one level at a time                                 | Proposed |
-| [211][adr-211]                                                       | Pro ends a set time after the paid period (amends 022, 116)                                                            | Proposed |
-| [212](ADR-212-the-owner-compares-six-digits.md)                      | The owner compares six digits; a page that refreshes by itself keeps no sign-in (amends 141, 142)                      | Proposed |
-| [213](ADR-213-build-and-test-commands-ask-first.md)                  | Build and test commands ask first under Careful: off the starting approved list; Light unchanged (amends 034)          | Proposed |
+| [211][adr-211]                                                       | Pro ends a set time after the paid period (amends 022, 116)                                                            | Accepted |
+| [212](ADR-212-the-owner-compares-six-digits.md)                      | The owner compares six digits; a page that refreshes by itself keeps no sign-in (amends 141, 142)                      | Accepted |
+| [213](ADR-213-build-and-test-commands-ask-first.md)                  | Build and test commands ask first under Careful: off the starting approved list; Light unchanged (amends 034)          | Accepted |
+| [214][adr-214]                                                       | Files are checked at the moment of use, and scripts follow the command lists                                           | Accepted |
 | [250](ADR-250-watch-shows-changes-made-by-commands.md)               | Watch shows changes made by commands too: files noted before and compared after (amends 055)                           | Accepted |
 | [251](ADR-251-side-chats.md)                                         | Side chats with a manager or supervisor: answer only, briefed on what the agent knows                                  | Accepted |
 | [252](ADR-252-prompt-caching-for-anthropic-models.md)                | Prompt caching for Anthropic models on your key and through OpenRouter (amends 085 §3.5)                               | Accepted |
@@ -183,3 +184,4 @@ architecture must be recorded here.
 | [259](ADR-259-leads-stop-their-team.md)                              | Leads stop their team mid-task: check-ins while the team works, a lead stops only its own requests (amends 008, 257)   | Accepted |
 
 [adr-211]: ADR-211-pro-ends-a-set-time-after-the-paid-period.md
+[adr-214]: ADR-214-files-at-the-moment-of-use-and-scripts-follow-the-lists.md

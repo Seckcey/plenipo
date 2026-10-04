@@ -82,7 +82,7 @@ After the MVP:
 | Phase 24, part 24C — Community, the people part (ADR-170, ADR-171)                   | `1.22.0` |
 | Phase 23, Wave 2 — Linux, first look (ADR-152, ADR-154)                              | `1.23.0` |
 | A live chat with each agent (ADR-200–202), and security fixes (ADR-211, 212)         | `1.24.0` |
-| Phase 25 — Fixes and a simpler Plenipo; Guard asks first (ADR-190–199, 213, 250–259) | `1.25.0` |
+| Phase 25 — Fixes, a simpler Plenipo; safer Guard (ADR-190–199, 213, 214, 250–259)    | `1.25.0` |
 
 ## Releasing
 
