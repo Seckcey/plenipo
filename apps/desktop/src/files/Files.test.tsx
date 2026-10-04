@@ -393,6 +393,43 @@ describe("the editor (Phase 21, ADR-093)", () => {
     ).toBeInTheDocument();
   });
 
+  it("never puts back an older read of the file when two reads cross", async () => {
+    // Before: each of a worker's steps read the file again, and an older read that answered
+    // last showed the file as it was then (read-only again, though the worker was done).
+    const writer = { worker: "Senior Developer", sessionId: "s1", taskId: "t1" };
+    api.readFile.mockResolvedValueOnce(
+      text(COPY, "src/app.txt", "a\n", { readOnly: { kind: "writer", writer } }),
+    );
+    render(<EditorPage id={`${COPY}/src/app.txt`} go={vi.fn()} />);
+    expect(
+      await screen.findByText("Senior Developer is writing in this working copy"),
+    ).toBeInTheDocument();
+    const reads: ((v: FileView) => void)[] = [];
+    api.readFile.mockImplementation(() => new Promise<FileView>((resolve) => reads.push(resolve)));
+    // Two of the worker's steps, a moment apart: two reads under way.
+    act(() => ledger(event("guard.grant_opened")));
+    await waitFor(() => expect(reads).toHaveLength(1));
+    act(() => ledger(event("guard.grant_closed")));
+    await waitFor(() => expect(reads).toHaveLength(2));
+    // The newer read answers first: the worker is done.
+    await act(() => {
+      reads[1]?.(text(COPY, "src/app.txt", "a\nb\n"));
+      return Promise.resolve();
+    });
+    expect(
+      await screen.findByText("Senior Developer is done. You can edit again."),
+    ).toBeInTheDocument();
+    // The older read answers last, from while the worker was writing: it is dropped.
+    await act(() => {
+      reads[0]?.(text(COPY, "src/app.txt", "a\n", { readOnly: { kind: "writer", writer } }));
+      return Promise.resolve();
+    });
+    expect(screen.getByRole("textbox", { name: "app.txt, editable" })).not.toHaveAttribute(
+      "readonly",
+    );
+    expect(screen.queryByText("Senior Developer is writing in this working copy")).toBeNull();
+  });
+
   it("opens a working copy a worker is writing read-only, with Wait and Stop the worker", async () => {
     const user = userEvent.setup();
     const writer = { worker: "Senior Developer", sessionId: "s1", taskId: "t1" };

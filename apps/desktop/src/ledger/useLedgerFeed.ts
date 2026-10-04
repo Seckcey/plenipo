@@ -3,6 +3,7 @@ import type { LedgerEvent, Task } from "@plenipo/types";
 
 import { getScopeEvents, listRecentEvents, listTasks, toCommandError } from "../api/commands";
 import { subscribeLedgerEvents } from "../api/events";
+import { Newest } from "../api/newest";
 
 const MAX_EVENTS = 200;
 /** Events read at a time with "Show older events". */
@@ -10,7 +11,8 @@ const OLDER_PAGE = 200;
 
 /**
  * Tasks and recent events from the ledger, kept live by ledger events. The ledger is the
- * source of truth, so this simply reloads (debounced) whenever something is committed.
+ * source of truth, so this simply reloads (debounced) whenever something is committed. Only the
+ * newest answer shows ({@link Newest}).
  */
 export function useLedgerFeed() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -20,19 +22,23 @@ export function useLedgerFeed() {
   /** Increments on every committed ledger event (lets views refresh dependent data). */
   const [revision, setRevision] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [order] = useState(() => new Newest());
 
   const reload = useCallback(async () => {
+    const newest = order.start();
     try {
       const [t, e] = await Promise.all([listTasks(), listRecentEvents()]);
+      if (!newest.take()) return;
       setTasks(t);
       setEvents(e);
       setStatus("ready");
       setError(null);
     } catch (reason) {
+      if (!newest.fresh()) return;
       setStatus("error");
       setError(toCommandError(reason).message);
     }
-  }, []);
+  }, [order]);
 
   useEffect(() => {
     let disposed = false;

@@ -23,6 +23,7 @@ import {
   toCommandError,
 } from "../api/commands";
 import { subscribeLedgerEvents, subscribeWatch } from "../api/events";
+import { Newest } from "../api/newest";
 import { useControl } from "../control/useControl";
 import type { Go } from "../components/views";
 import { CodeEditor } from "./CodeEditor";
@@ -148,12 +149,16 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
   useEffect(() => {
     viewRef.current = view;
   }, [view]);
+  // Reads can cross (the page opening, a worker's step, a save): only the newest shows.
+  const [order] = useState(() => new Newest());
 
   /** Read the file (again). `fresh`: drop what was kept, and show the file as it is now. */
   const load = useCallback(
     (fresh: boolean) => {
+      const newest = order.start();
       readFile(root, path)
         .then((v) => {
+          if (!newest.take()) return;
           const before = viewRef.current;
           setView(v);
           setError(null);
@@ -173,9 +178,11 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
           editorStore.forget(fileId);
           setState(editorState(v.content.text, false));
         })
-        .catch((e: unknown) => setError(toCommandError(e).message));
+        .catch((e: unknown) => {
+          if (newest.fresh()) setError(toCommandError(e).message);
+        });
     },
-    [root, path, fileId, state],
+    [root, path, fileId, state, order],
   );
 
   useEffect(() => {
@@ -200,8 +207,10 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
       timer = setTimeout(() => {
         timer = null;
         if (!live) return;
+        const newest = order.start();
         readFile(root, path)
           .then((v) => {
+            if (!newest.take()) return;
             const was = writerRef.current;
             const now = v.readOnly?.kind === "writer" ? v.readOnly.writer : null;
             setView(v);
@@ -230,7 +239,7 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
       stop?.();
       if (timer) clearTimeout(timer);
     };
-  }, [root, path, fileId]);
+  }, [root, path, fileId, order]);
 
   // A worker's change to this file: shown as it is written, then as saved, lines marked.
   useEffect(() => {
@@ -296,6 +305,8 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
             return;
           }
           setChangedOnDisk(false);
+          // The file as saved: a read that started before this is now old.
+          order.applied();
           editorStore.setBase(fileId, { hash: outcome.hash, text: body });
           editorStore.keep(fileId, now, false);
           if (v.content.kind === "text") {
@@ -314,7 +325,7 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
         .catch((e: unknown) => setProblem(toCommandError(e).message))
         .finally(() => setSaving(false));
     },
-    [root, path, fileId, state, saving],
+    [root, path, fileId, state, saving, order],
   );
 
   // Ctrl+S in the editor.
