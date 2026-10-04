@@ -22,7 +22,7 @@ architecture must be recorded here.
 | [005](ADR-005-runtime-supervisor.md)                                 | Runtime supervisor boundary                                                                                            | Accepted |
 | [006](ADR-006-ledger.md)                                             | Plenipo Ledger (SQLite system of record)                                                                               | Accepted |
 | [007](ADR-007-runtime-adapters.md)                                   | Provider runtime adapters (Codex, Claude Code)                                                                         | Accepted |
-| [008](ADR-008-liaison.md)                                            | Liaison message bus and cross-provider handoffs                                                                        | Accepted |
+| [008](ADR-008-liaison.md)                                            | Liaison message bus and cross-provider handoffs (amended by 259)                                                       | Accepted |
 | [009](ADR-009-workforce.md)                                          | Workforce organization engine and topology canvas (amended by 039)                                                     | Accepted |
 | [010](ADR-010-plain-titles.md)                                       | Plain words, chain of command, choosable ranks                                                                         | Accepted |
 | [011](ADR-011-model-policy-routing.md)                               | Router: model registry, role policies, routing                                                                         | Accepted |
@@ -48,7 +48,7 @@ architecture must be recorded here.
 | [031](ADR-031-terminal-panel.md)                                     | The terminal panel (amends 025)                                                                                        | Accepted |
 | [032](ADR-032-captcha-checkbox-and-verdict.md)                       | Workers see the CAPTCHA they try, and hear how each try went (amends 029)                                              | Accepted |
 | [033](ADR-033-pages-notices-settings.md)                             | Home, a page for each thing, pop-up notices, and Settings in one place                                                 | Accepted |
-| [034](ADR-034-approved-programs-run-as-the-owner.md)                 | Approved programs run as the owner: tickets bound to the AI tool, safer defaults                                       | Accepted |
+| [034](ADR-034-approved-programs-run-as-the-owner.md)                 | Approved programs run as the owner: tickets bound to the AI tool, safer defaults (amended by 213)                      | Accepted |
 | [035](ADR-035-network-gate-covers-sockets.md)                        | The network gate covers beacons, sends on the page's own, and live connections (amends 020)                            | Accepted |
 | [036](ADR-036-every-ai-model.md)                                     | Every AI model worth having: paid keys with spending caps, maker and runner, routes                                    | Accepted |
 | [037](ADR-037-background-work.md)                                    | Background work: Plenipo lives in the tray, and the window comes and goes                                              | Accepted |
@@ -170,6 +170,7 @@ architecture must be recorded here.
 | [202](ADR-202-the-chain-of-command.md)                               | The chain of command: skipped leads are told, reports come back up one level at a time                                 | Proposed |
 | [211][adr-211]                                                       | Pro ends a set time after the paid period (amends 022, 116)                                                            | Proposed |
 | [212](ADR-212-the-owner-compares-six-digits.md)                      | The owner compares six digits; a page that refreshes by itself keeps no sign-in (amends 141, 142)                      | Proposed |
+| [213](ADR-213-build-and-test-commands-ask-first.md)                  | Build and test commands ask first under Careful: off the starting approved list; Light unchanged (amends 034)          | Proposed |
 | [250](ADR-250-watch-shows-changes-made-by-commands.md)               | Watch shows changes made by commands too: files noted before and compared after (amends 055)                           | Accepted |
 | [251](ADR-251-side-chats.md)                                         | Side chats with a manager or supervisor: answer only, briefed on what the agent knows                                  | Accepted |
 | [252](ADR-252-prompt-caching-for-anthropic-models.md)                | Prompt caching for Anthropic models on your key and through OpenRouter (amends 085 §3.5)                               | Accepted |
@@ -177,7 +178,8 @@ architecture must be recorded here.
 | [254](ADR-254-your-subscription-first-then-the-same-companys-key.md) | Your subscription first, then the same model on the same company's key (amends 085 §6, §8)                             | Accepted |
 | [255](ADR-255-step-down-instead-of-stopping.md)                      | Step down instead of stopping: lower effort, then a smaller model, then your key, then wait; on to start with          | Accepted |
 | [256](ADR-256-check-answers-against-what-really-happened.md)         | Check answers against what really happened: Plenipo's record under every answer, four plain checks, sent back once     | Accepted |
-| [257](ADR-257-catch-made-up-answers-step-2.md)                       | Catch made-up answers, step 2: links checked through Guard, leads send work back, a notice on repeat failures          | Accepted |
+| [257](ADR-257-catch-made-up-answers-step-2.md)                       | Catch made-up answers, step 2: links checked, leads send work back, a notice on repeat failures (amended by 259)       | Accepted |
 | [258](ADR-258-spread-use-across-the-week-and-the-month.md)           | Spread use across the week and the month: a fair pace per window, ahead steps down early, Your plans                   | Accepted |
+| [259](ADR-259-leads-stop-their-team.md)                              | Leads stop their team mid-task: check-ins while the team works, a lead stops only its own requests (amends 008, 257)   | Accepted |
 
 [adr-211]: ADR-211-pro-ends-a-set-time-after-the-paid-period.md

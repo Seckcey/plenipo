@@ -72,7 +72,17 @@ After the MVP:
 | Phase 16 Wave 3 — Paid AI keys, spending caps, OpenRouter, direct keys (ADR-085–087) | `1.17.0` |
 | Phase 11A — Free and Pro editions and the license key (ADR-021, 022, 100–118)        | `1.18.0` |
 | Fix — A key box on every AI tool card; no spending cap needed (ADR-085)              | `1.18.1` |
-| A live chat with each agent, light by default, chain of command (ADR-200–202)        | `1.24.0` |
+| Phase 14, part 14A — Plenipo on your phone: the sealed line and approvals            | `1.19.0` |
+| Phase 14, part 14B — Plenipo on your phone: everything else that is safe             | `1.19.1` |
+| Phase 14, part 14C — Notices when the phone's page is closed (Phase 14 done)         | `1.19.2` |
+| Plenipo on your phone: the relay, built in this repository (ADR-149)                 | `1.19.3` |
+| Plenipo on your phone is on: 8 West's relay is live (ADR-149)                        | `1.19.4` |
+| Phase 23, Waves 0 and 1 — Getting ready for Mac and Linux                            | `1.20.0` |
+| Phase 23, Wave 1 — Mac and Linux: the shared base (ADR-158)                          | `1.21.0` |
+| Phase 24, part 24C — Community, the people part (ADR-170, ADR-171)                   | `1.22.0` |
+| Phase 23, Wave 2 — Linux, first look (ADR-152, ADR-154)                              | `1.23.0` |
+| A live chat with each agent (ADR-200–202), and security fixes (ADR-211, 212)         | `1.24.0` |
+| Phase 25 — Fixes and a simpler Plenipo; Guard asks first (ADR-190–199, 213, 250–259) | `1.25.0` |
 
 ## Releasing
 
