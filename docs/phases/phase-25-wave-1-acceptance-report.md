@@ -46,6 +46,10 @@ The tests for each item are named in the [checklist](phase-25-checklist.md).
 - "What's stuck" opens the stuck thing.
 - Watch on a supervisor shows its team's changes.
 
+**Reported by the owner, 2026-10-04 (Windows 11):** checklist 1.1 (a new organization opens, five
+times in a row) and 1.4 (a key saved once turns the light green in both organizations) passed.
+Plenipo's sessions did not see these checks themselves.
+
 ## 4. Moved to later items
 
 - A background plan check telling the open page: done in 4.3.
