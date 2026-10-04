@@ -3096,43 +3096,58 @@ async fn an_approved_click_sends_only_where_the_card_said() {
         "{sent:?}"
     );
     assert!(sent.contains(&("POST".into(), "/inbox".into())), "{sent:?}");
-    let clicks: Vec<&str> = text
-        .lines()
-        .filter(|l| l.starts_with("Tool browser_click"))
+    // The re-aimed forms' targets were never reached, by any request.
+    let reached: Vec<String> = h.site.requests().into_iter().map(|r| r.path).collect();
+    for path in ["/steal", "/delete-account"] {
+        assert!(!reached.iter().any(|p| p == path), "{path}: {reached:?}");
+    }
+    // Each click's result as the worker read it: its own line and the lines after it. The
+    // "Now on" words are not checked: after Plenipo stops a page from sending, the browser puts
+    // its own error page in its place, and whether its title (the website's name) is there yet
+    // when Plenipo reads the tab depends on timing (an empty title on GitHub's Linux machine).
+    let mut results: Vec<String> = Vec::new();
+    for l in text.lines() {
+        if l.starts_with("Tool ") {
+            results.push(l.to_owned());
+        } else if let Some(r) = results.last_mut() {
+            r.push('\n');
+            r.push_str(l);
+        }
+    }
+    let clicks: Vec<&String> = results
+        .iter()
+        .filter(|r| r.starts_with("Tool browser_click"))
         .collect();
     assert_eq!(clicks.len(), 6, "{text}");
-    // The website lists stopped the re-aimed form: the page ended on other.test's error page,
-    // with no card and nothing sent (the server never saw /steal, below).
+    let not_sent =
+        |site: &str| format!("Not sent: the owner did not approve the page sending data to {site}");
+    // /re-aim: the website lists stopped the form re-aimed at other.test before anything was
+    // held: Plenipo's own note says so, there was no card for it, and nothing was sent.
+    assert!(clicks[0].contains("Clicked"), "{}", clicks[0]);
+    assert!(!clicks[0].contains("Not sent"), "{}", clicks[0]);
     assert!(
-        clicks[0].contains("Clicked")
-            && clicks[0].contains("other.test")
-            && !clicks[0].contains("Not sent"),
-        "{}",
-        clicks[0]
+        text.contains("The page tried to open other.test:")
+            && text.contains(
+                "which is not on the owner's allowed websites list, so Plenipo stopped it"
+            ),
+        "{text}"
     );
-    // /re-aim-allowed and /re-aim-path: the click happened, the re-aimed form was asked about
-    // and refused (the "Not sent" line follows the click's own line in each result).
-    assert!(
-        clicks[1].contains("Clicked") && clicks[1].contains("pay.test"),
-        "{}",
-        clicks[1]
-    );
+    // /re-aim-allowed and /re-aim-path: the click happened, and the re-aimed form was asked
+    // about and refused, in that click's own result.
+    assert!(clicks[1].contains("Clicked"), "{}", clicks[1]);
+    assert!(clicks[1].contains(&not_sent("pay.test:")), "{}", clicks[1]);
     assert!(clicks[2].contains("Clicked"), "{}", clicks[2]);
-    let refused = |site: &str| {
-        text.matches(&format!(
-            "Not sent: the owner did not approve the page sending data to {site}"
-        ))
-        .count()
-    };
-    assert_eq!(refused("pay.test:"), 1, "{text}");
+    assert!(clicks[2].contains(&not_sent("shop.test:")), "{}", clicks[2]);
     // The eager page's send came while the pointer was on its way: the click was given up, and
-    // the send, uncovered, was asked about and refused (the second "Not sent" to shop.test).
+    // the send, uncovered, was asked about and refused.
     assert!(
         clicks[3].contains("did not happen") && clicks[3].contains("still on its way"),
         "{}",
         clicks[3]
     );
-    assert_eq!(refused("shop.test:"), 2, "{text}");
+    assert!(clicks[3].contains(&not_sent("shop.test:")), "{}", clicks[3]);
+    assert_eq!(text.matches(&not_sent("pay.test:")).count(), 1, "{text}");
+    assert_eq!(text.matches(&not_sent("shop.test:")).count(), 2, "{text}");
     // /js-send and /pay: clicked, and the covered sends went under the approval.
     assert!(
         clicks[4].contains("Clicked") && clicks[5].contains("Clicked"),
