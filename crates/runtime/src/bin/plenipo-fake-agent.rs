@@ -26,11 +26,14 @@
 //! making it, as the real CLI does while the model writes them (Phase 18, Watch).
 //!
 //! Markers in the prompt pick a behavior: `[crash]`, `[malformed]`, `[usage-limit]`,
-//! `[auth-expired]`, `[offline]`, `[slow]`, `[unknown]`, `[big]`, and `[delay:MS]` (answer
-//! normally after MS milliseconds, at most 20 seconds). `[compact]` makes the AI tool shorten its
-//! memory of the conversation the way it says so (ADR-044): Claude Code's `compact_boundary`
-//! notice, a drop in the context Grok and Kimi report in use (`usage_update`, which otherwise
-//! grows each turn), and the Ollama bridge's notice that earlier messages were left out.
+//! `[auth-expired]`, `[offline]`, `[slow]`, `[unknown]`, `[big]`, `[delay:MS]` (answer
+//! normally after MS milliseconds, at most 20 seconds), and `[wait-for:NAME]` (answer normally
+//! once the file NAME is in the state folder, at most a minute later: the test decides when, so
+//! the answer can't come before what it checks is in place). `[compact]` makes the AI tool
+//! shorten its memory of the conversation the way it says so (ADR-044): Claude Code's
+//! `compact_boundary` notice, a drop in the context Grok and Kimi report in use
+//! (`usage_update`, which otherwise grows each turn), and the Ollama bridge's notice that earlier
+//! messages were left out.
 //!
 //! Plenipo Liaison messages (ADR-008) are understood too; markers then count only in the
 //! objective, never in the context or replies around it. Handoff markers make the answer end
@@ -820,13 +823,28 @@ fn check_in_answer(n: usize, working: &[(String, String)], first: &str) -> (Stri
     (text, blocks)
 }
 
-/// Wait as long as a `[delay:MS]` marker asks (capped), before answering.
+/// Wait as long as a `[delay:MS]` marker asks (capped), and until each `[wait-for:NAME]` file is
+/// in the state folder (at most a minute), before answering. A test creates the file once what
+/// it checks is in place, so the answer comes after that however slow the machine is.
 fn delay(said: &str) {
     if let Some(ms) = markers(said, "delay")
         .first()
         .and_then(|v| v.parse::<u64>().ok())
     {
         std::thread::sleep(Duration::from_millis(ms.min(20_000)));
+    }
+    for name in markers(said, "wait-for") {
+        // Only a plain file name, in the state folder.
+        if Path::new(name).file_name() != Some(std::ffi::OsStr::new(name)) {
+            continue;
+        }
+        let file = state_dir().join(name);
+        for _ in 0..2_400 {
+            if file.exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
     }
 }
 
