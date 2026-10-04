@@ -27,6 +27,7 @@ pub mod paths;
 pub mod redact;
 pub mod registry;
 pub mod remote;
+pub mod scripts;
 pub mod sensitive;
 pub mod servers;
 mod service;

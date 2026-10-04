@@ -18,15 +18,14 @@ against the newest version before reporting.
 
 **Do not open a public issue for a security problem.**
 
-**Current intake status (September 27, 2026):** GitHub private vulnerability reporting is
-disabled for this repository. There is no verified private reporting address documented here.
-Maintainers need to enable private reporting or publish a monitored private contact.
+**How to report (October 3, 2026):** GitHub private vulnerability reporting is on for this
+repository. Open the [Security tab](https://github.com/Seckcey/plenipo/security), choose
+**Report a vulnerability**, and describe what you found. Only the maintainers can see your report.
+We will reply as soon as we can; no response time is promised yet.
 
-Check the [Security tab](https://github.com/Seckcey/plenipo/security) for an available
-**Report a vulnerability** button. If it is absent, do not put vulnerability details, exploits,
-logs, or secrets into public issues or discussions. You may ask in
-[Discussions](https://github.com/Seckcey/plenipo/discussions) for a private reporting channel
-without including any sensitive details. No response-time commitment is made while intake is unavailable.
+If the button is missing, do not put vulnerability details, exploits, logs, or secrets into public
+issues or discussions. Ask in [Discussions](https://github.com/Seckcey/plenipo/discussions) for
+another private way to reach us, without including any sensitive details.
 
 ## What counts as a vulnerability here
 
