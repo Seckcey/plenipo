@@ -817,8 +817,12 @@ About 6 to 8 build sessions.
         `aiTools.test.tsx`; runtime `every_same_model_link_joins_two_ways_or_more`)
   - [x] it never does when paid keys are off or the cap is full, nor for a model with no link or
         "its own choice" (the same router test)
-  - [ ] a full worker on the key in the real app: needs a stand-in paid key in the workforce
-        tests, which have none yet.
+  - [x] a full worker on the key in the app's own wiring: the workforce tests' stand-in paid key
+        (`harness_paid`). A worker on Claude Sonnet (Claude Code) reaches the limit; its next task
+        runs Claude Sonnet on the Anthropic key to the end, is charged, and says so; with no key,
+        nothing moves
+        (workforce
+        `a_worker_whose_subscription_reaches_its_limit_goes_on_with_the_same_model_on_the_key`).
 
 ### 4.5 Step down instead of stopping — M
 
