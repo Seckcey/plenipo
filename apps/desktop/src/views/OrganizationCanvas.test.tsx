@@ -17,6 +17,7 @@ import { OwnerContext } from "../owner/context";
 import { sampleOrganization } from "../test/orgFixtures";
 import { sampleRouting } from "../test/routingFixtures";
 import { OrganizationView } from "./OrganizationView";
+import { afterChange } from "../test/core";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -282,9 +283,9 @@ describe("the trash can and the Archived drawer (ADR-053 §9–§11)", () => {
   it("archives an agent dropped on it, with Undo; a Supervisor asks about its project first", async () => {
     const org = sampleOrganization();
     show(org);
-    api.archivePosition.mockResolvedValue(org);
-    api.bringBack.mockResolvedValue(org);
-    api.archiveProject.mockResolvedValue(org);
+    afterChange(api.archivePosition, org, api.getOrganization);
+    afterChange(api.bringBack, org, api.getOrganization);
+    afterChange(api.archiveProject, org, api.getOrganization);
     const reviewer = await screen.findByRole("button", { name: "Code Reviewer, Idle" });
     const trash = placeTrash();
     dragTo(reviewer, centerOf(org, "p-review"), trash);
@@ -330,7 +331,7 @@ describe("the trash can and the Archived drawer (ADR-053 §9–§11)", () => {
     const drawer = screen.getByRole("region", { name: "Archived" });
     const row = within(drawer).getByRole("table", { name: "Archived agents" });
     expect(within(row).getByText("Documentation Writer")).toBeInTheDocument();
-    api.bringBack.mockResolvedValue(org);
+    afterChange(api.bringBack, org, api.getOrganization);
     await user.click(within(row).getByRole("button", { name: /Bring back/ }));
     expect(api.bringBack).toHaveBeenCalledWith("position", "p-docs");
   });
@@ -340,7 +341,7 @@ describe("rewiring by line ends (ADR-053 §7–§8)", () => {
   it("drags the selected agent's line end to a new lead, and refuses one the rules refuse", async () => {
     const org = sampleOrganization();
     show(org);
-    api.movePosition.mockResolvedValue(org);
+    afterChange(api.movePosition, org, api.getOrganization);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Senior Developer, Working" }));
     const handle = screen.getByRole("button", {
@@ -367,7 +368,7 @@ describe("rewiring by line ends (ADR-053 §7–§8)", () => {
   it("moves an oversight line's team end in one step, and offers the choices from the keyboard", async () => {
     const org = sampleOrganization();
     show(org);
-    api.retargetOversight.mockResolvedValue(org);
+    afterChange(api.retargetOversight, org, api.getOrganization);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Security Auditor, Idle" }));
     const teamEnd = screen.getByRole("button", {
@@ -407,8 +408,8 @@ describe("move or lend (ADR-054)", () => {
         : p,
     );
     show(org);
-    api.lendAgent.mockResolvedValue(lent);
-    api.sendHome.mockResolvedValue(org);
+    afterChange(api.lendAgent, lent, api.getOrganization);
+    afterChange(api.sendHome, org, api.getOrganization);
     const auditor = await screen.findByRole("button", { name: "Security Auditor, Idle" });
     dragTo(auditor, centerOf(org, "p-sec"), centerOf(org, "p-camp"));
     const user = userEvent.setup();
@@ -661,7 +662,7 @@ describe("where a drop lands (ADR-053 §2–§11)", () => {
   it("never drops on the trash can where it is under the details panel", async () => {
     const org = sampleOrganization();
     show(org);
-    api.archivePosition.mockResolvedValue(org);
+    afterChange(api.archivePosition, org, api.getOrganization);
     const user = userEvent.setup();
     const reviewer = await screen.findByRole("button", { name: "Code Reviewer, Idle" });
     await user.click(reviewer);
@@ -838,7 +839,7 @@ describe("the pointer and the keys (ADR-053 §12)", () => {
   it("moves the view, not a line's end, in Move the view", async () => {
     const org = sampleOrganization();
     show(org);
-    api.movePosition.mockResolvedValue(org);
+    afterChange(api.movePosition, org, api.getOrganization);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Senior Developer, Working" }));
     const handle = screen.getByRole("button", { name: /^Line end: Senior Developer reports/ });
@@ -900,7 +901,7 @@ describe("the pointer and the keys (ADR-053 §12)", () => {
   it("lends an agent from its details, without a mouse (ADR-054)", async () => {
     const org = sampleOrganization();
     show(org);
-    api.lendAgent.mockResolvedValue(org);
+    afterChange(api.lendAgent, org, api.getOrganization);
     const user = userEvent.setup();
     const auditor = await screen.findByRole("button", { name: "Security Auditor, Idle" });
     auditor.focus();

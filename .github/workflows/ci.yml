@@ -150,6 +150,14 @@ jobs:
           curl -fsS http://127.0.0.1:18790/healthz | grep -qx ok
           kill -TERM "$pid"
           wait "$pid"
+      # ADR-210 (the page and the relay are signed like the installer; security finding P-SRV-1):
+      # the servers' updaters install a relay or a phone page only when 8 West's server key signed
+      # it, for that file and that version, never take a step back on their own, and never run the
+      # download as root. Linux only, as root: it runs the relay's program as another user.
+      - name: The server updaters install only what 8 West signed
+        run: |
+          sudo apt-get install -y minisign zip
+          sudo bash scripts/updater-signing-check.sh
 
   e2e:
     name: E2E (real app via tauri-driver, Linux)

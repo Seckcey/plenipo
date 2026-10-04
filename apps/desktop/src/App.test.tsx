@@ -18,6 +18,7 @@ import { emptyOrganization, sampleOrganization } from "./test/orgFixtures";
 import { samplePermissions, sampleQueue } from "./test/permissionFixtures";
 import { sampleWork } from "./test/projectFixtures";
 import { NO_RECOVERY, crashRecovery, updateReady, upToDate } from "./test/upkeepFixtures";
+import { afterChange } from "./test/core";
 
 vi.mock("./api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -352,8 +353,10 @@ describe("App shell", () => {
   });
 
   it("lets the owner choose what the ranks are called, in Settings", async () => {
-    api.setOrganizationTitles.mockImplementation((titles) =>
-      Promise.resolve({ ...emptyOrganization(), titles }),
+    afterChange(
+      api.setOrganizationTitles,
+      (titles: string) => ({ ...emptyOrganization(), titles }),
+      api.getOrganization,
     );
     render(<App />);
     const user = userEvent.setup();
@@ -577,7 +580,7 @@ describe("AI tools page", () => {
 
   it("shows requests waiting for approval on every page, with a count", async () => {
     api.getApprovals.mockResolvedValue(sampleQueue());
-    api.resolveApproval.mockResolvedValue({ pending: [], recent: [] });
+    afterChange(api.resolveApproval, { pending: [], recent: [] }, api.getApprovals);
     render(<App />);
     const banner = await screen.findByText("Backend Developer is waiting for your approval");
     const notice = banner.closest(".banner--approval") as HTMLElement;

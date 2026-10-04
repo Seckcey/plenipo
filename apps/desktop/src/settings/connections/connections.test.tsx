@@ -1,9 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ConnectionsPage } from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../../api/commands";
 import { a11yProblems } from "../../test/a11y";
+import { afterChange as coreAfterChange } from "../../test/core";
 import {
   SAMPLE_MANIFEST,
   connectedCard,
@@ -47,6 +49,17 @@ vi.mock("../../api/events", () => ({
 
 const api = vi.mocked(commands);
 const go = vi.fn();
+
+/**
+ * Core after a change: once `command` is called it answers `page`, and so does the reload that
+ * follows every change (test/core.ts).
+ */
+function afterChange<A extends unknown[]>(
+  command: { mockImplementation(fn: (...args: A) => Promise<ConnectionsPage>): unknown },
+  page: ConnectionsPage,
+) {
+  coreAfterChange(command, page, api.getConnections);
+}
 
 beforeEach(() => {
   api.getConnections.mockResolvedValue(samplePage());
@@ -145,8 +158,8 @@ describe("Settings → Connections", () => {
 
   it("connects in your browser, says so while it waits, and can cancel", async () => {
     const waiting = sampleCard({}, { signingIn: true });
-    api.connectConnection.mockResolvedValue(samplePage(waiting));
-    api.cancelConnectionSignIn.mockResolvedValue(samplePage());
+    afterChange(api.connectConnection, samplePage(waiting));
+    afterChange(api.cancelConnectionSignIn, samplePage());
     const m365 = await card();
     const user = userEvent.setup();
     await user.click(
@@ -169,7 +182,7 @@ describe("Settings → Connections", () => {
 
   it("shows who it is connected as, what Plenipo was allowed, and disconnects after asking", async () => {
     api.getConnections.mockResolvedValue(samplePage(connectedCard()));
-    api.disconnectConnection.mockResolvedValue(samplePage());
+    afterChange(api.disconnectConnection, samplePage());
     const m365 = await card();
     expect(m365).toHaveTextContent(
       "Connected as alex@8westit.com (a work or school account, 8 West IT).",
@@ -189,7 +202,7 @@ describe("Settings → Connections", () => {
   });
 
   it("sets each part Off, Read only, or Full access, and says what workers can do", async () => {
-    api.setConnectionParts.mockResolvedValue(samplePage(sampleCard({ mail: "fullAccess" })));
+    afterChange(api.setConnectionParts, samplePage(sampleCard({ mail: "fullAccess" })));
     const m365 = await card();
     const parts = within(m365).getByRole("region", { name: "What it can do" });
     const mail = within(parts).getByRole("group", { name: "Mail: what workers may do" });
@@ -233,7 +246,7 @@ describe("Settings → Connections", () => {
         },
       },
     );
-    api.setConnectionAccess.mockResolvedValue(samplePage(withLine));
+    afterChange(api.setConnectionAccess, samplePage(withLine));
     const m365 = await card();
     const who = within(m365).getByRole("region", { name: "Who may use it" });
     expect(who).toHaveTextContent("Nobody yet, so no worker can use it.");
@@ -277,7 +290,7 @@ describe("Settings → Connections", () => {
       },
     );
     api.getConnections.mockResolvedValue(samplePage(lines));
-    api.setConnectionAccess.mockResolvedValue(samplePage());
+    afterChange(api.setConnectionAccess, samplePage());
     const m365 = await card();
     const who = within(m365).getByRole("region", { name: "Who may use it" });
     expect(who).toHaveTextContent("Old Scout (archived)");
@@ -302,7 +315,7 @@ describe("Settings → Connections", () => {
       {},
       { connection: { ...sampleCard().connection, sendList: ["@clientco.com"] } },
     );
-    api.setConnectionSendList.mockResolvedValue(samplePage(listed));
+    afterChange(api.setConnectionSendList, samplePage(listed));
     const m365 = await card();
     const send = within(m365).getByRole("region", { name: "Send without asking to" });
     // The warning is said once, at the top; each card links to it (Phase 25, item 2.2).
@@ -372,7 +385,7 @@ describe("Settings → Connections", () => {
   });
 
   it("takes the organization's own app ID under Advanced, never a secret", async () => {
-    api.setConnectionOwnApp.mockResolvedValue(samplePage());
+    afterChange(api.setConnectionOwnApp, samplePage());
     const m365 = await card();
     const user = userEvent.setup();
     await user.click(within(m365).getByText("Advanced"));
@@ -411,7 +424,7 @@ describe("Settings → Connections", () => {
     );
     const both = samplePage(sampleCard(), {}, { slack: [connected, slackCard("slack-2")] });
     api.getConnections.mockResolvedValue(both);
-    api.connectConnection.mockResolvedValue(both);
+    afterChange(api.connectConnection, both);
     render(<ConnectionsSettings go={go} />);
     const eight = await opened("Slack — 8 West IT");
     expect(eight).toHaveTextContent("Connected as alex@8westit.com (8 West IT).");
@@ -423,7 +436,7 @@ describe("Settings → Connections", () => {
     const user = userEvent.setup();
     await user.click(within(second).getByRole("button", { name: "Connect" }));
     expect(api.connectConnection).toHaveBeenCalledWith("slack-2", "work");
-    api.removeConnection.mockResolvedValue(both);
+    afterChange(api.removeConnection, both);
     await user.click(within(second).getByRole("button", { name: "Remove this workspace" }));
     expect(api.removeConnection).toHaveBeenCalledWith("slack-2");
     // Search only reads: Off or Read only.
@@ -438,7 +451,8 @@ describe("Settings → Connections", () => {
   });
 
   it("adds another Slack workspace on its own card", async () => {
-    api.addConnection.mockResolvedValue(
+    afterChange(
+      api.addConnection,
       samplePage(sampleCard(), {}, { slack: [slackCard(), slackCard("slack-2")] }),
     );
     render(<ConnectionsSettings go={go} />);
@@ -451,7 +465,7 @@ describe("Settings → Connections", () => {
   });
 
   it("puts a Slack channel on the list by its ID, and says a post reaches everyone in it", async () => {
-    api.setConnectionSendList.mockResolvedValue(samplePage());
+    afterChange(api.setConnectionSendList, samplePage());
     render(<ConnectionsSettings go={go} />);
     const slack = await opened("Slack");
     const send = within(slack).getByRole("region", { name: "Send without asking to" });
@@ -468,7 +482,7 @@ describe("Settings → Connections", () => {
   });
 
   it("uses a workspace's own Slack app from Plenipo's app description, by its client ID", async () => {
-    api.saveConnectionApp.mockResolvedValue(samplePage());
+    afterChange(api.saveConnectionApp, samplePage());
     const user = userEvent.setup();
     render(<ConnectionsSettings go={go} />);
     const slack = await opened("Slack");
@@ -500,7 +514,7 @@ describe("Settings → Connections", () => {
         },
       },
     );
-    api.saveConnectionApp.mockResolvedValue(samplePage(sampleCard(), {}, { google: saved }));
+    afterChange(api.saveConnectionApp, samplePage(sampleCard(), {}, { google: saved }));
     render(<ConnectionsSettings go={go} />);
     const google = await opened("Google");
     expect(within(google).getByRole("button", { name: "Connect" })).toBeDisabled();
@@ -538,7 +552,7 @@ describe("Settings → Connections", () => {
     );
     expect(after).not.toHaveTextContent("GOCSPX-typed-secret");
     expect(within(after).getByRole("button", { name: "Connect" })).toBeEnabled();
-    api.saveConnectionApp.mockResolvedValue(samplePage());
+    afterChange(api.saveConnectionApp, samplePage());
     await user.click(within(after).getByRole("button", { name: "Remove this app" }));
     expect(api.saveConnectionApp).toHaveBeenLastCalledWith("google", null);
     // The form is back, and its secret box is empty.
@@ -587,7 +601,8 @@ describe("Settings → Connections", () => {
   });
 
   it("saves a key once into a box that hides it, and the card says what the key needs", async () => {
-    api.saveConnectionKey.mockResolvedValue(
+    afterChange(
+      api.saveConnectionKey,
       samplePage(
         sampleCard(),
         {},
@@ -719,7 +734,7 @@ describe("Settings → Connections", () => {
   });
 
   it("saves the website's address, user, and Application Password, and a WooCommerce key", async () => {
-    api.saveConnectionKey.mockResolvedValue(samplePage());
+    afterChange(api.saveConnectionKey, samplePage());
     render(<ConnectionsSettings go={go} />);
     const site = await opened("WordPress and WooCommerce");
     const user = userEvent.setup();
@@ -767,7 +782,8 @@ describe("Settings → Connections", () => {
     api.getConnections.mockResolvedValue(
       samplePage(sampleCard(), {}, { wordpress: connected(false) }),
     );
-    api.saveConnectionKey.mockResolvedValue(
+    afterChange(
+      api.saveConnectionKey,
       samplePage(sampleCard(), {}, { wordpress: connected(true) }),
     );
     const { container } = render(
@@ -825,7 +841,7 @@ describe("Settings → Connections", () => {
   });
 
   it("adds a program off, marks its tools, switches it on, and picks who may use it", async () => {
-    api.addAddOn.mockResolvedValue(samplePage(sampleCard(), { addOns: [sampleAddOn()] }));
+    afterChange(api.addAddOn, samplePage(sampleCard(), { addOns: [sampleAddOn()] }));
     render(<ConnectionsSettings go={go} />);
     const form = await screen.findByRole("form", { name: "Add a program" });
     const user = userEvent.setup();
@@ -845,7 +861,7 @@ describe("Settings → Connections", () => {
     expect(card).toHaveTextContent("The program's words: Looks up an order by its number.");
     expect(card).toHaveTextContent("The program says it only reads.");
     // Each tool starts Off; the owner marks it.
-    api.setAddOnTools.mockResolvedValue(samplePage(sampleCard(), { addOns: [sampleAddOn()] }));
+    afterChange(api.setAddOnTools, samplePage(sampleCard(), { addOns: [sampleAddOn()] }));
     const mark = within(card).getByRole("group", { name: "create_ticket: what it may do" });
     expect(within(mark).getByRole("button", { name: "Off" })).toHaveAttribute(
       "aria-pressed",
@@ -853,9 +869,7 @@ describe("Settings → Connections", () => {
     );
     await user.click(within(mark).getByRole("button", { name: "Changing" }));
     expect(api.setAddOnTools).toHaveBeenCalledWith("tickets", { create_ticket: "changing" });
-    api.changeAddOn.mockResolvedValue(
-      samplePage(sampleCard(), { addOns: [sampleAddOn({ on: true })] }),
-    );
+    afterChange(api.changeAddOn, samplePage(sampleCard(), { addOns: [sampleAddOn({ on: true })] }));
     await user.click(within(card).getByRole("button", { name: "Switch on" }));
     expect(api.changeAddOn).toHaveBeenCalledWith("tickets", { on: true });
     // Who may use it: nobody to start; added lines start at Read only.
@@ -888,7 +902,7 @@ describe("Settings → Connections", () => {
     const card = await opened("Tickets");
     expect(within(card).getByRole("alert")).toHaveTextContent("1 tool changed — look again.");
     expect(within(card).getByText("Changed — look again")).toBeInTheDocument();
-    api.checkAddOnTools.mockResolvedValue(samplePage(sampleCard(), { addOns: [changed] }));
+    afterChange(api.checkAddOnTools, samplePage(sampleCard(), { addOns: [changed] }));
     await userEvent.setup().click(within(card).getByRole("button", { name: "Look at its tools" }));
     expect(api.checkAddOnTools).toHaveBeenCalledWith("tickets");
     expect(a11yProblems(container)).toEqual([]);

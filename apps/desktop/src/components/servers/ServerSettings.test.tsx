@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as commands from "../../api/commands";
 import { sampleServer, sampleServers } from "../../test/serverFixtures";
 import { ServerSettings } from "./ServerSettings";
+import { afterChange } from "../../test/core";
 
 vi.mock("../../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -25,8 +26,8 @@ const api = vi.mocked(commands);
 
 beforeEach(() => {
   api.getServers.mockResolvedValue(sampleServers());
-  api.saveServer.mockResolvedValue(sampleServers());
-  api.removeServer.mockResolvedValue(sampleServers([]));
+  afterChange(api.saveServer, sampleServers(), api.getServers);
+  afterChange(api.removeServer, sampleServers([]), api.getServers);
 });
 
 afterEach(() => {

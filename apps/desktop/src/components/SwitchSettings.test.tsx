@@ -7,6 +7,7 @@ import { aiPage, aiTool } from "../test/aiToolFixtures";
 import { samplePermissions } from "../test/permissionFixtures";
 import { sampleRouting } from "../test/routingFixtures";
 import { SwitchSettings } from "./SwitchSettings";
+import { afterChange } from "../test/core";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -41,7 +42,7 @@ describe("Settings → Switches", () => {
   it("shows each switch's state and flips one", async () => {
     const on = samplePermissions();
     on.settings.switches.sendWithoutAsking = true;
-    api.setSwitches.mockResolvedValue(on);
+    afterChange(api.setSwitches, on, api.getPermissions);
     render(<SwitchSettings />);
     const browser = await screen.findByRole("switch", { name: "Plenipo's browser" });
     expect(browser).toHaveAttribute("aria-checked", "true");
@@ -66,7 +67,7 @@ describe("Settings → Switches", () => {
   it("keeps remote computers (SSH) off until you turn them on", async () => {
     const on = samplePermissions();
     on.settings.switches.servers = true;
-    api.setSwitches.mockResolvedValue(on);
+    afterChange(api.setSwitches, on, api.getPermissions);
     render(<SwitchSettings />);
     const ssh = await screen.findByRole("switch", { name: "Remote computers (SSH)" });
     expect(ssh).toHaveAttribute("aria-checked", "false");
@@ -84,7 +85,7 @@ describe("Settings → Switches", () => {
   it("keeps paid AI keys off until you turn them on (Phase 16 Wave 3)", async () => {
     const on = samplePermissions();
     on.settings.switches.paidAiKeys = true;
-    api.setSwitches.mockResolvedValue(on);
+    afterChange(api.setSwitches, on, api.getPermissions);
     render(<SwitchSettings />);
     const paid = await screen.findByRole("switch", { name: "Let workers use paid AI keys" });
     expect(paid).toHaveAttribute("aria-checked", "false");
