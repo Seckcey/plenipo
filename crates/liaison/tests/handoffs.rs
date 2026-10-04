@@ -1569,7 +1569,19 @@ async fn check_in_harness(debounce: u64, every: u64, max: u32) -> H {
 
 const HOUR: u64 = 3_600_000;
 
+/// The quick worker's `[wait-for:…]` file: it answers only once the test has made it, after
+/// what the test checks is in place. A check-in comes a moment after an answer, so without it a
+/// slow machine could see the check-in before the test is ready for it.
+const QUICK: &str = "quick-may-answer";
+/// A second worker's, for a test that needs its answer later still.
+const SECOND: &str = "second-may-answer";
+
 impl H {
+    /// Let the worker waiting for `name` (`[wait-for:NAME]`) answer.
+    fn let_answer(&self, name: &str) {
+        std::fs::write(self.fake_state().join(name), "").unwrap();
+    }
+
     /// `task`'s child whose objective holds `text`.
     fn child_with(&self, task: &str, text: &str) -> Task {
         self.children(task)
@@ -1744,7 +1756,7 @@ async fn a_lead_can_stop_only_its_own_team() {
     let (_, root) = h
         .start(
             "codex",
-            "Run it {{handoff:claude-code|Lead it [handoff:codex+delay:3000] \
+            "Run it {{handoff:claude-code|Lead it [handoff:codex+wait-for:quick-may-answer] \
              [handoff:codex>claude-code+slow]}}",
         )
         .await;
@@ -1759,7 +1771,7 @@ async fn a_lead_can_stop_only_its_own_team() {
     })
     .await;
     let middle = h.child_with(&lead.id, "[handoff:claude-code+slow]");
-    let quick = h.child_with(&lead.id, "[delay:3000]");
+    let quick = h.child_with(&lead.id, QUICK);
     let grandchild = h.only_child(&middle.id);
     let stop = |id: &str| serde_json::json!({ "stop": id, "reason": "Not needed now" });
     std::fs::write(
@@ -1775,6 +1787,8 @@ async fn a_lead_can_stop_only_its_own_team() {
         .to_string(),
     )
     .unwrap();
+    // The check-in's stops are written: now the quick answer may bring it.
+    h.let_answer(QUICK);
 
     assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
     assert_eq!(h.finished(&middle.id).await.state, TaskState::Cancelled);
@@ -1836,17 +1850,19 @@ async fn a_check_in_that_cannot_start_leaves_no_mark() {
     let (_, root) = h
         .start(
             "codex",
-            "Build it [handoff:claude-code] [handoff:claude-code+delay:4000]",
+            "Build it [handoff:claude-code+wait-for:quick-may-answer] \
+             [handoff:claude-code+wait-for:second-may-answer]",
         )
         .await;
-    h.until("the slow worker to run", |h| {
-        h.children(&root)
-            .iter()
-            .any(|t| t.objective.contains("[delay:4000]") && t.state == TaskState::Running)
+    h.until("both workers to run", |h| {
+        let children = h.children(&root);
+        children.len() == 2 && children.iter().all(|t| t.state == TaskState::Running)
     })
     .await;
     let auth = h.fake_state().join("auth");
     std::fs::write(&auth, "signed-out").unwrap();
+    // Signed out: now the first answer may bring a check-in.
+    h.let_answer(QUICK);
     h.until("a check-in to be tried", |h| {
         h.count(&root, "liaison.check_in_skipped") > 0
     })
@@ -1854,6 +1870,7 @@ async fn a_check_in_that_cannot_start_leaves_no_mark() {
     assert_eq!(h.count(&root, "liaison.check_in_started"), 0);
     assert_eq!(h.task(&root).state, TaskState::Blocked, "it still waits");
     std::fs::remove_file(&auth).unwrap();
+    h.let_answer(SECOND);
     assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
     assert_eq!(h.count(&root, "liaison.replies_delivered"), 1);
     assert!(
@@ -1871,20 +1888,20 @@ async fn a_signed_out_lead_is_tried_once_and_checked_in_on_after_sign_in() {
     let (_, root) = h
         .start(
             "codex",
-            "Build it [handoff:claude-code] [handoff:claude-code+delay:8000] \
+            "Build it [handoff:claude-code+wait-for:quick-may-answer] \
+             [handoff:claude-code+wait-for:second-may-answer] \
              [handoff:claude-code+slow] [check-in-stop:slow]",
         )
         .await;
     h.until("the team to be at work", |h| {
         let children = h.children(&root);
-        children.len() == 3
-            && children
-                .iter()
-                .all(|t| matches!(t.state, TaskState::Running | TaskState::Succeeded))
+        children.len() == 3 && children.iter().all(|t| t.state == TaskState::Running)
     })
     .await;
     let auth = h.fake_state().join("auth");
     std::fs::write(&auth, "signed-out").unwrap();
+    // Signed out: now the first answer may bring a check-in.
+    h.let_answer(QUICK);
     h.until("a check-in to be tried", |h| {
         h.count(&root, "liaison.check_in_skipped") > 0
     })
@@ -1895,11 +1912,13 @@ async fn a_signed_out_lead_is_tried_once_and_checked_in_on_after_sign_in() {
     assert_eq!(h.count(&root, "liaison.check_in_started"), 0);
     assert_eq!(h.task(&root).state, TaskState::Blocked, "it still waits");
     std::fs::remove_file(&auth).unwrap();
-    // The cap is 1 and the skip didn't use it: the delayed answer brings the check-in.
+    // Signed in again: the cap is 1 and the skip didn't use it, so the second answer brings the
+    // check-in.
+    h.let_answer(SECOND);
     assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
     assert_eq!(h.count(&root, "liaison.check_in_started"), 1);
     assert_eq!(h.count(&root, "liaison.check_in_skipped"), 1);
-    let delayed = h.child_with(&root, "[delay:8000]");
+    let delayed = h.child_with(&root, SECOND);
     let slow = h.child_with(&root, "[slow]");
     assert_eq!(h.task(&slow.id).state, TaskState::Cancelled);
     let asked = h
@@ -2004,16 +2023,26 @@ async fn no_check_in_starts_while_stop_all_holds_the_work() {
     let (_, root) = h
         .start(
             "codex",
-            "Build it [handoff:claude-code] [handoff:claude-code+slow] [check-in-stop:slow]",
+            "Build it [handoff:claude-code+wait-for:quick-may-answer] [handoff:claude-code+slow] \
+             [check-in-stop:slow]",
         )
         .await;
+    h.until("both workers to run", |h| {
+        let children = h.children(&root);
+        children.len() == 2 && children.iter().all(|t| t.state == TaskState::Running)
+    })
+    .await;
+    // Stop all holds the work first; a step already running still ends, so the answer comes in
+    // while it holds.
+    h.rt.hold_all_work();
+    h.let_answer(QUICK);
     h.until("the first answer", |h| {
         h.messages(&root)
             .iter()
             .any(|m| m.kind == MessageKind::Reply)
     })
     .await;
-    h.rt.hold_all_work();
+    // Longer than the 800 ms a check-in waits after an answer.
     tokio::time::sleep(Duration::from_millis(2000)).await;
     assert_eq!(h.count(&root, "liaison.check_in_started"), 0);
     h.rt.allow_work();
