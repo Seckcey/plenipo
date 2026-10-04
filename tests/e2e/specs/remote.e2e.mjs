@@ -274,11 +274,26 @@ async function tap(phone, label, scope = "") {
 const phoneField = (phone, label) =>
   phone.$(`//label[normalize-space()="${label}"]/following-sibling::input[1]`);
 
-/** One of the pages along the bottom, once it has loaded. */
+/**
+ * One of the pages along the bottom, once it has loaded: its heading is there, and nothing on it
+ * still says "Loading…". A page grows as its reads answer (More's AI tools become a list of
+ * cards), so a tap before then can land where its button no longer is (behind the bottom bar, or
+ * on nothing at all).
+ */
 async function page(phone, label, id) {
   await tap(phone, label, '//nav[@aria-label="Pages"]');
   const heading = await phone.$(`#${id}`);
   await heading.waitForExist({ timeout: 20_000 });
+  await waitUntil(
+    () =>
+      phone.execute(
+        () =>
+          ![...document.querySelectorAll('[role="status"]')].some((s) =>
+            (s.textContent ?? "").trim().startsWith("Loading"),
+          ),
+      ),
+    `the ${label} page to finish loading`,
+  );
 }
 
 /** On the phone: Work → a worker's page → Give objective, in words. */
