@@ -366,21 +366,23 @@ fn route(
         ),
         // A form whose script re-aims it at another website a moment after the page loads
         // (while the owner decides on the click, say): the button the owner saw is not the one
-        // there when the click would happen.
+        // there when the click would happen. Once changed, it tells the site (`/changed/swap`),
+        // so a test can wait for the change instead of guessing how long it takes.
         ("GET", "/swap") => ok(page(
             "Swap",
             "<form id=f method=post action=\"/send\"><input name=name value=me>\
              <button type=submit>Send message</button></form>\
              <script>setTimeout(() => { document.getElementById('f').action = \
-             'http://other.test/send'; }, 700)</script>",
+             'http://other.test/send'; fetch('/changed/swap'); }, 700)</script>",
         )),
-        // A plain field that becomes a password field a moment after the page loads.
+        // A plain field that becomes a password field a moment after the page loads, and then
+        // tells the site (`/changed/turncoat`).
         ("GET", "/turncoat") => ok(page(
             "Becomes a password",
             "<form method=post action=\"/send\"><label>Note <input id=n name=note></label>\
              <button type=submit>Send message</button></form>\
              <script>setTimeout(() => { document.getElementById('n').type = 'password'; \
-             }, 700)</script>",
+             fetch('/changed/turncoat'); }, 700)</script>",
         )),
         // A page that hides the owner's sign once (it should be put back); one that removes it
         // again and again (it should be stopped); and one whose own dialog, top-most widget, and
