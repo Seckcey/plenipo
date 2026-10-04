@@ -18,7 +18,10 @@ import {
   makeHome,
   nav,
   openSettings,
+  pointedAt,
   screenshot as save,
+  settle,
+  steady,
   waitForShell,
   waitUntil,
 } from "../lib/app.mjs";
@@ -89,19 +92,34 @@ async function closeDetails(browser) {
   if (await exists(browser, DETAILS)) await clickButton(browser, "Close details");
 }
 
+/**
+ * Select a tile on the canvas (or a row of the list). On the canvas, the camera is still and the
+ * tile uncovered first: a click on a moving canvas can land beside the tile, which only clears
+ * the selection.
+ */
 async function select(browser, title) {
-  if (await exists(browser, MAP)) {
+  const onCanvas = await exists(browser, MAP);
+  if (onCanvas) {
     await clickButton(browser, "Fit to screen");
-    await browser.pause(800);
+    await settle(browser);
   }
   const node = await browser.$(`//button[@data-node-id and starts-with(@aria-label, "${title},")]`);
   await node.waitForExist({ timeout: 10_000 });
+  if (onCanvas) await steady(browser, node, `${title}'s tile`);
+  const clicked = await pointedAt(browser, node);
   try {
     await node.click();
   } catch {
     await browser.execute((el) => el.click(), node);
   }
-  await waitForText(browser, `${DETAILS} h2`, title);
+  await waitForText(browser, `${DETAILS} h2`, title).catch(async (error) => {
+    const shown = await textOf(browser, `${DETAILS} h2`);
+    console.error(
+      `--- the details show "${shown}"; the click at ${clicked.at} was on ${clicked.hit}`,
+    );
+    await save(browser, `control-failed-select-${title.replace(/\W+/g, "-")}`);
+    throw error;
+  });
 }
 
 /** Answer a "Delete …?" or "Archive …?" box with its button. */

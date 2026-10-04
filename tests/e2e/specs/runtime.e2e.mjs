@@ -12,8 +12,10 @@ import {
   makeHome,
   nav,
   pidAlive,
+  pointedAt,
   screenshot,
   selectedPid,
+  steady,
   textOf,
   waitForText,
   waitPidGone,
@@ -149,8 +151,19 @@ describe("Phase 1 runtime supervisor (real app)", () => {
     await nav(b, "AI tools");
     const item = await b.$('//button[contains(@aria-label, "Long-running process — Cancelled")]');
     await item.waitForExist({ timeout: 10_000 });
+    // The page is still filling in after the restart: click once the item is still, with
+    // nothing over it, so the click lands on it. The history can be longer than the window.
+    await steady(b, item, "the cancelled run in the history", { scroll: true });
+    const clicked = await pointedAt(b, item);
     await item.click();
-    await waitForText(b, DETAIL, "Cancelled because Plenipo was shutting down");
+    await waitForText(b, DETAIL, "Cancelled because Plenipo was shutting down").catch(
+      async (error) => {
+        const shown = await textOf(b, DETAIL);
+        console.error(`--- the details show "${shown}"; the click went to ${clicked.hit}`);
+        await screenshot(b, "runtimes-failed-history-click");
+        throw error;
+      },
+    );
     await waitForText(b, LOG, "Output from before Plenipo last started is not kept");
     // Earlier executions are still in history.
     await screenshot(b, "runtimes-history-after-restart");
