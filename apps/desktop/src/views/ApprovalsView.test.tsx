@@ -7,6 +7,7 @@ import * as commands from "../api/commands";
 import * as events from "../api/events";
 import { approval, samplePermissions, sampleQueue, T0 } from "../test/permissionFixtures";
 import { ApprovalsView } from "./ApprovalsView";
+import { afterChange } from "../test/core";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -30,8 +31,8 @@ beforeEach(() => {
   vi.setSystemTime(T0);
   api.getApprovals.mockResolvedValue(sampleQueue());
   api.getPermissions.mockResolvedValue(samplePermissions());
-  api.resolveApproval.mockResolvedValue(sampleQueue({ pending: [] }));
-  api.revokeGrant.mockResolvedValue(samplePermissions({ grants: [] }));
+  afterChange(api.resolveApproval, sampleQueue({ pending: [] }), api.getApprovals);
+  afterChange(api.revokeGrant, samplePermissions({ grants: [] }), api.getPermissions);
   handlers = [];
   vi.mocked(events.subscribeLedgerEvents).mockImplementation((handler) => {
     handlers.push(handler);
