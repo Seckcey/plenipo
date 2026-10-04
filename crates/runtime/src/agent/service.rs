@@ -57,6 +57,9 @@ const CANCEL_GRACE: Duration = Duration::from_secs(5);
 /// How long a task waits, at most, while its AI tool is held for a sign-in or an update
 /// (ADR-058 §5, ADR-059 §4); after that it goes on.
 pub const HOLD_WAIT: Duration = Duration::from_secs(10 * 60);
+/// How long a new turn waits, at most, for the session's last turn to be let go once it has
+/// ended and is only being recorded ([`AgentConfig::release_wait`]).
+pub const RELEASE_WAIT: Duration = Duration::from_secs(5);
 
 /// Where sessions and turns are recorded. The desktop app backs this with the Ledger.
 /// Calls may block (they run on a blocking thread).
@@ -250,6 +253,9 @@ pub struct AgentConfig {
     pub tool_homes: PathBuf,
     /// How long a task waits, at most, while its AI tool is held ([`HOLD_WAIT`]).
     pub hold_wait: Duration,
+    /// How long a new turn waits, at most, for the session's ended turn to be let go
+    /// ([`RELEASE_WAIT`]).
+    pub release_wait: Duration,
 }
 
 /// A program Plenipo runs in place of an AI tool's own (for the sign-in check and tasks),
@@ -276,6 +282,7 @@ impl AgentConfig {
             extra_env: Vec::new(),
             bridge: None,
             hold_wait: HOLD_WAIT,
+            release_wait: RELEASE_WAIT,
         }
     }
 }
@@ -308,6 +315,18 @@ struct Active {
     waiting_for_hold: bool,
     /// The owner stopped it while it waited: it ends as cancelled, before it starts.
     stop_waiting: bool,
+    /// The turn has ended (or a stop ended its wait) and is only being recorded: nothing runs
+    /// under it any more, and it is let go once recorded. A new turn waits for that
+    /// ([`AgentRuntime::reserve_turn`]); a continuation is still refused meanwhile.
+    releasing: bool,
+}
+
+/// Why [`AgentRuntime::try_reserve`] could not claim a session: the error, and whether the
+/// claim in the way is only being recorded and let go ([`Active::releasing`]), read under the
+/// same lock as the refusal.
+struct Blocked {
+    error: RuntimeError,
+    releasing: bool,
 }
 
 #[derive(Default)]
@@ -361,6 +380,8 @@ struct Inner {
     state: Mutex<State>,
     /// Woken when a hold on an AI tool ends.
     holds_changed: tokio::sync::Notify,
+    /// Woken when a session's claim is let go ([`AgentRuntime::reserve_turn`]).
+    turn_released: tokio::sync::Notify,
     /// The latest plan each AI tool reported, shared by every organization on the PC (Phase 25,
     /// item 4.3).
     plans: RwLock<Arc<PlanBook>>,
@@ -427,6 +448,7 @@ impl AgentRuntime {
                     ..State::default()
                 }),
                 holds_changed: tokio::sync::Notify::new(),
+                turn_released: tokio::sync::Notify::new(),
                 plans: RwLock::new(Arc::default()),
             }),
         };
@@ -1728,8 +1750,9 @@ impl AgentRuntime {
     ) -> Result<AgentSessionDetail, RuntimeError> {
         let input = validate_input(input)?;
         // Claim first, then read: a concurrent close either finished before (we see it closed)
-        // or cannot start until this turn ends.
-        let reservation = self.reserve(session_id, Claim::Turn)?;
+        // or cannot start until this turn ends. A last turn that has ended and is only being
+        // recorded is waited for, briefly.
+        let reservation = self.reserve_turn(session_id).await?;
         let id = session_id.to_owned();
         let session = self
             .with_store(move |s| s.session(&id))
@@ -2000,6 +2023,7 @@ impl AgentRuntime {
             self.notice(e.to_string());
         }
         self.lock().active.remove(session_id);
+        self.inner.turn_released.notify_waiters();
         let _ = done.send(true);
         self.emit_turn(session_id, task_id).await;
         if let Some(session) = session {
@@ -2069,9 +2093,11 @@ impl AgentRuntime {
             match active.claim {
                 Claim::Wait => {
                     let task = active.task_id.clone().unwrap_or_default();
-                    // Claim it for the cancel, so a continuation cannot start meanwhile.
+                    // Claim it for the cancel, so a continuation cannot start meanwhile. Nothing
+                    // runs under it any more: a new turn waits for it to be let go.
                     if let Some(active) = state.active.get_mut(session_id) {
                         active.claim = Claim::Close;
+                        active.releasing = true;
                     }
                     Target::Waiting(task)
                 }
@@ -2116,6 +2142,7 @@ impl AgentRuntime {
                 match state.active.get_mut(session_id) {
                     Some(active) if active.claim == Claim::Wait && active.task_id == task => {
                         active.claim = Claim::Close;
+                        active.releasing = true;
                         task
                     }
                     _ => None,
@@ -2194,12 +2221,53 @@ impl AgentRuntime {
     /// Claim `session_id` for one turn (or a close). Released when the guard drops, unless a
     /// turn was launched (then the turn's consumer releases it).
     fn reserve(&self, session_id: &str, claim: Claim) -> Result<Reservation, RuntimeError> {
+        self.try_reserve(session_id, claim).map_err(|b| b.error)
+    }
+
+    /// Claim `session_id` for a new turn. A turn of the session that has ended and is only being
+    /// recorded ([`Active::releasing`]) is waited for, [`AgentConfig::release_wait`] at most:
+    /// after a stop, or a finished step, the next objective starts instead of being told a turn
+    /// is running. A turn that is really running, or waiting to continue, is refused at once,
+    /// as is everything else [`AgentRuntime::reserve`] refuses; after the wait, the last refusal
+    /// is returned unchanged.
+    ///
+    /// Each look's wake-up is pinned and enabled before reserve, so a claim let go between the
+    /// refusal and the wait still wakes it ([`tokio::sync::Notify::notify_waiters`] wakes only
+    /// waiters already registered).
+    async fn reserve_turn(&self, session_id: &str) -> Result<Reservation, RuntimeError> {
+        let deadline = tokio::time::Instant::now() + self.inner.config.release_wait;
+        loop {
+            let released = self.inner.turn_released.notified();
+            tokio::pin!(released);
+            released.as_mut().enable();
+            match self.try_reserve(session_id, Claim::Turn) {
+                Ok(reservation) => return Ok(reservation),
+                Err(Blocked {
+                    error,
+                    releasing: true,
+                }) => {
+                    if tokio::time::timeout_at(deadline, released).await.is_err() {
+                        return Err(error);
+                    }
+                }
+                Err(Blocked { error, .. }) => return Err(error),
+            }
+        }
+    }
+
+    /// [`AgentRuntime::reserve`], saying also whether the claim in the way is only being recorded
+    /// and let go: read under the same lock as the refusal, so the decision is one look.
+    fn try_reserve(&self, session_id: &str, claim: Claim) -> Result<Reservation, Blocked> {
         let mut state = self.lock();
         if state.shutting_down {
-            return Err(RuntimeError::ShuttingDown);
+            return Err(Blocked {
+                error: RuntimeError::ShuttingDown,
+                releasing: false,
+            });
         }
         if let Some(existing) = state.active.get(session_id) {
-            return Err(match (existing.claim, claim) {
+            let releasing = existing.releasing;
+            let error = match (existing.claim, claim) {
                 (Claim::Close, _) => RuntimeError::NotReady("This session is being closed.".into()),
                 (Claim::Wait, Claim::Turn) => RuntimeError::SessionBusy(
                     "This session's turn is waiting to continue (for example for handoff \
@@ -2217,7 +2285,8 @@ impl AgentRuntime {
                 (Claim::Turn, _) => RuntimeError::SessionBusy(
                     "A turn is already running in this session. Wait for it or cancel it.".into(),
                 ),
-            });
+            };
+            return Err(Blocked { error, releasing });
         }
         let turns = state
             .active
@@ -2225,9 +2294,12 @@ impl AgentRuntime {
             .filter(|a| a.claim == Claim::Turn)
             .count();
         if claim == Claim::Turn && turns >= self.inner.config.max_active_turns {
-            return Err(RuntimeError::Busy(format!(
-                "{turns} agent turns are already running; wait for one to finish."
-            )));
+            return Err(Blocked {
+                error: RuntimeError::Busy(format!(
+                    "{turns} agent turns are already running; wait for one to finish."
+                )),
+                releasing: false,
+            });
         }
         let (done_tx, done_rx) = watch::channel(false);
         state.active.insert(
@@ -2243,6 +2315,7 @@ impl AgentRuntime {
                 interrupt: None,
                 waiting_for_hold: false,
                 stop_waiting: false,
+                releasing: false,
             },
         );
         Ok(Reservation {
@@ -2911,6 +2984,7 @@ impl Drop for Reservation {
     fn drop(&mut self) {
         if let Some(done) = self.done.take() {
             self.runtime.lock().active.remove(&self.session_id);
+            self.runtime.inner.turn_released.notify_waiters();
             let _ = done.send(true);
         }
     }
@@ -3279,6 +3353,12 @@ impl TurnContext {
             None => TurnDisposition::Finish,
         };
         if disposition == TurnDisposition::Finish {
+            // Nothing runs under the turn any more: it is recorded, then let go. A new turn of
+            // the session waits for that instead of being refused ([`AgentRuntime::reserve_turn`]);
+            // a continuation is still refused, since the claim stays until it is let go.
+            if let Some(active) = runtime.lock().active.get_mut(&self.session.id) {
+                active.releasing = true;
+            }
             let (session_id, task_id, execution_id, actor, step, stored) = (
                 self.session.id.clone(),
                 self.task_id.clone(),
@@ -3323,6 +3403,9 @@ impl TurnContext {
                     }
                 }
             }
+        }
+        if disposition == TurnDisposition::Finish {
+            runtime.inner.turn_released.notify_waiters();
         }
         if let Some(done) = done {
             let _ = done.send(true);

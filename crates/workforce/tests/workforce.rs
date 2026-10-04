@@ -4,7 +4,7 @@
 //! end to end. No network, no accounts.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use plenipo_ledger::{AgentLifecycle, Ledger, Task, TaskState, DB_FILE_NAME};
@@ -13,12 +13,12 @@ use plenipo_liaison::Directory as _;
 use plenipo_liaison::{Liaison, LiaisonConfig};
 use plenipo_router::{CrossCompany, LimitBehavior, ModelInput, Router, RoutingOptions};
 use plenipo_runtime::agent::{
-    builtin_adapters, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, Effort, HostEnv,
+    builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSession, AgentSink, AgentTurn,
+    AgentUpdate, Effort, HostEnv, SessionChange, SessionStore, StepNote, TurnInput, TurnRef,
     TurnResult,
 };
 use plenipo_runtime::{
-    EventSink, ExecutablePolicy, ProfileRegistry, RuntimeError, RuntimeEvent, Supervisor,
-    SupervisorConfig,
+    EventSink, ExecutablePolicy, ProfileRegistry, RuntimeEvent, Supervisor, SupervisorConfig,
 };
 use plenipo_workforce::directory::WorkforceDirectory;
 use plenipo_workforce::{
@@ -95,6 +95,138 @@ impl AgentSink for NoUpdates {
     fn emit(&self, _: AgentUpdate) {}
 }
 
+/// Holds `finish_turn` for the conversations it is closed for: the turn has ended and is being
+/// recorded, so the runtime still holds the conversation — the window a task handed to its
+/// member can land in.
+#[derive(Default)]
+struct Gate {
+    state: Mutex<GateState>,
+    changed: Condvar,
+}
+
+#[derive(Default)]
+struct GateState {
+    /// Conversations whose `finish_turn` is held.
+    closed: Vec<String>,
+    /// Conversations with a `finish_turn` held now.
+    holding: Vec<String>,
+}
+
+/// While this lives, its conversation's `finish_turn` is held. Dropped — at the latest when a
+/// test fails — the record goes on, so a failing test ends instead of waiting on a held thread.
+struct Held<'a> {
+    gate: &'a Gate,
+    session_id: String,
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        self.gate.open(&self.session_id);
+    }
+}
+
+impl Gate {
+    fn close(&self, session_id: &str) -> Held<'_> {
+        self.state
+            .lock()
+            .unwrap()
+            .closed
+            .push(session_id.to_owned());
+        Held {
+            gate: self,
+            session_id: session_id.to_owned(),
+        }
+    }
+
+    fn open(&self, session_id: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .closed
+            .retain(|s| s != session_id);
+        self.changed.notify_all();
+    }
+
+    /// Wait until a `finish_turn` of `session_id` is held.
+    async fn holding(&self, session_id: &str) {
+        let deadline = Instant::now() + WAIT;
+        while !self
+            .state
+            .lock()
+            .unwrap()
+            .holding
+            .iter()
+            .any(|s| s == session_id)
+        {
+            assert!(
+                Instant::now() < deadline,
+                "the turn's record was never held"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    /// Called on the store's blocking thread: wait while closed for `session_id` ([`WAIT`] at
+    /// most, so a held thread never outlives a test).
+    fn pass(&self, session_id: &str) {
+        let mut state = self.state.lock().unwrap();
+        if !state.closed.iter().any(|s| s == session_id) {
+            return;
+        }
+        state.holding.push(session_id.to_owned());
+        let (mut state, _) = self
+            .changed
+            .wait_timeout_while(state, WAIT, |s| s.closed.iter().any(|c| c == session_id))
+            .unwrap();
+        state.holding.retain(|s| s != session_id);
+    }
+}
+
+/// The Ledger's session store, with each `finish_turn` passing through `gate` first.
+struct GatedStore {
+    inner: Arc<dyn SessionStore>,
+    gate: Arc<Gate>,
+}
+
+impl SessionStore for GatedStore {
+    fn sessions(&self, limit: usize) -> Result<Vec<AgentSession>, String> {
+        self.inner.sessions(limit)
+    }
+    fn session(&self, id: &str) -> Result<Option<AgentSession>, String> {
+        self.inner.session(id)
+    }
+    fn open_session(&self, session: &AgentSession) -> Result<(), String> {
+        self.inner.open_session(session)
+    }
+    fn save_session(&self, session: &AgentSession, change: SessionChange) -> Result<(), String> {
+        self.inner.save_session(session, change)
+    }
+    fn begin_turn(
+        &self,
+        session: &AgentSession,
+        number: u32,
+        input: &TurnInput,
+    ) -> Result<String, String> {
+        self.inner.begin_turn(session, number, input)
+    }
+    fn begin_step(&self, turn: &TurnRef<'_>, note: &StepNote) -> Result<(), String> {
+        self.inner.begin_step(turn, note)
+    }
+    fn record_activity(&self, turn: &TurnRef<'_>, event: &AgentEvent) -> Result<(), String> {
+        self.inner.record_activity(turn, event)
+    }
+    fn finish_turn(&self, turn: &TurnRef<'_>, result: &TurnResult) -> Result<(), String> {
+        self.gate.pass(turn.session_id);
+        self.inner.finish_turn(turn, result)
+    }
+    fn turns(&self, session_id: &str) -> Result<Vec<AgentTurn>, String> {
+        self.inner.turns(session_id)
+    }
+    fn unfinished_turns(&self) -> Result<Vec<AgentTurn>, String> {
+        self.inner.unfinished_turns()
+    }
+}
+
 struct H {
     ledger: Arc<Ledger>,
     rt: AgentRuntime,
@@ -139,6 +271,23 @@ async fn stack_with(
     Router,
     Workforce,
 ) {
+    stack_store(dir, liaison, |store| store).await
+}
+
+/// The same, with the runtime's session store `wrap` makes of the Ledger's (one that holds a
+/// call, say: [`Gate`]).
+async fn stack_store(
+    dir: &Path,
+    liaison: LiaisonConfig,
+    wrap: impl FnOnce(Arc<dyn SessionStore>) -> Arc<dyn SessionStore>,
+) -> (
+    Arc<Ledger>,
+    AgentRuntime,
+    Supervisor,
+    Liaison,
+    Router,
+    Workforce,
+) {
     let ledger = Arc::new(Ledger::open(&dir.join("ledger").join(DB_FILE_NAME)).unwrap());
     let sup = Supervisor::new(
         SupervisorConfig::default(),
@@ -155,7 +304,7 @@ async fn stack_with(
         config,
         builtin_adapters(),
         sup.clone(),
-        Arc::new(LedgerSessionStore(Arc::clone(&ledger))),
+        wrap(Arc::new(LedgerSessionStore(Arc::clone(&ledger)))),
         Arc::new(NoUpdates),
         HostEnv::new(
             Some(dir.join("bin").into_os_string()),
@@ -185,6 +334,26 @@ async fn harness() -> H {
 
 /// The same, with Liaison set up as `liaison` says.
 async fn harness_with(liaison: LiaisonConfig) -> H {
+    harness_store(liaison, |store| store).await
+}
+
+/// A harness whose turns' records can be held ([`Gate`]), with Liaison set up as `liaison`
+/// says.
+async fn harness_gated(liaison: LiaisonConfig) -> (H, Arc<Gate>) {
+    let gate = Arc::new(Gate::default());
+    let held = gate.clone();
+    let h = harness_store(liaison, move |inner| {
+        Arc::new(GatedStore { inner, gate: held })
+    })
+    .await;
+    (h, gate)
+}
+
+/// The same, with the runtime's session store `wrap` makes of the Ledger's.
+async fn harness_store(
+    liaison: LiaisonConfig,
+    wrap: impl FnOnce(Arc<dyn SessionStore>) -> Arc<dyn SessionStore>,
+) -> H {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -192,7 +361,8 @@ async fn harness_with(liaison: LiaisonConfig) -> H {
     for stem in personas() {
         install_fake(&bin, stem);
     }
-    let (ledger, rt, sup, liaison, router, workforce) = stack_with(dir.path(), liaison).await;
+    let (ledger, rt, sup, liaison, router, workforce) =
+        stack_store(dir.path(), liaison, wrap).await;
     let run = tokio::spawn(liaison.clone().run());
     H {
         ledger,
@@ -387,7 +557,7 @@ impl H {
 
     /// Wait until task `id` has finished and its session no longer holds it. A turn's task is
     /// recorded as finished a moment before the runtime releases the session; a follow-up sent
-    /// in that moment is refused as "already running".
+    /// in that moment waits for it to be let go.
     async fn finished(&self, id: &str) -> Task {
         let deadline = Instant::now() + WAIT;
         let task = loop {
@@ -1725,27 +1895,9 @@ async fn a_full_time_member_keeps_its_conversation_when_its_lead_stops_its_task(
         "the lead is named by its position"
     );
     let conversation = stopped.metadata["sessionId"].clone();
-    // Its conversation stays: its next objective goes on in it. The stopped task is recorded a
-    // moment before the runtime lets its turn go, so the objective waits for that, briefly: a
-    // turn never let go still fails here, and so does any other error.
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let next = loop {
-        match h
-            .workforce
-            .give_objective(&o.coordinator, "Plan the release.", None)
-            .await
-        {
-            Ok(d) => break d.turns.last().unwrap().task_id.clone(),
-            Err(WorkforceError::Runtime(RuntimeError::SessionBusy(why))) => {
-                assert!(
-                    Instant::now() < deadline,
-                    "the stopped task's turn was never released: {why}"
-                );
-                tokio::time::sleep(Duration::from_millis(25)).await;
-            }
-            Err(e) => panic!("the next objective was refused: {e}"),
-        }
-    };
+    // Its conversation stays: its next objective goes on in it, at once. The stopped task is
+    // recorded a moment before the runtime lets its turn go; the objective waits for that.
+    let next = h.objective(&o.coordinator, "Plan the release.").await;
     assert_eq!(h.finished(&next).await.state, TaskState::Succeeded);
     assert_eq!(h.task(&next).metadata["sessionId"], conversation);
 }
@@ -2211,6 +2363,117 @@ async fn a_busy_supervisor_takes_a_handed_over_objective_when_it_is_free() {
         .as_str()
         .unwrap()
         .starts_with("waiting for Cloudline Coordinator"));
+}
+
+/// Liaison as most tests use it, with no check-in on a long wait during the test.
+fn without_long_wait_check_ins() -> LiaisonConfig {
+    LiaisonConfig {
+        tick: Duration::from_millis(200),
+        check_in_every: Duration::from_secs(3600),
+        ..LiaisonConfig::default()
+    }
+}
+
+/// A full-time member's task is recorded as finished a moment before the runtime lets its
+/// conversation go. A task handed to the member in that moment waits for it and starts: it is
+/// not recorded as waiting for the member, nor left for a later pass.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_task_handed_to_a_member_whose_last_task_is_being_recorded_starts_at_once() {
+    let (h, gate) = harness_gated(without_long_wait_check_ins()).await;
+    let o = h.development();
+    let conversation = h.position(&o.coordinator).agent.unwrap().id;
+    let held = gate.close(&conversation);
+    let first = h.objective(&o.coordinator, "A quick job").await;
+    gate.holding(&conversation).await;
+    let root = h
+        .objective(
+            &o.head,
+            "Ship it {{handoff:role:Cloudline Coordinator|Summarize the status}}",
+        )
+        .await;
+    let child = h.child_of(&root).await;
+    // Liaison takes it up within a pass or two, while the member's last task is still being
+    // recorded: it waits for the conversation to be let go.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(h.task(&child.id).state, TaskState::Queued);
+    drop(held);
+    assert_eq!(h.finished(&first).await.state, TaskState::Succeeded);
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.task(&child.id);
+    assert_eq!(child.state, TaskState::Succeeded);
+    assert_eq!(session_of(&child), conversation);
+    assert!(
+        !h.types(&child.id)
+            .iter()
+            .any(|t| t == "liaison.waiting_for_member"),
+        "{:#?}",
+        h.types(&child.id)
+    );
+}
+
+/// A full-time member's task that waited for its team's replies and was stopped is recorded a
+/// moment before the runtime lets its conversation go. A task handed to the member in that
+/// moment is dispatched once it is let go, never failed as if its AI tool were unavailable.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_task_handed_to_a_member_whose_stopped_wait_is_being_recorded_is_dispatched() {
+    let (h, gate) = harness_gated(without_long_wait_check_ins()).await;
+    let o = h.development();
+    let conversation = h.position(&o.coordinator).agent.unwrap().id;
+    let waiting = h
+        .objective(
+            &o.coordinator,
+            "Plan it [handoff:role:Senior Developer+slow]",
+        )
+        .await;
+    let deadline = Instant::now() + WAIT;
+    while h
+        .rt
+        .session(&conversation)
+        .await
+        .unwrap()
+        .session
+        .waiting_task_id
+        .as_deref()
+        != Some(waiting.as_str())
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the coordinator never waited for its team"
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    // The owner stops the coordinator's task while it waits.
+    let held = gate.close(&conversation);
+    let rt = h.rt.clone();
+    let (sid, tid) = (conversation.clone(), waiting.clone());
+    let stop = tokio::spawn(async move { rt.cancel_task(&sid, &tid).await });
+    gate.holding(&conversation).await;
+    let root = h
+        .objective(
+            &o.head,
+            "Ship it {{handoff:role:Cloudline Coordinator|Summarize the status}}",
+        )
+        .await;
+    let child = h.child_of(&root).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(
+        h.task(&child.id).state,
+        TaskState::Queued,
+        "it waits for the conversation, not failed: {:#?}",
+        h.types(&child.id)
+    );
+    drop(held);
+    stop.await.unwrap().unwrap();
+    assert_eq!(h.finished(&waiting).await.state, TaskState::Cancelled);
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let child = h.task(&child.id);
+    assert_eq!(
+        child.state,
+        TaskState::Succeeded,
+        "{:#?}",
+        h.types(&child.id)
+    );
+    assert_eq!(session_of(&child), conversation);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
