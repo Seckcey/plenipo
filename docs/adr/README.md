@@ -52,7 +52,7 @@ architecture must be recorded here.
 | [035](ADR-035-network-gate-covers-sockets.md)                        | The network gate covers beacons, sends on the page's own, and live connections (amends 020)                            | Accepted |
 | [036](ADR-036-every-ai-model.md)                                     | Every AI model worth having: paid keys with spending caps, maker and runner, routes                                    | Accepted |
 | [037](ADR-037-background-work.md)                                    | Background work: Plenipo lives in the tray, and the window comes and goes                                              | Accepted |
-| [038](ADR-038-updates.md)                                            | Updates from GitHub Releases, signed twice, installed only when you say so (amended by 052)                            | Accepted |
+| [038](ADR-038-updates.md)                                            | Updates from GitHub Releases, signed twice, installed only when you say so (amended by 052, 210)                       | Accepted |
 | [039](ADR-039-owners-notes-order-of-work.md)                         | The owner's notes: eight new phases, watching code live, the order of work (amends 009)                                | Accepted |
 | [040](ADR-040-phone-web-interface.md)                                | Phase 14 is Plenipo's own web interface for a phone; CrewOS leaves the plan (amended by 144)                           | Accepted |
 | [041](ADR-041-model-effort-learning-layers.md)                       | Model, effort, and learning set in layers, the closest winning (amends 011, 024)                                       | Accepted |
@@ -66,7 +66,7 @@ architecture must be recorded here.
 | [049](ADR-049-computer-use-asks-every-step.md)                       | Computer use asks before every click and keystroke (amends 020)                                                        | Accepted |
 | [050](ADR-050-lessons-kept-on-their-own.md)                          | Lessons a role keeps on its own are notes, not orders (amends 024)                                                     | Accepted |
 | [051](ADR-051-codex-own-shell.md)                                    | Codex works through Plenipo's tools: its own command tool is off (amends 007)                                          | Accepted |
-| [052](ADR-052-release-signing-environment.md)                        | Signing runs only for main and release tags, behind the owner's approval (amends 038)                                  | Accepted |
+| [052](ADR-052-release-signing-environment.md)                        | Signing runs only for main and release tags, behind the owner's approval (amends 038; amended by 210)                  | Accepted |
 | [053](ADR-053-the-organization-canvas.md)                            | The organization canvas: arrange, rewire, the trash can, and a live view (amends 009)                                  | Accepted |
 | [054](ADR-054-move-or-lend.md)                                       | Move or lend an agent to another team; a task's own team decides its limits (amends 009, 013)                          | Accepted |
 | [055](ADR-055-watch-a-worker-write-code.md)                          | Watch: seeing a worker write code as it happens (amends 031)                                                           | Accepted |
@@ -128,10 +128,10 @@ architecture must be recorded here.
 | [143](ADR-143-the-relay-and-the-lock.md)                             | The relay and the lock: sealed end to end, no copies, wrong tries (amended by 147, 149)                                | Accepted |
 | [144](ADR-144-notices-on-your-phone.md)                              | Notices on your phone, sealed for it, sent straight from the PC (amends 040)                                           | Accepted |
 | [145](ADR-145-what-a-phone-may-ask.md)                               | The fixed list of what a phone may ask; what stays on your PC                                                          | Accepted |
-| [146](ADR-146-where-the-phone-page-lives.md)                         | Where the phone's page lives: its own address, never the relay (amended by 148, 149)                                   | Accepted |
+| [146](ADR-146-where-the-phone-page-lives.md)                         | Where the phone's page lives: its own address, never the relay (amended by 148, 149, 210)                              | Accepted |
 | [147](ADR-147-relay-passes-last-90-days.md)                          | Relay passes last 90 days, renewed at every sign-in (amends 143)                                                       | Accepted |
 | [148](ADR-148-the-phone-page-on-its-own-server.md)                   | The phone's page on its own small AWS server, not Coastline (amends 146)                                               | Accepted |
-| [149](ADR-149-plenipo-runs-its-own-relay.md)                         | Plenipo runs its own relay, from this repository, on 8 West's server (amends 143, 146)                                 | Accepted |
+| [149](ADR-149-plenipo-runs-its-own-relay.md)                         | Plenipo runs its own relay, from this repository, on 8 West's server (amends 143, 146; amended by 210)                 | Accepted |
 | [150](ADR-150-phase-23-starts.md)                                    | Phase 23 starts: numbers 150 to 159, what the check found, five waves                                                  | Accepted |
 | [151](ADR-151-one-repository-for-every-system.md)                    | One repository for Windows, Mac, and Linux                                                                             | Accepted |
 | [152](ADR-152-which-systems-and-in-what-order.md)                    | Which systems, and in what order: Linux first, then every Mac from macOS 13                                            | Accepted |
@@ -168,6 +168,7 @@ architecture must be recorded here.
 | [200](ADR-200-a-live-chat-with-each-agent.md)                        | A live chat with each agent, as in Claude Code: streaming, what it is doing now, files saved                           | Proposed |
 | [201](ADR-201-light-by-default.md)                                   | Light by default: agents save files and run programs; Settings → Safety; Plenipo's own folder                          | Proposed |
 | [202](ADR-202-the-chain-of-command.md)                               | The chain of command: skipped leads are told, reports come back up one level at a time                                 | Proposed |
+| [210][adr-210]                                                       | The page and the relay are signed like the installer, with a server key of their own (amends 038, 052, 146, 149)       | Proposed |
 | [211][adr-211]                                                       | Pro ends a set time after the paid period (amends 022, 116)                                                            | Accepted |
 | [212](ADR-212-the-owner-compares-six-digits.md)                      | The owner compares six digits; a page that refreshes by itself keeps no sign-in (amends 141, 142)                      | Accepted |
 | [213](ADR-213-build-and-test-commands-ask-first.md)                  | Build and test commands ask first under Careful: off the starting approved list; Light unchanged (amends 034)          | Accepted |
@@ -183,5 +184,6 @@ architecture must be recorded here.
 | [258](ADR-258-spread-use-across-the-week-and-the-month.md)           | Spread use across the week and the month: a fair pace per window, ahead steps down early, Your plans                   | Accepted |
 | [259](ADR-259-leads-stop-their-team.md)                              | Leads stop their team mid-task: check-ins while the team works, a lead stops only its own requests (amends 008, 257)   | Accepted |
 
+[adr-210]: ADR-210-the-page-and-the-relay-are-signed-like-the-installer.md
 [adr-211]: ADR-211-pro-ends-a-set-time-after-the-paid-period.md
 [adr-214]: ADR-214-files-at-the-moment-of-use-and-scripts-follow-the-lists.md
