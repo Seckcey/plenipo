@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ConnectionsPage } from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../../api/commands";
@@ -47,6 +48,18 @@ vi.mock("../../api/events", () => ({
 
 const api = vi.mocked(commands);
 const go = vi.fn();
+
+/**
+ * Core after a change: `command` answers `page`, and so does the reload that follows every change
+ * (the page reads itself again a moment later, as Core would then answer).
+ */
+function afterChange(
+  command: { mockResolvedValue(page: ConnectionsPage): unknown },
+  page: ConnectionsPage,
+) {
+  command.mockResolvedValue(page);
+  api.getConnections.mockResolvedValue(page);
+}
 
 beforeEach(() => {
   api.getConnections.mockResolvedValue(samplePage());
@@ -825,7 +838,7 @@ describe("Settings → Connections", () => {
   });
 
   it("adds a program off, marks its tools, switches it on, and picks who may use it", async () => {
-    api.addAddOn.mockResolvedValue(samplePage(sampleCard(), { addOns: [sampleAddOn()] }));
+    afterChange(api.addAddOn, samplePage(sampleCard(), { addOns: [sampleAddOn()] }));
     render(<ConnectionsSettings go={go} />);
     const form = await screen.findByRole("form", { name: "Add a program" });
     const user = userEvent.setup();
@@ -845,7 +858,7 @@ describe("Settings → Connections", () => {
     expect(card).toHaveTextContent("The program's words: Looks up an order by its number.");
     expect(card).toHaveTextContent("The program says it only reads.");
     // Each tool starts Off; the owner marks it.
-    api.setAddOnTools.mockResolvedValue(samplePage(sampleCard(), { addOns: [sampleAddOn()] }));
+    afterChange(api.setAddOnTools, samplePage(sampleCard(), { addOns: [sampleAddOn()] }));
     const mark = within(card).getByRole("group", { name: "create_ticket: what it may do" });
     expect(within(mark).getByRole("button", { name: "Off" })).toHaveAttribute(
       "aria-pressed",
@@ -853,9 +866,7 @@ describe("Settings → Connections", () => {
     );
     await user.click(within(mark).getByRole("button", { name: "Changing" }));
     expect(api.setAddOnTools).toHaveBeenCalledWith("tickets", { create_ticket: "changing" });
-    api.changeAddOn.mockResolvedValue(
-      samplePage(sampleCard(), { addOns: [sampleAddOn({ on: true })] }),
-    );
+    afterChange(api.changeAddOn, samplePage(sampleCard(), { addOns: [sampleAddOn({ on: true })] }));
     await user.click(within(card).getByRole("button", { name: "Switch on" }));
     expect(api.changeAddOn).toHaveBeenCalledWith("tickets", { on: true });
     // Who may use it: nobody to start; added lines start at Read only.
