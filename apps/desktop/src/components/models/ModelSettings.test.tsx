@@ -8,6 +8,7 @@ import * as events from "../../api/events";
 import { groupModels, modelGroups } from "../../routing/format";
 import { ANTHROPIC, OPENAI, sampleRouting, tool } from "../../test/routingFixtures";
 import { ModelSettings } from "./ModelSettings";
+import { afterChange } from "../../test/core";
 
 vi.mock("../../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -202,24 +203,24 @@ describe("Settings → AI models", () => {
   });
 
   it("picks Fable for Senior Developer and Sonnet for the Designer from every AI tool's models (Phase 25, item 2.5)", async () => {
-    const withModel = (id: string, name: string, label: string) => {
-      const s = sampleRouting();
-      return {
-        ...s,
-        models: [
-          ...s.models,
-          {
-            ...s.models[2]!,
-            id,
-            name,
-            label,
-            features: [],
-            contextTokens: null,
-            cost: "standard" as const,
-          },
-        ],
-      };
-    };
+    /** Core's settings with one more of Your models (each change keeps the ones before it). */
+    const withModel = (id: string, name: string, label: string, s = sampleRouting()) => ({
+      ...s,
+      models: [
+        ...s.models,
+        {
+          ...s.models[2]!,
+          id,
+          name,
+          label,
+          features: [],
+          contextTokens: null,
+          cost: "standard" as const,
+        },
+      ],
+    });
+    const withFable = withModel("m-fable", "fable", "Fable");
+    const withSonnet = withModel("m-sonnet", "sonnet", "Sonnet", withFable);
     render(<ModelSettings go={go} />);
     const user = userEvent.setup();
     await user.click(
@@ -235,7 +236,8 @@ describe("Settings → AI models", () => {
     expect(within(add).getByRole("option", { name: "Fable" })).toBeInTheDocument();
     expect(within(add).getByRole("option", { name: "GPT-6-Sol" })).toBeInTheDocument();
     // Fable isn't in Your models: picking it adds it there, then to the list.
-    afterChange(api.saveModel, withModel("m-fable", "fable", "Fable"), api.getRouting);
+    afterChange(api.saveModel, withFable, api.getRouting);
+    afterChange(api.setRolePolicy, withFable, api.getRouting);
     await user.selectOptions(add, "Fable");
     expect(api.saveModel).toHaveBeenCalledWith({
       runtimeId: "claude-code",
@@ -253,7 +255,8 @@ describe("Settings → AI models", () => {
     // The Designer, in the same screen: Sonnet.
     await user.click(screen.getByRole("button", { name: "Change Designer's model choices" }));
     form = screen.getByRole("form", { name: "Model choices for Designer" });
-    afterChange(api.saveModel, withModel("m-sonnet", "sonnet", "Sonnet"), api.getRouting);
+    afterChange(api.saveModel, withSonnet, api.getRouting);
+    afterChange(api.setRolePolicy, withSonnet, api.getRouting);
     await user.selectOptions(
       within(form).getByRole("combobox", { name: "Add a model to the list" }),
       "Sonnet",
