@@ -235,7 +235,7 @@ describe("Settings → AI models", () => {
     expect(within(add).getByRole("option", { name: "Fable" })).toBeInTheDocument();
     expect(within(add).getByRole("option", { name: "GPT-6-Sol" })).toBeInTheDocument();
     // Fable isn't in Your models: picking it adds it there, then to the list.
-    api.saveModel.mockResolvedValueOnce(withModel("m-fable", "fable", "Fable"));
+    afterChange(api.saveModel, withModel("m-fable", "fable", "Fable"), api.getRouting);
     await user.selectOptions(add, "Fable");
     expect(api.saveModel).toHaveBeenCalledWith({
       runtimeId: "claude-code",
@@ -253,7 +253,7 @@ describe("Settings → AI models", () => {
     // The Designer, in the same screen: Sonnet.
     await user.click(screen.getByRole("button", { name: "Change Designer's model choices" }));
     form = screen.getByRole("form", { name: "Model choices for Designer" });
-    api.saveModel.mockResolvedValueOnce(withModel("m-sonnet", "sonnet", "Sonnet"));
+    afterChange(api.saveModel, withModel("m-sonnet", "sonnet", "Sonnet"), api.getRouting);
     await user.selectOptions(
       within(form).getByRole("combobox", { name: "Add a model to the list" }),
       "Sonnet",

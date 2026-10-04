@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { RoutingOptions } from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../api/commands";
@@ -101,7 +102,11 @@ describe("Settings → Switches", () => {
   });
 
   it("turns on Update AI tools by themselves, the same setting as the AI tools page's (Phase 19)", async () => {
-    api.setAiToolsAutoUpdate.mockResolvedValue(aiPage([aiTool("grok")], { autoUpdate: true }));
+    afterChange(
+      api.setAiToolsAutoUpdate,
+      aiPage([aiTool("grok")], { autoUpdate: true }),
+      api.getAiTools,
+    );
     render(<SwitchSettings />);
     const auto = await screen.findByRole("switch", { name: "Update AI tools by themselves" });
     // Off to start with: Plenipo asks first.
@@ -134,7 +139,11 @@ describe("Settings → Switches", () => {
   it("steps down instead of stopping: on to start with, from a line you choose (Phase 25, item 4.5)", async () => {
     const user = userEvent.setup();
     const base = sampleRouting();
-    api.setRoutingOptions.mockImplementation((options) => Promise.resolve({ ...base, options }));
+    afterChange(
+      api.setRoutingOptions,
+      (options: RoutingOptions) => ({ ...base, options }),
+      api.getRouting,
+    );
     render(<SwitchSettings />);
     const stepDown = await screen.findByRole("switch", { name: "Step down instead of stopping" });
     expect(stepDown).toHaveAttribute("aria-checked", "true");
