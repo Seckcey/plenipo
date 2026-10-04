@@ -189,9 +189,12 @@ describe("agent store", () => {
         usage: { inputTokens: 1, cachedInputTokens: 0, outputTokens: 1 },
       }),
     ]);
-    expect(
-      items.map((i) => (i.kind === "streaming" ? `~${i.text}` : i.activity.event.type)),
-    ).toEqual(["sessionStarted", "message", "toolUse", "~More"]);
+    expect(items.map((i) => (i.kind === "event" ? i.activity.event.type : `~${i.text}`))).toEqual([
+      "sessionStarted",
+      "message",
+      "toolUse",
+      "~More",
+    ]);
   });
 });
 
