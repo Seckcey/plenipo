@@ -155,7 +155,11 @@ start)` hides every secret whose end lies at or after `start`, hiding one that b
 - `crates/runtime/tests/agents.rs`, `a_key_split_across_live_pieces_never_shows`: the fake agent
   streams an answer holding a stored key in 16-byte pieces; no live piece shows eight or more
   characters of the key, the recorded message is redacted, and the live pieces joined equal the
-  recorded message.
+  recorded message. `a_key_split_across_thinking_pieces_never_shows`: the same for thinking
+  (the fake agent's `[think:TEXT]` thinks the key in five-byte pieces), and the joined thought a
+  reload reads (#200) holds the marker. `held_words_go_on_before_the_thinking_sign`: with
+  `[think-late]` the fake agent says "One moment" and then thinks; the held word goes on before
+  the "Thinking" sign, and nothing comes between the sign and the thinking (decision 6).
 
 Ran on the owner's PC on 2026-10-04: `cargo fmt --all -- --check`, `cargo clippy --workspace
 --all-targets --locked -- -D warnings`, `cargo test --locked -p` for `plenipo-guard`,
