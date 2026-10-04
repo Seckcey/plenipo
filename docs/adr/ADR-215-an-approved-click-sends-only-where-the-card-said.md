@@ -1,7 +1,7 @@
 # ADR-215: An approved click sends only where the card said
 
-- **Status:** Proposed (the Development Coordinator and the independent security reviewer settled
-  the design on 2026-10-04; the owner accepts it at review)
+- **Status:** Accepted (2026-10-04). The Development Coordinator and the independent security
+  reviewer settled the design on 2026-10-04.
 - **Date:** 2026-10-04
 - **Phase:** none (security hardening: finding P-BROWSER-1, found by the independent reviewer on
   2026-10-03 while reviewing pull request #179; not in the 2026-10-02 report)
