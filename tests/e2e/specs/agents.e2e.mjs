@@ -182,6 +182,15 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
       return rows.length > 0 ? rows : null;
     }, "the thinking row");
     assert.deepEqual(thinking, ["Thinking I should check the file first."]);
+    // Its sign that it began to think is not a row of its own once the words came.
+    const signs = await browser.execute(
+      (selector) =>
+        [...document.querySelectorAll(`${selector} li[data-type="status"]`)].map((li) =>
+          li.innerText.replace(/\s+/g, " ").trim(),
+        ),
+      TURNS,
+    );
+    assert.ok(!signs.includes("Thinking Thinking"), signs.join(" | "));
     await screenshot(browser, "worker-thinking");
   });
 

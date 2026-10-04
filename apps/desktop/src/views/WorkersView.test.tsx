@@ -200,20 +200,25 @@ describe("Workers view", () => {
     await user.click(within(form).getByRole("button", { name: "Start task" }));
     await screen.findByRole("list", { name: "Tasks" });
 
+    // Claude Code says it began to think, then its thinking comes in pieces.
+    const began = { type: "status", phase: "thinking", text: "Thinking" } as const;
+    send({ kind: "activity", ...activity("t1", 1, began) });
+    const log = screen.getByRole("list", { name: "Task 1 activity" });
+    const rows = () =>
+      within(log)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent);
+    expect(rows()).toEqual(["ThinkingThinking"]);
     for (const [seq, text] of [
-      [1, "I"],
-      [2, " sh"],
-      [3, "ould check"],
+      [2, "I"],
+      [3, " sh"],
+      [4, "ould check"],
     ] as const) {
       send({ kind: "activity", ...activity("t1", seq, { type: "reasoning", text }) });
     }
-    send({ kind: "activity", ...activity("t1", 4, { type: "textDelta", text: "Done." }) });
-    const log = screen.getByRole("list", { name: "Task 1 activity" });
-    expect(
-      within(log)
-        .getAllByRole("listitem")
-        .map((li) => li.textContent),
-    ).toEqual(["ThinkingI should check", "AgentDone."]);
+    send({ kind: "activity", ...activity("t1", 5, { type: "textDelta", text: "Done." }) });
+    // One row for the thought (its sign that it began is not said twice), one for the words.
+    expect(rows()).toEqual(["ThinkingI should check", "AgentDone."]);
   });
 
   it("explains why an AI tool is not ready and does not let it start", async () => {

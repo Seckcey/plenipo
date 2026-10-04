@@ -224,12 +224,30 @@ describe("agent store — streamed thinking and words, joined", () => {
       activity("t", 9, think("Now")),
       activity("t", 10, think(" the tests.")),
     ]);
+    // Its sign that it began to think is said by the thinking row itself.
     expect(items.map(row)).toEqual([
-      "status",
       "thinking:I should check",
       "message",
       "toolUse",
       "thinking:Now the tests.",
+    ]);
+  });
+
+  it("keeps the sign that it began to think only until its thinking's words come", () => {
+    const began = activity("t", 1, { type: "status", phase: "thinking", text: "Thinking" });
+    // Before the words come (or when the AI tool does not show its thinking), the sign shows.
+    expect(activityItems([began]).map(row)).toEqual(["status"]);
+    expect(activityItems([began, activity("t", 2, delta("Done."))]).map(row)).toEqual([
+      "status",
+      "streaming:Done.",
+    ]);
+    // Once they come, the thinking row says it, once.
+    expect(activityItems([began, activity("t", 2, think("Hm"))]).map(row)).toEqual(["thinking:Hm"]);
+    // Other statuses stay, words or not (waiting for the AI company, say).
+    const waiting = activity("t", 1, { type: "status", phase: "waiting", text: "Waiting" });
+    expect(activityItems([waiting, activity("t", 2, think("Hm"))]).map(row)).toEqual([
+      "status",
+      "thinking:Hm",
     ]);
   });
 

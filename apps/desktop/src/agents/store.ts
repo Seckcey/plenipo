@@ -368,8 +368,17 @@ export function activityItems(activity: AgentActivity[]): ActivityItem[] {
     if (runText) items.push({ key: runKey, kind: runKind, text: runText });
     runText = "";
   };
-  for (const a of activity) {
+  for (const [i, a] of activity.entries()) {
     const e = a.event;
+    // Claude Code's sign that it began to think says nothing more once its thinking's words
+    // follow: the thinking row says it. Without words (thinking not shown), the sign stays.
+    if (
+      e.type === "status" &&
+      e.phase === "thinking" &&
+      activity[i + 1]?.event.type === "reasoning"
+    ) {
+      continue;
+    }
     if (e.type === "textDelta" || e.type === "reasoning") {
       const kind = e.type === "textDelta" ? "streaming" : "thinking";
       if (kind !== runKind) flush();
