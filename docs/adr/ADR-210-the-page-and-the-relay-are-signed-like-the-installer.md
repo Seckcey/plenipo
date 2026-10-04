@@ -1,6 +1,6 @@
 # ADR-210: The page and the relay are signed like the installer
 
-- **Status:** Proposed (2026-10-03), by the builder, for the owner's approval. It fixes finding
+- **Status:** Accepted (2026-10-04). Proposed on 2026-10-03 by the builder. It fixes finding
   **P-SRV-1** (High) of the [October 2 security report](../../PLENIPO-SECURITY-REPORT.MD) and
   **P-WEB-3** (Info) from the same file. The owner's steps are in
   [code signing → the server key](../development/code-signing.md#the-server-key-adr-210).
