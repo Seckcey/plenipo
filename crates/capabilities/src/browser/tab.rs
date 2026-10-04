@@ -170,6 +170,10 @@ pub struct Held {
     pub site: String,
     /// `Document` (a form), `XHR`/`Fetch` (a page script), `Ping` (a beacon), or `Other`.
     pub kind: String,
+    /// Held once the action itself happened (the button pressed, the key struck), not while the
+    /// pointer was still on its way: only such a request can be covered by the owner's approval
+    /// of the action (ADR-215).
+    pub after_press: bool,
 }
 
 /// The websites a tab may open: the owner's lists, and those the owner approved for this step.
@@ -177,6 +181,27 @@ pub struct Held {
 pub struct SitePolicy {
     pub rules: WebsiteRules,
     pub approved: HashSet<String>,
+}
+
+/// Why a click was given up (ADR-215): the page put another control where the pointer was; the
+/// page sent something while the pointer was still on its way; the page sent something the
+/// moment the button went down.
+const MOVED_UNDER: &str = "the page moved another control under the pointer after the check, so \
+                           the button was let go away from it and nothing was clicked";
+const SENT_WHILE_APPROACHING: &str = "the page sent data while the pointer was still on its way \
+                                      to the control, so nothing was clicked";
+const SENT_ON_PRESS: &str = "the page sent data the moment the button went down, so the button \
+                             was let go away from it and nothing was clicked";
+const DID_NOT_ANSWER: &str = "the page did not answer while the button was held, so the button \
+                              was let go away from the control and nothing was clicked";
+
+/// How a question to the page, asked while the mouse button is held, came out (ADR-215).
+enum Asked {
+    Answer(Value),
+    /// Something was held before the page answered: a send the page started.
+    Held,
+    /// The page did not answer (its script hung, or the page is gone).
+    NoAnswer,
 }
 
 /// How many times a worker may try a CAPTCHA before Plenipo hands it to the owner (ADR-029).
@@ -218,6 +243,9 @@ struct State {
     crashed: bool,
     gone: bool,
     acting: bool,
+    /// The action itself is happening or has happened (the mouse button is down, the key was
+    /// struck), as against the pointer still gliding to the control (ADR-215).
+    pressed: bool,
     held: Vec<Held>,
     /// The page's live connections (WebSockets) open now, by the browser's request ID. The gate
     /// cannot see what goes through them, so the broker asks before acting on such a page
@@ -397,6 +425,10 @@ pub struct Settled {
     pub held: Vec<Held>,
     pub navigated: bool,
     pub timed_out: bool,
+    /// The action was broken off before it landed (a click let go away from a control the page
+    /// moved under the pointer, ADR-215): why. Data held meanwhile is in `held`, uncovered by
+    /// any approval.
+    pub aborted: Option<String>,
 }
 
 /// How opening a page went.
@@ -958,9 +990,18 @@ impl Tab {
         let _ = self.helper("__plenipo.acting(true)").await;
         let result = action.await;
         let settled = self.settle(before).await;
-        self.state().acting = false;
+        {
+            let mut s = self.state();
+            s.acting = false;
+            s.pressed = false;
+        }
         if settled.held.is_empty() {
             self.quick("__plenipo.acting(false)").await;
+        }
+        if result.is_err() && !settled.held.is_empty() {
+            // The action itself failed (the browser did not answer, say): nothing it set off
+            // goes anywhere, rather than staying held with no one to decide it.
+            self.release(&settled.held, false).await;
         }
         result.map(|()| settled)
     }
@@ -998,6 +1039,7 @@ impl Tab {
             navigated: s.navigations > navigations,
             timed_out: s.loading && Instant::now() >= long,
             held: std::mem::take(&mut s.held),
+            aborted: None,
         }
     }
 
@@ -1012,23 +1054,130 @@ impl Tab {
             .map(|_| ())
     }
 
-    /// Click a control where its facts say (its middle; a CAPTCHA widget's checkbox). The
-    /// pointer glides there first and the button is held a moment, as in a person's click
-    /// (ADR-032).
-    pub async fn click(&self, facts: &ElementFacts) -> Result<Settled, String> {
+    /// Click the control `reference`, whose facts were `before` a moment ago (its middle; a
+    /// CAPTCHA widget's checkbox). The pointer glides there first and the button is held a
+    /// moment, as in a person's click (ADR-032).
+    ///
+    /// The page sees the pointer come, and a hostile page can use that moment (ADR-215). So the
+    /// control is read again once the pointer is on it, and the click is given up when the
+    /// control changed or something else lies at its middle; and while the button is held, the
+    /// page is asked what lies under the pointer now: if it is no longer this control, the
+    /// pointer is moved to a point with nothing under it before the button is let go, so no
+    /// click lands anywhere. `Settled::aborted` says when that happened.
+    pub async fn click(&self, reference: &str, before: &ElementFacts) -> Result<Settled, String> {
         let _busy = self.busy.lock().await;
-        let (x, y) = (facts.x, facts.y);
         let from = self.state().pointer;
+        let mut at = (before.x, before.y);
+        let mut aborted: Option<String> = None;
         let settled = self
             .acting(async {
-                self.glide(from, (x, y)).await?;
-                self.mouse("mousePressed", x, y, 1).await?;
-                tokio::time::sleep(Duration::from_millis(70)).await;
-                self.mouse("mouseReleased", x, y, 1).await
+                self.glide(from, at).await?;
+                // A page that sends something while the pointer is still on its way (a form it
+                // submits on mouseover) has a navigation pending that the gate is holding; the
+                // page's script cannot be asked anything now, and the click is given up. What
+                // was held is decided as uncovered by any approval.
+                if !self.state().held.is_empty() {
+                    aborted = Some(SENT_WHILE_APPROACHING.into());
+                    return Ok(());
+                }
+                let now = self.facts(reference).await?;
+                if let Some(changed) = super::classify::changed(before, &now) {
+                    aborted = Some(format!(
+                        "the control changed while the pointer moved to it ({changed})"
+                    ));
+                    return Ok(());
+                }
+                if now.disabled || !now.visible || !now.clear {
+                    aborted = Some(MOVED_UNDER.into());
+                    return Ok(());
+                }
+                if (now.x, now.y) != at {
+                    at = (now.x, now.y);
+                    self.mouse("mouseMoved", at.0, at.1, 0).await?;
+                }
+                self.state().pressed = true;
+                self.mouse("mousePressed", at.0, at.1, 1).await?;
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                // The same, the moment the button went down: let go at the page's corner,
+                // without asking the page anything.
+                if !self.state().held.is_empty() {
+                    at = (0.0, 0.0);
+                    self.mouse("mouseMoved", at.0, at.1, 0).await?;
+                    self.mouse("mouseReleased", at.0, at.1, 1).await?;
+                    aborted = Some(SENT_ON_PRESS.into());
+                    return Ok(());
+                }
+                // What lies under the held button now? A send the page starts meanwhile wins
+                // over waiting for the answer (the page's script does not answer then).
+                let under = self
+                    .asked_while_held(&format!(
+                        "__plenipo.under({}, {}, {})",
+                        json!(reference),
+                        at.0,
+                        at.1
+                    ))
+                    .await;
+                match under {
+                    Asked::Answer(Value::Bool(true)) => {
+                        tokio::time::sleep(Duration::from_millis(45)).await;
+                        self.mouse("mouseReleased", at.0, at.1, 1).await
+                    }
+                    Asked::Answer(_) => {
+                        // Another control lies there: let go where nothing of the page's is.
+                        at = match self.asked_while_held("__plenipo.safePoint()").await {
+                            Asked::Answer(safe) => (
+                                safe["x"].as_f64().unwrap_or(0.0),
+                                safe["y"].as_f64().unwrap_or(0.0),
+                            ),
+                            Asked::Held | Asked::NoAnswer => (0.0, 0.0),
+                        };
+                        self.mouse("mouseMoved", at.0, at.1, 0).await?;
+                        self.mouse("mouseReleased", at.0, at.1, 1).await?;
+                        aborted = Some(MOVED_UNDER.into());
+                        Ok(())
+                    }
+                    Asked::Held | Asked::NoAnswer => {
+                        // The page sent something, or does not answer: let go at the page's
+                        // corner, with no further call into the page.
+                        at = (0.0, 0.0);
+                        self.mouse("mouseMoved", at.0, at.1, 0).await?;
+                        self.mouse("mouseReleased", at.0, at.1, 1).await?;
+                        aborted = Some(
+                            if self.state().held.is_empty() {
+                                DID_NOT_ANSWER
+                            } else {
+                                SENT_ON_PRESS
+                            }
+                            .into(),
+                        );
+                        Ok(())
+                    }
+                }
             })
             .await;
-        self.state().pointer = Some((x, y));
-        settled
+        self.state().pointer = Some(at);
+        settled.map(|mut s| {
+            s.aborted = aborted;
+            s
+        })
+    }
+
+    /// Ask the page `expression` while the mouse button is held (ADR-215). A send the page
+    /// starts meanwhile wins over waiting for the answer: the page's script does not answer
+    /// while the gate holds its navigation, and the button must not stay down for that.
+    async fn asked_while_held(&self, expression: &str) -> Asked {
+        let held = self
+            .shared
+            .wait(Instant::now() + Duration::from_secs(25), |s| {
+                !s.held.is_empty()
+            });
+        tokio::select! {
+            answer = self.helper(expression) => match answer {
+                Ok(v) => Asked::Answer(v),
+                Err(_) => Asked::NoAnswer,
+            },
+            _ = held => Asked::Held,
+        }
     }
 
     /// Move the pointer to `to` in a dozen steps along a gently bowed path, slow at both ends,
@@ -1064,6 +1213,7 @@ impl Tab {
             return Err("that control cannot take typing (it did not get the focus)".into());
         }
         self.acting(async {
+            self.state().pressed = true;
             self.call("Input.insertText", json!({ "text": text }))
                 .await?;
             if enter {
@@ -1095,7 +1245,11 @@ impl Tab {
     /// Press one key.
     pub async fn press(&self, key: &str) -> Result<Settled, String> {
         let _busy = self.busy.lock().await;
-        self.acting(self.key(key)).await
+        self.acting(async {
+            self.state().pressed = true;
+            self.key(key).await
+        })
+        .await
     }
 
     /// Choose an option in a list.
@@ -1104,6 +1258,7 @@ impl Tab {
         let mut answer = Value::Null;
         let settled = self
             .acting(async {
+                self.state().pressed = true;
                 answer = self
                     .helper(&format!(
                         "__plenipo.choose({}, {})",
@@ -1509,12 +1664,14 @@ fn check_request(shared: &Shared, p: &Value) -> Option<Answer> {
     let sends = !matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS");
     if sends {
         if s.acting {
+            let after_press = s.pressed;
             s.held.push(Held {
                 request_id: p["requestId"].as_str().unwrap_or_default().to_owned(),
                 method,
                 url: url.to_owned(),
                 site: site.map(|x| x.shown()).unwrap_or_default(),
                 kind: kind.to_owned(),
+                after_press,
             });
             return None;
         }

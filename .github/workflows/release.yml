@@ -21,7 +21,12 @@ name: Release
 #
 # Plenipo on your phone (Phase 14, ADR-149): a Linux job builds Plenipo's own relay as a static
 # program (musl) with a .sha256, and the release carries it too; the relay's updater on 8 West's
-# server fetches it from the release, as the phone page's updater does for the page.
+# server fetches it from the release, as the phone page's updater does for the page. Both are
+# signed like the installer (ADR-210, security finding P-SRV-1): after the owner's approval the
+# Windows job signs them with the server key (Environment secrets PLENIPO_SERVER_SIGNING_KEY and
+# its password; a key of its own, never the updater key), checks the signatures against the
+# repository variable PLENIPO_SERVER_SIGNING_PUBLIC_KEY, and publishes the .sig next to each.
+# The updaters install nothing without a signature that names the file and the version.
 #
 # Mac and Linux (Phase 23, ADR-150): a dry run also builds an unsigned trial file for the Mac,
 # kept as a download for 7 days; a release builds it from Wave 3 on. Linux (Wave 2, ADR-152): a
@@ -39,8 +44,10 @@ on:
         type: boolean
         default: false
 
+# Each job names what it may do (security finding P-WEB-3): only the job that publishes the
+# release writes to the repository; every other job reads.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -52,6 +59,9 @@ jobs:
   relay:
     name: Build Plenipo's relay (static Linux program)
     runs-on: ubuntu-latest
+    # Builds and keeps a file; it never writes to the repository or a release.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust toolchain (from rust-toolchain.toml)
@@ -234,6 +244,9 @@ jobs:
     name: Build Windows installer and publish release (Windows and Linux)
     needs: [relay, linux]
     runs-on: windows-latest
+    # The only job that writes: it creates the tag (Run workflow) and publishes the release.
+    permissions:
+      contents: write
     # ADR-052: a release uses the Environment `release`, which holds the signing secrets, lets only
     # `main` and `v*` tags in, and waits for the owner's approval before the job starts. A dry run
     # uses `dry-run`, which holds nothing and asks nobody, so a dry run can never sign.
@@ -300,7 +313,10 @@ jobs:
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          PLENIPO_SERVER_SIGNING_KEY: ${{ secrets.PLENIPO_SERVER_SIGNING_KEY }}
+          PLENIPO_SERVER_SIGNING_KEY_PASSWORD: ${{ secrets.PLENIPO_SERVER_SIGNING_KEY_PASSWORD }}
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
+          PLENIPO_SERVER_SIGNING_PUBLIC_KEY: ${{ vars.PLENIPO_SERVER_SIGNING_PUBLIC_KEY }}
           PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
           PLENIPO_SLACK_CLIENT_ID: ${{ vars.PLENIPO_SLACK_CLIENT_ID }}
         run: |
@@ -316,15 +332,29 @@ jobs:
             echo "::error::Repository variable PLENIPO_SLACK_CLIENT_ID is the tests' stand-in ID; set 8 West's Slack app's client ID (docs/phases/phase-20-slack-and-google-apps.md)"
             exit 1
           fi
-          for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+          for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+            PLENIPO_SERVER_SIGNING_KEY PLENIPO_SERVER_SIGNING_KEY_PASSWORD; do
             if [ -z "${!name}" ]; then
               echo "::error::Environment secret $name is not set in the Environment 'release'; see docs/development/code-signing.md"
               exit 1
             fi
           done
-          # Not a secret: the updater key's public half, built into Plenipo (ADR-038).
-          if [ -z "$PLENIPO_UPDATER_PUBLIC_KEY" ]; then
-            echo "::error::Repository variable PLENIPO_UPDATER_PUBLIC_KEY is not set; see docs/development/code-signing.md"
+          # Not secrets: the updater key's public half, built into Plenipo (ADR-038), and the
+          # server key's, which the relay's and the phone page's servers trust (ADR-210).
+          for name in PLENIPO_UPDATER_PUBLIC_KEY PLENIPO_SERVER_SIGNING_PUBLIC_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository variable $name is not set; see docs/development/code-signing.md"
+              exit 1
+            fi
+          done
+          # The server key is a key of its own: with one key for both, a signed installer could be
+          # passed off as a relay program. Compared without spaces or line breaks, as they are used.
+          if [ "$(printf '%s' "$PLENIPO_UPDATER_PUBLIC_KEY" | tr -d '[:space:]')" = "$(printf '%s' "$PLENIPO_SERVER_SIGNING_PUBLIC_KEY" | tr -d '[:space:]')" ]; then
+            echo "::error::PLENIPO_SERVER_SIGNING_PUBLIC_KEY is the updater key; the server key must be a key of its own (docs/development/code-signing.md)"
+            exit 1
+          fi
+          if [ "$(printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | tr -d '[:space:]')" = "$(printf '%s' "$PLENIPO_SERVER_SIGNING_KEY" | tr -d '[:space:]')" ]; then
+            echo "::error::Environment secret PLENIPO_SERVER_SIGNING_KEY is the updater key; the server key must be a key of its own (docs/development/code-signing.md)"
             exit 1
           fi
       - name: Install the signing tool
@@ -524,6 +554,58 @@ jobs:
         with:
           name: plenipo-relay
           path: relay-dist
+      # ADR-210: the relay and the phone's page get a signature with the server key, over their
+      # final bytes, naming each file and this version, with Tauri's tool (the same format as the
+      # updater signature, so the servers check it with minisign). A key of its own, never the
+      # updater key, so a signed installer can never pass for a relay program or a page.
+      - name: Sign the relay and the phone's page with the server key, for this version
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          PLENIPO_SERVER_SIGNING_KEY: ${{ secrets.PLENIPO_SERVER_SIGNING_KEY }}
+          PLENIPO_SERVER_SIGNING_KEY_PASSWORD: ${{ secrets.PLENIPO_SERVER_SIGNING_KEY_PASSWORD }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          relay="relay-dist/plenipo-relay-$version-linux-x86_64"
+          page="plenipo-phone-page-$version.zip"
+          test -f "$relay"
+          test -f "$page"
+          # As for the updater key: spaces and line breaks pasted into the key are dropped.
+          key=$(printf '%s' "$PLENIPO_SERVER_SIGNING_KEY" | tr -d '[:space:]')
+          password=$(printf '%s' "$PLENIPO_SERVER_SIGNING_KEY_PASSWORD" | tr -d '\r\n')
+          if [ "$key" != "$PLENIPO_SERVER_SIGNING_KEY" ]; then
+            echo "::warning::Environment secret PLENIPO_SERVER_SIGNING_KEY has spaces or line breaks; they were dropped for this run. Save it again without them (docs/development/code-signing.md)."
+          fi
+          for file in "$relay" "$page"; do
+            TAURI_SIGNING_PRIVATE_KEY="$key" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$password" \
+              pnpm --filter @plenipo/desktop tauri signer sign --app-version "$version" \
+              "$GITHUB_WORKSPACE/$file"
+          done
+      - name: The server signatures are 8 West's, for this version
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          # The same check the servers make, with the server key's public half: the example reads
+          # the key to check against from PLENIPO_UPDATER_PUBLIC_KEY, so the server key goes there
+          # for this step only.
+          PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_SERVER_SIGNING_PUBLIC_KEY }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          relay="relay-dist/plenipo-relay-$version-linux-x86_64"
+          page="plenipo-phone-page-$version.zip"
+          for file in "$relay" "$page"; do
+            if [ ! -f "$file.sig" ]; then
+              echo "::error::No server signature was made ($file.sig); check the server key secrets"
+              exit 1
+            fi
+            cargo run --release --locked -p plenipo-capabilities --example verify_update -- \
+              "$file" "$file.sig" "$version"
+            # The servers also check the file name written inside the signature.
+            if ! base64 -d "$file.sig" | grep -q "$(printf 'trusted comment: .*\tfile:%s\t' "$(basename "$file")")"; then
+              echo "::error::$file.sig does not name $(basename "$file")"
+              exit 1
+            fi
+          done
       - name: Publish GitHub release
         if: ${{ !inputs.dry_run }}
         shell: bash
@@ -555,16 +637,20 @@ jobs:
             test -f "$file"
             assets+=("$file")
           done
-          # The phone's page (Phase 14, ADR-146), and its checksum.
+          # The phone's page (Phase 14, ADR-146), its server signature (ADR-210), and its checksum.
           version=$(node -p "require('./package.json').version")
-          test -f "plenipo-phone-page-$version.zip"
-          assets+=("plenipo-phone-page-$version.zip" "plenipo-phone-page-$version.zip.sha256")
-          # Plenipo's own relay (Phase 14, ADR-149), the static Linux program, and its checksum.
+          page="plenipo-phone-page-$version.zip"
+          test -f "$page"
+          test -f "$page.sig"
+          assets+=("$page" "$page.sig" "$page.sha256")
+          # Plenipo's own relay (Phase 14, ADR-149), the static Linux program, its server
+          # signature (ADR-210), and its checksum.
           relay="relay-dist/plenipo-relay-$version-linux-x86_64"
           test -f "$relay"
+          test -f "$relay.sig"
           test -f "$relay.sha256"
           (cd relay-dist && sha256sum -c "plenipo-relay-$version-linux-x86_64.sha256")
-          assets+=("$relay" "$relay.sha256")
+          assets+=("$relay" "$relay.sig" "$relay.sha256")
           case "$RELEASE_TAG" in
             *-*) ;;
             *)

@@ -7,6 +7,7 @@ import * as commands from "../api/commands";
 import { position, sampleOrganization } from "../test/orgFixtures";
 import { sampleRouting } from "../test/routingFixtures";
 import { OrganizationView } from "./OrganizationView";
+import { afterChange } from "../test/core";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -109,7 +110,7 @@ afterEach(() => {
 describe("Archive, bring back, delete for good, and the Workforce", () => {
   it("lists what is archived, and brings it back", async () => {
     const org = show();
-    api.bringBack.mockResolvedValue(org);
+    afterChange(api.bringBack, org, api.getOrganization);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("tab", { name: "Archived (5)" }));
     const projects = screen.getByRole("table", { name: "Archived projects" });
@@ -174,7 +175,7 @@ describe("Archive, bring back, delete for good, and the Workforce", () => {
       departments: [],
       averageExperience: 22,
     });
-    api.deleteForGood.mockResolvedValue(org);
+    afterChange(api.deleteForGood, org, api.getOrganization);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("tab", { name: "Archived (5)" }));
     await user.click(screen.getByRole("button", { name: "Delete Q4 Campaign for good" }));
@@ -205,7 +206,7 @@ describe("Archive, bring back, delete for good, and the Workforce", () => {
 
   it("keeps saved agents in the Workforce and hires them into a team", async () => {
     const org = show();
-    api.hireFromWorkforce.mockResolvedValue(org);
+    afterChange(api.hireFromWorkforce, org, api.getOrganization);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("tab", { name: "Workforce (1)" }));
     const table = screen.getByRole("table", { name: "Workforce" });
@@ -229,7 +230,7 @@ describe("Archive, bring back, delete for good, and the Workforce", () => {
 
   it("deletes an agent in the Workforce for good only after asking", async () => {
     const org = show();
-    api.deleteSavedAgent.mockResolvedValue({ ...org, workforce: [] });
+    afterChange(api.deleteSavedAgent, { ...org, workforce: [] }, api.getOrganization);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("tab", { name: "Workforce (1)" }));
     await user.click(screen.getByRole("button", { name: "Delete Database Developer for good" }));
