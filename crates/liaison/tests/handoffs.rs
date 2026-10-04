@@ -1575,6 +1575,8 @@ const HOUR: u64 = 3_600_000;
 const QUICK: &str = "quick-may-answer";
 /// A second worker's, for a test that needs its answer later still.
 const SECOND: &str = "second-may-answer";
+/// A third worker's, later than the second's.
+const THIRD: &str = "third-may-answer";
 
 impl H {
     /// Let the worker waiting for `name` (`[wait-for:NAME]`) answer.
@@ -1681,12 +1683,21 @@ async fn a_check_in_never_ends_the_lead_hands_work_on_or_is_checked_as_an_answer
     let (_, root) = h
         .start(
             "codex",
-            "Run it {{handoff:claude-code|Lead it [handoff:codex] [handoff:codex+delay:2500] \
+            "Run it {{handoff:claude-code|Lead it [handoff:codex] \
+             [handoff:codex+wait-for:second-may-answer] \
              [check-in-say:All tests passed.] [check-in-handoff:codex]}}",
         )
         .await;
-    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    // The first answer brings the check-in while the second worker still works: it answers
+    // only once the check-in is over.
+    h.until("the lead", |h| h.children(&root).len() == 1).await;
     let lead = h.only_child(&root);
+    h.until("a check-in", |h| {
+        h.count(&lead.id, "liaison.checked_in") > 0
+    })
+    .await;
+    h.let_answer(SECOND);
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
     assert_eq!(h.task(&lead.id).state, TaskState::Succeeded);
     let checked = h
         .ledger
@@ -1702,8 +1713,8 @@ async fn a_check_in_never_ends_the_lead_hands_work_on_or_is_checked_as_an_answer
     // No new work mid-round, no answer checked, no early end.
     assert_eq!(h.children(&lead.id).len(), 2);
     assert_eq!(h.count(&lead.id, "liaison.answer_sent_back"), 0);
-    let delayed = h.child_with(&lead.id, "[delay:2500]");
-    assert_eq!(h.task(&delayed.id).state, TaskState::Succeeded);
+    let second = h.child_with(&lead.id, SECOND);
+    assert_eq!(h.task(&second.id).state, TaskState::Succeeded);
     assert!(
         h.text(&lead.id).contains("received 2 replies"),
         "{}",
@@ -1720,10 +1731,28 @@ async fn a_check_in_that_fails_leaves_the_lead_waiting() {
     let (_, root) = h
         .start(
             "codex",
-            "Build it [handoff:claude-code] [handoff:claude-code+delay:1500] \
-             [handoff:claude-code+delay:3000]",
+            "Build it [handoff:claude-code] [handoff:claude-code+wait-for:second-may-answer] \
+             [handoff:claude-code+wait-for:third-may-answer]",
         )
         .await;
+    // The first answer brings the check-in, which fails; the others answer only after it.
+    h.until("the check-in to end", |h| {
+        h.count(&root, "liaison.checked_in") > 0
+    })
+    .await;
+    h.let_answer(SECOND);
+    h.until("the second answer", |h| {
+        h.messages(&root)
+            .iter()
+            .filter(|m| m.kind == MessageKind::Reply)
+            .count()
+            == 2
+    })
+    .await;
+    // Longer than a check-in waits after an answer: still the one check-in.
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    assert_eq!(h.count(&root, "liaison.check_in_started"), 1);
+    h.let_answer(THIRD);
     assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
     let checked = h
         .ledger
@@ -2003,10 +2032,18 @@ async fn answers_that_come_together_bring_one_check_in() {
     let (_, root) = h
         .start(
             "codex",
-            "Build it [handoff-many:2:claude-code] [handoff:claude-code+slow] \
+            "Build it [handoff:claude-code+wait-for:quick-may-answer] \
+             [handoff:codex+wait-for:quick-may-answer] [handoff:claude-code+slow] \
              [check-in-stop:slow]",
         )
         .await;
+    // Both quick workers are at work, then answer together (however slow the machine).
+    h.until("the team to be at work", |h| {
+        let children = h.children(&root);
+        children.len() == 3 && children.iter().all(|t| t.state == TaskState::Running)
+    })
+    .await;
+    h.let_answer(QUICK);
     assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
     assert_eq!(h.count(&root, "liaison.check_in_started"), 1);
     assert!(
