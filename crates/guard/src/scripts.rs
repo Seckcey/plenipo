@@ -722,10 +722,13 @@ enum AfterOptions<'a> {
 }
 
 /// Step over `prefix`'s own options in `words` (the words after the prefix), values included.
+/// Each word is read as the shell hands it over, without its quotes (`exec "-a" NAME rm x`).
 fn after_prefix_options<'a>(prefix: &str, mut words: &'a [String]) -> AfterOptions<'a> {
     let spec = prefix_options(prefix);
     let mut no_program = false;
-    while let Some(word) = words.first() {
+    while let Some(raw) = words.first() {
+        let word = unquoted(raw);
+        let word = word.as_str();
         if word == "--" {
             words = &words[1..];
             break;
@@ -806,7 +809,8 @@ fn read_shell(line: usize, words: &[String], out: &mut Vec<Statement>) {
         let Some(first) = words.first() else {
             return;
         };
-        let lower = first.to_lowercase();
+        // As the shell sees it: `"nohup" rm x` is the prefix `nohup`.
+        let lower = unquoted(first).to_lowercase();
         if first.contains('=') && !first.starts_with(['$', '"', '\'', '-']) {
             // `VAR=x` before the program.
             words = &words[1..];
@@ -1168,6 +1172,13 @@ mod tests {
             "ionice -t -c 2 rm x",
             "ionice --class 2 --classdata 4 rm x",
             "env -u A exec -a B nice -n 1 rm x",
+            // Quotes the shell strips before the prefix sees the word.
+            "exec \"-a\" NAME rm x",
+            "env '-u' A rm x",
+            "nice \"-n\" 5 rm x",
+            "env '--' rm x",
+            "\"nohup\" rm x",
+            "'env' -u A rm x",
         ] {
             assert_eq!(
                 first_caught(&blocked, &bash(text)).map(|f| f.1),
