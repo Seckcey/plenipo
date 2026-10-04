@@ -6,6 +6,7 @@ import * as commands from "../api/commands";
 import { samplePermissions } from "../test/permissionFixtures";
 import { SAFETY_CHOICES, safetyWarning } from "./safety";
 import { SafetySettings } from "./SafetySettings";
+import { afterChange } from "../test/core";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -49,7 +50,7 @@ describe("Settings → Safety", () => {
   it("changes the choice and shows the warning for the new one", async () => {
     const careful = samplePermissions();
     careful.settings.safety = "careful";
-    api.setSafety.mockResolvedValue(careful);
+    afterChange(api.setSafety, careful, api.getPermissions);
     render(<SafetySettings />);
     await userEvent.setup().click(await screen.findByRole("button", { name: "Careful" }));
     expect(api.setSafety).toHaveBeenCalledWith("careful");

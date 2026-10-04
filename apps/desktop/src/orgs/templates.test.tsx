@@ -6,6 +6,7 @@ import * as commands from "../api/commands";
 import { NewDepartmentDialog, NewProjectDialog } from "../components/org/OrgDialogs";
 import { sampleOrganization } from "../test/orgFixtures";
 import { TemplatesSetting } from "./TemplatesSetting";
+import { afterChange } from "../test/core";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -25,7 +26,7 @@ const api = vi.mocked(commands);
 
 beforeEach(() => {
   api.getOrganization.mockResolvedValue(sampleOrganization());
-  api.applyOrganizationTemplate.mockResolvedValue(sampleOrganization());
+  afterChange(api.applyOrganizationTemplate, sampleOrganization(), api.getOrganization);
   api.saveOrganizationTemplate.mockResolvedValue({
     current: "first",
     organizations: [],

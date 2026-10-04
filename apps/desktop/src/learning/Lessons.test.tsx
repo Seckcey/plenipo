@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as commands from "../api/commands";
 import { LearningSwitch, NewLessons, RoleLessons } from "./Lessons";
 import { useLearning } from "./useLearning";
+import { afterChange } from "../test/core";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -73,7 +74,7 @@ describe("Learning", () => {
   it("keeps a new lesson in the owner's words, warning when it came from websites", async () => {
     const held = "Held for your review: it has a command, a path, or a web address.";
     api.getLearning.mockResolvedValue(snapshot({ waiting: [lesson({ heldReason: held })] }));
-    api.decideLesson.mockResolvedValue(snapshot({ waiting: [] }));
+    afterChange(api.decideLesson, snapshot({ waiting: [] }), api.getLearning);
     render(<Harness part="new" />);
     const card = await screen.findByRole("article", { name: "Lesson from Web Assistant" });
     expect(within(card).getByText("From a task that used websites or servers")).toBeInTheDocument();
@@ -89,7 +90,7 @@ describe("Learning", () => {
   });
 
   it("discards a lesson as written", async () => {
-    api.decideLesson.mockResolvedValue(snapshot({ waiting: [] }));
+    afterChange(api.decideLesson, snapshot({ waiting: [] }), api.getLearning);
     render(<Harness part="new" />);
     const card = await screen.findByRole("article", { name: "Lesson from Web Assistant" });
     await userEvent.setup().click(within(card).getByRole("button", { name: "Discard" }));
@@ -97,8 +98,8 @@ describe("Learning", () => {
   });
 
   it("shows a role's lessons, removes one, and lets the role learn on its own", async () => {
-    api.removeLesson.mockResolvedValue(snapshot({ kept: [] }));
-    api.setRoleLearning.mockResolvedValue(snapshot({ kept: [], autoRoles: ["r-web"] }));
+    afterChange(api.removeLesson, snapshot({ kept: [] }), api.getLearning);
+    afterChange(api.setRoleLearning, snapshot({ kept: [], autoRoles: ["r-web"] }), api.getLearning);
     render(<Harness part="role" />);
     expect(await screen.findByText(/Sign in first\./)).toBeInTheDocument();
     const user = userEvent.setup();
@@ -115,7 +116,7 @@ describe("Learning", () => {
   });
 
   it("switches worker learning off in Settings", async () => {
-    api.setLearning.mockResolvedValue(snapshot({ enabled: false }));
+    afterChange(api.setLearning, snapshot({ enabled: false }), api.getLearning);
     render(<Harness part="switch" />);
     const toggle = await screen.findByRole("switch", { name: "Worker learning" });
     await screen.findByText("On");

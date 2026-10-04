@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { OrgSnapshot, PositionInfo, WorkView } from "@plenipo/types";
+import type { LearningSnapshot, OrgSnapshot, PositionInfo, WorkView } from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../../api/commands";
@@ -12,6 +12,7 @@ import { position, sampleOrganization } from "../../test/orgFixtures";
 import { sampleRouting } from "../../test/routingFixtures";
 import { Inspector, type InspectorActions } from "./Inspector";
 import { PANEL_TABS } from "./inspector/panel";
+import { afterChange } from "../../test/core";
 
 vi.mock("../../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -155,33 +156,37 @@ function show(selectedId: string, org = organization(), a = actions(), onWidth =
   return { org, actions: a, onWidth };
 }
 
+/** Learning as Core has it: on, with one kept lesson for the developer. */
+const learning = (patch: Partial<LearningSnapshot> = {}): LearningSnapshot => ({
+  enabled: true,
+  autoRoles: [],
+  offRoles: [],
+  agents: {},
+  waiting: [],
+  kept: [
+    {
+      id: "l-1",
+      roleId: "r-dev",
+      positionId: "p-dev",
+      worker: "Senior Developer",
+      taskId: "t-1",
+      text: "Run the tests before handing back.",
+      state: "kept",
+      fromWeb: false,
+      createdAt: 0,
+      decidedAt: 0,
+      decidedBy: "owner",
+      projectId: null,
+      heldReason: null,
+    },
+  ],
+  ...patch,
+});
+
 beforeEach(() => {
   api.getWork.mockImplementation((id) => Promise.resolve(noWork(id ?? null)));
   api.getRouting.mockResolvedValue(sampleRouting());
-  api.getLearning.mockResolvedValue({
-    enabled: true,
-    autoRoles: [],
-    offRoles: [],
-    agents: {},
-    waiting: [],
-    kept: [
-      {
-        id: "l-1",
-        roleId: "r-dev",
-        positionId: "p-dev",
-        worker: "Senior Developer",
-        taskId: "t-1",
-        text: "Run the tests before handing back.",
-        state: "kept",
-        fromWeb: false,
-        createdAt: 0,
-        decidedAt: 0,
-        decidedBy: "owner",
-        projectId: null,
-        heldReason: null,
-      },
-    ],
-  });
+  api.getLearning.mockResolvedValue(learning());
   const permissions = samplePermissions();
   permissions.settings.roles = [
     { roleId: "r-dev", roleName: "Senior Developer", fullTime: false, setId: "developer" },
@@ -422,7 +427,7 @@ describe("The properties panel", () => {
     expect(screen.getByText("Design tables and queries.")).toBeInTheDocument();
     await user.selectOptions(specialty, "");
     expect(a.api.update).toHaveBeenCalledWith("p-dev", { specialtyId: "" });
-    api.setAgentLearning.mockResolvedValue({} as never);
+    afterChange(api.setAgentLearning, learning({ agents: { "p-dev": false } }), api.getLearning);
     await user.selectOptions(screen.getByRole("combobox", { name: "This agent learns" }), "off");
     expect(api.setAgentLearning).toHaveBeenCalledWith("p-dev", false);
   });
