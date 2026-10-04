@@ -373,17 +373,26 @@ export function pointedAt(browser, element) {
  * Wait until `element` is still and a click at its centre reaches it: its box the same for three
  * looks in a row, and nothing over its centre (the minimap, a panel, a notice). A click or a drag
  * from it then lands on it, not on whatever moved under the pointer.
+ *
+ * With `scroll`, each look first scrolls it to the middle of the window, as a WebDriver click
+ * does, for an item in a list that may be longer than the window. Not for the canvas: scrolling
+ * would move the canvas itself.
  */
-export async function steady(browser, element, what) {
+export async function steady(browser, element, what, { scroll = false } = {}) {
   let last = "";
   let sameLooks = 0;
   let seen = null;
   try {
     await waitUntil(async () => {
-      const box = await browser.execute((el) => {
-        const r = el.getBoundingClientRect();
-        return [r.left, r.top, r.width, r.height].map(Math.round).join(",");
-      }, element);
+      const box = await browser.execute(
+        (el, scrollFirst) => {
+          if (scrollFirst) el.scrollIntoView({ block: "center", inline: "nearest" });
+          const r = el.getBoundingClientRect();
+          return [r.left, r.top, r.width, r.height].map(Math.round).join(",");
+        },
+        element,
+        scroll,
+      );
       sameLooks = box === last ? sameLooks + 1 : 0;
       last = box;
       if (sameLooks < 3) return false;
