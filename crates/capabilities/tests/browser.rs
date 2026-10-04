@@ -1802,12 +1802,15 @@ async fn a_control_that_changed_while_the_owner_decided_is_left_alone() {
         "{}",
         click.summary
     );
-    // The page re-aims its form a moment after it loads; the owner decides after that.
+    // Plenipo has read the page (the approval names its button). While the owner decides, the
+    // page re-aims its form; the owner answers after that.
+    h.site.let_change("swap");
     h.page_changed("swap").await;
     h.broker.resolve_approval(&click.id, true, "owner").unwrap();
     let typing = h.pending().await;
     assert_ne!(typing.id, click.id);
     assert!(typing.summary.contains("\"Note\""), "{}", typing.summary);
+    h.site.let_change("turncoat");
     h.page_changed("turncoat").await;
     h.broker
         .resolve_approval(&typing.id, true, "owner")
