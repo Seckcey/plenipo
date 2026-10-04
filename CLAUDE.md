@@ -33,12 +33,18 @@
   launch — is built **beside** Phases 23 and 24, wave by wave, starting with Wave 1. Work on its own
   branch from the latest `main`, merge `main` often, and stay out of files another open branch is
   changing (the owner: "as long as you don't step on each other's work").
-- **Before pushing** (see `docs/development/setup.md`):
-  - `pnpm check`
+- **Before pushing, the quick checks** (the owner's decision, 2026-10-04; see
+  `docs/development/setup.md`). GitHub runs the full set on every pull request, and nothing
+  merges until it passes, so the PC runs only what is quick:
   - `cargo fmt --all -- --check`
   - `cargo clippy --workspace --all-targets --locked -- -D warnings`
-  - `cargo test --workspace --locked`
-  - `pnpm bindings`, then no diff in `packages/types/src/generated`
+  - `cargo test --locked -p <crate>` for each crate you changed
+  - if you changed the desktop, the phone page, or a package: `pnpm check`
+  - if you changed a Rust type the screens use: `pnpm bindings`, then no diff in
+    `packages/types/src/generated`
+  - `cargo test --workspace --locked` and the real-app tests: GitHub runs them. Report them as
+    **not run (CI)**, and run them on the PC only when the Coordinator asks.
+  - A clean merge of `main` with no change of your own needs no checks again.
 - **Docs-only changes** (only `.md` files, or pictures under `docs/`): `pnpm docs:check` is
   enough before pushing. On GitHub, only the quick **Docs** check runs (about a minute); the long
-  jobs skip themselves and count as passed. Anything else runs the full list above.
+  jobs skip themselves and count as passed. Anything else runs the full set on GitHub.
