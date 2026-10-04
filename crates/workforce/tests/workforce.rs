@@ -17,7 +17,8 @@ use plenipo_runtime::agent::{
     TurnResult,
 };
 use plenipo_runtime::{
-    EventSink, ExecutablePolicy, ProfileRegistry, RuntimeEvent, Supervisor, SupervisorConfig,
+    EventSink, ExecutablePolicy, ProfileRegistry, RuntimeError, RuntimeEvent, Supervisor,
+    SupervisorConfig,
 };
 use plenipo_workforce::directory::WorkforceDirectory;
 use plenipo_workforce::{
@@ -1724,8 +1725,27 @@ async fn a_full_time_member_keeps_its_conversation_when_its_lead_stops_its_task(
         "the lead is named by its position"
     );
     let conversation = stopped.metadata["sessionId"].clone();
-    // Its conversation stays: its next objective goes on in it.
-    let next = h.objective(&o.coordinator, "Plan the release.").await;
+    // Its conversation stays: its next objective goes on in it. The stopped task is recorded a
+    // moment before the runtime lets its turn go, so the objective waits for that, briefly: a
+    // turn never let go still fails here, and so does any other error.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let next = loop {
+        match h
+            .workforce
+            .give_objective(&o.coordinator, "Plan the release.", None)
+            .await
+        {
+            Ok(d) => break d.turns.last().unwrap().task_id.clone(),
+            Err(WorkforceError::Runtime(RuntimeError::SessionBusy(why))) => {
+                assert!(
+                    Instant::now() < deadline,
+                    "the stopped task's turn was never released: {why}"
+                );
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            Err(e) => panic!("the next objective was refused: {e}"),
+        }
+    };
     assert_eq!(h.finished(&next).await.state, TaskState::Succeeded);
     assert_eq!(h.task(&next).metadata["sessionId"], conversation);
 }
