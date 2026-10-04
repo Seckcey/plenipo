@@ -29,12 +29,14 @@ const MAX_JOINED_TEXT = 64 * 1024;
 const MAX_JOINED_PIECES = 1000;
 
 /**
- * Streamed pieces joined into one item, one right after another: the first piece's `seq`, and
- * where each piece ends in the text. A snapshot that already has some of them takes the rest.
+ * Streamed pieces joined into one item, one right after another: the first piece's `seq`, where
+ * each piece ends in the text, and when the newest piece came. A snapshot that already has some
+ * of them takes the rest.
  */
 interface Pieces {
   from: number;
   ends: number[];
+  last: number;
 }
 
 /** An activity item as the store keeps it: streamed pieces joined (see `joinPiece`). */
@@ -52,18 +54,28 @@ function firstSeq(a: Kept): number {
 }
 
 /**
+ * When an item's newest piece came: what an agent "said last" (an item's own `ts` is when its
+ * first piece came, as in Core's buffer).
+ */
+export function saidAt(a: AgentActivity): number {
+  return (a as Kept).pieces?.last ?? a.ts;
+}
+
+/**
  * A live piece added to the item before it, when both are streamed words or both are streamed
- * thinking, and it comes right after it: one item for each paragraph, as Core's buffer keeps
- * them, so a long answer or thought never pushes the turn's earlier steps out. The item takes the
- * newest piece's `seq` and time; its first piece's `seq` names its row.
+ * thinking, and it comes right after it in the same step: one item for each paragraph, as Core's
+ * buffer keeps them, so a long answer or thought never pushes the turn's earlier steps out. The
+ * item takes the newest piece's `seq`, keeps its first piece's time (when the thinking began, as
+ * after a reload), and its first piece's `seq` names its row.
  */
 function joinPiece(last: Kept, next: AgentActivity): Kept | null {
   const before = streamed(last);
   const piece = streamed(next);
   if (before === null || piece === null || last.event.type !== next.event.type) return null;
-  const pieces = last.pieces ?? { from: last.seq, ends: [before.length] };
+  const pieces = last.pieces ?? { from: last.seq, ends: [before.length], last: last.ts };
   if (
     next.seq !== last.seq + 1 ||
+    stepOf(next.seq) !== stepOf(last.seq) ||
     before.length + piece.length > MAX_JOINED_TEXT ||
     pieces.ends.length >= MAX_JOINED_PIECES
   ) {
@@ -72,8 +84,9 @@ function joinPiece(last: Kept, next: AgentActivity): Kept | null {
   const text = before + piece;
   return {
     ...next,
+    ts: last.ts,
     event: { ...next.event, text } as AgentEvent,
-    pieces: { from: pieces.from, ends: [...pieces.ends, text.length] },
+    pieces: { from: pieces.from, ends: [...pieces.ends, text.length], last: next.ts },
   };
 }
 
@@ -88,7 +101,8 @@ function newerThan(a: Kept, newest: number): Kept[] {
   const cut = p.ends[newest - p.from] ?? 0;
   const ends = p.ends.slice(newest - p.from + 1).map((end) => end - cut);
   const text = (streamed(a) ?? "").slice(cut);
-  return [{ ...a, event: { ...a.event, text } as AgentEvent, pieces: { from: newest + 1, ends } }];
+  const pieces = { from: newest + 1, ends, last: p.last };
+  return [{ ...a, event: { ...a.event, text } as AgentEvent, pieces }];
 }
 
 export interface AgentState {

@@ -2799,7 +2799,9 @@ impl AgentRuntime {
         let buf = state.activity.entry(activity.task_id.clone()).or_default();
         // Coalesce streamed text, and streamed thinking, so a reload shows each as it was said
         // without keeping every fragment, and a long thought never pushes earlier steps out.
-        // The joined piece keeps its first fragment's time and takes the newest's number.
+        // The joined piece takes the newest fragment's number and keeps its first one's time: a
+        // chat rebuilt after a reload reads it as when the thinking (or the words) began, and the
+        // next piece's time as when they ended ("Thought for 6 s").
         if let Some(last) = buf.back_mut() {
             let joined = match (&mut last.event, &activity.event) {
                 (AgentEvent::TextDelta { text: so_far }, AgentEvent::TextDelta { text })

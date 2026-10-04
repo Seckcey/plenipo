@@ -5,9 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AgentsContext, type AgentsContextValue } from "../agents/context";
 import { ChatContext, type ChatApi } from "../chat/context";
-import { initialAgentState } from "../agents/store";
+import { agentReducer, initialAgentState } from "../agents/store";
 import { position, worker } from "../test/orgFixtures";
 import { LiveConversation } from "./LiveConversation";
+import { LiveForTasks } from "./LiveForTasks";
 import { NowLine } from "./NowLine";
 import { liveProgress, liveWork, nowWords, progressWords, startingStep, stepWords } from "./words";
 
@@ -227,6 +228,23 @@ describe("the live conversation on screen (Phase 25, item 3.1)", () => {
     ]);
     // A task that stopped while thinking is not still thinking.
     expect(lines(thinking, false)).toEqual(["Reading a.ts"]);
+  });
+
+  it("watches the team's task that said something last, words still coming included", () => {
+    let state = initialAgentState;
+    const send = (taskId: string, seq: number, ts: number, event: AgentEvent) => {
+      state = agentReducer(state, {
+        type: "update",
+        update: { kind: "activity", sessionId: "s-1", taskId, seq, ts, event },
+      });
+    };
+    send("t-a", 1, 100, { type: "textDelta", text: "Still " });
+    send("t-b", 1, 200, { type: "toolUse", tool: "Read", summary: "b.ts" });
+    send("t-a", 2, 300, { type: "textDelta", text: "writing." });
+    render(<LiveForTasks taskIds={["t-b", "t-a"]} preferred={null} who="Team" />, {
+      wrapper: provide(state.activity),
+    });
+    expect(screen.getByText("Still writing.")).toBeInTheDocument();
   });
 
   it("shows only the last lines in the details panel, and reads a conversation not loaded yet", () => {

@@ -834,12 +834,18 @@ async fn streamed_thinking_is_kept_whole_for_a_reload() {
     let h = harness_with(&["claude"], None);
     let (detail, turn) = run(&h, "claude-code", "Plan first [think]").await;
     assert_eq!(outcome(&turn), TurnOutcome::Completed);
+    // How the live pieces are cut is the runtime's choice (it may hold back a word being
+    // written); they are several, and together they say the whole thought.
     let live = h.updates.activity(&turn.task_id);
-    let pieces = live
+    let pieces: Vec<_> = live
         .iter()
-        .filter(|e| matches!(e, AgentEvent::Reasoning { .. }))
-        .count();
-    assert_eq!(pieces, 8, "thinking streams in pieces: {live:?}");
+        .filter_map(|e| match e {
+            AgentEvent::Reasoning { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(pieces.len() > 1, "thinking streams in pieces: {live:?}");
+    assert_eq!(pieces.concat(), "I should check the file first.");
 
     let kept: Vec<_> = detail.activity.iter().map(|a| &a.event).collect();
     let thoughts: Vec<_> = kept

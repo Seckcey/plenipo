@@ -9,6 +9,7 @@ import {
   isRunning,
   isWaiting,
   liaisonInfo,
+  saidAt,
   STEP_SEQ,
   stepOf,
 } from "./store";
@@ -259,16 +260,27 @@ describe("agent store — streamed thinking and words, joined", () => {
     });
     const kept = state.activity.t1 ?? [];
     expect(kept.map(textOf)).toEqual(["ab", "cd", "toolUse", "e"]);
-    // Each joined item takes its newest piece's number and time.
-    expect(kept.map((a) => [a.seq, a.ts])).toEqual([
-      [2, 2],
-      [4, 4],
-      [5, 5],
-      [6, 6],
+    // Each joined item takes its newest piece's number and keeps its first piece's time (when
+    // the thinking began, as Core's buffer keeps it); when it last said something is kept too.
+    expect(kept.map((a) => [a.seq, a.ts, saidAt(a)])).toEqual([
+      [2, 1, 2],
+      [4, 3, 4],
+      [5, 5, 5],
+      [6, 6, 6],
     ]);
     // A piece that does not come right after (another step) starts an item of its own.
     state = live(state, "t1", STEP_SEQ + 1, delta("f"));
     expect((state.activity.t1 ?? []).map(textOf)).toEqual(["ab", "cd", "toolUse", "e", "f"]);
+  });
+
+  it("never joins across steps, even where one step's numbers end and the next's begin", () => {
+    let state = live(initialAgentState, "t1", STEP_SEQ - 1, think("a"));
+    state = live(state, "t1", STEP_SEQ, think("b"));
+    state = live(state, "t1", STEP_SEQ + 1, think("c"));
+    expect((state.activity.t1 ?? []).map((a) => [stepOf(a.seq), textOf(a)])).toEqual([
+      [1, "ab"],
+      [2, "c"],
+    ]);
   });
 
   it("never lets a long thought push the turn's earlier steps out", () => {
