@@ -80,6 +80,7 @@ mod tests {
     use tokio::net::TcpListener;
 
     /// A stand-in notice service on this computer: records each request, and answers `reply`.
+    /// Each connection is served on its own, so a slow one never holds up the next.
     async fn stand_in(reply: &'static str) -> (u16, Arc<Mutex<Vec<Vec<u8>>>>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -87,34 +88,51 @@ mod tests {
         let seen = got.clone();
         tokio::spawn(async move {
             while let Ok((mut s, _)) = listener.accept().await {
-                let mut buf = Vec::new();
-                let mut chunk = [0u8; 4096];
-                loop {
-                    let n = s.read(&mut chunk).await.unwrap_or(0);
-                    if n == 0 {
-                        break;
-                    }
-                    buf.extend_from_slice(&chunk[..n]);
-                    let head_end = buf.windows(4).position(|w| w == b"\r\n\r\n");
-                    if let Some(end) = head_end {
-                        let head = String::from_utf8_lossy(&buf[..end]).to_ascii_lowercase();
-                        let len = head
-                            .lines()
-                            .find_map(|l| {
-                                l.strip_prefix("content-length:")
-                                    .map(|v| v.trim().parse::<usize>().unwrap_or(0))
-                            })
-                            .unwrap_or(0);
-                        if buf.len() >= end + 4 + len {
+                let seen = seen.clone();
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    loop {
+                        let n = s.read(&mut chunk).await.unwrap_or(0);
+                        if n == 0 {
                             break;
                         }
+                        buf.extend_from_slice(&chunk[..n]);
+                        let head_end = buf.windows(4).position(|w| w == b"\r\n\r\n");
+                        if let Some(end) = head_end {
+                            let head = String::from_utf8_lossy(&buf[..end]).to_ascii_lowercase();
+                            let len = head
+                                .lines()
+                                .find_map(|l| {
+                                    l.strip_prefix("content-length:")
+                                        .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                                })
+                                .unwrap_or(0);
+                            if buf.len() >= end + 4 + len {
+                                break;
+                            }
+                        }
                     }
-                }
-                seen.lock().unwrap().push(buf);
-                let _ = s.write_all(reply.as_bytes()).await;
+                    seen.lock().unwrap().push(buf);
+                    let _ = s.write_all(reply.as_bytes()).await;
+                });
             }
         });
         (port, got)
+    }
+
+    /// The requests a stand-in got whose first line is `line` (`POST /push/x HTTP/1.1`). A
+    /// request is found by its first line, never taken to be the first to arrive: on a busy
+    /// computer another program can reach a test's stand-in too (a port it freed and then
+    /// connected to can be handed to the stand-in in between, as on 2026-10-04).
+    fn with_first_line(got: &Mutex<Vec<Vec<u8>>>, line: &str) -> Vec<Vec<u8>> {
+        let want = format!("{line}\r\n");
+        got.lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.starts_with(want.as_bytes()))
+            .cloned()
+            .collect()
     }
 
     fn guard() -> Guard {
@@ -142,7 +160,9 @@ mod tests {
         )
         .await;
         assert_eq!(outcome, Outcome::Sent);
-        let request = got.lock().unwrap()[0].clone();
+        let notices = with_first_line(&got, "POST /push/phone-1 HTTP/1.1");
+        assert_eq!(notices.len(), 1, "exactly one notice was sent");
+        let request = notices[0].clone();
         let end = request.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
         let head = String::from_utf8_lossy(&request[..end]).to_string();
         assert!(head.starts_with("POST /push/phone-1 HTTP/1.1"), "{head}");
