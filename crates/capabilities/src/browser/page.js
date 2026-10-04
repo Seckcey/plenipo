@@ -283,6 +283,33 @@
       el.scrollIntoView({ block: "center", inline: "center" });
       return facts(el);
     },
+    // Whether the point (x, y) still lands on the control `ref`, or inside it: asked while the
+    // mouse button is held on it (ADR-215).
+    under(ref, x, y) {
+      const el = refs.get(ref);
+      if (!el || !el.isConnected) return false;
+      const top = document.elementFromPoint(x, y);
+      return !!top && (top === el || el.contains(top) || top.contains(el));
+    },
+    // A point in the page with nothing of the page's under it, where a held mouse button can
+    // be let go without clicking anything (ADR-215).
+    safePoint() {
+      const w = innerWidth;
+      const h = innerHeight;
+      const corners = [
+        [1, 1],
+        [w - 2, 1],
+        [1, h - 2],
+        [w - 2, h - 2],
+        [w / 2, 1],
+        [1, h / 2],
+      ];
+      for (const [x, y] of corners) {
+        const top = document.elementFromPoint(x, y);
+        if (!top || top === document.body || top === document.documentElement) return { x, y };
+      }
+      return { x: 0, y: 0 };
+    },
     // Facts about the control that has the keyboard focus.
     focused() {
       const el = document.activeElement;
