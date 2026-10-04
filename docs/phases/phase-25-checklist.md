@@ -116,7 +116,8 @@ Ships first, in small releases. About 2 to 3 build sessions.
         had it: the tray and a second launch now rebuild a closed window off their own thread.
 - **Tests:**
   - [x] the new source test
-  - [ ] the owner makes a new organization on Windows 11 and its window opens, five times in a row
+  - [x] the owner makes a new organization on Windows 11 and its window opens, five times in a row.
+        **Passed, reported by the owner** on 2026-10-04; not seen by Plenipo's sessions.
 
 ### 1.2 Usage numbers missing for Claude Code and Codex — S–M
 
@@ -192,7 +193,8 @@ Ships first, in small releases. About 2 to 3 build sessions.
 - **Tests:**
   - [x] a key saved once works in a second organization, never enters its Vault, and is hidden
         from its record (`a_paid_key_saved_once_works_in_every_organization`)
-  - [ ] the light turns green in both: the owner's check on Windows 11
+  - [x] the light turns green in both: the owner's check on Windows 11. **Passed, reported by the
+        owner** on 2026-10-04; not seen by Plenipo's sessions.
 
 ### 1.5 Subscriptions first in every AI tool picker — S
 
@@ -713,8 +715,9 @@ About 6 to 8 build sessions.
   - [x] the request carries the cache markers (capabilities
         `anthropic_requests_carry_the_cache_marks`, on the key and through OpenRouter; none for
         other companies)
-  - [ ] the cost math matches Anthropic's prices, checked on the owner's PC per ADR-081 §8. Here:
+  - [x] the cost math matches Anthropic's prices, checked on the owner's PC per ADR-081 §8. Here:
         runtime `anthropic_tasks_are_priced_with_the_cache` checks the math against the price rows.
+        **Passed, reported by the owner** on 2026-10-04; not seen by Plenipo's sessions.
 
 ### 4.2 When a plan runs out: say what you can do, and pick the work back up — S–M
 

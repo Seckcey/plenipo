@@ -56,6 +56,10 @@ the router's `a_simulated_week_keeps_the_pace_and_lasts_to_the_reset` (paced, th
 - The Usage tab shows what caching saved.
 - The cost math for caching matches Anthropic's prices on your PC (ADR-081 §8).
 
+**Reported by the owner, 2026-10-04 (Windows 11):** checklist 4.1 (the cost math for caching
+matches Anthropic's prices, ADR-081 §8) passed. Plenipo's sessions did not see this check
+themselves.
+
 ## 4. Leads stop their team mid-task (built after the waves)
 
 - **What changed.** On 2026-10-03 you decided that supervisors, managers, and VPs can stop their
