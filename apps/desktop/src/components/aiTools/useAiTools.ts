@@ -3,6 +3,7 @@ import type { AiToolsPage, AiToolUsage, LedgerEvent } from "@plenipo/types";
 
 import { getAiTools, getAiToolUsage, toCommandError } from "../../api/commands";
 import { subscribeAgentUpdates, subscribeLedgerEvents } from "../../api/events";
+import { Newest } from "../../api/newest";
 import { MOVING, usageWindow, type UsageWindow } from "./words";
 
 /** How often the page reads itself again while an update or a check is going on. */
@@ -20,37 +21,54 @@ export function changesAiTools(e: LedgerEvent): boolean {
 /**
  * The AI tools page's own part (Phase 19): read when the page opens, again (debounced) after the
  * Ledger's AI tool events, each task's result, and each AI tool check or plan report, and every 2
- * seconds while an update or a check is going on. A change made on the page applies the page its command returns.
- * `usageRevision` moves on after each task's result, so the usage is read again.
+ * seconds while an update or a check is going on. A change made on the page applies the page its
+ * command returns, and is followed by one more reload. Only the newest answer shows
+ * ({@link Newest}). `usageRevision` moves on after each task's result, so the usage is read
+ * again.
  */
 export function useAiTools() {
   const [page, setPage] = useState<AiToolsPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [usageRevision, setUsageRevision] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const live = useRef(false);
+  const [order] = useState(() => new Newest());
 
   const reload = useCallback(async () => {
+    const newest = order.start();
     try {
-      setPage(await getAiTools());
+      const next = await getAiTools();
+      if (!newest.take()) return;
+      setPage(next);
       setError(null);
     } catch (reason) {
-      setError(toCommandError(reason).message);
+      if (newest.fresh()) setError(toCommandError(reason).message);
     }
-  }, []);
+  }, [order]);
 
-  const apply = useCallback((next: AiToolsPage) => {
-    setPage(next);
-    setError(null);
-  }, []);
+  /** Reload in a moment (several asks in a row make one reload). */
+  const schedule = useCallback(() => {
+    if (!live.current) return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void reload(), 150);
+  }, [reload]);
+
+  const apply = useCallback(
+    (next: AiToolsPage) => {
+      order.applied();
+      setPage(next);
+      setError(null);
+      // What a command returns was read before its answer travelled back: one more reload,
+      // newer than the change, brings in anything that came meanwhile.
+      schedule();
+    },
+    [order, schedule],
+  );
 
   useEffect(() => {
     let disposed = false;
     const stops: (() => void)[] = [];
-    const schedule = () => {
-      if (disposed) return;
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => void reload(), 150);
-    };
+    live.current = true;
     const keep = (stop: () => void) => {
       if (disposed) stop();
       else stops.push(stop);
@@ -66,17 +84,18 @@ export function useAiTools() {
         }
       }).then(keep),
       subscribeAgentUpdates((update) => {
-        if (update.kind === "runtimes" || update.kind === "plan") schedule();
+        if (!disposed && (update.kind === "runtimes" || update.kind === "plan")) schedule();
       }).then(keep),
     ]).finally(() => {
       if (!disposed) void reload();
     });
     return () => {
       disposed = true;
+      live.current = false;
       stops.forEach((stop) => stop());
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [reload]);
+  }, [reload, schedule]);
 
   const moving =
     page !== null &&

@@ -31,6 +31,7 @@ import {
   planWindowName,
   resetWhen,
 } from "./words";
+import { afterChange } from "../../test/core";
 
 // xterm.js draws on a real screen; a stand-in records what it is given.
 const xterm = vi.hoisted(() => {
@@ -619,7 +620,7 @@ describe("the AI tools page: versions and updates (ADR-059)", () => {
     api.getAiTools.mockResolvedValue(
       page({ grok: { newest: "1.0.43", update: idle({ state: "waiting", tasksUsing: 1 }) } }),
     );
-    api.cancelAiToolUpdate.mockResolvedValue(page({ grok: { newest: "1.0.43" } }));
+    afterChange(api.cancelAiToolUpdate, page({ grok: { newest: "1.0.43" } }), api.getAiTools);
     await show();
     const user = userEvent.setup();
     const grok = card("Grok");
@@ -629,8 +630,10 @@ describe("the AI tools page: versions and updates (ADR-059)", () => {
     await user.click(within(grok).getByRole("button", { name: "Cancel Grok's update" }));
     expect(api.cancelAiToolUpdate).toHaveBeenCalledWith("grok");
     expect(await within(grok).findByText(/^Newest version: 1\.0\.43 \(looked at/)).toBeVisible();
-    api.updateAiTool.mockResolvedValue(
+    afterChange(
+      api.updateAiTool,
       page({ grok: { newest: "1.0.43", update: idle({ state: "updating", from: "1.0.41" }) } }),
+      api.getAiTools,
     );
     await user.click(within(grok).getByRole("button", { name: "Update Grok to 1.0.43" }));
     expect(api.updateAiTool).toHaveBeenCalledWith("grok");
@@ -682,8 +685,8 @@ describe("the AI tools page: versions and updates (ADR-059)", () => {
       ollama: { newest: "0.35.0" },
     });
     api.getAiTools.mockResolvedValue(shown);
-    api.checkAiTool.mockResolvedValue(shown);
-    api.updateAiTool.mockResolvedValue(shown);
+    afterChange(api.checkAiTool, shown, api.getAiTools);
+    afterChange(api.updateAiTool, shown, api.getAiTools);
     await show();
     const user = userEvent.setup();
     // Failed, and the old version still works.
@@ -748,8 +751,8 @@ describe("the AI tools page: versions and updates (ADR-059)", () => {
   });
 
   it("looks for new versions, checks again, and switches Update AI tools by themselves", async () => {
-    api.checkAiToolVersions.mockResolvedValue(page({ grok: { newest: "1.0.43" } }));
-    api.setAiToolsAutoUpdate.mockResolvedValue({ ...page(), autoUpdate: true });
+    afterChange(api.checkAiToolVersions, page({ grok: { newest: "1.0.43" } }), api.getAiTools);
+    afterChange(api.setAiToolsAutoUpdate, { ...page(), autoUpdate: true }, api.getAiTools);
     await show();
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Check for new versions" }));
@@ -941,7 +944,7 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
         },
       }),
     );
-    api.clearUsageLimit.mockResolvedValue(routing());
+    afterChange(api.clearUsageLimit, routing(), api.getRouting);
     api.getAiTools.mockResolvedValue(
       page({
         "claude-code": {
@@ -1010,7 +1013,7 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     expect(
       within(card("Claude Code")).queryByRole("button", { name: "Check Claude Code's plan now" }),
     ).toBeNull();
-    api.checkAiTool.mockResolvedValue(page());
+    afterChange(api.checkAiTool, page(), api.getAiTools);
     await userEvent
       .setup()
       .click(within(card("Codex")).getByRole("button", { name: "Check Codex's plan now" }));
@@ -1090,7 +1093,7 @@ describe("the AI tools page: usage, plan, payment, and models (ADR-060)", () => 
     api.getRouting.mockResolvedValue(
       routing({ codex: { newModels: [terra], unlistedModels: ["gpt-6-luna"] } }),
     );
-    api.checkAiTool.mockResolvedValue(page());
+    afterChange(api.checkAiTool, page(), api.getAiTools);
     await show();
     const user = userEvent.setup();
     const codex = card("Codex");
@@ -1407,8 +1410,10 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
 
   it("Save and check sends the key once, then the card shows its name and never the key", async () => {
     const tools = withOpenRouter();
-    api.savePaidKey.mockResolvedValue(
+    afterChange(
+      api.savePaidKey,
       aiPage(tools.map((t) => (t.runtimeId === "openrouter" ? { ...t, paidKey: SAVED } : t))),
+      api.getAiTools,
     );
     await show();
     const user = userEvent.setup();
@@ -1638,8 +1643,10 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
     const tools = [...page().tools, aiTool("anthropic-key")];
     api.getAiTools.mockResolvedValue(aiPage(tools));
     const saved = { ...SAVED, runtimeId: "anthropic-key", name: "Anthropic key" };
-    api.savePaidKey.mockResolvedValue(
+    afterChange(
+      api.savePaidKey,
       aiPage(tools.map((t) => (t.runtimeId === "anthropic-key" ? { ...t, paidKey: saved } : t))),
+      api.getAiTools,
     );
     await show();
     const user = userEvent.setup();
@@ -1671,8 +1678,10 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
 
   it("Ollama and GitHub Copilot offer an OpenRouter key, which reaches the same kinds of models", async () => {
     const tools = withOpenRouter();
-    api.savePaidKey.mockResolvedValue(
+    afterChange(
+      api.savePaidKey,
       aiPage(tools.map((t) => (t.runtimeId === "openrouter" ? { ...t, paidKey: SAVED } : t))),
+      api.getAiTools,
     );
     await show();
     const user = userEvent.setup();
@@ -1702,7 +1711,11 @@ describe("the AI tools page: a paid AI tool's key (Phase 16 Wave 3, ADR-085)", (
       { ready: true, auth: { state: "paidKey", method: null, detail: null }, checkedAt: T0 },
       { paidKey: SAVED },
     );
-    api.removePaidKey.mockResolvedValue(aiPage(tools.map((t) => ({ ...t, paidKey: null }))));
+    afterChange(
+      api.removePaidKey,
+      aiPage(tools.map((t) => ({ ...t, paidKey: null }))),
+      api.getAiTools,
+    );
     await show();
     const user = userEvent.setup();
     const openRouter = card("OpenRouter");
