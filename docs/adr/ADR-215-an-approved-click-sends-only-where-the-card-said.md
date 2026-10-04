@@ -102,8 +102,9 @@ Measured on the owner's PC on 2026-10-04, with the test site and Edge:
    moved another control under the pointer after the check, so the button was let go away from
    it and nothing was clicked." Data the page sent meanwhile is decided as unapproved.
 6. **Enter and typing with "send the form"** carry the focused field's form as the click carries
-   the button's (the facts Plenipo reads for `same_focus` and `same_control` hold the form).
-   Choosing an option binds the page's website only.
+   the button's (the facts Plenipo reads for `same_focus` and `same_control` hold the form), and
+   **Space on a focused submit button** carries that button's form. Choosing an option binds the
+   page's website only.
 7. **A page that sends while the pointer is still on its way, or the moment the button goes
    down, is not asked anything more.** Something is held then, and the page's script would not
    answer (above). The click is given up: before the press, nothing more happens; after the press,
@@ -111,9 +112,17 @@ Measured on the owner's PC on 2026-10-04, with the test site and Edge:
    the page. What was held is decided as not covered, and the card says "the page sent it before
    the click landed" or "the click was given up". The worker reads "The click did not happen: the
    page sent data while the pointer was still on its way to the control, so nothing was clicked"
-   (or "… the moment the button went down …").
-8. **An action that fails outright** (the browser did not answer) **fails everything it set
-   off**, rather than leaving a held request with no one to decide it.
+   (or "… the moment the button went down …"). While the page is being asked what lies under the
+   held button, **a send it starts wins over waiting for its answer**: Plenipo watches for
+   something held at the same time as it waits for the answer, and whichever comes first decides;
+   so the button is never kept down for the page's time-out. If the page simply does not answer,
+   the button is let go at the corner too ("the page did not answer while the button was held").
+8. **Nothing stays held with no one to decide it.** An action that fails outright (the browser
+   did not answer) fails everything it set off. And a released send's **answer page may send
+   things of its own** (a message as it loads): those are held while the release settles, and no
+   card named them, so they are decided as a send with no approval — the owner's rules, or a card
+   "let the page send data to shop.test after clicking "Send message" (the page that followed)" —
+   round by round until nothing is held; after three rounds the rest is stopped.
 
 ## What a person sees
 
@@ -136,7 +145,14 @@ Measured on the owner's PC on 2026-10-04, with the test site and Edge:
 - **The same address, other contents.** A page can change a form's hidden fields, or its query,
   between the card and the press; the form still goes where the card said, by the method it said,
   and is covered. The owner approved sending to that address; what the page puts in the form is
-  the page's.
+  the page's. Likewise **two form sends to the named address by the named method** during one
+  click are both covered under the one approval.
+- **A form with method `GET`** is a navigation, which is never held: a `GET` form re-aimed to
+  another path of the same website is not bound. The website lists still bound the host.
+- **The release at the page's corner** (decision 7, after the press) does not check what is there,
+  by design (no call into the page). If an element sits at (0, 0), the browser's `click` fires on
+  the common ancestor of the press and the release, never on a decoy; a click handler the page put
+  on the document itself would run.
 - **A decoy that comes and goes.** A control moved under the pointer after the post-glide read
   and moved away again before the 25 ms check gets a `mousedown`, and the release lands on the
   approved control: the browser's `click` then fires on the common ancestor of the two, never on
@@ -152,7 +168,9 @@ Measured on the owner's PC on 2026-10-04, with the test site and Edge:
   that moves the approved control itself away in that window loses the click.
 - **A page that submits its own form on `mousedown`** gets a card, not the approval, even when the
   form is the one the card named: the click is given up before the page can be asked anything
-  (decision 7). Honest pages submit on `click`, after the release, which is covered.
+  (decision 7). Honest pages submit on `click`, after the release, which is covered. A submit
+  timed to land while the page is being asked is a race between the send and the answer; both
+  outcomes are quick and safe (the click given up, or an uncovered send asked about).
 
 ## Alternatives considered
 
@@ -169,11 +187,20 @@ Measured on the owner's PC on 2026-10-04, with the test site and Edge:
 
 ## How to check
 
-`crates/capabilities/tests/browser.rs`: `an_approved_click_sends_only_where_the_card_said`
-(`/re-aim` to a website that is not allowed, `/re-aim-allowed` to the allowed `pay.test`,
-`/re-aim-path` to another page of the same website, `/eager`, `/js-send`, and the honest
-cross-website form `/pay`) and `a_control_moved_under_the_pointer_is_not_clicked` (`/decoy`,
-`/decoy-late`, `/decoy-press`); the pages are in `tests/support/site.rs`, and the test harness now
-allows `pay.test` beside `shop.test`. The earlier
-`a_control_that_changed_while_the_owner_decided_is_left_alone` and the rest of the browser tests
-still pass. Both new tests ran on the owner's PC (Windows, Edge) on 2026-10-04.
+`crates/capabilities/tests/browser.rs`:
+
+- `an_approved_click_sends_only_where_the_card_said`. `/re-aim` (to a website that is not
+  allowed) proves the **website lists**, not the binding: the form is stopped before the gate.
+  `/re-aim-allowed` (to the allowed `pay.test`) and `/re-aim-path` (to another page of the same
+  website) prove the **binding**. `/eager` proves the before-the-press rule, `/js-send` and the
+  honest cross-website form `/pay` prove that covered sends still go.
+- `a_control_moved_under_the_pointer_is_not_clicked` (`/decoy`, `/decoy-late`, `/decoy-press`).
+- `what_an_answer_page_sends_is_decided_too` (`/send-then-ping`): decision 8's follow-up sends.
+- `a_send_the_moment_the_button_goes_down_never_hangs_the_click` (`/press-send`): decision 7's
+  "a send wins over waiting"; the test accepts either quick, safe outcome of that race and refuses
+  a slow one.
+
+The pages are in `tests/support/site.rs`, and the test harness now allows `pay.test` beside
+`shop.test`. The earlier `a_control_that_changed_while_the_owner_decided_is_left_alone` and the
+rest of the browser tests still pass. All four new tests ran on the owner's PC (Windows, Edge) on
+2026-10-04.

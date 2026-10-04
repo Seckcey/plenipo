@@ -3200,3 +3200,115 @@ async fn a_control_moved_under_the_pointer_is_not_clicked() {
     }
     assert_eq!(h.events(&task.id, "approval.requested").len(), 3);
 }
+
+/// ADR-215 (P-BROWSER-1): what the page that follows an approved send sets off (the answer
+/// page's own message) is not covered by the approval and never stays held: it gets a card of
+/// its own, and refused, nothing more reaches the site.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn what_an_answer_page_sends_is_decided_too() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let page = h.url("shop", "/send-then-ping");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": page })),
+            tool("browser_click", json!({ "ref": "e1" }))
+        ] }]),
+    );
+    let root = h.objective().await;
+    let click = h.pending().await;
+    assert!(
+        click.summary.contains("sends to shop.test:") && click.summary.contains("/answered"),
+        "{}",
+        click.summary
+    );
+    h.broker.resolve_approval(&click.id, true, "owner").unwrap();
+    let ping = h.pending().await;
+    assert_ne!(ping.id, click.id);
+    assert!(
+        ping.summary
+            .contains("let the page send data to shop.test:")
+            && ping.summary.contains("the page that followed"),
+        "{}",
+        ping.summary
+    );
+    assert!(ping.detail.contains("/api/messages"), "{}", ping.detail);
+    h.broker.resolve_approval(&ping.id, false, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    let sent: Vec<(String, String)> = h
+        .site
+        .sent()
+        .into_iter()
+        .map(|r| (r.method, r.path))
+        .collect();
+    assert_eq!(
+        sent,
+        vec![("POST".to_owned(), "/answered".to_owned())],
+        "{sent:?}"
+    );
+    assert!(
+        text.contains("The page sent it to shop.test:") && text.contains("owner's approval"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Not sent: the owner did not approve the page sending data to shop.test:"),
+        "{text}"
+    );
+    assert_eq!(h.events(&task.id, "approval.requested").len(), 2);
+}
+
+/// ADR-215 (P-BROWSER-1): a page that submits its form 30 ms after the mouse button goes down,
+/// around the moment Plenipo asks the page what lies under the pointer, never keeps the button
+/// down waiting for an answer the page cannot give. Whichever comes first, the send or the
+/// answer, the outcome is quick and safe: the click is given up, or the uncovered send is asked
+/// about; nothing reaches the site.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_send_the_moment_the_button_goes_down_never_hangs_the_click() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let page = h.url("shop", "/press-send");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": page })),
+            tool("browser_click", json!({ "ref": "e1" }))
+        ] }]),
+    );
+    let root = h.objective().await;
+    let click = h.pending().await;
+    assert!(
+        click.summary.contains("\"Send message\""),
+        "{}",
+        click.summary
+    );
+    let approved_at = Instant::now();
+    h.broker.resolve_approval(&click.id, true, "owner").unwrap();
+    let send = h.pending().await;
+    assert!(
+        approved_at.elapsed() < Duration::from_secs(15),
+        "the click waited for the page's answer: {:?}",
+        approved_at.elapsed()
+    );
+    assert!(
+        send.reason.contains("the click was given up") || send.reason.contains("did not name"),
+        "{}",
+        send.reason
+    );
+    h.broker.resolve_approval(&send.id, false, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    assert!(
+        h.site.sent().is_empty(),
+        "nothing was sent: {:?}",
+        h.site.sent()
+    );
+    assert!(
+        text.contains("Not sent: the owner did not approve the page sending data to shop.test:"),
+        "{text}"
+    );
+    assert_eq!(h.events(&task.id, "approval.requested").len(), 2);
+}

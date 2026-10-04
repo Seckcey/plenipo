@@ -550,6 +550,30 @@ fn route(
                 ),
             ))
         }
+        // A form whose answer page sends a message of its own as it loads: that send followed
+        // the approved one and must be decided, never left held.
+        ("GET", "/send-then-ping") => ok(page(
+            "Send, then the answer pings",
+            "<form method=post action=\"/answered\"><input type=hidden name=name value=me>\
+             <button type=submit id=go>Send message</button></form>",
+        )),
+        ("POST", "/answered") => ok(page(
+            "Answered",
+            "<p id=out>Thanks. Telling home…</p><script>fetch('/api/messages', \
+             {method: 'POST', body: 'ping'}).then(r => \
+             document.getElementById('out').textContent = 'Pinged: ' + r.status, () => \
+             document.getElementById('out').textContent = 'Ping stopped')</script>",
+        )),
+        // A page that submits its form 30 ms after the mouse button goes down on a button that
+        // itself does nothing: between Plenipo's check and its question to the page.
+        ("GET", "/press-send") => ok(page(
+            "Sends on press",
+            "<div style=\"height:260px\"></div>\
+             <form id=f method=post action=\"/send\"><input type=hidden name=name value=me>\
+             <button type=button id=go>Send message</button></form>\
+             <script>document.getElementById('go').onmousedown = () => \
+             setTimeout(() => document.getElementById('f').submit(), 30)</script>",
+        )),
         // A button whose own script sends a message to this website: the ordinary case, which
         // must keep working under an approval.
         ("GET", "/js-send") => ok(page(

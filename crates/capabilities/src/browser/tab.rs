@@ -192,6 +192,17 @@ const SENT_WHILE_APPROACHING: &str = "the page sent data while the pointer was s
                                       to the control, so nothing was clicked";
 const SENT_ON_PRESS: &str = "the page sent data the moment the button went down, so the button \
                              was let go away from it and nothing was clicked";
+const DID_NOT_ANSWER: &str = "the page did not answer while the button was held, so the button \
+                              was let go away from the control and nothing was clicked";
+
+/// How a question to the page, asked while the mouse button is held, came out (ADR-215).
+enum Asked {
+    Answer(Value),
+    /// Something was held before the page answered: a send the page started.
+    Held,
+    /// The page did not answer (its script hung, or the page is gone).
+    NoAnswer,
+}
 
 /// How many times a worker may try a CAPTCHA before Plenipo hands it to the owner (ADR-029).
 pub const CAPTCHA_TRIES: u32 = 3;
@@ -1096,30 +1107,52 @@ impl Tab {
                     aborted = Some(SENT_ON_PRESS.into());
                     return Ok(());
                 }
+                // What lies under the held button now? A send the page starts meanwhile wins
+                // over waiting for the answer (the page's script does not answer then).
                 let under = self
-                    .helper(&format!(
+                    .asked_while_held(&format!(
                         "__plenipo.under({}, {}, {})",
                         json!(reference),
                         at.0,
                         at.1
                     ))
                     .await;
-                if under != Ok(json!(true)) {
-                    let safe = self
-                        .helper("__plenipo.safePoint()")
-                        .await
-                        .unwrap_or_else(|_| json!({ "x": 0, "y": 0 }));
-                    at = (
-                        safe["x"].as_f64().unwrap_or(0.0),
-                        safe["y"].as_f64().unwrap_or(0.0),
-                    );
-                    self.mouse("mouseMoved", at.0, at.1, 0).await?;
-                    self.mouse("mouseReleased", at.0, at.1, 1).await?;
-                    aborted = Some(MOVED_UNDER.into());
-                    return Ok(());
+                match under {
+                    Asked::Answer(Value::Bool(true)) => {
+                        tokio::time::sleep(Duration::from_millis(45)).await;
+                        self.mouse("mouseReleased", at.0, at.1, 1).await
+                    }
+                    Asked::Answer(_) => {
+                        // Another control lies there: let go where nothing of the page's is.
+                        at = match self.asked_while_held("__plenipo.safePoint()").await {
+                            Asked::Answer(safe) => (
+                                safe["x"].as_f64().unwrap_or(0.0),
+                                safe["y"].as_f64().unwrap_or(0.0),
+                            ),
+                            Asked::Held | Asked::NoAnswer => (0.0, 0.0),
+                        };
+                        self.mouse("mouseMoved", at.0, at.1, 0).await?;
+                        self.mouse("mouseReleased", at.0, at.1, 1).await?;
+                        aborted = Some(MOVED_UNDER.into());
+                        Ok(())
+                    }
+                    Asked::Held | Asked::NoAnswer => {
+                        // The page sent something, or does not answer: let go at the page's
+                        // corner, with no further call into the page.
+                        at = (0.0, 0.0);
+                        self.mouse("mouseMoved", at.0, at.1, 0).await?;
+                        self.mouse("mouseReleased", at.0, at.1, 1).await?;
+                        aborted = Some(
+                            if self.state().held.is_empty() {
+                                DID_NOT_ANSWER
+                            } else {
+                                SENT_ON_PRESS
+                            }
+                            .into(),
+                        );
+                        Ok(())
+                    }
                 }
-                tokio::time::sleep(Duration::from_millis(45)).await;
-                self.mouse("mouseReleased", at.0, at.1, 1).await
             })
             .await;
         self.state().pointer = Some(at);
@@ -1127,6 +1160,24 @@ impl Tab {
             s.aborted = aborted;
             s
         })
+    }
+
+    /// Ask the page `expression` while the mouse button is held (ADR-215). A send the page
+    /// starts meanwhile wins over waiting for the answer: the page's script does not answer
+    /// while the gate holds its navigation, and the button must not stay down for that.
+    async fn asked_while_held(&self, expression: &str) -> Asked {
+        let held = self
+            .shared
+            .wait(Instant::now() + Duration::from_secs(25), |s| {
+                !s.held.is_empty()
+            });
+        tokio::select! {
+            answer = self.helper(expression) => match answer {
+                Ok(v) => Asked::Answer(v),
+                Err(_) => Asked::NoAnswer,
+            },
+            _ = held => Asked::Held,
+        }
     }
 
     /// Move the pointer to `to` in a dozen steps along a gently bowed path, slow at both ends,

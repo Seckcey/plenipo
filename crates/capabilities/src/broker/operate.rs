@@ -41,7 +41,7 @@ use serde_json::{json, Value};
 use super::{cap, lock, Broker, Image, Inner, NotAsked, Prepared, Refused, Work, GUARD};
 use crate::browser::classify::{self, ElementFacts};
 use crate::browser::tab::{
-    Held, Mode, Signal, SitePolicy, Tab, TakenBack, CAPTCHA_TRIES, CAPTCHA_VERDICT_WAIT,
+    Held, Mode, Settled, Signal, SitePolicy, Tab, TakenBack, CAPTCHA_TRIES, CAPTCHA_VERDICT_WAIT,
 };
 use crate::browser::Start;
 use crate::control::{
@@ -1124,9 +1124,11 @@ impl Broker {
                 // Enter or Space on the CAPTCHA submits an answer: that is one try, counted
                 // when it happens (ADR-029). Other keys only move around inside it.
                 let captcha = focused.captcha && matches!(key.as_str(), "Enter" | "Space");
-                // Enter sends the focused field's form: the card names where (ADR-215).
-                let destinations =
-                    Destinations::new(&focused, &tab.url(), key == "Enter" && focused.found);
+                // Enter sends the focused field's form, and Space a focused submit button's:
+                // the card names where (ADR-215).
+                let submits =
+                    (key == "Enter" && focused.found) || (key == "Space" && focused.submit);
+                let destinations = Destinations::new(&focused, &tab.url(), submits);
                 let sends = destinations
                     .sends_to()
                     .map(|to| format!(", sending the form to {to}"))
@@ -1863,24 +1865,62 @@ impl Broker {
             // The owner approved the action (even one given up since): the card says why this
             // is not covered.
             let explain = ctx.approved.then_some((bound, !approved));
-            lines.push(
-                self.decide_unapproved(ctx, tab, uncovered, what, explain)
-                    .await,
-            );
+            let (line, after) = self
+                .decide_unapproved(ctx, tab, uncovered, what, explain)
+                .await;
+            lines.push(line);
+            lines.extend(self.decide_followers(ctx, tab, after, what).await);
         }
         if !covered.is_empty() {
-            tab.release(&covered, true).await;
+            let after = tab.release(&covered, true).await;
             lines.push(format!(
                 "The page sent it to {} (you had the owner's approval).",
                 sites_of(&covered)
             ));
+            lines.extend(self.decide_followers(ctx, tab, after, what).await);
         }
         Some(lines.join("\n"))
     }
 
+    /// What the pages that followed a released send set off (the answer page's own sends),
+    /// held while the release settled: no card named them, so each round is decided as a send
+    /// with no approval, until nothing is held; after a few rounds the rest is stopped. Nothing
+    /// stays held with no one to decide it (ADR-215).
+    async fn decide_followers(
+        &self,
+        ctx: &CallContext<'_>,
+        tab: &Tab,
+        mut settled: Settled,
+        what: &str,
+    ) -> Vec<String> {
+        let mut lines = Vec::new();
+        let followed = format!("{what} (the page that followed)");
+        for _ in 0..3 {
+            if settled.held.is_empty() {
+                return lines;
+            }
+            let held = std::mem::take(&mut settled.held);
+            let (line, next) = self
+                .decide_unapproved(ctx, tab, held, &followed, None)
+                .await;
+            lines.push(line);
+            settled = next;
+        }
+        if !settled.held.is_empty() {
+            let sites = sites_of(&settled.held);
+            tab.release(&settled.held, false).await;
+            lines.push(format!(
+                "Not sent: the pages that followed kept sending data to {sites}; Plenipo stopped \
+                 the rest."
+            ));
+        }
+        lines
+    }
+
     /// A send no approval covers: the owner's rules for sending, or a card. `explain`, when the
     /// action itself was approved, says what that approval covered and whether the action was
-    /// given up, so the card can say why this is not covered (ADR-215).
+    /// given up, so the card can say why this is not covered (ADR-215). With the words for the
+    /// worker comes what a released send set off (`Settled::held`), for `decide_followers`.
     async fn decide_unapproved(
         &self,
         ctx: &CallContext<'_>,
@@ -1888,7 +1928,7 @@ impl Broker {
         held: Vec<Held>,
         what: &str,
         explain: Option<(&Destinations, bool)>,
-    ) -> String {
+    ) -> (String, Settled) {
         let sites = sites_of(&held);
         let listed: Vec<String> = held
             .iter()
@@ -1910,10 +1950,14 @@ impl Broker {
         if let Ok(config) = self.inner.guard.config() {
             if config.sensitive_rule(SensitiveKind::Outbound) == SensitiveRule::Block {
                 tab.release(&held, false).await;
-                return format!(
-                    "Not sent: the page tried to send data to {sites}, and the owner set \"{}\" to \
-                     blocked. Do not try another way; say in your answer what you needed to send.",
-                    SensitiveKind::Outbound.label()
+                return (
+                    format!(
+                        "Not sent: the page tried to send data to {sites}, and the owner set \
+                         \"{}\" to blocked. Do not try another way; say in your answer what you \
+                         needed to send.",
+                        SensitiveKind::Outbound.label()
+                    ),
+                    Settled::default(),
                 );
             }
             let all_allowed = held.iter().all(|h| {
@@ -1925,10 +1969,13 @@ impl Broker {
                 })
             });
             if config.switches.send_without_asking && all_allowed {
-                tab.release(&held, true).await;
-                return format!(
-                    "The page sent it to {sites} (the owner lets workers send on allowed websites \
-                     without asking)."
+                let after = tab.release(&held, true).await;
+                return (
+                    format!(
+                        "The page sent it to {sites} (the owner lets workers send on allowed \
+                         websites without asking)."
+                    ),
+                    after,
                 );
             }
         }
@@ -2001,20 +2048,26 @@ impl Broker {
             .await;
         match answer {
             Ok((_, ApprovalState::Approved)) if tab.mode() == Mode::Worker => {
-                tab.release(&held, true).await;
-                format!("The owner approved: the page sent it to {sites}.")
+                let after = tab.release(&held, true).await;
+                (
+                    format!("The owner approved: the page sent it to {sites}."),
+                    after,
+                )
             }
             // Never asked (one of the grant's limits on asking, B6): the worker hears the
             // limit's words, not that the owner said no.
             Err(NotAsked::Limited(words)) => {
                 tab.release(&held, false).await;
-                words
+                (words, Settled::default())
             }
             _ => {
                 tab.release(&held, false).await;
-                format!(
-                    "Not sent: the owner did not approve the page sending data to {sites}. Do not \
-                     try another way; say in your answer what you needed to send and why."
+                (
+                    format!(
+                        "Not sent: the owner did not approve the page sending data to {sites}. Do \
+                         not try another way; say in your answer what you needed to send and why."
+                    ),
+                    Settled::default(),
                 )
             }
         }
