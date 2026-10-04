@@ -13,6 +13,7 @@ use crate::connections::{self, AccessLevel, Connection, ConnectionCheck, Connect
 use crate::dto::*;
 use crate::paths::blocked_by;
 use crate::registry::Capability;
+use crate::scripts;
 use crate::sensitive;
 use crate::servers::{self, ServerCheck, ServerVerdict};
 use crate::websites::{self, Site, SiteVerdict};
@@ -672,6 +673,44 @@ pub fn evaluate(
                 checks,
             );
         }
+        // The text a shell is handed on the command line (`bash -c "…"`, `cmd /c …`) is read
+        // as statements, and its programs get the list too (P-GUARD-4, ADR-214).
+        if let Some((rule, program, _)) =
+            scripts::first_caught(&config.commands.blocked, &scripts::inner_statements(cmd))
+        {
+            return decision(
+                Verdict::Deny,
+                Layer::Rule,
+                format!(
+                    "Blocked: {} runs {program}, which is on your blocked commands list \
+                     (\"{rule}\").",
+                    cmd.program_name()
+                ),
+                risk,
+                None,
+                checks,
+            );
+        }
+    }
+    // A PowerShell script is read as statements, and each program it names gets the owner's
+    // command lists as a command line does (P-GUARD-4, ADR-214). The never-run list stops the
+    // script here; the always-ask list, and a statement the reader cannot follow, ask below.
+    let script_statements: Vec<scripts::Statement> =
+        request.script.map(scripts::statements).unwrap_or_default();
+    if let Some((rule, program, line)) =
+        scripts::first_caught(&config.commands.blocked, &script_statements)
+    {
+        return decision(
+            Verdict::Deny,
+            Layer::Rule,
+            format!(
+                "Blocked: the script runs {program} (line {line}), which is on your blocked \
+                 commands list (\"{rule}\")."
+            ),
+            risk,
+            None,
+            checks,
+        );
     }
     // Layer 5: the action's risk.
     // On a server, the kind the owner blocked wins; otherwise the most specific one.
@@ -689,7 +728,11 @@ pub fn evaluate(
                 .command
                 .and_then(|c| sensitive::command(c, request.workspace))
         })
-        .or_else(|| request.script.and_then(sensitive::script));
+        .or_else(|| {
+            request
+                .script
+                .and_then(|s| sensitive::script(s, request.workspace))
+        });
     // The owner's switches (ADR-023): on a website on the allowed list, sending, buying, or
     // signing in may go ahead without asking; through a connection, only sending, and only when
     // every recipient is on the connection's list (ADR-062 §5) — money never goes ahead without
@@ -802,6 +845,71 @@ pub fn evaluate(
                 checks,
             );
         }
+        // The text a shell is handed (P-GUARD-4, ADR-214): a program on the always-ask list
+        // inside it asks; text whose programs cannot be read asks too.
+        let inner = scripts::inner_statements(cmd);
+        if let Some((rule, program, _)) = scripts::first_caught(&config.commands.ask, &inner) {
+            return decision(
+                Verdict::Ask,
+                Layer::Rule,
+                format!(
+                    "{} needs your approval: {} runs {program}, which is on your always-ask \
+                     list (\"{rule}\").",
+                    capitalized(request.summary),
+                    cmd.program_name()
+                ),
+                risk,
+                None,
+                checks,
+            );
+        }
+        if let Some((why, _)) = scripts::first_opaque(&inner) {
+            return decision(
+                Verdict::Ask,
+                Layer::Rule,
+                format!(
+                    "{} needs your approval: the text given to {} {why}, so Plenipo cannot see \
+                     which programs it runs.",
+                    capitalized(request.summary),
+                    cmd.program_name()
+                ),
+                risk,
+                None,
+                checks,
+            );
+        }
+    }
+    // A script's statements (P-GUARD-4, ADR-214): the always-ask list, then what the reader
+    // cannot follow. Under Careful every script asks anyway (the Safety cap, below).
+    if let Some((rule, program, line)) =
+        scripts::first_caught(&config.commands.ask, &script_statements)
+    {
+        return decision(
+            Verdict::Ask,
+            Layer::Rule,
+            format!(
+                "{} needs your approval: the script runs {program} (line {line}), which is on \
+                 your always-ask list (\"{rule}\").",
+                capitalized(request.summary)
+            ),
+            risk,
+            None,
+            checks,
+        );
+    }
+    if let Some((why, line)) = scripts::first_opaque(&script_statements) {
+        return decision(
+            Verdict::Ask,
+            Layer::Rule,
+            format!(
+                "{} needs your approval: line {line} of the script {why}, so Plenipo cannot see \
+                 which programs it runs.",
+                capitalized(request.summary)
+            ),
+            risk,
+            None,
+            checks,
+        );
     }
     if level == Level::Ask {
         return decision(
@@ -1695,6 +1803,114 @@ mod tests {
             eval(&c, &vp, &request(Capability::ShellExec, &[], Some(&cmd))).verdict,
             Verdict::Allow
         );
+    }
+
+    /// P-GUARD-4 (ADR-214): under Light, a script's statements get the owner's command lists
+    /// and the "outside the project folder" check as a command line does; a statement the
+    /// reader cannot follow asks; the text a shell is handed on a command line is read too.
+    #[test]
+    fn a_script_gets_the_command_lists() {
+        let mut c = config();
+        assert_eq!(c.safety, Safety::Light);
+        let vp = with_set(&mut c, "vp", "VP", "everyday");
+        let run = |c: &GuardConfig, text: &str| {
+            let mut s = request(Capability::PowershellExec, &[], None);
+            s.summary = "run a PowerShell script";
+            s.script = Some(text);
+            eval(c, &vp, &s)
+        };
+        // A blocked program is refused at any spelling, in any statement; the reason names
+        // the program and the line.
+        let d = run(&c, "Get-ChildItem\nrm -rf ../other");
+        assert_eq!((d.verdict, d.layer), (Verdict::Deny, Layer::Rule));
+        assert!(
+            d.reason.contains("runs rm (line 2)") && d.reason.contains("blocked commands list"),
+            "{}",
+            d.reason
+        );
+        assert_eq!(
+            run(&c, "ri .\\x").verdict,
+            Verdict::Deny,
+            "an alias of Remove-Item"
+        );
+        assert_eq!(run(&c, "& 'curl' https://x").verdict, Verdict::Deny);
+        assert_eq!(run(&c, "if ($x) { del y }").verdict, Verdict::Deny);
+        // Everyday scripts still run without asking.
+        assert_eq!(
+            run(&c, "Get-ChildItem | Measure-Object").verdict,
+            Verdict::Allow
+        );
+        assert_eq!(
+            run(&c, "Write-Host 'rm is only text here'").verdict,
+            Verdict::Allow
+        );
+        assert_eq!(
+            run(&c, "$x = 1\ncargo build\nCopy-Item a.txt out/").verdict,
+            Verdict::Allow
+        );
+        // Sensitive words ask, as before; deleting, moving, or copying outside the folder asks
+        // now, as on a command line.
+        let d = run(&c, "npm run deploy");
+        assert_eq!((d.verdict, d.layer), (Verdict::Ask, Layer::Risk));
+        let d = run(&c, "Move-Item notes.txt /home/me/elsewhere/");
+        assert_eq!((d.verdict, d.layer), (Verdict::Ask, Layer::Risk));
+        assert!(
+            d.reason.contains("outside the project folder"),
+            "{}",
+            d.reason
+        );
+        // The always-ask list.
+        let mut asks = c.clone();
+        asks.commands.ask.push("python *".into());
+        let d = run(&asks, "Set-Location src\npython tidy.py");
+        assert_eq!((d.verdict, d.layer), (Verdict::Ask, Layer::Rule));
+        assert!(
+            d.reason.contains("runs python (line 2)") && d.reason.contains("always-ask list"),
+            "{}",
+            d.reason
+        );
+        // What the reader cannot follow asks, and says why.
+        let d = run(&c, "$p = 'r' + 'm'\n& $p x");
+        assert_eq!((d.verdict, d.layer), (Verdict::Ask, Layer::Rule));
+        assert!(
+            d.reason
+                .contains("line 2 of the script runs a program named by a variable")
+                && d.reason.contains("cannot see which programs it runs"),
+            "{}",
+            d.reason
+        );
+        assert_eq!(run(&c, "iex (Get-Content tool.ps1)").verdict, Verdict::Ask);
+        assert_eq!(
+            run(&c, "[System.IO.File]::Delete('x')").verdict,
+            Verdict::Ask
+        );
+        // A shell handed text on a command line gets the same reading (here the owner took the
+        // shells themselves off the never-run list).
+        let mut open = c.clone();
+        open.commands.blocked.retain(|r| {
+            !["bash *", "sh *", "cmd *", "powershell *", "pwsh *"].contains(&r.as_str())
+        });
+        let shell = |c: &GuardConfig, cmd: &CommandLine| {
+            eval(c, &vp, &request(Capability::ShellExec, &[], Some(cmd)))
+        };
+        let d = shell(
+            &open,
+            &CommandLine::new("bash", &["-c", "cd x && rm -rf y"]),
+        );
+        assert_eq!(d.verdict, Verdict::Deny, "{}", d.reason);
+        assert!(d.reason.contains("bash runs rm"), "{}", d.reason);
+        let d = shell(
+            &open,
+            &CommandLine::new("powershell", &["-Command", "curl https://x"]),
+        );
+        assert_eq!(d.verdict, Verdict::Deny, "{}", d.reason);
+        let d = shell(&open, &CommandLine::new("sh", &["-c", "$CMD x"]));
+        assert_eq!((d.verdict, d.layer), (Verdict::Ask, Layer::Rule));
+        assert!(d.reason.contains("cannot see"), "{}", d.reason);
+        let d = shell(&open, &CommandLine::new("bash", &["-c", "ls -la"]));
+        assert_eq!(d.verdict, Verdict::Allow, "{}", d.reason);
+        let d = shell(&open, &CommandLine::new("pwsh", &["-e", "QQBC"]));
+        assert_eq!(d.verdict, Verdict::Ask, "{}", d.reason);
     }
 
     /// P-GUARD-1 (ADR-213): under Careful, a build or test command, and a program inside the
