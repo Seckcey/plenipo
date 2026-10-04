@@ -189,6 +189,38 @@ describe("Workers view", () => {
     expect(showExecution).toHaveBeenCalledWith("e1");
   });
 
+  it("shows streamed thinking as one row that grows, not a row for each piece", async () => {
+    api.startAgentSession.mockResolvedValue(detail());
+    api.getAgentSession.mockResolvedValue(detail());
+    render(<Harness />);
+    const user = userEvent.setup();
+    const form = await screen.findByRole("form", { name: "New task" });
+    expect(await within(form).findByText("Ready")).toBeInTheDocument();
+    await user.type(within(form).getByRole("textbox", { name: "Objective" }), "Plan first");
+    await user.click(within(form).getByRole("button", { name: "Start task" }));
+    await screen.findByRole("list", { name: "Tasks" });
+
+    // Claude Code says it began to think, then its thinking comes in pieces.
+    const began = { type: "status", phase: "thinking", text: "Thinking" } as const;
+    send({ kind: "activity", ...activity("t1", 1, began) });
+    const log = screen.getByRole("list", { name: "Task 1 activity" });
+    const rows = () =>
+      within(log)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent);
+    expect(rows()).toEqual(["ThinkingThinking"]);
+    for (const [seq, text] of [
+      [2, "I"],
+      [3, " sh"],
+      [4, "ould check"],
+    ] as const) {
+      send({ kind: "activity", ...activity("t1", seq, { type: "reasoning", text }) });
+    }
+    send({ kind: "activity", ...activity("t1", 5, { type: "textDelta", text: "Done." }) });
+    // One row for the thought (its sign that it began is not said twice), one for the words.
+    expect(rows()).toEqual(["ThinkingI should check", "AgentDone."]);
+  });
+
   it("explains why an AI tool is not ready and does not let it start", async () => {
     render(<Harness />);
     const user = userEvent.setup();

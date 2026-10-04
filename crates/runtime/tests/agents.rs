@@ -828,6 +828,46 @@ async fn new_session_streams_activity_and_returns_a_normalized_result() {
 }
 
 #[tokio::test]
+async fn streamed_thinking_is_kept_whole_for_a_reload() {
+    // Claude Code's thinking comes in small pieces (ADR-200). The live view gets each piece as it
+    // comes; what a reload reads holds the thought once, whole, like the streamed words.
+    let h = harness_with(&["claude"], None);
+    let (detail, turn) = run(&h, "claude-code", "Plan first [think]").await;
+    assert_eq!(outcome(&turn), TurnOutcome::Completed);
+    // How the live pieces are cut is the runtime's choice (it may hold back a word being
+    // written); they are several, and together they say the whole thought.
+    let live = h.updates.activity(&turn.task_id);
+    let pieces: Vec<_> = live
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::Reasoning { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(pieces.len() > 1, "thinking streams in pieces: {live:?}");
+    assert_eq!(pieces.concat(), "I should check the file first.");
+
+    let kept: Vec<_> = detail.activity.iter().map(|a| &a.event).collect();
+    let thoughts: Vec<_> = kept
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::Reasoning { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(thoughts, ["I should check the file first."], "{kept:?}");
+    // The words after it are joined on their own, never into the thought.
+    let words = kept
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::TextDelta { .. }))
+        .count();
+    assert_eq!(words, 1, "{kept:?}");
+    // The joined thought takes its last piece's number, so the live pieces after it still come.
+    let seqs: Vec<u64> = detail.activity.iter().map(|a| a.seq).collect();
+    assert!(seqs.windows(2).all(|w| w[0] < w[1]), "{seqs:?}");
+}
+
+#[tokio::test]
 async fn resume_continues_the_same_provider_session() {
     for runtime in RUNTIMES {
         let h = harness();
