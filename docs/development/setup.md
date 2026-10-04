@@ -418,7 +418,27 @@ The new installer must be built with `PLENIPO_UPDATER_PUBLIC_KEY` (the throwaway
 half) and `PLENIPO_UPDATE_ENDPOINT=http://127.0.0.1:8765/latest.json`; see the Windows job in
 `.github/workflows/ci.yml`.
 
-## 7. Verify everything locally (same as CI)
+## 7. Checks before you push
+
+**The quick checks** (the owner's decision, 2026-10-04). GitHub runs the full set on every pull
+request, on Windows, Linux, and the Mac, and nothing merges until it passes. So before you push,
+the PC runs only what is quick:
+
+```powershell
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --locked -p <crate>   # each crate you changed
+pnpm check                       # if you changed the desktop, the phone page, or a package
+pnpm bindings                    # if you changed a Rust type the screens use; then no diff in packages/types/src/generated
+```
+
+Report `cargo test --workspace` and the real-app tests as **not run (CI)**. A clean merge of
+`main` with no change of your own needs no checks again. Several sessions often build on the
+same PC at once, and running the whole suite in each of them makes timing tests fail when
+nothing is wrong.
+
+**The full set** (what CI runs; on the PC only when the Coordinator asks, or alone on a quiet
+computer):
 
 ```powershell
 pnpm check
