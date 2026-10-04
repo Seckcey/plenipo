@@ -51,6 +51,8 @@ windows = { version = "0.62", features = [
 ] }
 
 [dev-dependencies]
+# The real redactor, for the tests of live text redacted as whole words (ADR-216).
+plenipo-guard = { path = "../guard" }
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 tempfile = "3"
 

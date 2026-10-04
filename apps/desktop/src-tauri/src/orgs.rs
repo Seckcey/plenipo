@@ -522,7 +522,10 @@ pub fn filter_logs(orgs: &Orgs) {
     let filters: Vec<crate::logs::Filter> = orgs
         .stacks()
         .iter()
-        .map(|s| s.broker.text_filter())
+        .map(|s| {
+            let filter = s.broker.text_filter();
+            Arc::new(move |text: &str| filter.redact(text)) as crate::logs::Filter
+        })
         .collect();
     logs.set_filter(Arc::new(move |line: &str| {
         filters.iter().fold(line.to_owned(), |text, f| f(&text))

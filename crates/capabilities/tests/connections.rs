@@ -1101,7 +1101,9 @@ async fn connect_read_write_with_approval_and_disconnect() {
 
     // The sign-in values are hidden in any text Plenipo shows, and are nowhere else.
     let filter = h.broker.text_filter();
-    assert!(!filter(&format!("oops {refresh} oops")).contains(&refresh[..60]));
+    assert!(!filter
+        .redact(&format!("oops {refresh} oops"))
+        .contains(&refresh[..60]));
     h.assert_no_sign_in_value_anywhere();
 
     // Disconnect: the sign-in leaves the Vault, and the tools are gone from the next step.
@@ -2295,7 +2297,7 @@ async fn disconnect_stops_the_tools_even_when_the_vault_fails() {
     assert!(text.contains("not offered to you"), "{text}");
     // Still hidden in any text while it is in the Vault.
     let left = h.vault_value().unwrap();
-    assert!(!(h.broker.text_filter())(&left).contains(&left[..60]));
+    assert!(!h.broker.text_filter().redact(&left).contains(&left[..60]));
     h.store.fail_removing.store(false, Ordering::SeqCst);
     h.broker.disconnect_connection(ID).await.unwrap();
     assert_eq!(h.store.stored(), 0);
@@ -2721,7 +2723,9 @@ async fn slack_connect_read_post_with_approval_and_disconnect() {
     // A lesson from this task waits for the owner.
     assert!(h.ledger.task_used_web_screen_or_servers(&task).unwrap());
     let filter = h.broker.text_filter();
-    assert!(!filter(&format!("oops {kept} oops")).contains(&kept[..40]));
+    assert!(!filter
+        .redact(&format!("oops {kept} oops"))
+        .contains(&kept[..40]));
     h.assert_no_sign_in_value_anywhere();
 
     // Disconnect: the sign-in leaves the Vault, Slack cancels it (the renewal and the
@@ -3088,7 +3092,9 @@ async fn the_owners_own_apps_keep_no_secret_but_in_the_vault() {
     // Google's secret: kept, hidden in any text, and gone with the app.
     h.save_google_app();
     let filter = h.broker.text_filter();
-    assert!(!filter(&format!("x {} x", google::SECRET)).contains(google::SECRET));
+    assert!(!filter
+        .redact(&format!("x {} x", google::SECRET))
+        .contains(google::SECRET));
     let log = logged().lock().unwrap().clone();
     assert!(!log.contains(google::SECRET));
     h.assert_no_sign_in_value_anywhere();

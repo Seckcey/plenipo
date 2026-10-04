@@ -241,7 +241,7 @@ pub async fn save_key(
     if trimmed.is_empty() || trimmed.chars().count() > 60 || trimmed.chars().any(char::is_control) {
         return Err("A key's name is one line of 1 to 60 characters.".into());
     }
-    let looks_secret = (broker.text_filter())(trimmed) != trimmed;
+    let looks_secret = broker.text_filter().redact(trimmed) != trimmed;
     if looks_secret
         || (trimmed.chars().count() >= MIN_KEY && (key.contains(trimmed) || trimmed.contains(&key)))
     {

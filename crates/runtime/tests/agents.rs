@@ -2675,3 +2675,76 @@ async fn the_permissions_note_goes_out_in_full_only_when_needed() {
         assert_eq!(size.note, NoteKind::Full, "{objective}");
     }
 }
+
+/// ADR-216: a key an agent writes across streamed pieces never reaches the live view. The fake
+/// Claude Code echoes its objective and streams the first 128 bytes of its answer in 16-byte
+/// pieces, so a key in the objective is cut across them; with Guard's redactor set, no piece
+/// shows any of it, and the pieces joined read as the redacted whole message.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_key_split_across_live_pieces_never_shows() {
+    /// Guard's redactor as the runtime's filter (the broker does the same in the app).
+    struct Guarded(plenipo_guard::redact::Redactor);
+    impl plenipo_runtime::agent::tools::TextRedaction for Guarded {
+        fn redact(&self, text: &str) -> String {
+            self.0.redact(text).into_owned()
+        }
+        fn redact_from(&self, text: &str, start: usize) -> String {
+            self.0.redact_from(text, start).into_owned()
+        }
+        fn hidden(&self, what: &str) -> String {
+            format!("{}{what}]", plenipo_guard::redact::MARKER)
+        }
+        fn stored_secret_start(&self, text: &str) -> Option<usize> {
+            self.0.stored_secret_start(text)
+        }
+    }
+    let h = harness();
+    h.rt.set_filter(Arc::new(
+        Guarded(plenipo_guard::redact::Redactor::default()),
+    ));
+    let key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
+    let (_, turn) = run(&h, "claude-code", &format!("use {key} please")).await;
+    assert_eq!(outcome(&turn), TurnOutcome::Completed);
+    let live = h.updates.activity(&turn.task_id);
+    let deltas: Vec<&str> = live
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::TextDelta { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        deltas.len() >= 2,
+        "the answer streams in pieces: {deltas:?}"
+    );
+    for piece in &deltas {
+        for i in 0..=key.len() - 8 {
+            assert!(
+                !piece.contains(&key[i..i + 8]),
+                "a live piece shows part of the key: {piece:?}"
+            );
+        }
+    }
+    let message = live
+        .iter()
+        .find_map(|e| match e {
+            AgentEvent::Message { text } => Some(text.clone()),
+            _ => None,
+        })
+        .expect("the whole message");
+    assert!(
+        message.contains("[hidden by Plenipo: API key]") && !message.contains("sk-ant-"),
+        "{message}"
+    );
+    assert_eq!(
+        deltas.concat(),
+        message,
+        "the pieces joined read as the redacted message"
+    );
+    let result = turn.result.as_ref().unwrap();
+    assert!(!result
+        .text
+        .as_deref()
+        .unwrap_or_default()
+        .contains("sk-ant-"));
+}
