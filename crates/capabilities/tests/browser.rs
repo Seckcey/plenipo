@@ -566,6 +566,20 @@ impl H {
         }
     }
 
+    /// Wait until the test site's `page` has changed its control: its script tells the site
+    /// (`/changed/<page>`) once it has. However busy the computer, the change has happened.
+    async fn page_changed(&self, page: &str) {
+        let path = format!("/changed/{page}");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !self.site.requests().iter().any(|r| r.path == path) {
+            assert!(
+                Instant::now() < deadline,
+                "the /{page} page never changed its control: no {path} within 30 s"
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
     fn profile(&self) -> PathBuf {
         self.dir.path().join("browser-profile")
     }
@@ -1788,13 +1802,13 @@ async fn a_control_that_changed_while_the_owner_decided_is_left_alone() {
         "{}",
         click.summary
     );
-    // The page re-aims its form 700 ms after it loads; the owner takes longer than that.
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    // The page re-aims its form a moment after it loads; the owner decides after that.
+    h.page_changed("swap").await;
     h.broker.resolve_approval(&click.id, true, "owner").unwrap();
     let typing = h.pending().await;
     assert_ne!(typing.id, click.id);
     assert!(typing.summary.contains("\"Note\""), "{}", typing.summary);
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    h.page_changed("turncoat").await;
     h.broker
         .resolve_approval(&typing.id, true, "owner")
         .unwrap();

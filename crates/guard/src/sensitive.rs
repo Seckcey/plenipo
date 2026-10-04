@@ -290,6 +290,14 @@ const DESTRUCTIVE: &[&str] = &[
     "shred",
     "set-content",
     "out-file",
+    "rename-item",
+    "ren",
+    "rni",
+    // Windows PowerShell's short aliases (P-GUARD-4, ADR-214).
+    "ri",
+    "mi",
+    "cpi",
+    "sc",
 ];
 
 /// An argument that names a place outside `root`: an absolute path elsewhere, `..` that climbs
@@ -366,18 +374,35 @@ pub fn command(cmd: &CommandLine, workspace: &Path) -> Option<(SensitiveKind, &'
     if let Some(hit) = classify(&words) {
         return Some(hit);
     }
-    if words.program_is(DESTRUCTIVE) && cmd.args.iter().any(|a| escapes(a, workspace)) {
-        return Some((
-            SensitiveKind::OutsideWorkspace,
-            "it deletes, moves, or overwrites files outside the project folder",
-        ));
+    if destroys_outside(cmd, workspace) {
+        return Some((SensitiveKind::OutsideWorkspace, OUTSIDE));
     }
     None
 }
 
-/// The sensitive kind of a script (best effort over its words).
-pub fn script(text: &str) -> Option<(SensitiveKind, &'static str)> {
-    classify(&Words::script(text))
+const OUTSIDE: &str = "it deletes, moves, or overwrites files outside the project folder";
+
+/// A program that deletes, moves, or overwrites (under either spelling, when its name is a
+/// PowerShell alias) given a place outside the project folder.
+fn destroys_outside(cmd: &CommandLine, workspace: &Path) -> bool {
+    crate::scripts::spellings(cmd)
+        .iter()
+        .any(|c| Words::command(c).program_is(DESTRUCTIVE))
+        && cmd.args.iter().any(|a| escapes(a, workspace))
+}
+
+/// The sensitive kind of a script: best effort over its words, and then each statement's
+/// program and arguments as for a command line, so `Remove-Item` with a place outside the
+/// project folder asks as `rm` does (P-GUARD-4, ADR-214).
+pub fn script(text: &str, workspace: &Path) -> Option<(SensitiveKind, &'static str)> {
+    if let Some(hit) = classify(&Words::script(text)) {
+        return Some(hit);
+    }
+    let statements = crate::scripts::statements(text);
+    if crate::scripts::programs(&statements).any(|cmd| destroys_outside(cmd, workspace)) {
+        return Some((SensitiveKind::OutsideWorkspace, OUTSIDE));
+    }
+    None
 }
 
 #[cfg(test)]
@@ -456,19 +481,32 @@ mod tests {
 
     #[test]
     fn scripts_are_checked_too() {
+        let ws = Path::new("/home/me/proj");
+        let kind = |text: &str| script(text, ws).map(|k| k.0);
         assert_eq!(
-            script("Start-Process powershell -Verb RunAs").map(|k| k.0),
+            kind("Start-Process powershell -Verb RunAs"),
             Some(Privilege)
         );
         assert_eq!(
-            script("Invoke-Sqlcmd -Query 'DROP TABLE Customers'").map(|k| k.0),
+            kind("Invoke-Sqlcmd -Query 'DROP TABLE Customers'"),
             Some(Database)
         );
+        assert_eq!(kind("Send-MailMessage -To a@b.c"), Some(Outbound));
+        assert_eq!(kind("Get-ChildItem | Measure-Object"), None);
+        // P-GUARD-4 (ADR-214): a statement that deletes, moves, or overwrites outside the
+        // project folder, under any spelling.
         assert_eq!(
-            script("Send-MailMessage -To a@b.c").map(|k| k.0),
-            Some(Outbound)
+            kind("Remove-Item C:\\Users\\me\\other -Recurse"),
+            Some(OutsideWorkspace)
         );
-        assert_eq!(script("Get-ChildItem | Measure-Object").map(|k| k.0), None);
+        assert_eq!(kind("Get-Date\nri -Path ../other"), Some(OutsideWorkspace));
+        assert_eq!(
+            kind("Copy-Item notes.txt /home/me/elsewhere/"),
+            Some(OutsideWorkspace)
+        );
+        assert_eq!(kind("Remove-Item .\\build -Recurse"), None);
+        assert_eq!(kind("Set-Content out/log.txt 'x'"), None);
+        assert_eq!(kind("Write-Host 'rm -rf /etc'"), None, "words in a string");
     }
 
     /// The Phase 23 Guard review: a path that stays inside by its name but leaves through a link
