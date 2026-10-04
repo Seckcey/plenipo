@@ -1,8 +1,8 @@
 # ADR-214: Files are checked at the moment of use, and scripts follow the command lists
 
 - **Status:** Proposed (the Development Coordinator and the independent security reviewer settled
-  the design on 2026-10-03; the owner accepts it at review)
-- **Date:** 2026-10-03
+  the design on 2026-10-04; the owner accepts it at review)
+- **Date:** 2026-10-04
 - **Phase:** none (security hardening: findings P-GUARD-3 and P-GUARD-4 of the 2026-10-02 security
   review; the first part of P-GUARD-3 was done in Phase 23, Wave 1, as finding G23-3)
 - **Builds on:** [ADR-013 (Guard and the capability broker)](ADR-013-guard-capability-broker.md),
@@ -64,7 +64,8 @@ What the code did at `98448455` (after Phase 23's Wave 1 and ADR-213):
   a script ran at the role's level, with `PowershellExec` **Allowed** in the Everyday work and
   Developer sets.
 
-Measured on the owner's PC on 2026-10-03, from an ordinary program using Rust's standard library:
+Measured on the owner's PC on 2026-10-03 and 2026-10-04, from an ordinary program using Rust's
+standard library:
 
 - A cloud-only OneDrive file (Files On-Demand) shows to an ordinary program **without** the reparse
   attribute (attributes `RECALL_ON_DATA_ACCESS` and `ARCHIVE` only), with or without a Windows 10
@@ -205,7 +206,7 @@ The following stay open and are written down here so nobody mistakes them for ov
   every reparse point:** OneDrive, compressed files, deduplicated files, and ProjFS would stop
   working. The rule is name surrogates only, which is what the standard library already calls a
   symlink.
-- **What was run and what was reasoned.** Run on the owner's PC (Windows) on 2026-10-03: the 22
+- **What was run and what was reasoned.** Run on the owner's PC (Windows) on 2026-10-04: the 22
   file-tool unit tests, including the new junction (`mklink /J`) and hard-link tests, and the 180
   Guard unit tests, including the new script-reader tests. The two-step open and the identity proof
   are on the path of every one of those file tests. **Reasoned, not run:** the file-symlink part of
