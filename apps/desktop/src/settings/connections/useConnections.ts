@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect } from "react";
 import type { ConnectionsPage } from "@plenipo/types";
 
 import { getConnections } from "../../api/commands";
@@ -20,45 +20,31 @@ export const SIGN_IN_POLL_MS = 1_500;
 
 /**
  * Settings → Connections, kept live; looked at again every moment while a sign-in waits — one
- * look at a time, and a look that started before your last change never puts back what was on
- * screen before it.
+ * look at a time. A look or reload that started before your last change, or before a newer one,
+ * never puts back what was on screen before it.
  */
 export function useConnections() {
-  const { value, error, reload, apply } = useLive<ConnectionsPage>(
+  const { value, error, reload, apply, quietLook } = useLive<ConnectionsPage>(
     getConnections,
     affectsConnections,
-  );
-  const changes = useRef(0);
-  const applyChange = useCallback(
-    (page: ConnectionsPage) => {
-      changes.current += 1;
-      apply(page);
-    },
-    [apply],
   );
   const waiting = value?.services.some((s) => s.connections.some((c) => c.signingIn)) ?? false;
   useEffect(() => {
     if (!waiting) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const look = () => {
+    const next = () => {
       timer = setTimeout(() => {
-        const seen = changes.current;
-        getConnections()
-          .then((page) => {
-            if (!stopped && seen === changes.current) apply(page);
-          })
-          .catch(() => undefined)
-          .finally(() => {
-            if (!stopped) look();
-          });
+        void quietLook().finally(() => {
+          if (!stopped) next();
+        });
       }, SIGN_IN_POLL_MS);
     };
-    look();
+    next();
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
     };
-  }, [waiting, apply]);
-  return { page: value, error, reload, apply: applyChange };
+  }, [waiting, quietLook]);
+  return { page: value, error, reload, apply };
 }

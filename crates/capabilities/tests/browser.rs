@@ -161,7 +161,7 @@ impl Drop for H {
 
 /// Operations → Web tasks (no folder), led by a Web Supervisor (Claude Code) whose team is a
 /// Web Assistant, a Researcher, and a Desk Operator (a custom role with the Screen, mouse, and keyboard set).
-/// Websites: shop.test allowed, blocked.test blocked, others ask.
+/// Websites: shop.test and pay.test allowed, blocked.test blocked, others ask.
 async fn harness(browser: Option<PathBuf>) -> H {
     harness_with(browser, true).await
 }
@@ -259,7 +259,7 @@ async fn harness_with(browser: Option<PathBuf>, outside_port: bool) -> H {
     let run = tokio::spawn(liaison.clone().run());
     guard
         .set_websites(&WebsiteRules {
-            allowed: vec!["shop.test".into()],
+            allowed: vec!["shop.test".into(), "pay.test".into()],
             blocked: vec!["blocked.test".into()],
             others: OtherSites::Ask,
         })
@@ -2953,4 +2953,362 @@ async fn a_browser_ask_refused_by_the_limits_says_so_and_keeps_no_picture() {
         assert!(r.is_error, "{}", r.text);
     }
     assert!(h.broker.approvals().unwrap().pending.is_empty());
+}
+
+/// ADR-215 (P-BROWSER-1): the owner's approval of a click covers only what the card named, sent
+/// by the click itself. A form the page re-aims the moment the button goes down is not sent under
+/// the approval: to a website that is not allowed, the website lists stop it as before; to an
+/// allowed website the card did not name, or to another page of the same website, it asks the
+/// owner instead, and refused, nothing reaches the site. A form the page sends by itself while
+/// the pointer is still on its way asks too. A button whose own script sends a message to the
+/// page's website, and an honest form that sends to another website the card names, still work
+/// under the approval.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_approved_click_sends_only_where_the_card_said() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let (re_aim, re_aim_allowed, re_aim_path, eager, js_send, pay) = (
+        h.url("shop", "/re-aim"),
+        h.url("shop", "/re-aim-allowed"),
+        h.url("shop", "/re-aim-path"),
+        h.url("shop", "/eager"),
+        h.url("shop", "/js-send"),
+        h.url("shop", "/pay"),
+    );
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": re_aim })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_open", json!({ "url": re_aim_allowed })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_open", json!({ "url": re_aim_path })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_open", json!({ "url": eager })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_open", json!({ "url": js_send })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_open", json!({ "url": pay })),
+            tool("browser_click", json!({ "ref": "e1" }))
+        ] }]),
+    );
+    let root = h.objective().await;
+    // /re-aim: the card names the form's destination; the owner approves; the page re-aims the
+    // form at other.test on mousedown. other.test is not an allowed website, so the website
+    // lists stop the form before anything is held: no second card, nothing sent.
+    let click = h.pending().await;
+    assert!(
+        click.summary.contains("\"Send message\"") && click.summary.contains("sends to shop.test:"),
+        "{}",
+        click.summary
+    );
+    assert!(click.summary.contains("/send"), "{}", click.summary);
+    h.broker.resolve_approval(&click.id, true, "owner").unwrap();
+    // /re-aim-allowed: re-aimed at pay.test, which is allowed, so the form reaches the gate; the
+    // card did not name it, so the approval does not cover it: asked, refused.
+    let next = h.pending().await;
+    assert_ne!(next.id, click.id);
+    assert!(
+        next.summary.contains("sends to shop.test:"),
+        "{}",
+        next.summary
+    );
+    h.broker.resolve_approval(&next.id, true, "owner").unwrap();
+    let send = h.pending().await;
+    assert!(
+        send.summary.contains("let the page send data to pay.test:"),
+        "{}",
+        send.summary
+    );
+    assert!(send.reason.contains("did not name"), "{}", send.reason);
+    h.broker.resolve_approval(&send.id, false, "owner").unwrap();
+    // /re-aim-path: the same website, another page (/delete-account): not covered either.
+    let click = h.pending().await;
+    assert!(
+        click.summary.contains("sends to shop.test:"),
+        "{}",
+        click.summary
+    );
+    h.broker.resolve_approval(&click.id, true, "owner").unwrap();
+    let send = h.pending().await;
+    assert!(
+        send.summary
+            .contains("let the page send data to shop.test:"),
+        "{}",
+        send.summary
+    );
+    assert!(
+        send.detail.contains("/delete-account") && send.reason.contains("did not name"),
+        "{} / {}",
+        send.detail,
+        send.reason
+    );
+    h.broker.resolve_approval(&send.id, false, "owner").unwrap();
+    // /eager: the page sends the form as soon as the pointer comes near: before the click, so
+    // not covered by its approval.
+    let click = h.pending().await;
+    assert!(
+        click.summary.contains("\"Send message\""),
+        "{}",
+        click.summary
+    );
+    h.broker.resolve_approval(&click.id, true, "owner").unwrap();
+    let send = h.pending().await;
+    assert!(send.reason.contains("before the click"), "{}", send.reason);
+    h.broker.resolve_approval(&send.id, false, "owner").unwrap();
+    // /js-send: the button's own script sends to the page's website: covered, no second card.
+    let click = h.pending().await;
+    assert!(
+        click.summary.contains("\"Send message\""),
+        "{}",
+        click.summary
+    );
+    assert!(!click.summary.contains("sends to"), "{}", click.summary);
+    h.broker.resolve_approval(&click.id, true, "owner").unwrap();
+    // /pay: an honest form to another website; the card names it, the approval covers it.
+    let click = h.pending().await;
+    assert!(
+        click.summary.contains("on shop.test:") && click.summary.contains("sends to pay.test:"),
+        "{}",
+        click.summary
+    );
+    assert!(click.summary.contains("/inbox"), "{}", click.summary);
+    h.broker.resolve_approval(&click.id, true, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    let sent: Vec<(String, String)> = h
+        .site
+        .sent()
+        .into_iter()
+        .map(|r| (r.method, r.path))
+        .collect();
+    assert_eq!(
+        sent.len(),
+        2,
+        "only the two covered sends arrived: {sent:?}"
+    );
+    assert!(
+        sent.contains(&("POST".into(), "/api/messages".into())),
+        "{sent:?}"
+    );
+    assert!(sent.contains(&("POST".into(), "/inbox".into())), "{sent:?}");
+    let clicks: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_click"))
+        .collect();
+    assert_eq!(clicks.len(), 6, "{text}");
+    // The website lists stopped the re-aimed form: the page ended on other.test's error page,
+    // with no card and nothing sent (the server never saw /steal, below).
+    assert!(
+        clicks[0].contains("Clicked")
+            && clicks[0].contains("other.test")
+            && !clicks[0].contains("Not sent"),
+        "{}",
+        clicks[0]
+    );
+    // /re-aim-allowed and /re-aim-path: the click happened, the re-aimed form was asked about
+    // and refused (the "Not sent" line follows the click's own line in each result).
+    assert!(
+        clicks[1].contains("Clicked") && clicks[1].contains("pay.test"),
+        "{}",
+        clicks[1]
+    );
+    assert!(clicks[2].contains("Clicked"), "{}", clicks[2]);
+    let refused = |site: &str| {
+        text.matches(&format!(
+            "Not sent: the owner did not approve the page sending data to {site}"
+        ))
+        .count()
+    };
+    assert_eq!(refused("pay.test:"), 1, "{text}");
+    // The eager page's send came while the pointer was on its way: the click was given up, and
+    // the send, uncovered, was asked about and refused (the second "Not sent" to shop.test).
+    assert!(
+        clicks[3].contains("did not happen") && clicks[3].contains("still on its way"),
+        "{}",
+        clicks[3]
+    );
+    assert_eq!(refused("shop.test:"), 2, "{text}");
+    // /js-send and /pay: clicked, and the covered sends went under the approval.
+    assert!(
+        clicks[4].contains("Clicked") && clicks[5].contains("Clicked"),
+        "{text}"
+    );
+    for site in ["shop.test:", "pay.test:"] {
+        let went = format!("The page sent it to {site}");
+        let line = text
+            .lines()
+            .find(|l| l.contains(&went))
+            .unwrap_or_else(|| panic!("no \"{went}\" line in:\n{text}"));
+        assert!(line.contains("you had the owner's approval"), "{line}");
+    }
+    assert_eq!(h.events(&task.id, "approval.requested").len(), 9);
+}
+
+/// ADR-215 (P-BROWSER-1): a control the page moves under the pointer is not clicked. Whether the
+/// decoy comes as the pointer reaches the approved button, a moment later, or the instant the
+/// mouse button goes down, the click is given up and no form is sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_control_moved_under_the_pointer_is_not_clicked() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let (decoy, late, press) = (
+        h.url("shop", "/decoy"),
+        h.url("shop", "/decoy-late"),
+        h.url("shop", "/decoy-press"),
+    );
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": decoy })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_open", json!({ "url": late })),
+            tool("browser_click", json!({ "ref": "e1" })),
+            tool("browser_open", json!({ "url": press })),
+            tool("browser_click", json!({ "ref": "e1" }))
+        ] }]),
+    );
+    let root = h.objective().await;
+    for _ in 0..3 {
+        let click = h.pending().await;
+        assert!(
+            click.summary.contains("\"Send message\""),
+            "{}",
+            click.summary
+        );
+        h.broker.resolve_approval(&click.id, true, "owner").unwrap();
+    }
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    assert!(
+        h.site.sent().is_empty(),
+        "nothing was sent: {:?}",
+        h.site.sent()
+    );
+    let clicks: Vec<&str> = text
+        .lines()
+        .filter(|l| l.starts_with("Tool browser_click"))
+        .collect();
+    assert_eq!(clicks.len(), 3, "{text}");
+    for c in &clicks {
+        assert!(
+            c.contains("did not happen") && c.contains("moved another control under the pointer"),
+            "{c}"
+        );
+    }
+    assert_eq!(h.events(&task.id, "approval.requested").len(), 3);
+}
+
+/// ADR-215 (P-BROWSER-1): what the page that follows an approved send sets off (the answer
+/// page's own message) is not covered by the approval and never stays held: it gets a card of
+/// its own, and refused, nothing more reaches the site.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn what_an_answer_page_sends_is_decided_too() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let page = h.url("shop", "/send-then-ping");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": page })),
+            tool("browser_click", json!({ "ref": "e1" }))
+        ] }]),
+    );
+    let root = h.objective().await;
+    let click = h.pending().await;
+    assert!(
+        click.summary.contains("sends to shop.test:") && click.summary.contains("/answered"),
+        "{}",
+        click.summary
+    );
+    h.broker.resolve_approval(&click.id, true, "owner").unwrap();
+    let ping = h.pending().await;
+    assert_ne!(ping.id, click.id);
+    assert!(
+        ping.summary
+            .contains("let the page send data to shop.test:")
+            && ping.summary.contains("the page that followed"),
+        "{}",
+        ping.summary
+    );
+    assert!(ping.detail.contains("/api/messages"), "{}", ping.detail);
+    h.broker.resolve_approval(&ping.id, false, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    let sent: Vec<(String, String)> = h
+        .site
+        .sent()
+        .into_iter()
+        .map(|r| (r.method, r.path))
+        .collect();
+    assert_eq!(
+        sent,
+        vec![("POST".to_owned(), "/answered".to_owned())],
+        "{sent:?}"
+    );
+    assert!(
+        text.contains("The page sent it to shop.test:") && text.contains("owner's approval"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Not sent: the owner did not approve the page sending data to shop.test:"),
+        "{text}"
+    );
+    assert_eq!(h.events(&task.id, "approval.requested").len(), 2);
+}
+
+/// ADR-215 (P-BROWSER-1): a page that submits its form 30 ms after the mouse button goes down,
+/// around the moment Plenipo asks the page what lies under the pointer, never keeps the button
+/// down waiting for an answer the page cannot give. Whichever comes first, the send or the
+/// answer, the outcome is quick and safe: the click is given up, or the uncovered send is asked
+/// about; nothing reaches the site.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_send_the_moment_the_button_goes_down_never_hangs_the_click() {
+    let browser = need_browser!();
+    let h = harness(Some(browser)).await;
+    let page = h.url("shop", "/press-send");
+    h.script(
+        "Web Assistant",
+        json!([{ "tools": [
+            tool("browser_open", json!({ "url": page })),
+            tool("browser_click", json!({ "ref": "e1" }))
+        ] }]),
+    );
+    let root = h.objective().await;
+    let click = h.pending().await;
+    assert!(
+        click.summary.contains("\"Send message\""),
+        "{}",
+        click.summary
+    );
+    let approved_at = Instant::now();
+    h.broker.resolve_approval(&click.id, true, "owner").unwrap();
+    let send = h.pending().await;
+    assert!(
+        approved_at.elapsed() < Duration::from_secs(15),
+        "the click waited for the page's answer: {:?}",
+        approved_at.elapsed()
+    );
+    assert!(
+        send.reason.contains("the click was given up") || send.reason.contains("did not name"),
+        "{}",
+        send.reason
+    );
+    h.broker.resolve_approval(&send.id, false, "owner").unwrap();
+    let task = h.worker_task(&root, "Web Assistant").await;
+    let task = h.finished(&task.id).await;
+    let text = h.text(&task.id);
+    assert!(
+        h.site.sent().is_empty(),
+        "nothing was sent: {:?}",
+        h.site.sent()
+    );
+    assert!(
+        text.contains("Not sent: the owner did not approve the page sending data to shop.test:"),
+        "{text}"
+    );
+    assert_eq!(h.events(&task.id, "approval.requested").len(), 2);
 }
