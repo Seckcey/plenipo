@@ -91,9 +91,48 @@ async function waitForPortFree(port, timeoutMs = 20_000) {
   throw new Error(`port ${port} is still in use`);
 }
 
+/**
+ * On CI (tests/e2e/run-ci.sh): one line saying whether the keyring daemon the run started is still
+ * there, which keyring daemons are running, and which process serves the password store. Twice
+ * the daemon was gone partway through a run; this says between which suites.
+ */
+function keyringLine(when) {
+  const started = Number(process.env.PLENIPO_E2E_KEYRING_PID);
+  if (!started) return;
+  const run = (command, args) => {
+    try {
+      return execFileSync(command, args, { encoding: "utf8" }).trim();
+    } catch {
+      return "";
+    }
+  };
+  const daemons =
+    run("pgrep", ["-a", "gnome-keyring"])
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => line.split(" ").slice(0, 2).join(" "))
+      .join(", ") || "none";
+  const owner =
+    /uint32 (\d+)/.exec(
+      run("dbus-send", [
+        "--session",
+        "--print-reply",
+        "--dest=org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus.GetConnectionUnixProcessID",
+        "string:org.freedesktop.secrets",
+      ]),
+    )?.[1] ?? "nobody";
+  console.error(
+    `keyring ${when}: started ${started} ${pidAlive(started) ? "alive" : "GONE"}; ` +
+      `running: ${daemons}; password store served by ${owner}`,
+  );
+}
+
 /** Start tauri-driver + the app with `home` as its data root. `extraEnv` overrides variables
  * (e.g. a PATH that puts fake agent CLIs first). */
 export async function launch(home, extraEnv = {}) {
+  keyringLine("before launch");
   const env = {
     ...process.env,
     ...extraEnv,
@@ -149,6 +188,7 @@ export async function launch(home, extraEnv = {}) {
       await waitForPortFree(PORT);
       await waitForPortFree(PORT + 1);
       stopLeftoverBrowser(home);
+      keyringLine("after close");
     },
   };
 }
