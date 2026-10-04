@@ -27,7 +27,9 @@
 //!
 //! Markers in the prompt pick a behavior: `[crash]`, `[malformed]`, `[usage-limit]`,
 //! `[auth-expired]`, `[offline]`, `[slow]`, `[unknown]`, `[big]`, `[think]` (Claude Code
-//! thinks first, its thinking streamed in small pieces as with `--thinking-display`),
+//! thinks first, its thinking streamed in small pieces as with `--thinking-display`;
+//! `[think:TEXT]` thinks TEXT instead, cut into five-byte pieces, and `[think-late]` says a few
+//! words first, the last one unfinished, then thinks — ADR-216),
 //! `[delay:MS]` (answer normally after MS milliseconds, at most 20 seconds), and
 //! `[wait-for:NAME]` (answer normally
 //! once the file NAME is in the state folder, at most a minute later: the test decides when, so
@@ -1485,15 +1487,33 @@ fn claude_turn(args: &[String]) -> i32 {
         );
     }
     delay(&own);
-    if own.contains("[think]") {
+    let thought = markers(&own, "think").first().map(|t| t.to_string());
+    let late = own.contains("[think-late]");
+    if own.contains("[think]") || thought.is_some() || late {
         // Like the real CLI with `--thinking-display summarized` (ADR-200): it thinks before it
-        // writes, and its thinking streams in small pieces.
+        // writes, and its thinking streams in small pieces. `[think:TEXT]` thinks TEXT, cut into
+        // five-byte pieces (a key in it is split across them, ADR-216); `[think-late]` says a
+        // few words first, the last one not yet finished, as the CLI does between steps.
+        if late {
+            delta("One moment");
+        }
         out(&json!({
             "type": "stream_event", "session_id": id,
             "event": { "type": "content_block_start", "index": 0,
                        "content_block": { "type": "thinking", "thinking": "" } }
         }));
-        for piece in ["I", " sh", "ould", " check", " the", " file", " first", "."] {
+        let pieces: Vec<String> = match &thought {
+            Some(text) => text
+                .as_bytes()
+                .chunks(5)
+                .map(|c| String::from_utf8_lossy(c).into_owned())
+                .collect(),
+            None => ["I", " sh", "ould", " check", " the", " file", " first", "."]
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect(),
+        };
+        for piece in pieces {
             out(&json!({
                 "type": "stream_event", "session_id": id,
                 "event": { "type": "content_block_delta", "index": 0,

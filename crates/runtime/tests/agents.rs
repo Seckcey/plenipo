@@ -11,8 +11,8 @@ use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSession, AgentSessionDetail,
     AgentSink, AgentTurn, AgentUpdate, AuthState, Bridge, BriefInput, Effort, HoldFor, HostEnv,
     InstallState, MemorySessionStore, SessionChange, SessionStart, SessionState, SessionStore,
-    StepInfo, StepNote, StepTools, ToolProvider, TurnDisposition, TurnEnd, TurnHook, TurnInput,
-    TurnOutcome, TurnRef, TurnResult, TurnTask, STEP_SEQ,
+    StatusPhase, StepInfo, StepNote, StepTools, ToolProvider, TurnDisposition, TurnEnd, TurnHook,
+    TurnInput, TurnOutcome, TurnRef, TurnResult, TurnTask, STEP_SEQ,
 };
 use plenipo_runtime::{
     BriefKind, BriefWhy, EventSink, ExecutablePolicy, ExecutionState, MetadataStore, NoteKind,
@@ -2716,32 +2716,46 @@ async fn the_permissions_note_goes_out_in_full_only_when_needed() {
     }
 }
 
+/// Guard's redactor as the runtime's filter (the broker does the same in the app), for the
+/// ADR-216 tests: with a filter set, the runtime holds back the word being written.
+struct Guarded(plenipo_guard::redact::Redactor);
+
+impl plenipo_runtime::agent::tools::TextRedaction for Guarded {
+    fn redact(&self, text: &str) -> String {
+        self.0.redact(text).into_owned()
+    }
+    fn redact_from(&self, text: &str, start: usize) -> String {
+        self.0.redact_from(text, start).into_owned()
+    }
+    fn hidden(&self, what: &str) -> String {
+        format!("{}{what}]", plenipo_guard::redact::MARKER)
+    }
+    fn stored_secret_start(&self, text: &str) -> Option<usize> {
+        self.0.stored_secret_start(text)
+    }
+}
+
+/// A harness whose runtime hides secrets with Guard's redactor.
+fn redacting_harness() -> H {
+    let h = harness();
+    h.rt.set_filter(Arc::new(
+        Guarded(plenipo_guard::redact::Redactor::default()),
+    ));
+    h
+}
+
+/// A key cut into eight-character windows: no live piece may show any of them.
+fn shows_part_of(piece: &str, key: &str) -> bool {
+    (0..=key.len() - 8).any(|i| piece.contains(&key[i..i + 8]))
+}
+
 /// ADR-216: a key an agent writes across streamed pieces never reaches the live view. The fake
 /// Claude Code echoes its objective and streams the first 128 bytes of its answer in 16-byte
 /// pieces, so a key in the objective is cut across them; with Guard's redactor set, no piece
 /// shows any of it, and the pieces joined read as the redacted whole message.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_key_split_across_live_pieces_never_shows() {
-    /// Guard's redactor as the runtime's filter (the broker does the same in the app).
-    struct Guarded(plenipo_guard::redact::Redactor);
-    impl plenipo_runtime::agent::tools::TextRedaction for Guarded {
-        fn redact(&self, text: &str) -> String {
-            self.0.redact(text).into_owned()
-        }
-        fn redact_from(&self, text: &str, start: usize) -> String {
-            self.0.redact_from(text, start).into_owned()
-        }
-        fn hidden(&self, what: &str) -> String {
-            format!("{}{what}]", plenipo_guard::redact::MARKER)
-        }
-        fn stored_secret_start(&self, text: &str) -> Option<usize> {
-            self.0.stored_secret_start(text)
-        }
-    }
-    let h = harness();
-    h.rt.set_filter(Arc::new(
-        Guarded(plenipo_guard::redact::Redactor::default()),
-    ));
+    let h = redacting_harness();
     let key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
     let (_, turn) = run(&h, "claude-code", &format!("use {key} please")).await;
     assert_eq!(outcome(&turn), TurnOutcome::Completed);
@@ -2758,12 +2772,10 @@ async fn a_key_split_across_live_pieces_never_shows() {
         "the answer streams in pieces: {deltas:?}"
     );
     for piece in &deltas {
-        for i in 0..=key.len() - 8 {
-            assert!(
-                !piece.contains(&key[i..i + 8]),
-                "a live piece shows part of the key: {piece:?}"
-            );
-        }
+        assert!(
+            !shows_part_of(piece, key),
+            "a live piece shows part of the key: {piece:?}"
+        );
     }
     let message = live
         .iter()
@@ -2787,4 +2799,116 @@ async fn a_key_split_across_live_pieces_never_shows() {
         .as_deref()
         .unwrap_or_default()
         .contains("sk-ant-"));
+}
+
+/// ADR-216 for thinking: Claude Code's thinking streams in small pieces too (`[think:TEXT]` cuts
+/// it into five-byte pieces), and a key in it is held back the same way: no live piece shows any
+/// of it, the pieces joined show the marker, and the joined thought a reload reads (#200) holds
+/// the marker, never the key.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_key_split_across_thinking_pieces_never_shows() {
+    let h = redacting_harness();
+    let key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
+    let (detail, turn) = run(
+        &h,
+        "claude-code",
+        &format!("Plan first [think:the key is {key} so use it]"),
+    )
+    .await;
+    assert_eq!(outcome(&turn), TurnOutcome::Completed);
+    let live = h.updates.activity(&turn.task_id);
+    let thoughts: Vec<&str> = live
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::Reasoning { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        thoughts.len() >= 2,
+        "the thinking streams in pieces: {thoughts:?}"
+    );
+    for piece in &thoughts {
+        assert!(
+            !shows_part_of(piece, key),
+            "a live piece of thinking shows part of the key: {piece:?}"
+        );
+    }
+    let joined = thoughts.concat();
+    assert_eq!(
+        joined, "the key is [hidden by Plenipo: API key] so use it",
+        "{live:?}"
+    );
+    // Nothing else live shows it either: the words and the message echo the objective.
+    for event in &live {
+        let text = match event {
+            AgentEvent::TextDelta { text } | AgentEvent::Message { text } => text,
+            _ => continue,
+        };
+        assert!(!shows_part_of(text, key), "{event:?}");
+    }
+    // What a reload reads holds the thought once, whole and hidden (#200).
+    let kept: Vec<&str> = detail
+        .activity
+        .iter()
+        .filter_map(|a| match &a.event {
+            AgentEvent::Reasoning { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(kept, [joined.as_str()], "{:?}", detail.activity);
+}
+
+/// ADR-216's amendment: words whose last one is still held when the "Thinking" sign comes go
+/// on before the sign, so the screen keeps the order — and the sign stays right before the
+/// thinking it announces (#200 hides it when thinking follows). `[think-late]` makes the fake
+/// Claude Code say "One moment" (its last word unfinished) and then think.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn held_words_go_on_before_the_thinking_sign() {
+    let h = redacting_harness();
+    let (_, turn) = run(&h, "claude-code", "Plan first [think-late]").await;
+    assert_eq!(outcome(&turn), TurnOutcome::Completed);
+    let live = h.updates.activity(&turn.task_id);
+    let sign = live
+        .iter()
+        .position(|e| {
+            matches!(
+                e,
+                AgentEvent::Status {
+                    phase: StatusPhase::Thinking,
+                    ..
+                }
+            )
+        })
+        .unwrap_or_else(|| panic!("the Thinking sign: {live:?}"));
+    let first_thought = live
+        .iter()
+        .position(|e| matches!(e, AgentEvent::Reasoning { .. }))
+        .unwrap_or_else(|| panic!("the thinking: {live:?}"));
+    assert!(sign < first_thought, "{live:?}");
+    let before: String = live[..sign]
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::TextDelta { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        before, "One moment",
+        "the held word went on first: {live:?}"
+    );
+    assert!(
+        live[sign..first_thought]
+            .iter()
+            .all(|e| !matches!(e, AgentEvent::TextDelta { .. })),
+        "no words between the sign and the thinking: {live:?}"
+    );
+    let thoughts: String = live
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::Reasoning { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(thoughts, "I should check the file first.");
 }
