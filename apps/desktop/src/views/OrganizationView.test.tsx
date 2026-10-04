@@ -10,6 +10,7 @@ import { layoutOrganization } from "../org/layout";
 import { emptyOrganization, sampleOrganization } from "../test/orgFixtures";
 import { sampleRouting } from "../test/routingFixtures";
 import { OrganizationView } from "./OrganizationView";
+import { afterChange } from "../test/core";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -181,7 +182,7 @@ describe("Organization view", () => {
   it("hires by dragging a role from the palette onto a lead", async () => {
     const org = sampleOrganization();
     show(org);
-    api.hirePosition.mockResolvedValue(org);
+    afterChange(api.hirePosition, org, api.getOrganization);
     const card = await screen.findByRole("button", { name: "Hire Researcher" });
     const target = screenPoint(org, "p-web");
     drag(card, { clientX: 10, clientY: 10 }, target);
@@ -241,7 +242,7 @@ describe("Organization view", () => {
       },
     });
     show(org);
-    api.updatePosition.mockResolvedValue(org);
+    afterChange(api.updatePosition, org, api.getOrganization);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^Senior Developer, / }));
     const details = screen.getByRole("complementary", { name: "Details: Senior Developer" });
@@ -336,7 +337,7 @@ describe("Organization view", () => {
   it("hires a position fixed to an AI tool and model", async () => {
     const org = sampleOrganization();
     show(org);
-    api.hirePosition.mockResolvedValue(org);
+    afterChange(api.hirePosition, org, api.getOrganization);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /^Website Supervisor, / }));
     const details = screen.getByRole("complementary", { name: "Details: Website Supervisor" });
@@ -373,8 +374,8 @@ describe("Organization view", () => {
   it("drags a position onto a lead to reassign it or make it that team's auditor", async () => {
     const org = sampleOrganization();
     show(org);
-    api.assignOversight.mockResolvedValue(org);
-    api.movePosition.mockResolvedValue(org);
+    afterChange(api.assignOversight, org, api.getOrganization);
+    afterChange(api.movePosition, org, api.getOrganization);
     const auditor = await screen.findByRole("button", { name: "Security Auditor, Idle" });
     const target = screenPoint(org, "p-camp");
     drag(auditor, screenPoint(org, "p-sec"), target);
@@ -485,7 +486,7 @@ describe("Organization view", () => {
   it("creates a department with its head, and starts empty with guidance", async () => {
     const empty = emptyOrganization();
     show(empty);
-    api.createDepartment.mockResolvedValue(sampleOrganization());
+    afterChange(api.createDepartment, sampleOrganization(), api.getOrganization);
     expect(await screen.findByText("Build your organization")).toBeInTheDocument();
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Create a department" }));
@@ -530,8 +531,8 @@ describe("Organization view", () => {
       job: { duties: ["Find three suppliers"], returns: [], limits: [], askLead: [] },
     });
     show(org);
-    api.createRole.mockResolvedValue(org);
-    api.updateRole.mockResolvedValue(org);
+    afterChange(api.createRole, org, api.getOrganization);
+    afterChange(api.updateRole, org, api.getOrganization);
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "+ Role" }));
     const dialog = screen.getByRole("dialog", { name: "New role" });
