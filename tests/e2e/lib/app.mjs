@@ -334,6 +334,68 @@ export async function clickButton(browser, label) {
   await button.click();
 }
 
+/**
+ * Wait until the organization canvas's camera has stopped moving: its transform the same for
+ * seven looks in a row (frames are sparse on a virtual display).
+ */
+export async function settle(browser) {
+  let last = "";
+  let steadyLooks = 0;
+  await waitUntil(async () => {
+    const now = await browser.execute(
+      () => document.querySelector(".topology__world")?.style.transform ?? "",
+    );
+    steadyLooks = now === last ? steadyLooks + 1 : 0;
+    last = now;
+    return steadyLooks >= 7;
+  }, "the camera to settle");
+}
+
+/** What a click at `element`'s centre would reach: the point, what is there, and whether it is
+ * the element itself (or inside it). */
+export function pointedAt(browser, element) {
+  return browser.execute((el) => {
+    const r = el.getBoundingClientRect();
+    const x = Math.round(r.left + r.width / 2);
+    const y = Math.round(r.top + r.height / 2);
+    const hit = document.elementFromPoint(x, y);
+    const name = (n) => {
+      if (!n) return "nothing";
+      const label = n.getAttribute("aria-label");
+      const kind = typeof n.className === "string" ? n.className.trim().split(/\s+/)[0] : "";
+      return `${n.tagName.toLowerCase()}${kind ? `.${kind}` : ""}${label ? ` "${label}"` : ""}`;
+    };
+    return { at: `(${x}, ${y})`, hit: name(hit), onIt: hit !== null && el.contains(hit) };
+  }, element);
+}
+
+/**
+ * Wait until `element` is still and a click at its centre reaches it: its box the same for three
+ * looks in a row, and nothing over its centre (the minimap, a panel, a notice). A click or a drag
+ * from it then lands on it, not on whatever moved under the pointer.
+ */
+export async function steady(browser, element, what) {
+  let last = "";
+  let sameLooks = 0;
+  let seen = null;
+  try {
+    await waitUntil(async () => {
+      const box = await browser.execute((el) => {
+        const r = el.getBoundingClientRect();
+        return [r.left, r.top, r.width, r.height].map(Math.round).join(",");
+      }, element);
+      sameLooks = box === last ? sameLooks + 1 : 0;
+      last = box;
+      if (sameLooks < 3) return false;
+      seen = await pointedAt(browser, element);
+      return seen.onIt;
+    }, `${what} to be still, with nothing over it`);
+  } catch (error) {
+    const reach = seen ? `a click at its centre ${seen.at} reaches ${seen.hit}` : "it kept moving";
+    throw new Error(`${error.message}: ${reach}`, { cause: error });
+  }
+}
+
 /** Open a tab of the details panel (Phase 17): "Overview", "Job", "AI model", "Work", "Team",
  * or "Manage". */
 export async function detailsTab(browser, name) {
