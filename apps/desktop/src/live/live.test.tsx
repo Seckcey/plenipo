@@ -197,6 +197,38 @@ describe("the live conversation on screen (Phase 25, item 3.1)", () => {
     ).toEqual(["Let me run the tests.", "Running `npm test`"]);
   });
 
+  it("says it is thinking while it thinks, in one line, and no more once it writes", () => {
+    const lines = (activity: AgentActivity[], running = true) => {
+      cleanup();
+      render(
+        <LiveConversation
+          taskId="t-1"
+          sessionId="s-1"
+          startedAt={null}
+          running={running}
+          who="Dev"
+        />,
+        { wrapper: provide({ "t-1": activity }) },
+      );
+      return within(screen.getByRole("log", { name: "What Dev says and does" }))
+        .getAllByRole("listitem")
+        .map((l) => l.textContent);
+    };
+    const thinking = [
+      at({ type: "toolUse", tool: "Read", summary: "a.ts" }),
+      at({ type: "reasoning", text: "I" }),
+      at({ type: "reasoning", text: " should" }),
+      at({ type: "reasoning", text: " check" }),
+    ];
+    expect(lines(thinking)).toEqual(["Reading a.ts", "Thinking…"]);
+    expect(lines([...thinking, at({ type: "textDelta", text: "Done." })])).toEqual([
+      "Reading a.ts",
+      "Done.",
+    ]);
+    // A task that stopped while thinking is not still thinking.
+    expect(lines(thinking, false)).toEqual(["Reading a.ts"]);
+  });
+
   it("shows only the last lines in the details panel, and reads a conversation not loaded yet", () => {
     const load = vi.fn(() => Promise.resolve());
     const activity = {

@@ -189,6 +189,33 @@ describe("Workers view", () => {
     expect(showExecution).toHaveBeenCalledWith("e1");
   });
 
+  it("shows streamed thinking as one row that grows, not a row for each piece", async () => {
+    api.startAgentSession.mockResolvedValue(detail());
+    api.getAgentSession.mockResolvedValue(detail());
+    render(<Harness />);
+    const user = userEvent.setup();
+    const form = await screen.findByRole("form", { name: "New task" });
+    expect(await within(form).findByText("Ready")).toBeInTheDocument();
+    await user.type(within(form).getByRole("textbox", { name: "Objective" }), "Plan first");
+    await user.click(within(form).getByRole("button", { name: "Start task" }));
+    await screen.findByRole("list", { name: "Tasks" });
+
+    for (const [seq, text] of [
+      [1, "I"],
+      [2, " sh"],
+      [3, "ould check"],
+    ] as const) {
+      send({ kind: "activity", ...activity("t1", seq, { type: "reasoning", text }) });
+    }
+    send({ kind: "activity", ...activity("t1", 4, { type: "textDelta", text: "Done." }) });
+    const log = screen.getByRole("list", { name: "Task 1 activity" });
+    expect(
+      within(log)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual(["ThinkingI should check", "AgentDone."]);
+  });
+
   it("explains why an AI tool is not ready and does not let it start", async () => {
     render(<Harness />);
     const user = userEvent.setup();

@@ -3,6 +3,7 @@
 
 import type {
   AgentActivity,
+  AgentEvent,
   AgentOverview,
   AgentRuntimeInfo,
   AgentSession,
@@ -20,6 +21,74 @@ export const STEP_SEQ = 1_000_000;
 /** The step (1, 2, …) an activity sequence number belongs to. */
 export function stepOf(seq: number): number {
   return Math.floor((Math.max(seq, 1) - 1) / STEP_SEQ) + 1;
+}
+
+/** The longest streamed text joined into one item, as in Core's buffer; more starts another. */
+const MAX_JOINED_TEXT = 64 * 1024;
+/** The most pieces joined into one item; more starts another. */
+const MAX_JOINED_PIECES = 1000;
+
+/**
+ * Streamed pieces joined into one item, one right after another: the first piece's `seq`, and
+ * where each piece ends in the text. A snapshot that already has some of them takes the rest.
+ */
+interface Pieces {
+  from: number;
+  ends: number[];
+}
+
+/** An activity item as the store keeps it: streamed pieces joined (see `joinPiece`). */
+type Kept = AgentActivity & { pieces?: Pieces };
+
+/** The words or thinking a streamed piece carries; `null` for anything else. */
+function streamed(a: AgentActivity): string | null {
+  const e = a.event;
+  return e.type === "textDelta" || e.type === "reasoning" ? e.text : null;
+}
+
+/** The `seq` of an item's first piece: it names the item's row while the item grows. */
+function firstSeq(a: Kept): number {
+  return a.pieces?.from ?? a.seq;
+}
+
+/**
+ * A live piece added to the item before it, when both are streamed words or both are streamed
+ * thinking, and it comes right after it: one item for each paragraph, as Core's buffer keeps
+ * them, so a long answer or thought never pushes the turn's earlier steps out. The item takes the
+ * newest piece's `seq` and time; its first piece's `seq` names its row.
+ */
+function joinPiece(last: Kept, next: AgentActivity): Kept | null {
+  const before = streamed(last);
+  const piece = streamed(next);
+  if (before === null || piece === null || last.event.type !== next.event.type) return null;
+  const pieces = last.pieces ?? { from: last.seq, ends: [before.length] };
+  if (
+    next.seq !== last.seq + 1 ||
+    before.length + piece.length > MAX_JOINED_TEXT ||
+    pieces.ends.length >= MAX_JOINED_PIECES
+  ) {
+    return null;
+  }
+  const text = before + piece;
+  return {
+    ...next,
+    event: { ...next.event, text } as AgentEvent,
+    pieces: { from: pieces.from, ends: [...pieces.ends, text.length] },
+  };
+}
+
+/**
+ * What a kept item adds to a snapshot that is complete up to `newest`: all of it, nothing, or,
+ * for pieces joined across that point, only the pieces after it.
+ */
+function newerThan(a: Kept, newest: number): Kept[] {
+  if (a.seq <= newest) return [];
+  const p = a.pieces;
+  if (!p || p.from > newest) return [a];
+  const cut = p.ends[newest - p.from] ?? 0;
+  const ends = p.ends.slice(newest - p.from + 1).map((end) => end - cut);
+  const text = (streamed(a) ?? "").slice(cut);
+  return [{ ...a, event: { ...a.event, text } as AgentEvent, pieces: { from: newest + 1, ends } }];
 }
 
 export interface AgentState {
@@ -173,13 +242,13 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
         loaded: { ...next.loaded, [session.id]: true },
       };
       // The snapshot is authoritative up to its newest `seq` for each turn (the backend
-      // coalesces streamed text); keep only live items that are newer.
+      // coalesces streamed text); keep only what live items add after it.
       const byTask = new Map<string, AgentActivity[]>();
       for (const a of activity) byTask.set(a.taskId, [...(byTask.get(a.taskId) ?? []), a]);
       const nextActivity = { ...next.activity };
       for (const [taskId, items] of byTask) {
         const newest = items.at(-1)?.seq ?? 0;
-        const newer = (state.activity[taskId] ?? []).filter((a) => a.seq > newest);
+        const newer = (state.activity[taskId] ?? []).flatMap((a) => newerThan(a, newest));
         nextActivity[taskId] = cap(items.concat(newer));
       }
       return { ...next, activity: nextActivity };
@@ -224,9 +293,12 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
         }
         case "activity": {
           const list = state.activity[u.taskId] ?? [];
-          if (list.length > 0 && u.seq <= (list.at(-1)?.seq ?? 0)) return state;
+          const last = list.at(-1);
+          if (last && u.seq <= last.seq) return state;
           const item = { ...u } as AgentActivity;
-          return { ...state, activity: { ...state.activity, [u.taskId]: cap([...list, item]) } };
+          const joined = last ? joinPiece(last, item) : null;
+          const items = joined ? [...list.slice(0, -1), joined] : cap([...list, item]);
+          return { ...state, activity: { ...state.activity, [u.taskId]: items } };
         }
         // How much of a plan an AI tool reported used (ADR-060 §3): the AI tools page reads it
         // from its own command, so nothing here changes.
@@ -277,34 +349,43 @@ function cap(items: AgentActivity[]): AgentActivity[] {
   return items.length > MAX_ACTIVITY ? items.slice(items.length - MAX_ACTIVITY) : items;
 }
 
-/** One rendered activity row. Consecutive streamed text is joined; a complete message
- * replaces the streamed text it completes. */
+/** One rendered activity row. Consecutive streamed text is joined, and so is consecutive
+ * streamed thinking: each is one paragraph that grows. A complete message replaces the streamed
+ * text it completes. */
 export type ActivityItem =
   | { key: string; kind: "streaming"; text: string }
+  | { key: string; kind: "thinking"; text: string }
   | { key: string; kind: "event"; activity: AgentActivity };
 
 export function activityItems(activity: AgentActivity[]): ActivityItem[] {
   const items: ActivityItem[] = [];
-  // Streamed text not yet followed by its complete message.
-  let streamKey = "";
-  let streamText = "";
+  // Streamed text (or thinking) not yet followed by anything else, named by its first piece so
+  // its row stays the same row while it grows.
+  let runKind: "streaming" | "thinking" = "streaming";
+  let runKey = "";
+  let runText = "";
   const flush = (): void => {
-    if (streamText) items.push({ key: streamKey, kind: "streaming", text: streamText });
-    streamText = "";
+    if (runText) items.push({ key: runKey, kind: runKind, text: runText });
+    runText = "";
   };
   for (const a of activity) {
     const e = a.event;
-    if (e.type === "textDelta") {
-      if (!streamText) streamKey = `d${a.seq}`;
-      streamText += e.text;
+    if (e.type === "textDelta" || e.type === "reasoning") {
+      const kind = e.type === "textDelta" ? "streaming" : "thinking";
+      if (kind !== runKind) flush();
+      if (!runText) {
+        runKind = kind;
+        runKey = `${kind === "streaming" ? "d" : "t"}${firstSeq(a)}`;
+      }
+      runText += e.text;
       continue;
     }
     if (e.type === "usage") continue; // shown with the result
     // A step just starting shows until its call is complete (the live conversation's last
     // line); it never splits the words being typed.
     if (e.type === "status" && e.phase === "starting") continue;
-    if (e.type === "message") {
-      streamText = ""; // the message is the complete version of the streamed text
+    if (e.type === "message" && runKind === "streaming") {
+      runText = ""; // the message is the complete version of the streamed text
     } else {
       flush();
     }

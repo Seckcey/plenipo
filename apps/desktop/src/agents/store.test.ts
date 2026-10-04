@@ -57,7 +57,9 @@ describe("agent store", () => {
         update: { kind: "activity", ...activity("t2", seq, delta(`x${seq}`)) },
       });
     }
-    expect(state.activity.t2?.map((a) => a.seq)).toEqual([1, 2, 3]);
+    // A piece seen twice is skipped; the streamed words are kept as one item, at the newest seq.
+    expect(state.activity.t2?.map((a) => a.seq)).toEqual([3]);
+    expect(state.activity.t2?.map((a) => (a.event as { text: string }).text)).toEqual(["x1x2x3"]);
   });
 
   it("treats a session snapshot as authoritative up to its newest seq", () => {
@@ -190,6 +192,120 @@ describe("agent store", () => {
     expect(
       items.map((i) => (i.kind === "streaming" ? `~${i.text}` : i.activity.event.type)),
     ).toEqual(["sessionStarted", "message", "toolUse", "~More"]);
+  });
+});
+
+describe("agent store — streamed thinking and words, joined", () => {
+  const think = (text: string): AgentEvent => ({ type: "reasoning", text });
+  const tool: AgentEvent = { type: "toolUse", tool: "Read", summary: "/x" };
+  const textOf = (a: { event: AgentEvent }) =>
+    a.event.type === "textDelta" || a.event.type === "reasoning" ? a.event.text : a.event.type;
+  const live = (state: typeof initialAgentState, taskId: string, seq: number, event: AgentEvent) =>
+    agentReducer(state, {
+      type: "update",
+      update: { kind: "activity", ...activity(taskId, seq, event) },
+    });
+  const row = (i: ReturnType<typeof activityItems>[number]) =>
+    i.kind === "event" ? i.activity.event.type : `${i.kind}:${i.text}`;
+
+  it("shows Claude's thinking as one row that grows, not a row for each piece", () => {
+    const items = activityItems([
+      activity("t", 1, { type: "status", phase: "thinking", text: "Thinking" }),
+      activity("t", 2, think("I")),
+      activity("t", 3, think(" sh")),
+      activity("t", 4, think("ould check")),
+      activity("t", 5, delta("Here")),
+      activity("t", 6, delta(" it is.")),
+      activity("t", 7, { type: "message", text: "Here it is." }),
+      activity("t", 8, tool),
+      activity("t", 9, think("Now")),
+      activity("t", 10, think(" the tests.")),
+    ]);
+    expect(items.map(row)).toEqual([
+      "status",
+      "thinking:I should check",
+      "message",
+      "toolUse",
+      "thinking:Now the tests.",
+    ]);
+  });
+
+  it("keeps streamed pieces as one item each for words and for thinking, and a step apart", () => {
+    let state = initialAgentState;
+    const events = [think("a"), think("b"), delta("c"), delta("d"), tool, delta("e")];
+    events.forEach((e, i) => {
+      state = live(state, "t1", i + 1, e);
+    });
+    const kept = state.activity.t1 ?? [];
+    expect(kept.map(textOf)).toEqual(["ab", "cd", "toolUse", "e"]);
+    // Each joined item takes its newest piece's number and time.
+    expect(kept.map((a) => [a.seq, a.ts])).toEqual([
+      [2, 2],
+      [4, 4],
+      [5, 5],
+      [6, 6],
+    ]);
+    // A piece that does not come right after (another step) starts an item of its own.
+    state = live(state, "t1", STEP_SEQ + 1, delta("f"));
+    expect((state.activity.t1 ?? []).map(textOf)).toEqual(["ab", "cd", "toolUse", "e", "f"]);
+  });
+
+  it("never lets a long thought push the turn's earlier steps out", () => {
+    let state = live(initialAgentState, "t1", 1, tool);
+    for (let seq = 2; seq <= 3001; seq += 1) state = live(state, "t1", seq, think("x"));
+    const kept = state.activity.t1 ?? [];
+    expect(kept[0]?.event.type).toBe("toolUse");
+    expect(kept.length).toBeLessThan(10);
+    expect(kept.slice(1).map(textOf).join("")).toBe("x".repeat(3000));
+  });
+
+  it("names a joined row by its first piece, so the row stays while it grows", () => {
+    let state = live(initialAgentState, "t1", 1, think("I"));
+    state = live(state, "t1", 2, think(" think"));
+    const before = activityItems(state.activity.t1 ?? []);
+    state = live(state, "t1", 3, think(" so"));
+    const after = activityItems(state.activity.t1 ?? []);
+    expect(after.map(row)).toEqual(["thinking:I think so"]);
+    expect(after[0]?.key).toBe(before[0]?.key);
+    // Words and thinking that start at the same place are named apart.
+    expect(activityItems([activity("t", 1, delta("a"))])[0]?.key).not.toBe(
+      activityItems([activity("t", 1, think("a"))])[0]?.key,
+    );
+  });
+
+  it("takes from a snapshot only the pieces it does not have yet", () => {
+    // Live pieces 3–5 came (the window started listening late); the snapshot has 1–4 as one.
+    let state = initialAgentState;
+    for (const [seq, text] of [
+      [3, "c"],
+      [4, "d"],
+      [5, "e"],
+    ] as const) {
+      state = live(state, "t1", seq, think(text));
+    }
+    state = agentReducer(state, {
+      type: "sessionLoaded",
+      detail: {
+        session: session("s1", { activeTaskId: "t1" }),
+        turns: [turn("t1")],
+        activity: [activity("t1", 4, think("abcd"))],
+      },
+    });
+    expect((state.activity.t1 ?? []).map(textOf)).toEqual(["abcd", "e"]);
+    expect(activityItems(state.activity.t1 ?? []).map(row)).toEqual(["thinking:abcde"]);
+    // The next piece goes on after it, never twice.
+    state = live(state, "t1", 6, think("f"));
+    expect(activityItems(state.activity.t1 ?? []).map(row)).toEqual(["thinking:abcdef"]);
+    // A snapshot that has all of it keeps nothing of the live item.
+    state = agentReducer(state, {
+      type: "sessionLoaded",
+      detail: {
+        session: session("s1", { activeTaskId: "t1" }),
+        turns: [turn("t1")],
+        activity: [activity("t1", 6, think("abcdef"))],
+      },
+    });
+    expect((state.activity.t1 ?? []).map(textOf)).toEqual(["abcdef"]);
   });
 });
 
