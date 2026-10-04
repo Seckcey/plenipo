@@ -428,6 +428,23 @@ impl SessionStore for LedgerSessionStore {
             })
             .unwrap_or_default();
         let reason = Some(note.reason.as_str()).filter(|r| !r.is_empty());
+        // `checkIn`: a lead's check-in on its team (ADR-259), recorded with this step's number,
+        // which is how the turn hook knows the step when it ends. Only a step that really
+        // starts gets here.
+        if let Some(check_in) = note.data.get("checkIn").filter(|c| c.is_object()) {
+            let mut payload = check_in.clone();
+            payload["step"] = turn.step.into();
+            return self
+                .0
+                .begin_check_in(
+                    turn.task_id,
+                    payload,
+                    reason.unwrap_or("checking in on its team"),
+                    turn.actor,
+                )
+                .map(|_| ())
+                .map_err(|e| e.to_string());
+        }
         // `sentBack`: its answer, given back to check (Phase 25, item 4.7).
         let resumed = if note.data.get("sentBack") == Some(&Value::Bool(true)) {
             self.0.resume_sent_back(

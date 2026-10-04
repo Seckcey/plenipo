@@ -116,6 +116,28 @@ async fn stack(
     Router,
     Workforce,
 ) {
+    stack_with(
+        dir,
+        LiaisonConfig {
+            tick: Duration::from_millis(200),
+            ..LiaisonConfig::default()
+        },
+    )
+    .await
+}
+
+/// The same, with Liaison set up as `liaison` says.
+async fn stack_with(
+    dir: &Path,
+    liaison: LiaisonConfig,
+) -> (
+    Arc<Ledger>,
+    AgentRuntime,
+    Supervisor,
+    Liaison,
+    Router,
+    Workforce,
+) {
     let ledger = Arc::new(Ledger::open(&dir.join("ledger").join(DB_FILE_NAME)).unwrap());
     let sup = Supervisor::new(
         SupervisorConfig::default(),
@@ -141,14 +163,7 @@ async fn stack(
         ),
     );
     rt.refresh().await;
-    let liaison = Liaison::new(
-        Arc::clone(&ledger),
-        rt.clone(),
-        LiaisonConfig {
-            tick: Duration::from_millis(200),
-            ..LiaisonConfig::default()
-        },
-    );
+    let liaison = Liaison::new(Arc::clone(&ledger), rt.clone(), liaison);
     let router = Router::new(Arc::clone(&ledger), rt.clone());
     let workforce = Workforce::new(
         Arc::clone(&ledger),
@@ -160,6 +175,15 @@ async fn stack(
 }
 
 async fn harness() -> H {
+    harness_with(LiaisonConfig {
+        tick: Duration::from_millis(200),
+        ..LiaisonConfig::default()
+    })
+    .await
+}
+
+/// The same, with Liaison set up as `liaison` says.
+async fn harness_with(liaison: LiaisonConfig) -> H {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let bin = dir.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -167,7 +191,7 @@ async fn harness() -> H {
     for stem in personas() {
         install_fake(&bin, stem);
     }
-    let (ledger, rt, sup, liaison, router, workforce) = stack(dir.path()).await;
+    let (ledger, rt, sup, liaison, router, workforce) = stack_with(dir.path(), liaison).await;
     let run = tokio::spawn(liaison.clone().run());
     H {
         ledger,
@@ -1657,6 +1681,53 @@ async fn work_a_usage_limit_stopped_is_picked_back_up_unless_left_stopped() {
         .unwrap()
         .is_none());
     assert!(h.workforce.limit_waits().unwrap().is_empty());
+}
+
+/// ADR-259 (leads stop their team mid-task): a lead stops a full-time member's task the way the
+/// owner's Stop does: only that task ends, and the member's conversation stays, so its next
+/// objective goes on in it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_full_time_member_keeps_its_conversation_when_its_lead_stops_its_task() {
+    let h = harness_with(LiaisonConfig {
+        tick: Duration::from_millis(100),
+        check_in_debounce: Duration::from_millis(300),
+        check_in_every: Duration::from_secs(3600),
+        ..LiaisonConfig::default()
+    })
+    .await;
+    let o = h.development();
+    let plan = h
+        .objective(
+            &o.head,
+            "Plan it [handoff:role:Cloudline Coordinator+slow] [handoff:role:QA Engineer] \
+             [check-in-stop:slow]",
+        )
+        .await;
+    assert_eq!(h.finished(&plan).await.state, TaskState::Succeeded);
+    let stopped = h
+        .ledger
+        .child_tasks(&plan)
+        .unwrap()
+        .into_iter()
+        .find(|t| t.objective.contains("[slow]"))
+        .expect("the coordinator's task");
+    assert_eq!(h.finished(&stopped.id).await.state, TaskState::Cancelled);
+    let by = h
+        .ledger
+        .last_task_event(&stopped.id, "liaison.work_stopped")
+        .unwrap()
+        .expect("recorded")
+        .payload["by"]
+        .clone();
+    assert_eq!(
+        by, "Development Manager",
+        "the lead is named by its position"
+    );
+    let conversation = stopped.metadata["sessionId"].clone();
+    // Its conversation stays: its next objective goes on in it.
+    let next = h.objective(&o.coordinator, "Plan the release.").await;
+    assert_eq!(h.finished(&next).await.state, TaskState::Succeeded);
+    assert_eq!(h.task(&next).metadata["sessionId"], conversation);
 }
 
 /// Work a usage limit stopped whose worker is gone by the time the limit is over (Phase 25,

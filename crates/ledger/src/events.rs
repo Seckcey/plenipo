@@ -129,6 +129,31 @@ impl Ledger {
         })
     }
 
+    /// The task's most recent event of any of `event_types`.
+    pub fn last_task_event_among(
+        &self,
+        task_id: &str,
+        event_types: &[&str],
+    ) -> Result<Option<LedgerEvent>> {
+        if event_types.is_empty() {
+            return Ok(None);
+        }
+        let marks = vec!["?"; event_types.len()].join(", ");
+        self.read(|c| {
+            let mut values: Vec<&dyn rusqlite::ToSql> = vec![&task_id];
+            values.extend(event_types.iter().map(|t| t as &dyn rusqlite::ToSql));
+            Ok(c.query_row(
+                &format!(
+                    "SELECT {EVENT_COLUMNS} FROM events WHERE task_id = ? AND event_type IN ({marks})
+                     ORDER BY seq DESC LIMIT 1"
+                ),
+                values.as_slice(),
+                rows::event,
+            )
+            .optional()?)
+        })
+    }
+
     /// How many events of `event_type` the task's trail holds.
     pub fn count_task_events(&self, task_id: &str, event_type: &str) -> Result<u32> {
         self.read(|c| {

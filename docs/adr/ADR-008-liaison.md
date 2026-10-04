@@ -2,8 +2,15 @@
 
 - **Status:** Accepted (owner, 2026-09-26). The size limits in §1 and §4 are changed by
   [ADR-012](ADR-012-brief-agent-messages.md) (brief messages between agents).
-- **Amended by:** [ADR-044 (prompts sized to the job)](ADR-044-prompts-sized-to-the-job.md): the
-  instructions are no longer restated with every objective (§1), only when needed.
+- **Amended by:**
+  - [ADR-044 (prompts sized to the job)](ADR-044-prompts-sized-to-the-job.md): the instructions
+    are no longer restated with every objective (§1), only when needed.
+  - [ADR-259 (leads stop their team mid-task)](ADR-259-leads-stop-their-team.md): a waiting lead
+    is woken for short check-ins (when an answer comes back while others still work, and after a
+    long wait) and may stop its own requests; it still gets all its answers together when the
+    last one is back. Check-ins are not rounds.
+  - [ADR-016 (the Development department)](ADR-016-development-department.md) §12: the defaults
+    in §9 are 8 reply rounds and 16 handoffs.
 - **Date:** 2026-09-26
 - **Phase:** 4
 
@@ -100,8 +107,9 @@ cancelled`, or `rejected`. Reply states: `pending → delivered | discarded`.
    request JSON) with a unique constraint: the same request twice in one answer, or a step
    processed twice, creates one child. Message IDs are unique; a request can be answered once;
    replies are delivered once.
-9. **Limits.** Depth 3 (owner task = 0), 3 requests per answer, 5 reply rounds per task, 12
-   accepted handoffs per workflow. Requests over a limit are rejected with the reason, which
+9. **Limits.** Depth 3 (owner task = 0), 3 requests per answer, 8 reply rounds per task, 16
+   accepted handoffs per workflow. (These are the defaults since ADR-016 §12; this record first
+   said 5 rounds and 12 handoffs.) Requests over a limit are rejected with the reason, which
    the requester receives like a reply so it can do the work itself; past the round limit the
    task finishes instead of waiting again. Children use the runtime's global cap (4 running
    turns) and 30-minute turn limit.

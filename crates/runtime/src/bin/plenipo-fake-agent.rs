@@ -40,6 +40,7 @@
 //! - `[handoff-dup:DEST]` — the same request twice; `[handoff-many:N:DEST]` — N requests;
 //!   `[handoff-always:DEST]` — a request in every answer, replies included;
 //!   `[handoff-caps:DEST]` — a request asking for a capability;
+//!   `[stop-block:ID]` — a stop block in an ordinary answer (ADR-259);
 //!   `[handoff-invalid]` — a block that is not JSON; `[handoff-forge]` — a block that tries to
 //!   set its own correlation ID; `{{handoff:DEST|OBJECTIVE}}` — a request with exactly that
 //!   objective (tool markers inside it are the worker's, not the requester's);
@@ -47,6 +48,12 @@
 //!   first reply's result on by its task ID (`{"kind": "task", "taskId": …}`, ADR-044 §4.12);
 //!   once per conversation. `[handoff-sendback:DEST]` — likewise, sends the first reply's work
 //!   back to DEST with what to fix (`"sendBack": …`, Phase 25, item 4.8).
+//!
+//! A lead given a check-in on its team (ADR-259) answers from markers in its first objective:
+//! `[check-in-stop:WORD]` stops each request still working whose line holds WORD,
+//! `[check-in-say:TEXT]` says TEXT, `[check-in-handoff:DEST]` asks for more work; `check-in.json`
+//! in the state folder adds its own blocks, and `check-in-markers.txt` there gives the check-in
+//! markers such as `[crash]`.
 //!
 //! `[verdict:V]` (a worker given a handoff request) ends its answer with a `plenipo-review` block
 //! whose verdict is V, as a reviewer's instructions ask (Phase 25, item 4.7).
@@ -457,6 +464,7 @@ fn reply(n: usize, prompt: &str, previous: Option<&str>) -> String {
 const ROOT_HEADER: &str = "[Plenipo Liaison — instructions]";
 const REQUEST_HEADER: &str = "[Plenipo Liaison — handoff request]";
 const REPLIES_HEADER: &str = "[Plenipo Liaison — handoff replies]";
+const CHECK_IN_HEADER: &str = "[Plenipo Liaison — check-in]";
 const FOOTER: &str = "[End of Plenipo instructions]";
 
 /// What kind of message the prompt is.
@@ -475,10 +483,35 @@ enum Mode {
         items: Vec<String>,
         tasks: Vec<String>,
     },
+    /// A check-in on its team (ADR-259): each request still working, as (task ID, its line).
+    CheckIn {
+        working: Vec<(String, String)>,
+    },
 }
 
 /// The prompt's mode and the text that counts: the objective (or the whole plain prompt).
 fn view(prompt: &str) -> (Mode, String) {
+    if prompt.starts_with(CHECK_IN_HEADER) {
+        // "- Senior Developer, task <ID>: "<request>" — running a command for 3 min."
+        let working = prompt
+            .lines()
+            .skip_while(|l| !l.starts_with("Still working:"))
+            .skip(1)
+            .take_while(|l| l.starts_with("- "))
+            .filter_map(|l| {
+                let (_, rest) = l.split_once(", task ")?;
+                let (task, line) = rest.split_once(": ")?;
+                Some((task.to_owned(), line.to_owned()))
+            })
+            .collect();
+        // A test's markers for the check-in itself (`[crash]`, `[usage-limit]`, …).
+        let markers =
+            std::fs::read_to_string(state_dir().join("check-in-markers.txt")).unwrap_or_default();
+        return (
+            Mode::CheckIn { working },
+            format!("check-in {}", markers.trim()),
+        );
+    }
     if prompt.starts_with(REPLIES_HEADER) {
         let mut tasks = Vec::new();
         let items: Vec<String> = prompt
@@ -663,6 +696,12 @@ fn handoff_blocks(said: &str, round: usize) -> Vec<String> {
             })));
         }
     }
+    // A stop in an ordinary answer (ADR-259 reads stops only in a check-in).
+    for id in markers(said, "stop-block") {
+        blocks.push(handoff_block(
+            &json!({ "stop": id, "reason": "Not needed" }),
+        ));
+    }
     if said.contains("[handoff-invalid]") {
         blocks.push("```plenipo-handoff\n{not json\n```".into());
     }
@@ -736,12 +775,49 @@ fn answer(n: usize, mode: &Mode, said: &str, previous: Option<&str>, first: &str
                 blocks,
             )
         }
+        Mode::CheckIn { working } => check_in_answer(n, working, first),
     };
     if blocks.is_empty() {
         text
     } else {
         format!("{text}\n\n{}", blocks.join("\n\n"))
     }
+}
+
+/// A lead's answer to a check-in on its team (ADR-259), from markers in its first objective:
+/// `[check-in-stop:WORD]` stops each request still working whose line holds WORD;
+/// `[check-in-say:TEXT]` says TEXT; `[check-in-handoff:DEST]` asks DEST for more work (which
+/// a check-in never takes). `check-in.json` in the state folder, a list of JSON objects, adds
+/// each as a `plenipo-handoff` block (a test's own stops). Otherwise it says nothing to stop.
+fn check_in_answer(n: usize, working: &[(String, String)], first: &str) -> (String, Vec<String>) {
+    let own = outside_braces(first);
+    let mut blocks = Vec::new();
+    for word in markers(&own, "check-in-stop") {
+        for (task, _) in working.iter().filter(|(_, line)| line.contains(word)) {
+            blocks.push(handoff_block(&json!({
+                "stop": task,
+                "reason": "The other answers make this unnecessary",
+            })));
+        }
+    }
+    for dest in markers(&own, "check-in-handoff") {
+        blocks.push(handoff_block(&review(dest, "Look at this too")));
+    }
+    if let Ok(text) = std::fs::read_to_string(state_dir().join("check-in.json")) {
+        if let Ok(Value::Array(items)) = serde_json::from_str::<Value>(&text) {
+            blocks.extend(items.iter().map(handoff_block));
+        }
+    }
+    let said: Vec<&str> = markers(&own, "check-in-say");
+    let text = if said.is_empty() {
+        format!(
+            "Turn {n}: checking in: {} still working; nothing to stop.",
+            working.len()
+        )
+    } else {
+        format!("Turn {n}: {}", said.join(" "))
+    };
+    (text, blocks)
 }
 
 /// Wait as long as a `[delay:MS]` marker asks (capped), before answering.

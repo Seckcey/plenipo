@@ -1764,6 +1764,35 @@ impl AgentRuntime {
         prompt: &str,
         note: StepNote,
     ) -> Result<AgentSessionDetail, RuntimeError> {
+        self.continue_with(session_id, task_id, prompt, note, false)
+            .await
+    }
+
+    /// A short extra step of a waiting turn that must never end it (ADR-259, a lead's check-in
+    /// on its team): like [`Self::continue_turn`], but when its AI tool can't take work now
+    /// (not available, not signed in, …) the turn waits again, unchanged, instead of ending as
+    /// failed. The step's own end is still the hook's to decide.
+    pub async fn check_in_turn(
+        &self,
+        session_id: &str,
+        task_id: &str,
+        prompt: &str,
+        note: StepNote,
+    ) -> Result<AgentSessionDetail, RuntimeError> {
+        self.continue_with(session_id, task_id, prompt, note, true)
+            .await
+    }
+
+    /// [`Self::continue_turn`]; `keep_waiting`: an AI tool that can't take work leaves the turn
+    /// waiting ([`Self::check_in_turn`]).
+    async fn continue_with(
+        &self,
+        session_id: &str,
+        task_id: &str,
+        prompt: &str,
+        note: StepNote,
+        keep_waiting: bool,
+    ) -> Result<AgentSessionDetail, RuntimeError> {
         let prompt = validate_prompt(prompt)?;
         let (step, done) = {
             let mut state = self.lock();
@@ -1835,6 +1864,10 @@ impl AgentRuntime {
                 "The AI tool {:?} is not available in this version of Plenipo.",
                 session.runtime_id
             ));
+            if keep_waiting {
+                self.wait_again(session_id, done);
+                return Err(e);
+            }
             self.end_waiting(
                 session_id,
                 task_id,
@@ -1848,6 +1881,10 @@ impl AgentRuntime {
         };
         let ready = match self.preflight(adapter.as_ref(), session_id).await {
             Ok(ready) => ready,
+            Err(n) if keep_waiting => {
+                self.wait_again(session_id, done);
+                return Err(n.error);
+            }
             Err(n) => {
                 self.end_waiting(
                     session_id,

@@ -1867,6 +1867,13 @@ body.popout {
   font-size: var(--ui-font-sm);
 }
 
+/* ADR-259: work its lead stopped in a check-in. */
+.handoff__stopped {
+  margin: 6px 0;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-sm);
+}
+
 .handoff__reply {
   margin-top: 6px;
 }

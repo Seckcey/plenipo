@@ -1549,6 +1549,496 @@ async fn after_a_restart_stop_all_work_still_holds_what_starts() {
     run.abort();
 }
 
+// ---- Leads stop their team mid-task (ADR-259) ---------------------------------------------
+
+/// A harness whose check-ins come after `debounce` ms of quiet after an answer, after `every`
+/// ms of waiting, at most `max` a round.
+async fn check_in_harness(debounce: u64, every: u64, max: u32) -> H {
+    harness_with(Setup {
+        liaison: LiaisonConfig {
+            tick: Duration::from_millis(100),
+            check_in_debounce: Duration::from_millis(debounce),
+            check_in_every: Duration::from_millis(every),
+            max_check_ins: max,
+            ..LiaisonConfig::default()
+        },
+        ..Setup::default()
+    })
+    .await
+}
+
+const HOUR: u64 = 3_600_000;
+
+impl H {
+    /// `task`'s child whose objective holds `text`.
+    fn child_with(&self, task: &str, text: &str) -> Task {
+        self.children(task)
+            .into_iter()
+            .find(|t| t.objective.contains(text))
+            .unwrap_or_else(|| panic!("no child of {task} asked for {text:?}"))
+    }
+
+    fn count(&self, task: &str, event_type: &str) -> u32 {
+        self.ledger.count_task_events(task, event_type).unwrap()
+    }
+
+    fn reply_for(&self, child: &Task) -> serde_json::Value {
+        let request = self
+            .ledger
+            .liaison_request_for_child(&child.id)
+            .unwrap()
+            .unwrap();
+        self.ledger
+            .liaison_reply_to(&request.id)
+            .unwrap()
+            .expect("a reply")
+            .envelope["result"]
+            .clone()
+    }
+}
+
+/// When one answer comes back while other work still goes, the lead is checked in on and stops
+/// the work that no longer makes sense. The stopped task's reply says so, and the lead gets every
+/// answer once, together. A check-in is no round, and the next real delivery is a delivery.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_lead_stops_a_worker_when_another_answers_first() {
+    let h = check_in_harness(300, HOUR, 4).await;
+    let (_, root) = h
+        .start(
+            "codex",
+            "Build it [handoff:claude-code] [handoff:claude-code+slow] [check-in-stop:slow]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let quick = h
+        .children(&root)
+        .into_iter()
+        .find(|t| !t.objective.contains("[slow]"))
+        .unwrap();
+    let slow = h.child_with(&root, "[slow]");
+    assert_eq!(h.task(&quick.id).state, TaskState::Succeeded);
+    assert_eq!(h.finished(&slow.id).await.state, TaskState::Cancelled);
+
+    let stopped = h
+        .ledger
+        .last_task_event(&slow.id, "liaison.work_stopped")
+        .unwrap()
+        .expect("recorded on the stopped task");
+    assert_eq!(stopped.payload["byTaskId"], root.as_str());
+    assert_eq!(
+        stopped.payload["reason"],
+        "The other answers make this unnecessary"
+    );
+    assert_eq!(stopped.payload["checkIn"], 1);
+    assert_eq!(stopped.payload["triggeredBy"], quick.id.as_str());
+    let asked = h
+        .ledger
+        .last_task_event(&root, "liaison.stop_asked")
+        .unwrap()
+        .expect("recorded on the lead's task");
+    assert_eq!(asked.payload["taskId"], slow.id.as_str());
+    assert_eq!(asked.payload["checkIn"], 1);
+    assert_eq!(asked.payload["triggeredBy"], quick.id.as_str());
+
+    let reply = h.reply_for(&slow);
+    assert_eq!(reply["outcome"], "cancelled");
+    assert_eq!(
+        reply["summary"],
+        "Stopped by you: The other answers make this unnecessary"
+    );
+    assert_eq!(reply["stopped"]["finishedFirst"], false);
+    assert_eq!(h.reply_for(&quick)["outcome"], "completed");
+
+    // One check-in, one delivery: the delivery after the check-in was not read as one.
+    assert_eq!(h.count(&root, "liaison.check_in_started"), 1);
+    assert_eq!(h.count(&root, "liaison.checked_in"), 1);
+    assert_eq!(h.count(&root, "liaison.replies_delivered"), 1);
+    assert!(
+        h.text(&root).contains("received 2 replies"),
+        "{}",
+        h.text(&root)
+    );
+}
+
+/// A check-in step never ends the lead, is never checked as an answer, and never hands work on,
+/// whatever it says: here a lead that is itself a handed-on task says "All tests passed." and
+/// adds a handoff block. Its team goes on, and it gets every answer when the last is back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_check_in_never_ends_the_lead_hands_work_on_or_is_checked_as_an_answer() {
+    let h = check_in_harness(300, HOUR, 4).await;
+    let (_, root) = h
+        .start(
+            "codex",
+            "Run it {{handoff:claude-code|Lead it [handoff:codex] [handoff:codex+delay:2500] \
+             [check-in-say:All tests passed.] [check-in-handoff:codex]}}",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let lead = h.only_child(&root);
+    assert_eq!(h.task(&lead.id).state, TaskState::Succeeded);
+    let checked = h
+        .ledger
+        .last_task_event(&lead.id, "liaison.checked_in")
+        .unwrap()
+        .expect("a check-in");
+    assert_eq!(checked.payload["outcome"], "completed");
+    assert_eq!(checked.payload["stops"], 0);
+    assert_eq!(
+        checked.payload["ignored"], 1,
+        "its handoff block was left alone"
+    );
+    // No new work mid-round, no answer checked, no early end.
+    assert_eq!(h.children(&lead.id).len(), 2);
+    assert_eq!(h.count(&lead.id, "liaison.answer_sent_back"), 0);
+    let delayed = h.child_with(&lead.id, "[delay:2500]");
+    assert_eq!(h.task(&delayed.id).state, TaskState::Succeeded);
+    assert!(
+        h.text(&lead.id).contains("received 2 replies"),
+        "{}",
+        h.text(&lead.id)
+    );
+}
+
+/// A check-in that fails (here its AI tool crashes) leaves the lead waiting; its team goes on,
+/// and no other check-in comes that round.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_check_in_that_fails_leaves_the_lead_waiting() {
+    let h = check_in_harness(300, HOUR, 4).await;
+    std::fs::write(h.fake_state().join("check-in-markers.txt"), "[crash]").unwrap();
+    let (_, root) = h
+        .start(
+            "codex",
+            "Build it [handoff:claude-code] [handoff:claude-code+delay:1500] \
+             [handoff:claude-code+delay:3000]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let checked = h
+        .ledger
+        .last_task_event(&root, "liaison.checked_in")
+        .unwrap()
+        .expect("a check-in");
+    assert_ne!(checked.payload["outcome"], "completed");
+    assert_eq!(
+        h.count(&root, "liaison.check_in_started"),
+        1,
+        "no other that round"
+    );
+    for child in h.children(&root) {
+        assert_eq!(child.state, TaskState::Succeeded, "{}", child.objective);
+    }
+    assert!(
+        h.text(&root).contains("received 3 replies"),
+        "{}",
+        h.text(&root)
+    );
+}
+
+/// A lead can stop only its own team's work, once, and only while it runs. The owner's task, a
+/// task further down (stopped only through its own request), a finished task, and a second stop
+/// of the same task are refused with the reason. Stopping a task that waits on its own team stops
+/// that team too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_lead_can_stop_only_its_own_team() {
+    let h = check_in_harness(300, HOUR, 4).await;
+    let (_, root) = h
+        .start(
+            "codex",
+            "Run it {{handoff:claude-code|Lead it [handoff:codex+delay:3000] \
+             [handoff:codex>claude-code+slow]}}",
+        )
+        .await;
+    h.until("the lead", |h| h.children(&root).len() == 1).await;
+    let lead = h.only_child(&root);
+    h.until("the grandchild to run", |h| {
+        h.children(&lead.id).iter().any(|m| {
+            h.children(&m.id)
+                .first()
+                .is_some_and(|g| g.state == TaskState::Running)
+        })
+    })
+    .await;
+    let middle = h.child_with(&lead.id, "[handoff:claude-code+slow]");
+    let quick = h.child_with(&lead.id, "[delay:3000]");
+    let grandchild = h.only_child(&middle.id);
+    let stop = |id: &str| serde_json::json!({ "stop": id, "reason": "Not needed now" });
+    std::fs::write(
+        h.fake_state().join("check-in.json"),
+        serde_json::json!([
+            stop(&root),
+            stop(&grandchild.id),
+            stop(&quick.id),
+            stop(&middle.id),
+            stop(&middle.id),
+            { "stop": middle.id, "reason": "x", "to": "codex" },
+        ])
+        .to_string(),
+    )
+    .unwrap();
+
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert_eq!(h.finished(&middle.id).await.state, TaskState::Cancelled);
+    assert_eq!(h.finished(&grandchild.id).await.state, TaskState::Cancelled);
+    assert_eq!(h.task(&quick.id).state, TaskState::Succeeded);
+    let why = |id: &str| -> String {
+        h.trail(&lead.id)
+            .into_iter()
+            .filter(|e| e.event_type == "liaison.stop_refused")
+            .find(|e| e.payload["taskId"] == id)
+            .map(|e| e.payload["why"].as_str().unwrap_or_default().to_owned())
+            .unwrap_or_else(|| panic!("no refusal for {id}"))
+    };
+    assert!(
+        why(&root).contains("not one you handed on"),
+        "{}",
+        why(&root)
+    );
+    assert!(
+        why(&grandchild.id).contains("not one you handed on"),
+        "{}",
+        why(&grandchild.id)
+    );
+    assert!(
+        why(&quick.id).contains("already finished"),
+        "{}",
+        why(&quick.id)
+    );
+    let refusals: Vec<String> = h
+        .trail(&lead.id)
+        .into_iter()
+        .filter(|e| e.event_type == "liaison.stop_refused")
+        .map(|e| e.payload["why"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert!(
+        refusals.iter().any(|w| w.contains("already stopped")),
+        "{refusals:?}"
+    );
+    assert!(
+        refusals
+            .iter()
+            .any(|w| w.contains("only \"stop\" and \"reason\"")),
+        "{refusals:?}"
+    );
+    assert_eq!(h.count(&lead.id, "liaison.stop_asked"), 1);
+    assert_eq!(h.count(&root, "liaison.work_stopped"), 0);
+    assert_eq!(h.count(&grandchild.id, "liaison.work_stopped"), 0);
+    assert_eq!(
+        h.reply_for(&middle)["summary"],
+        "Stopped by you: Not needed now"
+    );
+}
+
+/// A check-in that can't start (the lead's AI tool is signed out) leaves no mark: it is recorded
+/// as skipped, the lead still waits, and its next real delivery is a delivery, not a check-in.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_check_in_that_cannot_start_leaves_no_mark() {
+    let h = check_in_harness(200, HOUR, 4).await;
+    let (_, root) = h
+        .start(
+            "codex",
+            "Build it [handoff:claude-code] [handoff:claude-code+delay:4000]",
+        )
+        .await;
+    h.until("the slow worker to run", |h| {
+        h.children(&root)
+            .iter()
+            .any(|t| t.objective.contains("[delay:4000]") && t.state == TaskState::Running)
+    })
+    .await;
+    let auth = h.fake_state().join("auth");
+    std::fs::write(&auth, "signed-out").unwrap();
+    h.until("a check-in to be tried", |h| {
+        h.count(&root, "liaison.check_in_skipped") > 0
+    })
+    .await;
+    assert_eq!(h.count(&root, "liaison.check_in_started"), 0);
+    assert_eq!(h.task(&root).state, TaskState::Blocked, "it still waits");
+    std::fs::remove_file(&auth).unwrap();
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert_eq!(h.count(&root, "liaison.replies_delivered"), 1);
+    assert!(
+        h.text(&root).contains("received 2 replies"),
+        "{}",
+        h.text(&root)
+    );
+}
+
+/// A signed-out lead is tried once for an answer, not over and over, and a try that can't start
+/// uses up none of the round's check-ins: once signed in, the next answer brings a real one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_signed_out_lead_is_tried_once_and_checked_in_on_after_sign_in() {
+    let h = check_in_harness(1000, HOUR, 1).await;
+    let (_, root) = h
+        .start(
+            "codex",
+            "Build it [handoff:claude-code] [handoff:claude-code+delay:8000] \
+             [handoff:claude-code+slow] [check-in-stop:slow]",
+        )
+        .await;
+    h.until("the team to be at work", |h| {
+        let children = h.children(&root);
+        children.len() == 3
+            && children
+                .iter()
+                .all(|t| matches!(t.state, TaskState::Running | TaskState::Succeeded))
+    })
+    .await;
+    let auth = h.fake_state().join("auth");
+    std::fs::write(&auth, "signed-out").unwrap();
+    h.until("a check-in to be tried", |h| {
+        h.count(&root, "liaison.check_in_skipped") > 0
+    })
+    .await;
+    // Two more debounce windows and many passes: still the one try.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(h.count(&root, "liaison.check_in_skipped"), 1);
+    assert_eq!(h.count(&root, "liaison.check_in_started"), 0);
+    assert_eq!(h.task(&root).state, TaskState::Blocked, "it still waits");
+    std::fs::remove_file(&auth).unwrap();
+    // The cap is 1 and the skip didn't use it: the delayed answer brings the check-in.
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert_eq!(h.count(&root, "liaison.check_in_started"), 1);
+    assert_eq!(h.count(&root, "liaison.check_in_skipped"), 1);
+    let delayed = h.child_with(&root, "[delay:8000]");
+    let slow = h.child_with(&root, "[slow]");
+    assert_eq!(h.task(&slow.id).state, TaskState::Cancelled);
+    let asked = h
+        .ledger
+        .last_task_event(&root, "liaison.stop_asked")
+        .unwrap()
+        .unwrap();
+    assert_eq!(asked.payload["triggeredBy"], delayed.id.as_str());
+}
+
+/// A stop in an ordinary answer (not a check-in) is refused and makes no request: the answer's
+/// real handoff goes ahead.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stop_outside_a_check_in_is_refused_and_makes_no_request() {
+    let h = harness().await;
+    let (_, root) = h
+        .start("codex", "Build it [handoff:claude-code] [stop-block:t-123]")
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert_eq!(h.requests(&root).len(), 1, "only the real handoff");
+    let refused = h
+        .trail(&root)
+        .into_iter()
+        .find(|e| e.event_type == "liaison.handoff_rejected")
+        .expect("the stop was refused");
+    assert!(
+        refused.payload["reason"]
+            .as_str()
+            .unwrap()
+            .contains("only in a check-in"),
+        "{}",
+        refused.payload
+    );
+}
+
+/// A long wait brings a check-in too, with no answer back yet.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_long_wait_brings_a_check_in() {
+    let h = check_in_harness(HOUR, 500, 4).await;
+    let (_, root) = h
+        .start(
+            "codex",
+            "Build it [handoff:claude-code+slow] [check-in-stop:slow]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    let slow = h.only_child(&root);
+    assert_eq!(h.task(&slow.id).state, TaskState::Cancelled);
+    let asked = h
+        .ledger
+        .last_task_event(&root, "liaison.stop_asked")
+        .unwrap()
+        .unwrap();
+    assert!(asked.payload["triggeredBy"].is_null(), "{}", asked.payload);
+}
+
+/// Check-ins are capped per round, so a slow team can't use up its lead's plan.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn check_ins_are_capped_per_round() {
+    let h = check_in_harness(HOUR, 200, 2).await;
+    let (_, root) = h
+        .start("codex", "Build it [handoff:claude-code+slow]")
+        .await;
+    h.until("two check-ins", |h| {
+        h.count(&root, "liaison.checked_in") == 2
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(h.count(&root, "liaison.check_in_started"), 2, "no third");
+    // The owner stops the slow worker; the lead finishes with its answer.
+    let slow = h.only_child(&root);
+    let session = slow.metadata["sessionId"].as_str().unwrap().to_owned();
+    stop_now(&h, &session).await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert_eq!(h.count(&root, "liaison.check_in_started"), 2);
+}
+
+/// Answers that come together bring one check-in, not one each.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn answers_that_come_together_bring_one_check_in() {
+    let h = check_in_harness(2000, HOUR, 4).await;
+    let (_, root) = h
+        .start(
+            "codex",
+            "Build it [handoff-many:2:claude-code] [handoff:claude-code+slow] \
+             [check-in-stop:slow]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert_eq!(h.count(&root, "liaison.check_in_started"), 1);
+    assert!(
+        h.text(&root).contains("received 3 replies"),
+        "{}",
+        h.text(&root)
+    );
+}
+
+/// No check-in starts while Stop all holds the work; once allowed again, it comes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn no_check_in_starts_while_stop_all_holds_the_work() {
+    let h = check_in_harness(800, HOUR, 4).await;
+    let (_, root) = h
+        .start(
+            "codex",
+            "Build it [handoff:claude-code] [handoff:claude-code+slow] [check-in-stop:slow]",
+        )
+        .await;
+    h.until("the first answer", |h| {
+        h.messages(&root)
+            .iter()
+            .any(|m| m.kind == MessageKind::Reply)
+    })
+    .await;
+    h.rt.hold_all_work();
+    tokio::time::sleep(Duration::from_millis(2000)).await;
+    assert_eq!(h.count(&root, "liaison.check_in_started"), 0);
+    h.rt.allow_work();
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert_eq!(h.count(&root, "liaison.check_in_started"), 1);
+    let slow = h.child_with(&root, "[slow]");
+    assert_eq!(h.task(&slow.id).state, TaskState::Cancelled);
+}
+
+/// Stop a session's turn the way the owner's Stop does (in the moment its turn is still
+/// starting, Plenipo says to try again).
+async fn stop_now(h: &H, session: &str) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        match h.rt.cancel_turn(session).await {
+            Ok(_) => return,
+            Err(e) if e.to_string().contains("still starting") => {
+                assert!(Instant::now() < deadline, "{e}");
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            Err(e) => panic!("{e}"),
+        }
+    }
+}
+
 // ---- Members of an organization (Phase 5, ADR-009) ------------------------------------------
 
 use plenipo_ledger::{NewPosition, NewWorker, Position, RoleTemplate, RoleType};

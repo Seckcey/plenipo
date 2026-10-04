@@ -1332,6 +1332,63 @@ pub struct OpenRequest {
     pub child: Option<Task>,
 }
 
+/// A lead stopping one of its own requests in a check-in (ADR-259, leads stop their team
+/// mid-task), as Liaison decided it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LeadStop {
+    pub request_id: String,
+    pub child_task_id: String,
+    /// Who stopped it, why, and at which check-in: recorded on the stopped task
+    /// (`liaison.work_stopped`) and on the lead's (`liaison.stop_asked`).
+    pub payload: Value,
+    /// "Stopped by you: …", for a task that had not started: its request is answered at once.
+    pub reply: NewReply,
+}
+
+/// What became of a lead's stop (ADR-259).
+#[derive(Debug, Clone, PartialEq)]
+pub enum StopOutcome {
+    /// Recorded; its task is running or waiting, and Liaison stops it. Its request is answered
+    /// when the task ends.
+    Stopping(Box<Task>),
+    /// Its task had not started: it is cancelled, and its request answered at once.
+    Cancelled,
+    /// Refused, with why (it changed since Liaison looked).
+    Refused(String),
+}
+
+/// What [`crate::Ledger::end_check_in`] did.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CheckInEnded {
+    /// The lead's task, waiting again.
+    pub task: Task,
+    /// Each stop, by its task.
+    pub stops: Vec<(String, StopOutcome)>,
+    /// This step's check-in was already recorded: nothing changed.
+    pub replayed: bool,
+}
+
+/// A waiting lead with work still going (ADR-259): what decides whether a check-in is due.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CheckInCandidate {
+    pub task: Task,
+    /// Its requests still working (accepted or dispatched).
+    pub working: u32,
+    /// Answers back and not yet given to it.
+    pub answered: u32,
+    /// The newest answer that came since its last check-in began: when (ms), and its task.
+    pub newest_answer: Option<(u64, Option<String>)>,
+    /// When it last went back to waiting (ms).
+    pub waiting_since: u64,
+    /// This round (its deliveries so far), and the check-ins that started in it.
+    pub round: u32,
+    pub check_ins: u32,
+    /// A check-in this round that didn't complete (its step failed): no more this round.
+    pub check_in_failed: bool,
+    /// Its last check-in try this round, started or not (ms).
+    pub last_try: Option<u64>,
+}
+
 /// A lesson a worker learned from its work (ADR-024): what would help the next worker in its
 /// role. It waits for the owner unless the role learns on its own.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

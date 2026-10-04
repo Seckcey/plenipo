@@ -54,7 +54,7 @@ export function HandoffCard({
         {caps && <> · {caps}</>}
         {view.state !== "rejected" && <> · depth {view.depth}</>}
       </div>
-      {reply && reply.source !== "liaison" && (
+      {reply && (reply.source !== "liaison" || reply.stopped) && (
         <details className="handoff__reply">
           <summary>
             Reply:{" "}
@@ -65,7 +65,15 @@ export function HandoffCard({
             {reply.state === "pending" && " · not delivered yet"}
             {reply.state === "discarded" && " · not delivered (the requester stopped waiting)"}
             {(reply.mismatches?.length ?? 0) > 0 && " · doesn't match the record"}
+            {reply.stopped && !reply.stopped.finishedFirst && ` · stopped by ${reply.stopped.by}`}
           </summary>
+          {reply.stopped && (
+            <p className="handoff__stopped" role="note">
+              {reply.stopped.finishedFirst
+                ? `It finished before ${reply.stopped.by}'s stop reached it (${reply.stopped.reason}).`
+                : `Stopped by ${reply.stopped.by}: ${reply.stopped.reason}`}
+            </p>
+          )}
           {reply.mismatches && reply.mismatches.length > 0 && (
             <p className="handoff__mismatch" role="note">
               Doesn't match Plenipo's record: {reply.mismatches.join("; ")}.

@@ -112,6 +112,20 @@ pub enum ContextRequest {
     Task { task_id: String },
 }
 
+/// A lead stopping one of its own requests while its team works (ADR-259, leads stop their
+/// team mid-task): `{"stop": "<task ID>", "reason": "…"}`, read only in a check-in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopDirective {
+    /// The task the lead's own request created.
+    pub task_id: String,
+    /// Why, in plain text: the first line, at most [`MAX_STOP_REASON_CHARS`] characters.
+    pub reason: String,
+}
+
+/// Longest reason a stop keeps.
+pub const MAX_STOP_REASON_CHARS: usize = 200;
+
 /// One `plenipo-handoff` block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
@@ -120,6 +134,8 @@ pub struct Block {
     /// The block's content.
     pub raw: String,
     pub parsed: Result<Directive, String>,
+    /// A stop (ADR-259): `Some` when the block is a stop, read or refused.
+    pub stop: Option<Result<StopDirective, String>>,
 }
 
 /// An answer split into its text and its handoff blocks.
@@ -203,10 +219,12 @@ pub fn extract(text: &str) -> Extracted {
                 } else {
                     Err("the handoff block is not closed (end it with a line of ```)".into())
                 };
+                let stop = if closed { parse_stop(&raw) } else { None };
                 blocks.push(Block {
                     index: blocks.len() + 1,
                     raw,
                     parsed,
+                    stop,
                 });
             }
             Some((ch, len, _)) => {
@@ -395,6 +413,60 @@ pub fn parse_directive(raw: &str) -> Result<Directive, String> {
     })
 }
 
+/// Read a block (untrusted) as a stop (ADR-259): `None` when it isn't one (its JSON object has
+/// no `"stop"`), otherwise the stop or what is wrong with it. A stop has only `"stop"` (a task
+/// ID) and `"reason"`; the reason keeps its first line, without control characters, at most
+/// [`MAX_STOP_REASON_CHARS`] characters; a NUL refuses it.
+pub fn parse_stop(raw: &str) -> Option<Result<StopDirective, String>> {
+    if raw.len() > MAX_BLOCK_BYTES {
+        return raw.contains("\"stop\"").then(|| {
+            Err(format!(
+                "the stop is larger than {} KiB",
+                MAX_BLOCK_BYTES / 1024
+            ))
+        });
+    }
+    let value: Value = serde_json::from_str(raw.trim()).ok()?;
+    let obj = value.as_object()?;
+    if !obj.contains_key("stop") {
+        return None;
+    }
+    Some((|| {
+        if let Some(key) = obj
+            .keys()
+            .find(|k| !matches!(k.as_str(), "stop" | "reason"))
+        {
+            return Err(format!(
+                "a stop has only \"stop\" and \"reason\", not {:?}",
+                cap_chars(key, 40)
+            ));
+        }
+        let task_id = string(obj, "stop")?.unwrap_or_default();
+        let task_id = task_id.trim();
+        let id_ok = (1..=64).contains(&task_id.len())
+            && task_id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'));
+        if !id_ok {
+            return Err("\"stop\" must be the ID of a task you handed on".into());
+        }
+        let reason = string(obj, "reason")?.unwrap_or_default();
+        if reason.contains('\0') {
+            return Err("\"reason\" contains a NUL character".into());
+        }
+        let first = reason.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+        let plain: String = first.chars().filter(|c| !c.is_control()).collect();
+        let reason = cap_chars(plain.trim(), MAX_STOP_REASON_CHARS);
+        if reason.is_empty() {
+            return Err("say why in \"reason\"".into());
+        }
+        Ok(StopDirective {
+            task_id: task_id.to_owned(),
+            reason,
+        })
+    })())
+}
+
 /// FNV-1a 64-bit hash (stable across builds).
 pub fn fnv64(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
@@ -431,6 +503,8 @@ pub fn fingerprint(raw: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     fn block(json: &str) -> String {
@@ -621,5 +695,82 @@ mod tests {
         assert_eq!(fingerprint(a), fingerprint(b));
         assert_ne!(fingerprint(a), fingerprint(c));
         assert_eq!(fingerprint("{bad"), fingerprint(" {bad "));
+    }
+    /// ADR-259 (leads stop their team mid-task): a stop is its own kind of block, read strictly.
+    #[test]
+    fn a_stop_block_is_read_strictly() {
+        let stop = |raw: &str| parse_stop(raw).expect("a stop").map_err(|e| e.to_string());
+        assert_eq!(
+            stop(r#"{"stop": "t-1", "reason": "The API changed; start over"}"#),
+            Ok(StopDirective {
+                task_id: "t-1".into(),
+                reason: "The API changed; start over".into()
+            })
+        );
+        // Plain text everywhere: the first line, no control characters, at most 200 characters.
+        let tab = char::from(9);
+        let bell = char::from(7);
+        let messy = json!({
+            "stop": "t-1",
+            "reason": format!("\nFirst{tab}line{bell} here\nsecond line"),
+        })
+        .to_string();
+        assert_eq!(stop(&messy).unwrap().reason, "Firstline here");
+        let long = json!({ "stop": "t-1", "reason": "x".repeat(500) }).to_string();
+        let kept = stop(&long).unwrap().reason;
+        assert_eq!(kept.chars().count(), MAX_STOP_REASON_CHARS);
+        assert!(kept.ends_with('…'));
+        // Refused, each with the reason.
+        let nul = json!({ "stop": "t-1", "reason": format!("a{}b", char::from(0)) }).to_string();
+        assert!(stop(&nul).unwrap_err().contains("NUL"));
+        assert!(stop(r#"{"stop": "t-1"}"#).unwrap_err().contains("reason"));
+        assert!(stop(r#"{"stop": "t-1", "reason": "   "}"#)
+            .unwrap_err()
+            .contains("reason"));
+        assert!(stop(r#"{"stop": "../etc", "reason": "x"}"#)
+            .unwrap_err()
+            .contains("task"));
+        assert!(stop(r#"{"stop": 7, "reason": "x"}"#)
+            .unwrap_err()
+            .contains("must be a string"));
+        // A stop with any other field is refused: it never hands work on, too.
+        for extra in ["to", "objective", "sendBack", "correlationId"] {
+            let raw = json!({ "stop": "t-1", "reason": "x", extra: "y" }).to_string();
+            assert!(
+                stop(&raw)
+                    .unwrap_err()
+                    .contains("only \"stop\" and \"reason\""),
+                "{extra}"
+            );
+        }
+        // Capped like every block.
+        let huge = format!(
+            r#"{{"stop": "t-1", "reason": "{}"}}"#,
+            "x".repeat(MAX_BLOCK_BYTES)
+        );
+        assert!(stop(&huge).unwrap_err().contains("KiB"));
+        // Not a stop: a handoff request, or text that isn't a JSON object.
+        assert!(parse_stop(r#"{"to": "codex", "objective": "x"}"#).is_none());
+        assert!(parse_stop("{not json").is_none());
+        assert!(parse_stop("[\"stop\"]").is_none());
+    }
+
+    #[test]
+    fn a_stop_block_is_found_in_an_answer_and_is_no_handoff() {
+        let e = extract(
+            "Nothing else.\n```plenipo-handoff\n{\"stop\": \"t-9\", \"reason\": \"Done elsewhere\"}\n```\n\
+             ```plenipo-handoff\n{\"to\": \"codex\", \"objective\": \"Go\"}\n```",
+        );
+        assert_eq!(e.answer, "Nothing else.");
+        assert_eq!(e.blocks.len(), 2);
+        let stop = &e.blocks[0];
+        assert_eq!(stop.stop.clone().unwrap().unwrap().task_id, "t-9");
+        // As a handoff request it is refused (no "to"): it never becomes one.
+        assert!(stop.parsed.is_err());
+        assert!(e.blocks[1].stop.is_none());
+        assert!(e.blocks[1].parsed.is_ok());
+        // An unclosed block is never a stop.
+        let open = extract("```plenipo-handoff\n{\"stop\": \"t-9\", \"reason\": \"x\"}");
+        assert!(open.blocks[0].stop.is_none());
     }
 }

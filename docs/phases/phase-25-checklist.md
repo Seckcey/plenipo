@@ -921,12 +921,14 @@ About 6 to 8 build sessions.
   - [x] Supervisors can **send work back** (`"sendBack"`: a finished task they handed on, to the
         worker who did it, with what to fix), recorded on both tasks. Workers still never control
         each other.
-  - [ ] **Moved to its own pull request: leads stop their team mid-task.** The owner decided on
-        2026-10-03 that supervisors, managers, and VPs can stop their team while it works. That
+  - [x] **Leads stop their team mid-task** (the owner, 2026-10-03; built in its own pull request
+        after Phase 25's waves merged;
+        [ADR-259 (leads stop their team mid-task)](../adr/ADR-259-leads-stop-their-team.md)).
+        A waiting lead gets short **check-ins**: when an answer comes back while other work still
+        goes, and after a long wait (20 minutes); at most 4 a round. In one it can stop work it
+        handed on itself, with a reason, the same way Liaison stops a cancelled request. It
         replaces ADR-257's "leads send work back; stopping stays the owner's" and changes how
-        leads wait (ADR-008, the Liaison), so it gets its own record, ADR-259 (leads stop their
-        team mid-task), and its own pull request after this one merges. Until then, stopping a
-        worker at once stays the owner's (Stop and Stop all, 3.3 and 3.4).
+        leads wait (ADR-008). The owner's Stop and Stop all are unchanged.
   - [x] A notice to you when a worker's answers keep failing the check (the third in a week, then
         the tenth). Repeat failures show on its Experience ("3 answers didn't match the record").
 - **Tests:**
@@ -942,6 +944,26 @@ About 6 to 8 build sessions.
   - [x] the notice fires after repeats: ledger
         `a_worker_whose_answers_keep_not_matching_the_record_makes_a_notice`; desktop
         `org/control.test.ts`, `format.test.ts`
+  - [x] leads stop their team (ADR-259):
+    - handoffs `a_lead_stops_a_worker_when_another_answers_first` (the stop, its reply, one
+      check-in, and one delivery after it)
+    - handoffs `a_check_in_never_ends_the_lead_hands_work_on_or_is_checked_as_an_answer`,
+      `a_check_in_that_fails_leaves_the_lead_waiting`,
+      `a_check_in_that_cannot_start_leaves_no_mark`,
+      `a_signed_out_lead_is_tried_once_and_checked_in_on_after_sign_in` (a try that can't start
+      isn't repeated and uses none of the 4)
+    - handoffs `a_lead_can_stop_only_its_own_team` (the owner's task, a task further down, a
+      finished one, a second stop, and a stop with another field are refused; stopping a
+      waiting task stops its team), `a_stop_outside_a_check_in_is_refused_and_makes_no_request`
+    - handoffs `a_long_wait_brings_a_check_in`, `check_ins_are_capped_per_round`,
+      `answers_that_come_together_bring_one_check_in`,
+      `no_check_in_starts_while_stop_all_holds_the_work`
+    - workforce `a_full_time_member_keeps_its_conversation_when_its_lead_stops_its_task`
+    - ledger `a_check_in_ends_in_one_transaction_and_stops_only_the_leads_own_work`
+    - runtime `a_check_in_that_cannot_start_leaves_the_turn_waiting`
+    - liaison `a_stop_block_is_read_strictly`,
+      `a_check_in_shows_only_plenipos_facts_and_fences_the_answers`
+    - desktop `format.test.ts`, `Handoffs.test.tsx`
 
 ---
 
