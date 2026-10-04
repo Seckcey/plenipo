@@ -3,6 +3,7 @@ import type { LedgerEvent, Task } from "@plenipo/types";
 
 import { getScopeEvents, listRecentEvents, listTasks, toCommandError } from "../api/commands";
 import { subscribeLedgerEvents } from "../api/events";
+import { Newest } from "../api/newest";
 
 const MAX_EVENTS = 200;
 /** Events read at a time with "Show older events". */
@@ -10,7 +11,8 @@ const OLDER_PAGE = 200;
 
 /**
  * Tasks and recent events from the ledger, kept live by ledger events. The ledger is the
- * source of truth, so this simply reloads (debounced) whenever something is committed.
+ * source of truth, so this simply reloads (debounced) whenever something is committed. Only the
+ * newest answer shows ({@link Newest}).
  */
 export function useLedgerFeed() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -20,25 +22,32 @@ export function useLedgerFeed() {
   /** Increments on every committed ledger event (lets views refresh dependent data). */
   const [revision, setRevision] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [order] = useState(() => new Newest());
 
   const reload = useCallback(async () => {
+    const newest = order.start();
     try {
       const [t, e] = await Promise.all([listTasks(), listRecentEvents()]);
+      if (!newest.take()) return;
       setTasks(t);
       setEvents(e);
       setStatus("ready");
       setError(null);
     } catch (reason) {
+      if (!newest.fresh()) return;
       setStatus("error");
       setError(toCommandError(reason).message);
     }
-  }, []);
+  }, [order]);
 
   useEffect(() => {
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
     subscribeLedgerEvents((event) => {
       if (disposed) return;
+      // A streamed event is newer than any reload already under way: such a reload's answer,
+      // read before it, would drop it; the reload set off below brings everything in.
+      order.applied();
       setEvents((prev) =>
         prev.some((e) => e.seq === event.seq) ? prev : [event, ...prev].slice(0, MAX_EVENTS),
       );
@@ -59,7 +68,7 @@ export function useLedgerFeed() {
       unsubscribe?.();
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [reload]);
+  }, [reload, order]);
 
   // Older events, read a page at a time when asked. They are kept with the live ones shown when
   // they were read, so new events pushing old ones out of the live list leave no gap.
