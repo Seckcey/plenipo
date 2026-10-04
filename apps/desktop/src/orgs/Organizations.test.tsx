@@ -8,6 +8,7 @@ import * as commands from "../api/commands";
 import { OrganizationMenu } from "./OrganizationMenu";
 import { OrganizationsSetting } from "./OrganizationsSetting";
 import { keyFor, rememberFor } from "./storage";
+import { afterChange } from "../test/core";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -128,7 +129,7 @@ describe("more than one organization (Phase 21, ADR-094)", () => {
   });
 
   it("renames this organization, archives another, and deletes an archived one for good", async () => {
-    api.renameOrganization.mockResolvedValue({ name: "8 West IT" } as never);
+    afterChange(api.renameOrganization, { name: "8 West IT" } as never, api.getOrganization);
     api.getOrganization.mockResolvedValue({ name: "8 West Ventures" } as never);
     api.archiveOrganization.mockResolvedValue(listing());
     api.previewDeleteOrganization.mockResolvedValue({

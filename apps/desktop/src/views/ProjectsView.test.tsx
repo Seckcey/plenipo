@@ -8,6 +8,7 @@ import * as events from "../api/events";
 import { emptyOrganization, sampleOrganization } from "../test/orgFixtures";
 import { T0, sampleReport, sampleWork, workingCopy } from "../test/projectFixtures";
 import { ProjectsView } from "./ProjectsView";
+import { afterChange } from "../test/core";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -208,7 +209,7 @@ describe("Projects", () => {
       ...after.projects,
       { ...after.projects[0]!, id: "pr-shop", name: "Shop", departmentId: "d-eng" },
     ];
-    api.setUpDevelopment.mockResolvedValue(after);
+    afterChange(api.setUpDevelopment, after, api.getOrganization);
     api.getProjectWork.mockResolvedValue(
       sampleWork({ projectId: "pr-shop", objectives: [], workingCopies: [] }),
     );
