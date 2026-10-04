@@ -58,6 +58,103 @@ const MAX_CONTROLS: usize = 150;
 /// How far the mouse may drift before Plenipo takes it as the owner's hand (screen pixels).
 const OWNER_MOVE_PIXELS: i32 = 6;
 
+/// Where an action the owner approved may send: what the card named (ADR-215). A form submit is
+/// bound to its method and its action's origin and path; anything else the page sends during
+/// the action is bound to the websites the card named (the page's, and the form's).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct Destinations {
+    /// Websites (`host`, or `host:port`) the card named.
+    sites: Vec<String>,
+    /// A form the card named: its method (upper case) and its action without query or fragment.
+    form: Option<(String, String)>,
+}
+
+impl Destinations {
+    /// For an action on `control` on the page at `page_url`; `submits` when the action sends
+    /// the control's form (a submit button's click, Enter in a field, typing with "submit").
+    fn new(control: &ElementFacts, page_url: &str, submits: bool) -> Self {
+        let mut sites = Vec::new();
+        if let Ok(site) = Site::parse(page_url) {
+            sites.push(site.shown());
+        }
+        let form = control.form.as_ref().filter(|_| submits).map(|f| {
+            if let Ok(site) = Site::parse(&f.action) {
+                let s = site.shown();
+                if !sites.contains(&s) {
+                    sites.push(s);
+                }
+            }
+            (f.method.to_uppercase(), without_query(&f.action))
+        });
+        Self { sites, form }
+    }
+
+    /// The card's words for where a form sends: "shop.test/send".
+    fn sends_to(&self) -> Option<String> {
+        self.form.as_ref().map(|(_, action)| shown_address(action))
+    }
+
+    /// Whether a request the page sent is one the card named.
+    fn covers(&self, held: &Held) -> bool {
+        if held.kind == "Document" {
+            return self.form.as_ref().is_some_and(|(method, action)| {
+                *method == held.method && *action == without_query(&held.url)
+            });
+        }
+        self.sites.contains(&held.site)
+    }
+
+    /// Why `held` is not covered by the approval, for the owner. `given_up`: the action was
+    /// broken off (ADR-215), so nothing the page sent counts as the action's.
+    fn why_not(&self, held: &Held, given_up: bool) -> String {
+        if !held.after_press {
+            return "the page sent it before the click landed, while the pointer was still on \
+                    its way"
+                .into();
+        }
+        if given_up {
+            return "the click was given up, so nothing the page sent counts as the click's".into();
+        }
+        if held.kind == "Document" {
+            return format!(
+                "the form went to {}, which the card did not name",
+                shown_address(&without_query(&held.url))
+            );
+        }
+        format!("it goes to {}, which the card did not name", held.site)
+    }
+}
+
+/// `url` without its query and fragment, with its scheme and host in lower case.
+fn without_query(url: &str) -> String {
+    let bare = url.split(['?', '#']).next().unwrap_or(url);
+    let path_at = bare
+        .find("://")
+        .map(|i| i + 3)
+        .and_then(|start| bare[start..].find('/').map(|p| start + p));
+    match path_at {
+        Some(at) => format!("{}{}", bare[..at].to_lowercase(), &bare[at..]),
+        None => bare.to_lowercase(),
+    }
+}
+
+/// "shop.test/send": an address's host (and port) and path, for a card.
+fn shown_address(url: &str) -> String {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    rest.trim_end_matches('/').to_owned()
+}
+
+/// The websites held requests go to, each once, in order: "shop.test, other.test".
+fn sites_of(held: &[Held]) -> String {
+    let mut sites: Vec<&str> = Vec::new();
+    for h in held {
+        if !sites.contains(&h.site.as_str()) {
+            sites.push(&h.site);
+        }
+    }
+    sites.join(", ")
+}
+
 /// The browser or screen work of one call, once allowed. A control's facts are as they were
 /// when the call was read; it is read again by its reference just before the action, and the
 /// action goes ahead only on the same control (`page_act`, [`classify::changed`]).
@@ -80,6 +177,8 @@ pub(super) enum ControlWork {
         reference: String,
         facts: Box<ElementFacts>,
         what: String,
+        /// Where the owner's approval lets the page send (ADR-215).
+        destinations: Destinations,
     },
     Type {
         reference: String,
@@ -87,6 +186,7 @@ pub(super) enum ControlWork {
         text: String,
         enter: bool,
         what: String,
+        destinations: Destinations,
     },
     Press {
         key: String,
@@ -94,11 +194,13 @@ pub(super) enum ControlWork {
         focused: Box<ElementFacts>,
         /// The key submits an answer to the page's CAPTCHA: one try (ADR-029).
         captcha: bool,
+        destinations: Destinations,
     },
     Select {
         reference: String,
         facts: Box<ElementFacts>,
         option: String,
+        destinations: Destinations,
     },
     ScreenView,
     TakeControl {
@@ -884,14 +986,21 @@ impl Broker {
                     return Err(refuse(Layer::Target, why, s));
                 }
                 let what = describe(&facts);
+                // The card names where a form sends, and the approval is bound to it (ADR-215).
+                let destinations = Destinations::new(&facts, &tab.url(), facts.submit);
+                let sends = destinations
+                    .sends_to()
+                    .map(|to| format!(", sends to {to}"))
+                    .unwrap_or_default();
                 let mut p = base(
                     auto,
-                    format!("click {what} on {}", host_of(&tab.url())),
+                    format!("click {what} on {}{sends}", host_of(&tab.url())),
                     format!("{what} ({reference}) on {}", safe_address(&tab.url())),
                     ControlWork::Click {
                         reference,
                         what: what.clone(),
                         facts: Box::new(facts.clone()),
+                        destinations,
                     },
                 );
                 p.inherent_owned = classify::click(&facts);
@@ -937,13 +1046,18 @@ impl Broker {
                     ));
                 }
                 let what = describe(&facts);
+                let destinations = Destinations::new(&facts, &tab.url(), submit);
+                let then = match (submit, destinations.sends_to()) {
+                    (false, _) => String::new(),
+                    (true, Some(to)) => format!(", then send the form to {to}"),
+                    (true, None) => ", then send the form".into(),
+                };
                 let mut p = base(
                     auto,
                     format!(
-                        "type \"{}\" into {what} on {}{}",
+                        "type \"{}\" into {what} on {}{then}",
                         cap(&text, 60),
-                        host_of(&tab.url()),
-                        if submit { ", then send the form" } else { "" }
+                        host_of(&tab.url())
                     ),
                     format!(
                         "{what} ({reference}) on {}: {}",
@@ -956,6 +1070,7 @@ impl Broker {
                         text,
                         enter: submit,
                         what,
+                        destinations,
                     },
                 );
                 p.inherent_owned = submit.then(|| classify::submit(&facts));
@@ -1009,9 +1124,16 @@ impl Broker {
                 // Enter or Space on the CAPTCHA submits an answer: that is one try, counted
                 // when it happens (ADR-029). Other keys only move around inside it.
                 let captcha = focused.captcha && matches!(key.as_str(), "Enter" | "Space");
+                // Enter sends the focused field's form: the card names where (ADR-215).
+                let destinations =
+                    Destinations::new(&focused, &tab.url(), key == "Enter" && focused.found);
+                let sends = destinations
+                    .sends_to()
+                    .map(|to| format!(", sending the form to {to}"))
+                    .unwrap_or_default();
                 let mut p = base(
                     auto,
-                    format!("press {key} on {}", host_of(&tab.url())),
+                    format!("press {key} on {}{sends}", host_of(&tab.url())),
                     format!(
                         "{key} in {} on {}",
                         describe(&focused),
@@ -1021,6 +1143,7 @@ impl Broker {
                         key: key.clone(),
                         focused: Box::new(focused.clone()),
                         captcha,
+                        destinations,
                     },
                 );
                 // Enter sends from any text box; Space presses a focused button. On a page with
@@ -1063,6 +1186,7 @@ impl Broker {
                     format!("{option} ({reference}) on {}", safe_address(&tab.url())),
                     ControlWork::Select {
                         reference,
+                        destinations: Destinations::new(&facts, &tab.url(), false),
                         facts: Box::new(facts.clone()),
                         option,
                     },
@@ -1712,21 +1836,60 @@ impl Broker {
         }
     }
 
+    /// Decide data the page sent during an action. With the owner's approval of the action
+    /// (`approved`), what the card named and the action itself sent goes (`bound`, ADR-215);
+    /// the rest is decided as a send with no approval: the owner's rules, or a card that says
+    /// why the approval does not cover it. What the owner approved goes after that decision.
     async fn decide_held(
         &self,
         ctx: &CallContext<'_>,
         tab: &Tab,
         held: Vec<Held>,
         what: &str,
+        approved: bool,
+        bound: &Destinations,
     ) -> Option<String> {
         if held.is_empty() {
             return None;
         }
-        let sites: Vec<String> = {
-            let mut s: Vec<String> = held.iter().map(|h| h.site.clone()).collect();
-            s.dedup();
-            s
+        let (covered, uncovered): (Vec<Held>, Vec<Held>) = if approved {
+            held.into_iter()
+                .partition(|h| h.after_press && bound.covers(h))
+        } else {
+            (Vec::new(), held)
         };
+        let mut lines = Vec::new();
+        if !uncovered.is_empty() {
+            // The owner approved the action (even one given up since): the card says why this
+            // is not covered.
+            let explain = ctx.approved.then_some((bound, !approved));
+            lines.push(
+                self.decide_unapproved(ctx, tab, uncovered, what, explain)
+                    .await,
+            );
+        }
+        if !covered.is_empty() {
+            tab.release(&covered, true).await;
+            lines.push(format!(
+                "The page sent it to {} (you had the owner's approval).",
+                sites_of(&covered)
+            ));
+        }
+        Some(lines.join("\n"))
+    }
+
+    /// A send no approval covers: the owner's rules for sending, or a card. `explain`, when the
+    /// action itself was approved, says what that approval covered and whether the action was
+    /// given up, so the card can say why this is not covered (ADR-215).
+    async fn decide_unapproved(
+        &self,
+        ctx: &CallContext<'_>,
+        tab: &Tab,
+        held: Vec<Held>,
+        what: &str,
+        explain: Option<(&Destinations, bool)>,
+    ) -> String {
+        let sites = sites_of(&held);
         let listed: Vec<String> = held
             .iter()
             .map(|h| {
@@ -1742,24 +1905,16 @@ impl Broker {
                 )
             })
             .collect();
-        if ctx.approved {
-            tab.release(&held, true).await;
-            return Some(format!(
-                "The page sent it to {} (you had the owner's approval).",
-                sites.join(", ")
-            ));
-        }
         // The owner's rules for sending (ADR-023): blocked never sends; the "send without asking"
         // switch lets it go when every address is on the allowed websites list.
         if let Ok(config) = self.inner.guard.config() {
             if config.sensitive_rule(SensitiveKind::Outbound) == SensitiveRule::Block {
                 tab.release(&held, false).await;
-                return Some(format!(
-                    "Not sent: the page tried to send data to {}, and the owner set \"{}\" to \
+                return format!(
+                    "Not sent: the page tried to send data to {sites}, and the owner set \"{}\" to \
                      blocked. Do not try another way; say in your answer what you needed to send.",
-                    sites.join(", "),
                     SensitiveKind::Outbound.label()
-                ));
+                );
             }
             let all_allowed = held.iter().all(|h| {
                 Site::parse(&h.url).is_ok_and(|s| {
@@ -1771,22 +1926,34 @@ impl Broker {
             });
             if config.switches.send_without_asking && all_allowed {
                 tab.release(&held, true).await;
-                return Some(format!(
-                    "The page sent it to {} (the owner lets workers send on allowed websites \
-                     without asking).",
-                    sites.join(", ")
-                ));
+                return format!(
+                    "The page sent it to {sites} (the owner lets workers send on allowed websites \
+                     without asking)."
+                );
             }
         }
-        let summary = format!(
-            "let the page send data to {} after {what}",
-            sites.join(", ")
-        );
+        // Why the action's approval, if there was one, does not cover this.
+        let not_covered = explain
+            .map(|(bound, given_up)| {
+                let mut whys: Vec<String> = Vec::new();
+                for h in &held {
+                    let why = bound.why_not(h, given_up);
+                    if !whys.contains(&why) {
+                        whys.push(why);
+                    }
+                }
+                format!(
+                    " Not covered by your approval of {what}: {}.",
+                    whys.join("; ")
+                )
+            })
+            .unwrap_or_default();
+        let summary = format!("let the page send data to {sites} after {what}");
         let prepared = Prepared {
             capability: Capability::BrowserAutomate,
             risk: Risk::Web,
             summary: summary.clone(),
-            detail: listed.join("\n"),
+            detail: format!("{}{not_covered}", listed.join("\n")),
             files: Vec::new(),
             writes_git_dir: false,
             command: None,
@@ -1804,8 +1971,7 @@ impl Broker {
             verdict: Verdict::Ask,
             reason: format!(
                 "Sending data to a website needs your approval: after {what}, the page is sending \
-                 data to {} ({}).",
-                sites.join(", "),
+                 data to {sites} ({}).{not_covered}",
                 SensitiveKind::Outbound.label()
             ),
             layer: Layer::Risk,
@@ -1836,24 +2002,20 @@ impl Broker {
         match answer {
             Ok((_, ApprovalState::Approved)) if tab.mode() == Mode::Worker => {
                 tab.release(&held, true).await;
-                Some(format!(
-                    "The owner approved: the page sent it to {}.",
-                    sites.join(", ")
-                ))
+                format!("The owner approved: the page sent it to {sites}.")
             }
             // Never asked (one of the grant's limits on asking, B6): the worker hears the
             // limit's words, not that the owner said no.
             Err(NotAsked::Limited(words)) => {
                 tab.release(&held, false).await;
-                Some(words)
+                words
             }
             _ => {
                 tab.release(&held, false).await;
-                Some(format!(
-                    "Not sent: the owner did not approve the page sending data to {}. Do not try \
-                     another way; say in your answer what you needed to send and why.",
-                    sites.join(", ")
-                ))
+                format!(
+                    "Not sent: the owner did not approve the page sending data to {sites}. Do not \
+                     try another way; say in your answer what you needed to send and why."
+                )
             }
         }
     }
@@ -2102,27 +2264,50 @@ impl Broker {
                 reference,
                 facts,
                 what,
+                destinations,
             } => {
                 let clicked = match self.same_control(&tab, &reference, &facts, &what).await {
                     Ok(now) => match click_blocked(&now) {
                         Some(why) => Err(format!("{why} Nothing was done.")),
-                        None => tab.click(&now).await,
+                        None => tab.click(&reference, &now).await,
                     },
                     Err(e) => Err(e),
                 };
                 let r = match clicked {
                     Ok(settled) => {
+                        // A click given up (ADR-215) carries no approval for what the page sent
+                        // meanwhile.
+                        let aborted = settled.aborted.clone();
+                        let approved = ctx.approved && aborted.is_none();
                         let held = self
-                            .decide_held(ctx, &tab, settled.held, &format!("clicking {what}"))
+                            .decide_held(
+                                ctx,
+                                &tab,
+                                settled.held,
+                                &format!("clicking {what}"),
+                                approved,
+                                &destinations,
+                            )
                             .await;
-                        let (url, title) = tab.where_now().await;
-                        let mut t = vec![format!("Clicked {what}. Now on \"{title}\" ({url}).")];
-                        t.extend(held);
-                        if facts.captcha {
-                            t.extend(self.captcha_tried(&tab).await);
+                        match aborted {
+                            Some(why) => {
+                                let mut t = vec![format!("The click did not happen: {why}.")];
+                                t.extend(held);
+                                t.extend(tab.take_notes());
+                                Err(t.join("\n"))
+                            }
+                            None => {
+                                let (url, title) = tab.where_now().await;
+                                let mut t =
+                                    vec![format!("Clicked {what}. Now on \"{title}\" ({url}).")];
+                                t.extend(held);
+                                if facts.captcha {
+                                    t.extend(self.captcha_tried(&tab).await);
+                                }
+                                t.extend(tab.take_notes());
+                                Ok(t.join("\n"))
+                            }
                         }
-                        t.extend(tab.take_notes());
-                        Ok(t.join("\n"))
                     }
                     Err(e) => Err(format!("The click did not happen: {e}")),
                 };
@@ -2134,6 +2319,7 @@ impl Broker {
                 text,
                 enter,
                 what,
+                destinations,
             } => {
                 // A field that became a password field, or stopped taking typing, is a changed
                 // control (`classify::changed`): refused there.
@@ -2144,7 +2330,14 @@ impl Broker {
                 let r = match typed {
                     Ok(settled) => {
                         let held = self
-                            .decide_held(ctx, &tab, settled.held, &format!("typing into {what}"))
+                            .decide_held(
+                                ctx,
+                                &tab,
+                                settled.held,
+                                &format!("typing into {what}"),
+                                ctx.approved,
+                                &destinations,
+                            )
                             .await;
                         let (url, title) = tab.where_now().await;
                         let mut t = vec![format!(
@@ -2163,6 +2356,7 @@ impl Broker {
                 key,
                 focused,
                 captcha,
+                destinations,
             } => {
                 let pressed = match self.same_focus(&tab, &focused).await {
                     Ok(()) => tab.press(&key).await,
@@ -2171,7 +2365,14 @@ impl Broker {
                 let r = match pressed {
                     Ok(settled) => {
                         let held = self
-                            .decide_held(ctx, &tab, settled.held, &format!("pressing {key}"))
+                            .decide_held(
+                                ctx,
+                                &tab,
+                                settled.held,
+                                &format!("pressing {key}"),
+                                ctx.approved,
+                                &destinations,
+                            )
                             .await;
                         let (url, title) = tab.where_now().await;
                         let mut t = vec![format!("Pressed {key}. Now on \"{title}\" ({url}).")];
@@ -2190,6 +2391,7 @@ impl Broker {
                 reference,
                 facts,
                 option,
+                destinations,
             } => {
                 let what = describe(&facts);
                 let chosen = match self.same_control(&tab, &reference, &facts, &what).await {
@@ -2207,7 +2409,14 @@ impl Broker {
                 let r = match chosen {
                     Ok((answer, settled)) => {
                         let held = self
-                            .decide_held(ctx, &tab, settled.held, &format!("choosing \"{option}\""))
+                            .decide_held(
+                                ctx,
+                                &tab,
+                                settled.held,
+                                &format!("choosing \"{option}\""),
+                                ctx.approved,
+                                &destinations,
+                            )
                             .await;
                         if answer["ok"] == true {
                             let mut t = vec![format!(
