@@ -1939,6 +1939,20 @@ mod tests {
         );
         let d = shell(&open, &CommandLine::new("bash", &["-c", "env -u FOO make"]));
         assert_eq!(d.verdict, Verdict::Allow, "{}", d.reason);
+        // A program's name written in pieces is the program the shell runs.
+        for cmd in [
+            CommandLine::new("bash", &["-c", "r\"m\" x"]),
+            CommandLine::new("sh", &["-c", "r\\m x"]),
+            CommandLine::new("cmd", &["/c", "r^m x"]),
+        ] {
+            let d = shell(&open, &cmd);
+            assert_eq!(d.verdict, Verdict::Deny, "{cmd:?}: {}", d.reason);
+        }
+        let d = shell(
+            &open,
+            &CommandLine::new("bash", &["-c", "cp \"my file\" x"]),
+        );
+        assert_eq!(d.verdict, Verdict::Allow, "{}", d.reason);
     }
 
     /// P-GUARD-1 (ADR-213): under Careful, a build or test command, and a program inside the

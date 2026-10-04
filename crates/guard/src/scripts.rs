@@ -574,7 +574,7 @@ fn inner_of(cmd: &CommandLine, depth: u8) -> Vec<Statement> {
                     // Groups (`( … )`, `{ …; }`) split like PowerShell's.
                     let separators = [';', '|', '(', ')', '{', '}'];
                     for (line, words) in split_words(&unquoted(text), &separators, false) {
-                        read_shell(line, &words, &mut out);
+                        read_shell(line, &words, &mut out, Dialect::Posix);
                     }
                 }
             }
@@ -586,7 +586,7 @@ fn inner_of(cmd: &CommandLine, depth: u8) -> Vec<Statement> {
             {
                 let text = args[i + 1..].join(" ");
                 for (line, words) in split_words(&unquoted(&text), &['|', '(', ')'], false) {
-                    read_shell(line, &words, &mut out);
+                    read_shell(line, &words, &mut out, Dialect::Cmd);
                 }
             }
         }
@@ -722,12 +722,20 @@ enum AfterOptions<'a> {
 }
 
 /// Step over `prefix`'s own options in `words` (the words after the prefix), values included.
-/// Each word is read as the shell hands it over, without its quotes (`exec "-a" NAME rm x`).
-fn after_prefix_options<'a>(prefix: &str, mut words: &'a [String]) -> AfterOptions<'a> {
+/// Each word is read as the shell hands it over (`exec "-a" NAME rm x`, `env -"u" A rm x`); a
+/// word the shell fills in itself could be an option or the program, so the reader says it
+/// cannot follow it.
+fn after_prefix_options<'a>(
+    prefix: &str,
+    mut words: &'a [String],
+    dialect: Dialect,
+) -> AfterOptions<'a> {
     let spec = prefix_options(prefix);
     let mut no_program = false;
     while let Some(raw) = words.first() {
-        let word = unquoted(raw);
+        let Some(word) = shell_word(raw, dialect) else {
+            return AfterOptions::Opaque(BY_VARIABLE);
+        };
         let word = word.as_str();
         if word == "--" {
             words = &words[1..];
@@ -798,19 +806,103 @@ fn after_prefix_options<'a>(prefix: &str, mut words: &'a [String]) -> AfterOptio
     }
 }
 
+/// How a shell turns a written word into the word a program gets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Dialect {
+    /// sh, bash, zsh, dash, ksh, fish: quote pieces join into one word, and a backslash keeps
+    /// the next character.
+    Posix,
+    /// cmd: a word quoted as a whole loses its quotes; a backslash is part of a path.
+    Cmd,
+}
+
+/// One written word as the shell hands it to a program (`r"m"`, `'r'm` and `r\m` are all
+/// `rm`), or `None` when the shell fills part of it in itself (a `$` or a backtick outside
+/// single quotes) or a quote is left open: the reader cannot tell what it becomes.
+///
+/// POSIX: single quotes keep everything up to the next single quote; double quotes keep
+/// everything but `$` and the backtick, and a backslash in them keeps `$`, `` ` ``, `"`, `\` or a
+/// line break after it (and is itself kept before anything else); outside quotes, a backslash
+/// keeps the next character (a backslash and a line break join two lines).
+///
+/// cmd: quote pieces are dropped from a command's name (`"r"m` and `r"m"` run `rm`), a caret
+/// outside quotes keeps the next character (`r^m` is `rm`), a backslash is part of a path, and
+/// a `%` is a variable cmd fills in.
+fn shell_word(word: &str, dialect: Dialect) -> Option<String> {
+    if dialect == Dialect::Cmd {
+        let mut out = String::with_capacity(word.len());
+        let mut chars = word.chars();
+        let mut quoted = false;
+        while let Some(c) = chars.next() {
+            match c {
+                '"' => quoted = !quoted,
+                '%' => return None,
+                '^' if !quoted => {
+                    if let Some(next) = chars.next() {
+                        out.push(next);
+                    }
+                }
+                c => out.push(c),
+            }
+        }
+        return Some(out);
+    }
+    let mut out = String::with_capacity(word.len());
+    let mut chars = word.chars().peekable();
+    let mut quote: Option<char> = None;
+    while let Some(c) = chars.next() {
+        match quote {
+            Some('\'') => {
+                if c == '\'' {
+                    quote = None;
+                } else {
+                    out.push(c);
+                }
+            }
+            Some(_) => match c {
+                '"' => quote = None,
+                '$' | '`' => return None,
+                '\\' => match chars.peek() {
+                    Some('\n') => {
+                        chars.next();
+                    }
+                    Some(&next @ ('$' | '`' | '"' | '\\')) => {
+                        out.push(next);
+                        chars.next();
+                    }
+                    _ => out.push('\\'),
+                },
+                c => out.push(c),
+            },
+            None => match c {
+                '\'' | '"' => quote = Some(c),
+                '$' | '`' => return None,
+                '\\' => match chars.next() {
+                    Some('\n') => {}
+                    Some(next) => out.push(next),
+                    None => out.push('\\'),
+                },
+                c => out.push(c),
+            },
+        }
+    }
+    quote.is_none().then_some(out)
+}
+
 /// One statement of a POSIX shell or cmd: `VAR=x program args`, `exec program args`, and
 /// `program args`. A prefix is a statement of its own as well as the program after it, so a
 /// rule naming either catches it (`nohup *` and `rm *` both catch `nohup rm x`), as they would
 /// on a command line. `command -v name` and `command -V name` only look a name up: they name
 /// `command` and nothing else.
-fn read_shell(line: usize, words: &[String], out: &mut Vec<Statement>) {
+fn read_shell(line: usize, words: &[String], out: &mut Vec<Statement>, dialect: Dialect) {
     let mut words = words;
     loop {
         let Some(first) = words.first() else {
             return;
         };
-        // As the shell sees it: `"nohup" rm x` is the prefix `nohup`.
-        let lower = unquoted(first).to_lowercase();
+        // As the shell sees it: `"nohup" rm x` and `no"hup" rm x` are the prefix `nohup`.
+        let bare = shell_word(first, dialect);
+        let lower = bare.as_deref().unwrap_or_default().to_lowercase();
         if first.contains('=') && !first.starts_with(['$', '"', '\'', '-']) {
             // `VAR=x` before the program.
             words = &words[1..];
@@ -818,13 +910,13 @@ fn read_shell(line: usize, words: &[String], out: &mut Vec<Statement>) {
             out.push(Statement {
                 line,
                 kind: StatementKind::Program(CommandLine {
-                    program: unquoted(first),
+                    program: bare.unwrap_or_default(),
                     args: words[1..].iter().map(|a| unquoted(a)).collect(),
                 }),
             });
             // The prefix's own options, with their values (`env -u NAME`, `nice -n 10`,
             // `exec -a NAME`, `time -o FILE`), so a value is never taken for the program.
-            match after_prefix_options(&lower, &words[1..]) {
+            match after_prefix_options(&lower, &words[1..], dialect) {
                 AfterOptions::Program(rest) => words = rest,
                 AfterOptions::NoProgram => return,
                 AfterOptions::Opaque(why) => {
@@ -849,7 +941,15 @@ fn read_shell(line: usize, words: &[String], out: &mut Vec<Statement>) {
         });
         return;
     }
-    let program = unquoted(first);
+    // A `$` or a backtick inside the word: the shell fills it in, and the reader cannot tell
+    // which program that names.
+    let Some(program) = shell_word(first, dialect) else {
+        out.push(Statement {
+            line,
+            kind: StatementKind::Opaque(BY_VARIABLE),
+        });
+        return;
+    };
     if program.starts_with('$') || program.starts_with('%') {
         out.push(Statement {
             line,
@@ -1235,6 +1335,102 @@ mod tests {
                 "{text}"
             );
         }
+    }
+
+    /// A word as each shell hands it to the program: quote pieces joined, escapes kept, and
+    /// what the shell fills in itself (`$`, a backtick, cmd's `%`) not guessed.
+    #[test]
+    fn a_word_is_read_as_the_shell_hands_it_over() {
+        let posix = |w: &str| shell_word(w, Dialect::Posix);
+        for (written, word) in [
+            ("rm", "rm"),
+            ("r\"m\"", "rm"),
+            ("'r'm", "rm"),
+            ("r\\m", "rm"),
+            ("\"r\"'m'", "rm"),
+            ("-\"u\"", "-u"),
+            ("\"my file.txt\"", "my file.txt"),
+            ("'a$b'", "a$b"),
+            ("\"a\\$b\"", "a$b"),
+            ("\"a\\b\"", "a\\b"),
+            ("a\\ b", "a b"),
+        ] {
+            assert_eq!(posix(written).as_deref(), Some(word), "{written}");
+        }
+        for written in ["r$X", "\"$CMD\"", "r`x`", "\"r`x`\"", "\"rm", "'rm"] {
+            assert_eq!(posix(written), None, "{written}");
+        }
+        let cmd = |w: &str| shell_word(w, Dialect::Cmd);
+        for (written, word) in [
+            ("r^m", "rm"),
+            ("r\"m\"", "rm"),
+            ("\"r\"m", "rm"),
+            ("\"r^m\"", "r^m"),
+            ("tools\\run", "tools\\run"),
+            (
+                "\"C:\\Program Files\\x\\run.exe\"",
+                "C:\\Program Files\\x\\run.exe",
+            ),
+        ] {
+            assert_eq!(cmd(written).as_deref(), Some(word), "{written}");
+        }
+        assert_eq!(cmd("r%X%"), None);
+    }
+
+    /// The owner's rule catches a program however the shell text writes its name, and a
+    /// prefix and its options the same way.
+    #[test]
+    fn a_rule_catches_a_program_written_in_pieces() {
+        let blocked = vec!["rm *".to_owned()];
+        let bash = |text: &str| inner_statements(&CommandLine::new("bash", &["-c", text]));
+        let cmd = |text: &str| inner_statements(&CommandLine::new("cmd", &["/c", text]));
+        for statements in [
+            bash("r\"m\" x"),
+            bash("'r'm x"),
+            bash("r\\m x"),
+            bash("env -\"u\" A rm x"),
+            bash("e\"n\"v -u A rm x"),
+            bash("no'hup' r\\m x"),
+            bash("exec '-a' N r\"m\" x"),
+            cmd("r^m x"),
+            cmd("r\"m\" x"),
+            cmd("\"r\"m x"),
+        ] {
+            assert_eq!(
+                first_caught(&blocked, &statements).map(|f| f.1),
+                Some("rm".to_owned()),
+                "{statements:?}"
+            );
+        }
+        // What the shell fills in itself: the reader says it cannot follow it, as before.
+        for statements in [
+            bash("r$X x"),
+            bash("\"$CMD\" x"),
+            bash("nohup \"$CMD\" x"),
+            bash("env -u A r`x` y"),
+            cmd("r%X% y"),
+        ] {
+            assert_eq!(
+                first_opaque(&statements).map(|w| w.0),
+                Some(BY_VARIABLE),
+                "{statements:?}"
+            );
+        }
+        // Ordinary quoted arguments, and a cmd path's backslashes, are unchanged.
+        let shown = |statements: Vec<Statement>| -> Vec<String> {
+            statements
+                .iter()
+                .map(|s| match &s.kind {
+                    StatementKind::Program(c) => c.shown(),
+                    StatementKind::Opaque(why) => format!("?{why}"),
+                })
+                .collect()
+        };
+        assert_eq!(
+            shown(bash("cp \"my file.txt\" 'dest dir'")),
+            ["cp \"my file.txt\" \"dest dir\""]
+        );
+        assert_eq!(shown(cmd("tools\\run x")), ["tools\\run x"]);
     }
 
     /// A prefix is a statement of its own as well as the program after it, so an owner's rule
