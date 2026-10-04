@@ -226,10 +226,12 @@ The following stay open and are written down here so nobody mistakes them for ov
   listed classes, a program started through an argument string of another program. Those run at
   the role's level under Light. An owner who wants a bound sets Safety to **Careful**, where every
   script asks, or sets `PowershellExec` to **Ask** in the permission set.
-- **False refusals, on the safe side.** A quoted string that spans lines without here-string syntax
-  can put a program's name at the start of a line, and a `#` inside a string cuts the rest of its
-  line; either can make a harmless script refused or asked about. The reason names the line, and
-  the worker can use `run_command` instead.
+- **False refusals, on the safe side.** A quoted string is carried across line ends, as PowerShell
+  carries it. Two things the reader does not follow can still make a harmless script refused or
+  asked about: a here-string whose opening `@"` or `@'` is glued to something other than a space,
+  `=`, `(`, or `,`, so its lines are read as statements; and an apostrophe inside a bare word
+  (`don't`), which opens a string that ends at the next apostrophe and leaves what follows to be
+  read as statements. The reason names the line, and the worker can use `run_command` instead.
 - **The alias table is Windows PowerShell 5.1's**; aliases an owner's profile adds are not read
   (Plenipo runs scripts with `-NoProfile`, so they do not exist for a worker either).
 - **Shell text is read for `-c`, `/c`, `/k`, and `-Command` only**; other ways of handing a shell

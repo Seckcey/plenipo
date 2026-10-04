@@ -133,6 +133,8 @@ fn refused(why: &str) -> io::Error {
 }
 
 const BECAME_A_LINK: &str = "became a link after it was checked, so nothing was read or changed";
+/// Windows only: the second open of the two found another object (see `open_checked`).
+#[cfg(windows)]
 const CHANGED_WHILE_OPENING: &str =
     "changed while it was being opened, so nothing was read or changed";
 const HARD_LINKED: &str = "is shared with another place on this disk (a hard link), so Plenipo \

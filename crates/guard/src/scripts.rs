@@ -198,16 +198,26 @@ fn strip_powershell(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
     let mut quote: Option<char> = None;
-    let at_line_start = |i: usize, chars: &[char]| {
-        chars[..i]
-            .iter()
-            .rev()
-            .take_while(|c| **c != '\n')
-            .all(|c| c.is_whitespace())
+    // Where the current line began: a `#` or `@"` counts as starting a word when only spaces
+    // come before it on its line, or the character before it is one that may touch it.
+    let mut line_start = 0usize;
+    let starts_word = |i: usize, chars: &[char], line_start: usize| {
+        i == line_start
+            || chars[i - 1].is_whitespace()
+            || chars[line_start..i].iter().all(|x| x.is_whitespace())
     };
-    let before_is_space = |i: usize, chars: &[char]| i == 0 || chars[i - 1].is_whitespace();
+    // The line start after skipping `chars[from..to]`, which may hold line breaks.
+    let after_skip = |from: usize, to: usize, chars: &[char], line_start: usize| {
+        chars[from..to]
+            .iter()
+            .rposition(|c| *c == '\n')
+            .map_or(line_start, |p| from + p + 1)
+    };
     while i < chars.len() {
         let c = chars[i];
+        if c == '\n' {
+            line_start = i + 1;
+        }
         if let Some(q) = quote {
             out.push(c);
             if c == q {
@@ -227,14 +237,15 @@ fn strip_powershell(text: &str) -> String {
             }
             let end = (j + 2).min(chars.len());
             blank(&chars[i..end], &mut out);
+            line_start = after_skip(i, end, &chars, line_start);
             i = end;
             continue;
         }
-        // A here-string: `@"` or `@'` at the end of a line, to a line that starts with `"@`
-        // or `'@`.
+        // A here-string: `@"` or `@'` at the end of a line (after a space, `=`, `(`, or `,`),
+        // to a line that starts with `"@` or `'@`.
         if c == '@'
             && matches!(chars.get(i + 1), Some('"') | Some('\''))
-            && before_is_space(i, &chars)
+            && (starts_word(i, &chars, line_start) || matches!(chars[i - 1], '=' | '(' | ','))
             && chars[i + 2..]
                 .iter()
                 .take_while(|x| **x != '\n')
@@ -257,11 +268,12 @@ fn strip_powershell(text: &str) -> String {
             }
             let end = j.min(chars.len());
             blank(&chars[i..end], &mut out);
+            line_start = after_skip(i, end, &chars, line_start);
             i = end;
             continue;
         }
         // A line comment: `#` that starts a word.
-        if c == '#' && (before_is_space(i, &chars) || at_line_start(i, &chars)) {
+        if c == '#' && starts_word(i, &chars, line_start) {
             let mut j = i;
             while j < chars.len() && chars[j] != '\n' {
                 j += 1;
@@ -418,31 +430,25 @@ fn read_powershell(line: usize, words: &[String], out: &mut Vec<Statement>, dept
         read_program(line, &program, &words[2..], out, depth);
         return;
     }
-    // An assignment: the statement is what comes after `=`.
-    if first.starts_with('$') || first.starts_with("[") && !lower.starts_with("[system.io.") {
-        if first.starts_with('$')
-            && words
-                .get(1)
-                .is_some_and(|w| w.ends_with('=') && !w.starts_with("=="))
-        {
-            read_powershell(line, &words[2..], out, depth);
-        } else if first.starts_with('[') && is_opaque_dotnet(&lower) {
+    // A variable or a type first: an assignment (`$x = rm …`, `$x=rm …`, `$x =rm …`,
+    // `[int]$n = …`, `$x += …`) is read from what comes after the `=`; a .NET class that works
+    // on files or processes is reported; anything else (a variable alone, a member call) names
+    // no program.
+    if first.starts_with(['$', '[']) {
+        if is_opaque_dotnet(&lower) {
             push(out, StatementKind::Opaque(DOTNET));
+        } else if let Some(rest) = assigned(words) {
+            read_powershell(line, &rest, out, depth);
         }
-        return;
-    }
-    if is_opaque_dotnet(&lower) {
-        push(out, StatementKind::Opaque(DOTNET));
         return;
     }
     if KEYWORDS.contains(&lower.as_str()) {
         // `return rm x` is unusual; `if (…)` already split its condition out.
         return;
     }
-    if first.starts_with('-')
-        || first.starts_with(['@', '"', '\''])
-        || lower.contains("$env:comspec")
-    {
+    // A parameter, a splat or a string on its own, or the rest of an argument list after a
+    // here-string (`"@, 1`) names no program.
+    if first.starts_with(['-', '@', '"', '\'', ',']) || lower.contains("$env:comspec") {
         if lower.contains("$env:comspec") {
             push(out, StatementKind::Opaque(COMSPEC));
         }
@@ -456,6 +462,35 @@ fn read_powershell(line: usize, words: &[String], out: &mut Vec<Statement>, dept
         return;
     }
     read_program(line, first, &words[1..], out, depth);
+}
+
+/// The words after the `=` of an assignment, written apart or glued to either side (`$x = a`,
+/// `$x=a`, `$x =a`, `$x= a`, and `$x += a` and its kin); `None` when the words are not one.
+fn assigned(words: &[String]) -> Option<Vec<String>> {
+    let first = words.first()?;
+    let not_a_comparison = |s: &str| !s.starts_with("==");
+    if let Some(i) = first.find('=').filter(|&i| not_a_comparison(&first[i..])) {
+        let mut rest = Vec::new();
+        if first.len() > i + 1 {
+            rest.push(first[i + 1..].to_owned());
+        }
+        rest.extend(words[1..].iter().cloned());
+        return Some(rest);
+    }
+    let second = words.get(1)?;
+    if second.starts_with('=') && not_a_comparison(second) {
+        let mut rest = Vec::new();
+        if second.len() > 1 {
+            rest.push(second[1..].to_owned());
+        }
+        rest.extend(words[2..].iter().cloned());
+        return Some(rest);
+    }
+    // `+=`, `-=`, `*=`, `/=`, `%=`, `??=`.
+    if second.ends_with('=') && second.len() <= 3 && not_a_comparison(second) {
+        return Some(words[2..].to_vec());
+    }
+    None
 }
 
 fn is_opaque_dotnet(lower: &str) -> bool {
@@ -490,10 +525,19 @@ fn read_program(line: usize, program: &str, args: &[String], out: &mut Vec<State
     };
     push(out, StatementKind::Program(cmd.clone()));
     if depth == 0 {
-        // `Start-Process rm -ArgumentList …` names a program too.
+        // `Start-Process rm …` and `Start-Process -FilePath "rm" …` name a program too.
         if cmdlet == "start-process" {
-            if let Some(inner) = args.iter().find(|a| !a.starts_with('-')) {
-                read_powershell(line, std::slice::from_ref(inner), out, depth + 1);
+            let named = args
+                .iter()
+                .position(|a| a.eq_ignore_ascii_case("-filepath"))
+                .and_then(|i| args.get(i + 1))
+                .or_else(|| args.iter().find(|a| !a.starts_with('-')));
+            if let Some(named) = named.map(|n| unquoted(n)) {
+                if named.starts_with(['$', '(', '[']) || named.contains('$') {
+                    push(out, StatementKind::Opaque(BY_VARIABLE));
+                } else if !named.is_empty() {
+                    read_program(line, &named, &[], out, depth + 1);
+                }
             }
         }
         for s in inner_of(&cmd, depth + 1) {
@@ -527,7 +571,9 @@ fn inner_of(cmd: &CommandLine, depth: u8) -> Vec<Statement> {
         "sh" | "bash" | "zsh" | "dash" | "ksh" | "fish" => {
             if let Some(i) = args.iter().position(|a| a == "-c") {
                 if let Some(text) = args.get(i + 1) {
-                    for (line, words) in split_words(&unquoted(text), &[';', '|'], false) {
+                    // Groups (`( … )`, `{ …; }`) split like PowerShell's.
+                    let separators = [';', '|', '(', ')', '{', '}'];
+                    for (line, words) in split_words(&unquoted(text), &separators, false) {
                         read_shell(line, &words, &mut out);
                     }
                 }
@@ -539,7 +585,7 @@ fn inner_of(cmd: &CommandLine, depth: u8) -> Vec<Statement> {
                 .position(|a| a.eq_ignore_ascii_case("/c") || a.eq_ignore_ascii_case("/k"))
             {
                 let text = args[i + 1..].join(" ");
-                for (line, words) in split_words(&unquoted(&text), &['|'], false) {
+                for (line, words) in split_words(&unquoted(&text), &['|', '(', ')'], false) {
                     read_shell(line, &words, &mut out);
                 }
             }
@@ -577,14 +623,36 @@ fn inner_of(cmd: &CommandLine, depth: u8) -> Vec<Statement> {
     out
 }
 
-/// One statement of a POSIX shell or cmd: `VAR=x program args` and `program args`.
+/// Words that only change how the program after them runs (`exec rm x`, `nice -n 10 rm x`).
+/// `sudo` is not one: the sensitive check catches it; `xargs` is a known gap (ADR-214).
+const SHELL_PREFIXES: &[&str] = &[
+    "exec", "command", "builtin", "env", "nohup", "time", "nice", "ionice",
+];
+
+/// One statement of a POSIX shell or cmd: `VAR=x program args`, `exec program args`, and
+/// `program args`.
 fn read_shell(line: usize, words: &[String], out: &mut Vec<Statement>) {
     let mut words = words;
-    while words
-        .first()
-        .is_some_and(|w| w.contains('=') && !w.starts_with(['$', '"', '\'', '-']))
-    {
-        words = &words[1..];
+    loop {
+        let Some(first) = words.first() else {
+            return;
+        };
+        let lower = first.to_lowercase();
+        if first.contains('=') && !first.starts_with(['$', '"', '\'', '-']) {
+            // `VAR=x` before the program.
+            words = &words[1..];
+        } else if SHELL_PREFIXES.contains(&lower.as_str()) {
+            words = &words[1..];
+            // The prefix's own options (`env -i`, `nice -n 10`, `ionice -c 3`).
+            let takes_a_number = matches!(lower.as_str(), "nice" | "ionice");
+            while words.first().is_some_and(|w| {
+                w.starts_with('-') || (takes_a_number && w.chars().all(|c| c.is_ascii_digit()))
+            }) {
+                words = &words[1..];
+            }
+        } else {
+            break;
+        }
     }
     let Some(first) = words.first() else {
         return;
@@ -655,6 +723,30 @@ mod tests {
         );
     }
 
+    /// A here-string is one string wherever its opening may touch: after `=`, `(`, or `,` as
+    /// well as after a space; a comment starts a word at the start of a line or after a space.
+    #[test]
+    fn here_strings_and_comments_are_set_aside_as_units() {
+        assert_eq!(
+            programs_of("$x=@\"\nrm in a string\n\"@\nGet-Date"),
+            ["4:Get-Date"]
+        );
+        assert_eq!(
+            programs_of("Write-Host (@'\nrm -rf x\n'@)\nGet-Date"),
+            ["1:Write-Host", "4:Get-Date"]
+        );
+        assert_eq!(
+            programs_of("Invoke-Thing -Body @\"\nrm\n\"@, 1\nGet-Date"),
+            ["1:Invoke-Thing -Body", "4:Get-Date"]
+        );
+        assert_eq!(
+            programs_of(
+                "  # a comment at the start of its line\nGet-Date#not a comment\nrm x # tidy"
+            ),
+            ["2:Get-Date#not a comment", "3:rm x"]
+        );
+    }
+
     #[test]
     fn statements_the_reader_cannot_follow_are_said_so() {
         for (script, why) in [
@@ -712,6 +804,50 @@ mod tests {
         );
     }
 
+    /// An assignment hides nothing, however its `=` is written; `Start-Process` names its
+    /// program quoted, by `-FilePath`, or bare, and says so when the name is a variable.
+    #[test]
+    fn assignments_and_start_process_name_their_programs() {
+        let blocked = vec!["Remove-Item *".to_owned(), "curl *".to_owned()];
+        for script in [
+            "$null=rm x",
+            "$x =rm x",
+            "$x= rm x",
+            "$x = rm x",
+            "[string]$s=rm x",
+            "$list += rm x",
+            "$out = (rm x)",
+        ] {
+            assert_eq!(
+                first_caught(&blocked, &statements(script)).map(|f| f.1),
+                Some("rm".to_owned()),
+                "{script}"
+            );
+        }
+        for script in [
+            "Start-Process -FilePath \"rm\" -ArgumentList '-rf x'",
+            "Start-Process -FilePath 'curl' -ArgumentList https://x",
+            "Start-Process 'curl' https://x",
+            "saps -FilePath rm",
+            "Start-Process -NoNewWindow -FilePath rm",
+        ] {
+            assert!(
+                first_caught(&blocked, &statements(script)).is_some(),
+                "{script}"
+            );
+        }
+        assert_eq!(
+            first_opaque(&statements("Start-Process -FilePath $tool")).map(|w| w.0),
+            Some(BY_VARIABLE)
+        );
+        assert_eq!(
+            first_opaque(&statements("Start-Process \"$env:ProgramFiles\\x.exe\"")).map(|w| w.0),
+            Some(BY_VARIABLE)
+        );
+        // A variable alone, a comparison, or a member call names no program.
+        assert!(statements("$x\n$x -eq 1\n$x == 1\n$f.Delete()").is_empty());
+    }
+
     #[test]
     fn a_rule_catches_a_program_in_a_script_by_either_spelling() {
         let blocked = vec!["Remove-Item *".to_owned(), "curl *".to_owned()];
@@ -731,6 +867,41 @@ mod tests {
             first_caught(&blocked, &statements("Write-Host 'rm -rf x'")),
             None
         );
+    }
+
+    /// A shell's groups and run-this-way prefixes do not hide the program.
+    #[test]
+    fn shell_groups_and_prefixes_do_not_hide_the_program() {
+        let blocked = vec!["rm *".to_owned()];
+        for text in [
+            "(rm -rf y)",
+            "{ rm x; }",
+            "cd x && (rm y)",
+            "exec rm x",
+            "command rm x",
+            "builtin echo; rm x",
+            "env FOO=1 nohup rm x",
+            "nice -n 10 rm x",
+            "ionice -c 3 nice -n 5 rm x",
+            "time rm x",
+        ] {
+            let found = first_caught(
+                &blocked,
+                &inner_statements(&CommandLine::new("bash", &["-c", text])),
+            );
+            assert_eq!(found.map(|f| f.1), Some("rm".to_owned()), "{text}");
+        }
+        let found = first_caught(
+            &blocked,
+            &inner_statements(&CommandLine::new("cmd", &["/c", "(rm x)"])),
+        );
+        assert_eq!(found.map(|f| f.1), Some("rm".to_owned()));
+        // `sudo` stays a program of its own (the sensitive check catches it).
+        let found = first_caught(
+            &blocked,
+            &inner_statements(&CommandLine::new("sh", &["-c", "sudo rm x"])),
+        );
+        assert_eq!(found, None);
     }
 
     #[test]
