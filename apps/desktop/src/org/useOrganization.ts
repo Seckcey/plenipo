@@ -24,8 +24,8 @@ export function affectsOrganization(eventType: string): boolean {
 /**
  * The organization snapshot, kept live: Core owns the organization, so this reloads (debounced)
  * whenever the Ledger commits something that changes it, or runtime readiness changes. Changes
- * made from this window apply the snapshot their command returns. Only the newest answer shows
- * ({@link Newest}).
+ * made from this window apply the snapshot their command returns, and are followed by one more
+ * reload. Only the newest answer shows ({@link Newest}).
  */
 export function useOrganization() {
   const [snapshot, setSnapshot] = useState<OrgSnapshot | null>(null);
@@ -34,22 +34,30 @@ export function useOrganization() {
   /** Increments on every change, so views can refresh dependent data (a position's work). */
   const [revision, setRevision] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const live = useRef(false);
   const [order] = useState(() => new Newest());
 
   const reload = useCallback(async () => {
     const newest = order.start();
     try {
       const next = await getOrganization();
-      if (!newest()) return;
+      if (!newest.take()) return;
       setSnapshot(next);
       setStatus("ready");
       setError(null);
     } catch (reason) {
-      if (!newest()) return;
+      if (!newest.fresh()) return;
       setStatus((s) => (s === "ready" ? s : "error"));
       setError(toCommandError(reason).message);
     }
   }, [order]);
+
+  /** Reload in a moment (several asks in a row make one reload). */
+  const soon = useCallback(() => {
+    if (!live.current) return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void reload(), 150);
+  }, [reload]);
 
   const apply = useCallback(
     (next: OrgSnapshot) => {
@@ -58,18 +66,22 @@ export function useOrganization() {
       setStatus("ready");
       setError(null);
       setRevision((r) => r + 1);
+      // What a command returns was read before its answer travelled back: a change that came in
+      // meanwhile set off a reload that started before this one and is dropped as older. One
+      // more reload, newer than the change, brings it in.
+      soon();
     },
-    [order],
+    [order, soon],
   );
 
   useEffect(() => {
     let disposed = false;
     const stops: (() => void)[] = [];
+    live.current = true;
     const schedule = () => {
       if (disposed) return;
       setRevision((r) => r + 1);
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => void reload(), 150);
+      soon();
     };
     const keep = (stop: () => void) => {
       if (disposed) stop();
@@ -96,10 +108,11 @@ export function useOrganization() {
     });
     return () => {
       disposed = true;
+      live.current = false;
       stops.forEach((stop) => stop());
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [reload]);
+  }, [reload, soon]);
 
   return { snapshot, status, error, revision, reload, apply };
 }

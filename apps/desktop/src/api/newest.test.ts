@@ -7,32 +7,42 @@ describe("Newest", () => {
     const order = new Newest();
     const first = order.start();
     const second = order.start();
-    expect(first()).toBe(true);
-    expect(second()).toBe(true);
+    expect(first.take()).toBe(true);
+    expect(second.take()).toBe(true);
   });
 
   it("drops an older reload's reply that comes back after a newer one", () => {
     const order = new Newest();
     const older = order.start();
     const newer = order.start();
-    expect(newer()).toBe(true);
-    expect(older()).toBe(false);
+    expect(newer.take()).toBe(true);
+    expect(older.take()).toBe(false);
   });
 
   it("drops a reply from a reload that started before a change was applied", () => {
     const order = new Newest();
     const before = order.start();
     order.applied();
-    expect(before()).toBe(false);
+    expect(before.take()).toBe(false);
     // A reload that starts after the change is newer than it.
-    expect(order.start()()).toBe(true);
+    expect(order.start().take()).toBe(true);
   });
 
-  it("counts a newer failure as the newest look, so an older reply cannot follow it", () => {
+  it("does not let an older failure show after a newer reply", () => {
     const order = new Newest();
     const older = order.start();
-    const failed = order.start();
-    expect(failed()).toBe(true);
-    expect(older()).toBe(false);
+    const newer = order.start();
+    expect(newer.take()).toBe(true);
+    expect(older.fresh()).toBe(false);
+  });
+
+  it("still shows an older reply that comes back after a newer failure", () => {
+    const order = new Newest();
+    const older = order.start();
+    const newer = order.start();
+    // The newer reload fails first: its failure shows, but takes nothing.
+    expect(newer.fresh()).toBe(true);
+    // The older reply then comes: it shows (and the page clears the failure).
+    expect(older.take()).toBe(true);
   });
 });

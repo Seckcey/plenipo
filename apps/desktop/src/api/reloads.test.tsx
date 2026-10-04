@@ -6,7 +6,7 @@ import { useOrganization } from "../org/useOrganization";
 import { useConnections } from "../settings/connections/useConnections";
 import { sampleCard, samplePage } from "../test/connectionFixtures";
 import { sampleOrganization } from "../test/orgFixtures";
-import { samplePermissions, sampleQueue } from "../test/permissionFixtures";
+import { approval, samplePermissions, sampleQueue } from "../test/permissionFixtures";
 import * as commands from "./commands";
 
 // Pages reload what Core says after each change, and Core answers each reload on its own thread,
@@ -97,12 +97,35 @@ describe("the Approvals queue", () => {
     act(() => result.current.apply(answered));
     await answer(calls[0], waiting);
     expect(result.current.queue).toBe(answered);
-    // A reload that starts after the change is newer, and shows.
-    const later = sampleQueue({ pending: [] });
-    act(() => void result.current.reload());
+    // The reload that follows the change is newer, and shows.
     await waitFor(() => expect(calls).toHaveLength(2));
+    const later = sampleQueue({ pending: [] });
     await answer(calls[1], later);
     expect(result.current.queue).toBe(later);
+  });
+
+  it("shows a request that arrived while the owner's answer was on its way", async () => {
+    // The queue an answer returns is read before the answer travels back. A request that comes
+    // in meanwhile sets off a reload that starts before the answer lands, so it is dropped as
+    // older: the reload that follows every change brings the request in.
+    const calls = answerLater(commands.getApprovals);
+    const { result } = renderHook(() => useApprovals());
+    await waitFor(() => expect(calls).toHaveLength(1));
+    await answer(calls[0], waiting);
+    act(() => void result.current.reload());
+    await waitFor(() => expect(calls).toHaveLength(2));
+    act(() => result.current.apply(answered));
+    const newRequest = sampleQueue({
+      pending: [approval({ id: "approval-2", summary: "run npm test" })],
+    });
+    await answer(calls[1], newRequest);
+    expect(result.current.queue).toBe(answered);
+    await waitFor(() => expect(calls).toHaveLength(3));
+    const withIt = sampleQueue({
+      pending: [approval({ id: "approval-2", summary: "run npm test" })],
+    });
+    await answer(calls[2], withIt);
+    expect(result.current.queue).toBe(withIt);
   });
 
   it("does not let an older reload's failure cover a newer answer", async () => {
@@ -112,6 +135,19 @@ describe("the Approvals queue", () => {
     await answer(calls[1], answered);
     await fail(calls[0]);
     expect(result.current.queue).toBe(answered);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("shows an older answer that comes back after a newer failure, and clears it", async () => {
+    // The page has just opened: nothing is shown yet.
+    const calls = answerLater(commands.getApprovals);
+    const { result } = renderHook(() => useApprovals());
+    await twoReloads(calls, () => result.current.reload());
+    await fail(calls[1]);
+    expect(result.current.queue).toBeNull();
+    expect(result.current.error).toBe("The Ledger could not be read.");
+    await answer(calls[0], waiting);
+    expect(result.current.queue).toBe(waiting);
     expect(result.current.error).toBeNull();
   });
 
@@ -219,6 +255,11 @@ describe("the organization", () => {
     act(() => result.current.apply(moved));
     await answer(calls[0], sampleOrganization());
     expect(result.current.snapshot).toBe(moved);
+    // The reload that follows the change is newer, and shows.
+    await waitFor(() => expect(calls).toHaveLength(2));
+    const later = sampleOrganization();
+    await answer(calls[1], later);
+    expect(result.current.snapshot).toBe(later);
   });
 
   it("does not let an older reload's failure cover a newer answer", async () => {
@@ -229,6 +270,20 @@ describe("the organization", () => {
     await answer(calls[1], newer);
     await fail(calls[0]);
     expect(result.current.snapshot).toBe(newer);
+    expect(result.current.status).toBe("ready");
+    expect(result.current.error).toBeNull();
+  });
+
+  it("shows an older answer that comes back after a newer failure, and clears it", async () => {
+    // The canvas has just opened: nothing is shown yet.
+    const calls = answerLater(commands.getOrganization);
+    const { result } = renderHook(() => useOrganization());
+    await twoReloads(calls, () => result.current.reload());
+    await fail(calls[1]);
+    expect(result.current.status).toBe("error");
+    const older = sampleOrganization();
+    await answer(calls[0], older);
+    expect(result.current.snapshot).toBe(older);
     expect(result.current.status).toBe("ready");
     expect(result.current.error).toBeNull();
   });

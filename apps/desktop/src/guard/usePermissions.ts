@@ -25,25 +25,32 @@ export function affectsApprovals(eventType: string): boolean {
   return eventType.startsWith("approval.") || eventType.startsWith("guard.grant_");
 }
 
-/** A value from Core kept live: reloaded (debounced) after relevant Ledger events; a change
- * applies what its command returns. Only the newest answer shows ({@link Newest}). */
+/**
+ * A value from Core kept live: reloaded (debounced) after relevant Ledger events; a change
+ * applies what its command returns, and is followed by one more reload. Only the newest answer
+ * shows ({@link Newest}).
+ */
 export function useLive<T>(load: () => Promise<T>, relevant: (eventType: string) => boolean) {
   const [value, setValue] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const live = useRef(false);
   const [order] = useState(() => new Newest());
 
-  /** Read it again. `quiet`: a failure is not shown (a look while a sign-in waits). */
+  /**
+   * Read it again. `quiet` (a look while a sign-in waits): a failure is not shown, and like any
+   * failure it takes nothing, so the next answer still shows.
+   */
   const look = useCallback(
     async (quiet: boolean) => {
       const newest = order.start();
       try {
         const next = await load();
-        if (!newest()) return;
+        if (!newest.take()) return;
         setValue(next);
         setError(null);
       } catch (reason) {
-        if (!quiet && newest()) setError(toCommandError(reason).message);
+        if (!quiet && newest.fresh()) setError(toCommandError(reason).message);
       }
     },
     [load, order],
@@ -51,25 +58,32 @@ export function useLive<T>(load: () => Promise<T>, relevant: (eventType: string)
 
   const reload = useCallback(() => look(false), [look]);
 
+  /** Reload in a moment (several asks in a row make one reload). */
+  const schedule = useCallback(() => {
+    if (!live.current) return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void reload(), 120);
+  }, [reload]);
+
   const apply = useCallback(
     (next: T) => {
       order.applied();
       setValue(next);
       setError(null);
+      // What a command returns was read before its answer travelled back: something that came
+      // in meanwhile (a new approval request) set off a reload that started before this change
+      // and is dropped as older. One more reload, newer than the change, brings it in.
+      schedule();
     },
-    [order],
+    [order, schedule],
   );
 
   useEffect(() => {
     let disposed = false;
     let stop: (() => void) | null = null;
-    const schedule = () => {
-      if (disposed) return;
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => void reload(), 120);
-    };
+    live.current = true;
     void subscribeLedgerEvents((event) => {
-      if (relevant(event.eventType)) schedule();
+      if (!disposed && relevant(event.eventType)) schedule();
     })
       .then((s) => {
         if (disposed) s();
@@ -81,10 +95,11 @@ export function useLive<T>(load: () => Promise<T>, relevant: (eventType: string)
       });
     return () => {
       disposed = true;
+      live.current = false;
       stop?.();
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [reload, relevant]);
+  }, [reload, relevant, schedule]);
 
   const quietLook = useCallback(() => look(true), [look]);
 
