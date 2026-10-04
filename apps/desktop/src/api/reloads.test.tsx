@@ -524,4 +524,22 @@ describe("Activity's feed", () => {
     expect(result.current.status).toBe("ready");
     expect(result.current.error).toBeNull();
   });
+
+  it("keeps a streamed event when a reload from before it answers late", async () => {
+    // Before: an event streamed in while a reload was under way; that reload's answer, read
+    // before the event, came back after it and dropped the event until the next reload.
+    const tasks = answerLater(commands.listTasks);
+    const events = answerLater(commands.listRecentEvents);
+    const { result } = renderHook(() => useLedgerFeed());
+    await waitFor(() => expect(events).toHaveLength(1));
+    await answer(tasks[0], []);
+    await answer(events[0], [event("task.created", 1)]);
+    act(() => void result.current.reload());
+    await waitFor(() => expect(events).toHaveLength(2));
+    ledgerEvent("task.created", 2);
+    expect(result.current.events.map((e) => e.seq)).toEqual([2, 1]);
+    await answer(tasks[1], []);
+    await answer(events[1], [event("task.created", 1)]);
+    expect(result.current.events.map((e) => e.seq)).toEqual([2, 1]);
+  });
 });

@@ -197,6 +197,40 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
     writerRef.current = writer;
   }, [writer]);
 
+  /**
+   * Read the file again for a worker's step, or after a save: whether a worker writes in it now
+   * (read-only), and the note when one is done. After a save it never changes the editor's text:
+   * that is what was just saved.
+   */
+  const reread = useCallback(
+    (afterSave: boolean) => {
+      const newest = order.start();
+      readFile(root, path)
+        .then((v) => {
+          if (!newest.take()) return;
+          const was = writerRef.current;
+          const now = v.readOnly?.kind === "writer" ? v.readOnly.writer : null;
+          setView(v);
+          if (was && !now) {
+            // The worker is done: its change is on the disk; the editor shows the file as it is
+            // now (what you typed and did not save stays).
+            setLive(null);
+            setWaiting(false);
+            setStopAsked(false);
+            setDoneNote(`${was.worker} is done. You can edit again.`);
+            const unsaved = editorStore.snapshot().unsaved.has(fileId);
+            if (!afterSave && !unsaved && v.content.kind === "text") {
+              editorStore.setBase(fileId, { hash: v.hash ?? null, text: v.content.text });
+              editorStore.forget(fileId);
+              setState(editorState(v.content.text, false));
+            }
+          }
+        })
+        .catch(() => undefined);
+    },
+    [root, path, fileId, order],
+  );
+
   // A worker starting or ending a step here: the file is read again (read-only or not).
   useEffect(() => {
     let live = true;
@@ -206,30 +240,7 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
       if (!changesWriters(e.eventType) || timer) return;
       timer = setTimeout(() => {
         timer = null;
-        if (!live) return;
-        const newest = order.start();
-        readFile(root, path)
-          .then((v) => {
-            if (!newest.take()) return;
-            const was = writerRef.current;
-            const now = v.readOnly?.kind === "writer" ? v.readOnly.writer : null;
-            setView(v);
-            if (was && !now) {
-              // The worker is done: its change is on the disk; the editor shows the file as it
-              // is now (what you typed and did not save stays).
-              setLive(null);
-              setWaiting(false);
-              setStopAsked(false);
-              setDoneNote(`${was.worker} is done. You can edit again.`);
-              const unsaved = editorStore.snapshot().unsaved.has(fileId);
-              if (!unsaved && v.content.kind === "text") {
-                editorStore.setBase(fileId, { hash: v.hash ?? null, text: v.content.text });
-                editorStore.forget(fileId);
-                setState(editorState(v.content.text, false));
-              }
-            }
-          })
-          .catch(() => undefined);
+        if (live) reread(false);
       }, 250);
     })
       .then((s) => (live ? (stop = s) : s()))
@@ -239,7 +250,7 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
       stop?.();
       if (timer) clearTimeout(timer);
     };
-  }, [root, path, fileId, order]);
+  }, [reread]);
 
   // A worker's change to this file: shown as it is written, then as saved, lines marked.
   useEffect(() => {
@@ -321,11 +332,14 @@ function FileEditor({ fileId, root, path }: { fileId: string; root: string; path
           setSaved(
             `Saved · ${outcome.added} line${outcome.added === 1 ? "" : "s"} added, ${outcome.removed} removed`,
           );
+          // A worker's step may have started meanwhile, and its read is now older than the
+          // save: read once more, so the file shows read-only if a worker writes in it.
+          reread(true);
         })
         .catch((e: unknown) => setProblem(toCommandError(e).message))
         .finally(() => setSaving(false));
     },
-    [root, path, fileId, state, saving, order],
+    [root, path, fileId, state, saving, order, reread],
   );
 
   // Ctrl+S in the editor.

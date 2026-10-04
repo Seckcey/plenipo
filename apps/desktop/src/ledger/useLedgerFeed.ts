@@ -45,6 +45,9 @@ export function useLedgerFeed() {
     let unsubscribe: (() => void) | undefined;
     subscribeLedgerEvents((event) => {
       if (disposed) return;
+      // A streamed event is newer than any reload already under way: such a reload's answer,
+      // read before it, would drop it; the reload set off below brings everything in.
+      order.applied();
       setEvents((prev) =>
         prev.some((e) => e.seq === event.seq) ? prev : [event, ...prev].slice(0, MAX_EVENTS),
       );
@@ -65,7 +68,7 @@ export function useLedgerFeed() {
       unsubscribe?.();
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [reload]);
+  }, [reload, order]);
 
   // Older events, read a page at a time when asked. They are kept with the live ones shown when
   // they were read, so new events pushing old ones out of the live list leave no gap.

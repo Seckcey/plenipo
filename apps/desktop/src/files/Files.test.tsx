@@ -430,6 +430,50 @@ describe("the editor (Phase 21, ADR-093)", () => {
     expect(screen.queryByText("Senior Developer is writing in this working copy")).toBeNull();
   });
 
+  it("shows a worker's step as read-only even when the owner saves while it is being read", async () => {
+    // Before: a worker's step began, its read started, and the owner saved in that moment. The
+    // save made the read older, so its answer was dropped: the file stayed editable, with no
+    // "is writing" line, until the step ended (the save itself was always checked on the disk).
+    const user = userEvent.setup();
+    const writer = { worker: "Senior Developer", sessionId: "s1", taskId: "t1" };
+    api.readFile.mockResolvedValueOnce(text(COPY, "src/app.txt", "a\n"));
+    api.saveFile.mockResolvedValue({
+      kind: "saved",
+      hash: "b".repeat(64),
+      size: 7,
+      modified: 2,
+      added: 1,
+      removed: 0,
+    });
+    render(<EditorPage id={`${COPY}/src/app.txt`} go={vi.fn()} />);
+    await user.type(await screen.findByRole("textbox", { name: "app.txt, editable" }), "mine");
+    const reads: ((v: FileView) => void)[] = [];
+    api.readFile.mockImplementation(() => new Promise<FileView>((resolve) => reads.push(resolve)));
+    // A worker's step begins here: its read starts.
+    act(() => ledger(event("guard.grant_opened")));
+    await waitFor(() => expect(reads).toHaveLength(1));
+    // The owner saves in that moment.
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(/Saved · 1 line added/)).toBeInTheDocument();
+    const writing = () =>
+      text(COPY, "src/app.txt", "a\nmine", { readOnly: { kind: "writer", writer } });
+    // The step's read answers after the save: older, so it is dropped ...
+    await act(() => {
+      reads[0]?.(writing());
+      return Promise.resolve();
+    });
+    // ... and the read after the save shows the worker writing.
+    await waitFor(() => expect(reads).toHaveLength(2));
+    await act(() => {
+      reads[1]?.(writing());
+      return Promise.resolve();
+    });
+    expect(
+      await screen.findByText("Senior Developer is writing in this working copy"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "app.txt, read-only" })).toHaveAttribute("readonly");
+  });
+
   it("opens a working copy a worker is writing read-only, with Wait and Stop the worker", async () => {
     const user = userEvent.setup();
     const writer = { worker: "Senior Developer", sessionId: "s1", taskId: "t1" };
