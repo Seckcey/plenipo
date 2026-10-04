@@ -633,9 +633,12 @@ the result)](../adr/ADR-016-development-department.md).
 - **Delegation to full-time members** (`crates/workforce/src/directory.rs`,
   `conversation.rs`). A lead's team includes its staffed full-time direct reports. Liaison's
   `Directory` hook places a request to one as a new turn in that member's own session
-  (`ChildConversation`); a busy member's turn waits (`SessionBusy`) until it is free. Work only
-  goes down reporting lines, which cannot loop, so members never wait on each other. Stopping a
-  delegated task stops only its turn (`cancel_task`).
+  (`ChildConversation`); a busy member's turn waits (`SessionBusy`) until it is free. A member
+  whose last task has just ended (finished, or stopped) and is still being recorded is not busy:
+  the runtime's `reserve_turn` waits for that, `AgentConfig::release_wait` (5 seconds) at most,
+  so the new turn starts instead of being refused. Work only goes down reporting lines, which
+  cannot loop, so members never wait on each other. Stopping a delegated task stops only its
+  turn (`cancel_task`).
 - **Working copies** (`crates/capabilities/src/worktrees.rs`, `broker.rs`). When a worker of an
   objective first needs a project folder that is committed content of a git repository,
   the broker makes a `git worktree` on `plenipo/<objective>-<id>` in `<app data>/working-copies`

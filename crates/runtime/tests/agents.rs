@@ -8,11 +8,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use plenipo_runtime::agent::{
-    builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSessionDetail, AgentSink,
-    AgentTurn, AgentUpdate, AuthState, Bridge, BriefInput, Effort, HoldFor, HostEnv, InstallState,
-    MemorySessionStore, SessionStart, SessionState, SessionStore, StepInfo, StepNote, StepTools,
-    ToolProvider, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef, TurnTask,
-    STEP_SEQ,
+    builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSession, AgentSessionDetail,
+    AgentSink, AgentTurn, AgentUpdate, AuthState, Bridge, BriefInput, Effort, HoldFor, HostEnv,
+    InstallState, MemorySessionStore, SessionChange, SessionStart, SessionState, SessionStore,
+    StepInfo, StepNote, StepTools, ToolProvider, TurnDisposition, TurnEnd, TurnHook, TurnInput,
+    TurnOutcome, TurnRef, TurnResult, TurnTask, STEP_SEQ,
 };
 use plenipo_runtime::{
     BriefKind, BriefWhy, EventSink, ExecutablePolicy, ExecutionState, MetadataStore, NoteKind,
@@ -198,6 +198,19 @@ fn harness_config(
     auth: Option<&str>,
     tune: impl FnOnce(&mut AgentConfig),
 ) -> H {
+    harness_store(installed, auth, tune, |store| -> Arc<dyn SessionStore> {
+        store
+    })
+}
+
+/// As [`harness_config`], with the session store `wrap` makes of the memory store (one that
+/// holds a call, say: [`gated`]).
+fn harness_store(
+    installed: &[&str],
+    auth: Option<&str>,
+    tune: impl FnOnce(&mut AgentConfig),
+    wrap: impl FnOnce(Arc<MemorySessionStore>) -> Arc<dyn SessionStore>,
+) -> H {
     let dir = scratch();
     let bin = dir.path().join("bin");
     let home = dir.path().join("home");
@@ -230,7 +243,7 @@ fn harness_config(
         config,
         builtin_adapters(),
         sup.clone(),
-        store.clone(),
+        wrap(store.clone()),
         updates.clone(),
         host,
     );
@@ -255,9 +268,163 @@ fn harness() -> H {
     harness_with(personas(), None)
 }
 
+/// Holds `finish_turn` for the sessions it is closed for: the turn has ended and is being
+/// recorded, so the runtime still holds its slot — the window a new objective can land in.
+#[derive(Default)]
+struct Gate {
+    state: Mutex<GateState>,
+    changed: std::sync::Condvar,
+}
+
+#[derive(Default)]
+struct GateState {
+    /// Sessions whose `finish_turn` is held.
+    closed: Vec<String>,
+    /// Sessions with a `finish_turn` held now.
+    holding: Vec<String>,
+}
+
+/// While this lives, its session's `finish_turn` is held. Dropped — at the latest when a test
+/// fails — the record goes on, so a failing test ends instead of waiting on a held thread.
+struct Held<'a> {
+    gate: &'a Gate,
+    session_id: String,
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        self.gate.open(&self.session_id);
+    }
+}
+
+impl Gate {
+    fn close(&self, session_id: &str) -> Held<'_> {
+        self.state
+            .lock()
+            .unwrap()
+            .closed
+            .push(session_id.to_owned());
+        Held {
+            gate: self,
+            session_id: session_id.to_owned(),
+        }
+    }
+
+    fn open(&self, session_id: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .closed
+            .retain(|s| s != session_id);
+        self.changed.notify_all();
+    }
+
+    /// Wait until a `finish_turn` of `session_id` is held.
+    async fn holding(&self, session_id: &str) {
+        let deadline = Instant::now() + WAIT;
+        while !self
+            .state
+            .lock()
+            .unwrap()
+            .holding
+            .iter()
+            .any(|s| s == session_id)
+        {
+            assert!(
+                Instant::now() < deadline,
+                "the turn's record was never held"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    /// Called on the store's blocking thread: wait while closed for `session_id` ([`WAIT`] at
+    /// most, so a held thread never outlives a test).
+    fn pass(&self, session_id: &str) {
+        let mut state = self.state.lock().unwrap();
+        if !state.closed.iter().any(|s| s == session_id) {
+            return;
+        }
+        state.holding.push(session_id.to_owned());
+        let (mut state, _) = self
+            .changed
+            .wait_timeout_while(state, WAIT, |s| s.closed.iter().any(|c| c == session_id))
+            .unwrap();
+        state.holding.retain(|s| s != session_id);
+    }
+}
+
+/// The memory store, with each `finish_turn` passing through `gate` first.
+struct GatedStore {
+    inner: Arc<MemorySessionStore>,
+    gate: Arc<Gate>,
+}
+
+impl SessionStore for GatedStore {
+    fn sessions(&self, limit: usize) -> Result<Vec<AgentSession>, String> {
+        self.inner.sessions(limit)
+    }
+    fn session(&self, id: &str) -> Result<Option<AgentSession>, String> {
+        self.inner.session(id)
+    }
+    fn open_session(&self, session: &AgentSession) -> Result<(), String> {
+        self.inner.open_session(session)
+    }
+    fn save_session(&self, session: &AgentSession, change: SessionChange) -> Result<(), String> {
+        self.inner.save_session(session, change)
+    }
+    fn begin_turn(
+        &self,
+        session: &AgentSession,
+        number: u32,
+        input: &TurnInput,
+    ) -> Result<String, String> {
+        self.inner.begin_turn(session, number, input)
+    }
+    fn begin_step(&self, turn: &TurnRef<'_>, note: &StepNote) -> Result<(), String> {
+        self.inner.begin_step(turn, note)
+    }
+    fn record_activity(&self, turn: &TurnRef<'_>, event: &AgentEvent) -> Result<(), String> {
+        self.inner.record_activity(turn, event)
+    }
+    fn finish_turn(&self, turn: &TurnRef<'_>, result: &TurnResult) -> Result<(), String> {
+        self.gate.pass(turn.session_id);
+        self.inner.finish_turn(turn, result)
+    }
+    fn turns(&self, session_id: &str) -> Result<Vec<AgentTurn>, String> {
+        self.inner.turns(session_id)
+    }
+    fn unfinished_turns(&self) -> Result<Vec<AgentTurn>, String> {
+        self.inner.unfinished_turns()
+    }
+}
+
+/// A harness whose turns' records can be held ([`Gate`]), with `tune` applied.
+fn gated(tune: impl FnOnce(&mut AgentConfig)) -> (H, Arc<Gate>) {
+    let gate = Arc::new(Gate::default());
+    let held = gate.clone();
+    let h = harness_store(personas(), None, tune, move |inner| {
+        Arc::new(GatedStore { inner, gate: held })
+    });
+    (h, gate)
+}
+
+/// Wait until the session's turn is running; its task.
+async fn running_task(rt: &AgentRuntime, session_id: &str) -> String {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let detail = rt.session(session_id).await.unwrap();
+        if let Some(task) = detail.session.active_task_id.clone() {
+            return task;
+        }
+        assert!(Instant::now() < deadline, "the turn never started");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
 /// Wait until the session has `turns` turns, none is running, and the runtime has released the
 /// session. A turn reads as finished as soon as its result is recorded, a moment before its slot
-/// is released; a follow-up sent in that moment is refused as "already running".
+/// is released; a follow-up sent in that moment waits for it to be let go.
 async fn settled(rt: &AgentRuntime, session_id: &str, turns: usize) -> AgentSessionDetail {
     let deadline = Instant::now() + WAIT;
     loop {
@@ -921,6 +1088,166 @@ async fn cancel_task_stops_only_the_named_turn() {
         h.rt.cancel_task(&id, &task).await.is_err(),
         "nothing left to stop"
     );
+}
+
+/// The session the release tests use: its ID is known before its turn starts, so its record
+/// can be held ([`Gate`]) before the turn ends.
+const RELEASED: &str = "3b241101-e2bb-4255-8caf-4136c566a962";
+
+/// Start a turn of `objective` on Claude Code in the session [`RELEASED`].
+async fn start_released(h: &H, objective: &str) {
+    h.rt.start_session_with(
+        SessionStart {
+            id: Some(RELEASED.into()),
+            runtime_id: "claude-code".into(),
+            model: None,
+            effort: None,
+            title: None,
+            metadata: serde_json::Value::Null,
+        },
+        TurnInput::owner(objective),
+    )
+    .await
+    .unwrap();
+}
+
+/// Give the session [`RELEASED`] its next objective, in the background.
+fn next_objective(h: &H) -> tokio::task::JoinHandle<Result<AgentSessionDetail, RuntimeError>> {
+    let rt = h.rt.clone();
+    tokio::spawn(async move { rt.resume_session(RELEASED, "next").await })
+}
+
+/// Stopping a turn records it a moment before the runtime lets the session go. A new objective
+/// sent in that moment waits for it, and starts, instead of being told a turn is running.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_objective_waits_while_a_stopped_turn_is_recorded() {
+    let (h, gate) = gated(|_| {});
+    let held = gate.close(RELEASED);
+    start_released(&h, "long [slow]").await;
+    let task = running_task(&h.rt, RELEASED).await;
+    let rt = h.rt.clone();
+    let stop = tokio::spawn(async move { rt.cancel_task(RELEASED, &task).await });
+    gate.holding(RELEASED).await;
+    let next = next_objective(&h);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !next.is_finished(),
+        "the next objective waits for the stopped turn to be let go: {:?}",
+        next.await
+    );
+    drop(held);
+    next.await.unwrap().unwrap();
+    stop.await.unwrap().unwrap();
+    let detail = settled(&h.rt, RELEASED, 2).await;
+    assert_eq!(outcome(&detail.turns[0]), TurnOutcome::Cancelled);
+    assert_eq!(outcome(&detail.turns[1]), TurnOutcome::Completed);
+}
+
+/// A turn that finished is recorded the same way: the next objective waits for it too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_objective_waits_while_a_finished_turn_is_recorded() {
+    let (h, gate) = gated(|_| {});
+    let held = gate.close(RELEASED);
+    start_released(&h, "first").await;
+    gate.holding(RELEASED).await;
+    let next = next_objective(&h);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !next.is_finished(),
+        "the next objective waits for the finished turn to be let go: {:?}",
+        next.await
+    );
+    drop(held);
+    next.await.unwrap().unwrap();
+    let detail = settled(&h.rt, RELEASED, 2).await;
+    assert_eq!(outcome(&detail.turns[0]), TurnOutcome::Completed);
+    assert_eq!(outcome(&detail.turns[1]), TurnOutcome::Completed);
+}
+
+/// A turn waiting for its handoffs' replies, then stopped, is recorded the same way: the next
+/// objective waits for it, and starts.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_objective_waits_while_a_stopped_waiting_turn_is_recorded() {
+    let (h, gate) = gated(|_| {});
+    let _hook = with_hook(&h);
+    let held = gate.close(RELEASED);
+    start_released(&h, "plan it [wait]").await;
+    let deadline = Instant::now() + WAIT;
+    let task = loop {
+        let detail = h.rt.session(RELEASED).await.unwrap();
+        if let Some(task) = detail.session.waiting_task_id.clone() {
+            break task;
+        }
+        assert!(Instant::now() < deadline, "the turn never waited");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    };
+    let rt = h.rt.clone();
+    let stop = tokio::spawn(async move { rt.cancel_task(RELEASED, &task).await });
+    gate.holding(RELEASED).await;
+    let next = next_objective(&h);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !next.is_finished(),
+        "the next objective waits for the stopped wait to be let go: {:?}",
+        next.await
+    );
+    drop(held);
+    next.await.unwrap().unwrap();
+    stop.await.unwrap().unwrap();
+    let detail = settled(&h.rt, RELEASED, 2).await;
+    assert_eq!(outcome(&detail.turns[0]), TurnOutcome::Cancelled);
+    // The next objective started, and its step ran. (Its answer repeats the "[wait]" of the
+    // objective before it, so the stand-in for Liaison keeps it waiting in its turn.)
+    let step = &detail.turns[1].steps[0];
+    assert_eq!(
+        step.result.as_ref().map(|r| r.outcome),
+        Some(TurnOutcome::Completed),
+        "{detail:#?}"
+    );
+}
+
+/// The wait is bounded: a record held past [`AgentConfig::release_wait`] gets the refusal it
+/// always got.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_objective_waits_for_a_stopped_turn_only_so_long() {
+    let (h, gate) = gated(|c| c.release_wait = Duration::from_millis(300));
+    let held = gate.close(RELEASED);
+    start_released(&h, "long [slow]").await;
+    let task = running_task(&h.rt, RELEASED).await;
+    let rt = h.rt.clone();
+    let stop = tokio::spawn(async move { rt.cancel_task(RELEASED, &task).await });
+    gate.holding(RELEASED).await;
+    let asked = Instant::now();
+    let busy = h.rt.resume_session(RELEASED, "next").await.unwrap_err();
+    let waited = asked.elapsed();
+    assert!(matches!(busy, RuntimeError::SessionBusy(_)), "{busy:?}");
+    assert!(
+        waited >= Duration::from_millis(300) && waited < Duration::from_secs(5),
+        "waited {waited:?}"
+    );
+    drop(held);
+    stop.await.unwrap().unwrap();
+}
+
+/// A turn that is really running is never waited for: the refusal comes at once, as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_running_turn_is_refused_at_once() {
+    let h = harness();
+    let started =
+        h.rt.start_session("claude-code", "long [slow]", None)
+            .await
+            .unwrap();
+    let id = started.session.id.clone();
+    running_task(&h.rt, &id).await;
+    let asked = Instant::now();
+    let busy = h.rt.resume_session(&id, "second").await.unwrap_err();
+    let refused_after = asked.elapsed();
+    assert!(matches!(busy, RuntimeError::SessionBusy(_)), "{busy:?}");
+    assert!(
+        refused_after < Duration::from_secs(1),
+        "refused at once, not after a wait: {refused_after:?}"
+    );
+    h.rt.cancel_turn(&id).await.unwrap();
 }
 
 #[tokio::test]

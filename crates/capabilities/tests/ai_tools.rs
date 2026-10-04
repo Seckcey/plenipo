@@ -301,6 +301,75 @@ impl H {
             .collect()
     }
 
+    /// The `ai_tool.update_available` event a look recorded for `id`, if any.
+    fn told(&self, id: &str) -> Option<Value> {
+        self.events("ai_tool.update_available")
+            .into_iter()
+            .find(|e| e["runtime"] == id)
+    }
+
+    /// `id`'s `ai_tool.update_available` event; a missing one fails the test saying why, at the
+    /// test's own line.
+    #[track_caller]
+    fn told_of(&self, id: &str) -> Value {
+        match self.told(id) {
+            Some(event) => event,
+            None => panic!("{}", self.why_untold(&[id])),
+        }
+    }
+
+    /// Why each of `ids` that has no `ai_tool.update_available` event was not told about, for a
+    /// failure message. A look tells the owner about a tool only when it is installed with a
+    /// version and the look learned a newer one; otherwise it keeps the problem and records no
+    /// event. So: what Plenipo found installed, what the look learned or the problem it kept,
+    /// and what the stand-in release lists were asked.
+    fn why_untold(&self, ids: &[&str]) -> String {
+        let page = self.tools.page();
+        let mut lines: Vec<String> = ids
+            .iter()
+            .filter(|id| self.told(id).is_none())
+            .map(|&id| {
+                let installed = self
+                    .rt
+                    .runtimes()
+                    .into_iter()
+                    .find(|r| r.id == id)
+                    .map_or_else(
+                        || "not known to the runtime".to_owned(),
+                        |r| {
+                            let i = r.installation;
+                            format!(
+                                "{:?}, version {:?} ({})",
+                                i.state,
+                                i.version,
+                                i.detail.unwrap_or_default()
+                            )
+                        },
+                    );
+                let looked = page.tools.iter().find(|t| t.runtime_id == id).map_or_else(
+                    || "not on the AI tools page".to_owned(),
+                    |t| {
+                        format!(
+                            "newest {:?}, problem {:?}, looked at {:?}",
+                            t.newest, t.newest_problem, t.newest_checked_at
+                        )
+                    },
+                );
+                format!(
+                    "{id} has no ai_tool.update_available event: installed {installed}; {looked}"
+                )
+            })
+            .collect();
+        if lines.is_empty() {
+            return "every one was told".into();
+        }
+        lines.push(format!(
+            "the release lists were asked: {:?}",
+            self.releases.asked.lock().unwrap()
+        ));
+        lines.join("\n")
+    }
+
     fn read(&self, file: &str) -> Option<String> {
         std::fs::read_to_string(self.state.join(file)).ok()
     }
@@ -745,8 +814,13 @@ async fn new_versions_come_from_each_tools_own_check_or_its_makers_list() {
     assert!(asked.contains(&"/api.github.com/repos/ollama/ollama/releases/latest".to_owned()));
     assert_eq!(asked.len(), 4);
     // Told once per version; nothing is installed while it asks first.
-    let told = h.events("ai_tool.update_available");
-    assert_eq!(told.len(), 5);
+    let five = ["grok", "claude-code", "codex", "ollama", "copilot"];
+    assert_eq!(
+        h.events("ai_tool.update_available").len(),
+        5,
+        "{}",
+        h.why_untold(&five)
+    );
     h.tools.look_for_new_versions(UpdateBy::Owner).await;
     assert_eq!(h.events("ai_tool.update_available").len(), 5);
     assert_eq!(h.read("update-log"), None);
@@ -767,20 +841,10 @@ async fn with_the_switch_on_the_owner_still_hears_what_plenipo_cannot_update() {
     let h = harness("subscription").await;
     h.tools.set_auto_update(true).unwrap();
     h.tools.look_for_new_versions(UpdateBy::Automatic).await;
-    let told = h.events("ai_tool.update_available");
-    let automatic = |id: &str| {
-        told.iter()
-            .find(|e| e["runtime"] == id)
-            .map(|e| e["automatic"].clone())
-    };
     // Ollama updates from its own tray app: the owner is told, as with the switch off.
-    assert_eq!(automatic("ollama"), Some(serde_json::json!(false)));
-    assert_eq!(
-        automatic("grok"),
-        None,
-        "Grok's own check has nothing newer"
-    );
-    assert_eq!(automatic("codex"), Some(serde_json::json!(true)));
+    assert_eq!(h.told_of("ollama")["automatic"], false);
+    assert_eq!(h.told("grok"), None, "Grok's own check has nothing newer");
+    assert_eq!(h.told_of("codex")["automatic"], true);
     // Codex, Claude Code, and GitHub Copilot, installed here another way, cannot reach 9.9.9 by
     // themselves: the owner is told what to type, once.
     for id in ["codex", "claude-code", "copilot"] {

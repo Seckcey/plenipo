@@ -19,7 +19,10 @@ import {
   makeHome,
   nav,
   objectiveBox,
+  pointedAt,
   screenshot as save,
+  settle,
+  steady,
   waitForShell,
   waitUntil,
 } from "../lib/app.mjs";
@@ -98,20 +101,6 @@ const spotOf = (browser, label) =>
     return b ? { left: b.style.left, top: b.style.top } : null;
   }, label);
 
-/** Wait until the camera stops moving (frames are sparse in a virtual display). */
-async function settle(browser) {
-  let last = "";
-  let steady = 0;
-  await waitUntil(async () => {
-    const now = await browser.execute(
-      () => document.querySelector(".topology__world")?.style.transform ?? "",
-    );
-    steady = now === last ? steady + 1 : 0;
-    last = now;
-    return steady >= 7;
-  }, "the camera to settle");
-}
-
 async function fit(browser) {
   await clickButton(browser, "Fit to screen");
   await settle(browser);
@@ -125,6 +114,7 @@ async function select(browser, title) {
   await fit(browser);
   const node = await browser.$(nodeXPath(`${title},`));
   await node.waitForExist({ timeout: 10_000 });
+  await steady(browser, node, `${title}'s tile`);
   try {
     await node.click();
   } catch {
@@ -153,8 +143,23 @@ async function hire(browser, lead, role) {
   await waitForNode(browser, `${role},`);
 }
 
-/** Drag with the mouse (pointer events, as a person would) from one element to another. */
+/** Where the last drag started and was let go, and what was there: for a failure's message. */
+let lastDrag = "no drag yet";
+
+/**
+ * Drag with the mouse (pointer events, as a person would) from one element to another, or to a
+ * point. Both ends are still and uncovered first: a drag that starts off its tile, or is let go
+ * off its target, is ignored without a word.
+ */
 async function dragTo(browser, source, target, { alt = false } = {}) {
+  const toPoint = typeof target === "object" && "x" in target && !("elementId" in target);
+  await steady(browser, source, "what is dragged");
+  if (!toPoint) await steady(browser, target, "where it is let go");
+  const from = await pointedAt(browser, source);
+  const to = toPoint
+    ? `(${Math.round(target.x)}, ${Math.round(target.y)})`
+    : await pointedAt(browser, target).then((p) => `${p.at}, on ${p.hit}`);
+  lastDrag = `from ${from.at}, on ${from.hit}, to ${to}`;
   const action = browser.action("pointer", { parameters: { pointerType: "mouse" } });
   action
     .move({ origin: source })
@@ -167,6 +172,22 @@ async function dragTo(browser, source, target, { alt = false } = {}) {
   }
   await action.pause(150).up({ button: 0 }).perform();
   if (alt) await browser.keys("Alt");
+}
+
+/**
+ * Wait for a toast's words. If they never come, say what the toasts and any box said instead and
+ * where the last drag started and ended, with a picture.
+ */
+async function waitForToast(browser, words) {
+  try {
+    await waitForText(browser, TOASTS, words);
+  } catch (error) {
+    const toasts = await textOf(browser, TOASTS);
+    const box = await textOf(browser, '[role="dialog"]');
+    console.error(`--- toasts: "${toasts}"; a box: "${box}"; the last drag went ${lastDrag}`);
+    await save(browser, `canvas-failed-${words.replace(/\W+/g, "-").slice(0, 40)}`);
+    throw error;
+  }
 }
 
 async function dragNode(browser, from, to) {
@@ -308,7 +329,7 @@ describe("v1.11 The organization canvas (real app, fake CLIs)", () => {
       async () => (await spotOf(browser, "Security Auditor"))?.top === before?.top,
       "the automatic layout",
     );
-    await waitForText(browser, TOASTS, "Tidied up");
+    await waitForToast(browser, "Tidied up");
     await screenshot(browser, "tidy-up");
     await clickButton(browser, "Undo");
     await waitUntil(
@@ -322,9 +343,8 @@ describe("v1.11 The organization canvas (real app, fake CLIs)", () => {
     await closeDetails(browser);
     await dragNode(browser, "Security Auditor", "Campaign Supervisor");
     await menuItem(browser, "Lend for one objective");
-    await waitForText(
+    await waitForToast(
       browser,
-      TOASTS,
       "Security Auditor is lent to Campaign Supervisor's team for one objective.",
     );
     const badge = '[data-symbol="badge-lent"]';
@@ -372,7 +392,7 @@ describe("v1.11 The organization canvas (real app, fake CLIs)", () => {
     await screenshot(browser, "line-ends");
     const target = await browser.$(nodeXPath("Campaign Supervisor,"));
     await dragTo(browser, handle, target);
-    await waitForText(browser, TOASTS, "Code Reviewer now reports to Campaign Supervisor.");
+    await waitForToast(browser, "Code Reviewer now reports to Campaign Supervisor.");
 
     // The trash can: archived at once, with Undo.
     await closeDetails(browser);
@@ -380,16 +400,16 @@ describe("v1.11 The organization canvas (real app, fake CLIs)", () => {
     const reviewer = await browser.$(nodeXPath("Code Reviewer,"));
     const trash = await browser.$('button[data-drop="trash"]');
     await dragTo(browser, reviewer, trash);
-    await waitForText(browser, TOASTS, "Archived Code Reviewer.");
+    await waitForToast(browser, "Archived Code Reviewer.");
     await screenshot(browser, "trash-undo");
     await clickButton(browser, "Undo");
-    await waitForText(browser, TOASTS, "Brought back Code Reviewer.");
+    await waitForToast(browser, "Brought back Code Reviewer.");
     await waitForNode(browser, "Code Reviewer,");
 
     // Again, then the Archived drawer brings it back.
     await fit(browser);
     await dragTo(browser, await browser.$(nodeXPath("Code Reviewer,")), trash);
-    await waitForText(browser, TOASTS, "Archived Code Reviewer.");
+    await waitForToast(browser, "Archived Code Reviewer.");
     await trash.click();
     await waitForText(browser, ".canvas-panel--archived", "Code Reviewer");
     await screenshot(browser, "archived-drawer");

@@ -19,6 +19,7 @@ import { after, before, describe, it } from "node:test";
 
 import {
   APP,
+  appPids,
   clickButton,
   launch,
   makeHome,
@@ -26,6 +27,7 @@ import {
   openSettings,
   screenshot as save,
   waitForShell,
+  waitPidGone,
   waitUntil,
   WORDS,
 } from "../lib/app.mjs";
@@ -144,7 +146,15 @@ describe("Phase 13 keeping Plenipo dependable (real app)", () => {
   });
 
   it("says how Plenipo last stopped after it was ended the hard way", async () => {
-    await app.close(); // ending the WebDriver session ends the app at once: no clean exit
+    // Ended the hard way: the app alone is killed at once, with no chance to stop cleanly.
+    // (Closing the test driver also sends the app the signal Quit uses, after which it may stop
+    // cleanly, and rightly say nothing.) Only the app's own process: the driver's group is
+    // closed as usual below.
+    const [pid] = appPids();
+    assert.ok(pid, "found the Plenipo process");
+    process.kill(pid, "SIGKILL");
+    await waitPidGone(pid);
+    await app.close();
     app = await launch(home);
     const { browser } = app;
     await app.browser.setWindowSize(1440, 960);
