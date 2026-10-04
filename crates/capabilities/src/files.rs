@@ -1,8 +1,15 @@
 //! File tools, carried out by Plenipo inside the project folder. Paths arrive already resolved
 //! and allowed by Guard; these functions only do the work and describe the result.
+//!
+//! The moment of use (P-GUARD-3, ADR-214): a path was checked when the worker named it, and
+//! `Resolved::still_inside` follows the links on its way again right before a tool uses it. The
+//! open itself is the last moment, so every read and write here goes through `open_checked`,
+//! which refuses a link put at the file's own name after that check instead of following it,
+//! and a file that is written is refused when it is also another file somewhere else (a hard
+//! link). What stays open is written down in ADR-214.
 
 use std::fs;
-use std::io::Read as _;
+use std::io::{self, Read as _};
 use std::path::Path;
 
 use plenipo_guard::paths::blocked_by;
@@ -105,36 +112,170 @@ pub fn list(dir: &Resolved, blocked: &[String]) -> Out {
     Ok(out)
 }
 
-/// Open a file the way the tools below do: on a Mac and Linux without following a link at its
-/// last part, so a link made after the path was checked is refused, not followed (P-GUARD-3).
-/// The path's existing parts were already followed and checked (`Resolved::still_inside`).
-fn opened(options: &mut fs::OpenOptions) -> &mut fs::OpenOptions {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.custom_flags(libc::O_NOFOLLOW);
-    }
-    options
+// ---- Opening a file at the moment of use (P-GUARD-3, ADR-214) -----------------------------
+//
+// The path's existing parts were followed and checked a moment ago (`Resolved::still_inside`).
+// The open must not follow a link at the file's own name, made since: on a Mac and Linux
+// `O_NOFOLLOW` refuses one in the same open. Windows has no such flag for a data open.
+// `FILE_FLAG_OPEN_REPARSE_POINT` opens the reparse point itself instead of following it, but it
+// also bypasses the filters that make some ordinary files work (OneDrive Files On-Demand,
+// compressed and deduplicated files, ProjFS), so data never goes through such a handle. On
+// Windows an open is therefore two: the name is opened for its attributes only, without
+// following, to see what is really there now; a link (what Windows calls a name surrogate: a
+// symbolic link or a junction) is refused; then the data is opened the ordinary way, and the
+// two handles are proved to be one object on the disk (volume and file index). A name swapped
+// for a link between the two opens leads to another object and is refused. A file that does not
+// exist yet is created with `create_new`, which fails rather than follow a link that appeared.
+
+/// The refusals of `open_checked`, phrased to follow the file's name ("docs/a.md: …").
+fn refused(why: &str) -> io::Error {
+    io::Error::other(why.to_owned())
 }
 
-fn read_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
+const BECAME_A_LINK: &str = "became a link after it was checked, so nothing was read or changed";
+const CHANGED_WHILE_OPENING: &str =
+    "changed while it was being opened, so nothing was read or changed";
+const HARD_LINKED: &str = "is shared with another place on this disk (a hard link), so Plenipo \
+                           did not change it; copy it first, or change it there";
+
+/// Open `path` for a tool: for reading, or for writing too (`write`), making the file when there
+/// is none (`create`, never truncating: a writer empties it after the checks). A link at the
+/// file's own name is refused, not followed.
+#[cfg(unix)]
+fn open_checked(path: &Path, write: bool, create: bool) -> io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    fs::OpenOptions::new()
+        .read(true)
+        .write(write)
+        .create(create)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|e| {
+            // ELOOP: the last part is a symbolic link.
+            if e.raw_os_error() == Some(libc::ELOOP) {
+                refused(BECAME_A_LINK)
+            } else {
+                e
+            }
+        })
+}
+
+#[cfg(windows)]
+fn open_checked(path: &Path, write: bool, create: bool) -> io::Result<fs::File> {
+    use std::os::windows::fs::OpenOptionsExt as _;
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
+    let mut data_options = fs::OpenOptions::new();
+    data_options.read(true).write(write);
+    // Twice at most: once more when a file appears or goes between the two opens.
+    for _ in 0..2 {
+        let probe = match win::probe(path) {
+            Ok(p) => p,
+            Err(e) if e.kind() == io::ErrorKind::NotFound && create => {
+                // Nothing is there: make the file, and fail instead of following a link that
+                // appears in the meantime. A file made here is a plain new file, so its handle
+                // is as good as an ordinary one.
+                match data_options
+                    .clone()
+                    .create_new(true)
+                    .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+                    .open(path)
+                {
+                    Ok(f) => return Ok(f),
+                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                    Err(e) => return Err(e),
+                }
+            }
+            Err(e) => return Err(e),
+        };
+        if probe.metadata()?.file_type().is_symlink() {
+            return Err(refused(BECAME_A_LINK));
+        }
+        let data = match data_options.open(path) {
+            Ok(d) => d,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e),
+        };
+        if win::identity(&probe)? != win::identity(&data)? {
+            return Err(refused(CHANGED_WHILE_OPENING));
+        }
+        return Ok(data);
+    }
+    Err(refused(CHANGED_WHILE_OPENING))
+}
+
+/// How many names an open file has on the disk (1 for an ordinary file).
+#[cfg(unix)]
+fn names_of(file: &fs::File) -> io::Result<u64> {
+    use std::os::unix::fs::MetadataExt as _;
+    Ok(file.metadata()?.nlink())
+}
+
+#[cfg(windows)]
+fn names_of(file: &fs::File) -> io::Result<u64> {
+    win::names_of(file)
+}
+
+/// Windows' part of `open_checked`: handle information through `winapi-util` (a safe wrapper;
+/// Plenipo itself has no unsafe code).
+#[cfg(windows)]
+mod win {
+    use std::fs::{File, OpenOptions};
+    use std::io;
+    use std::os::windows::fs::OpenOptionsExt as _;
+    use std::path::Path;
+
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+    };
+
+    /// What is at `path` right now, opened for its attributes only and never followed: a
+    /// plain file, a folder, a link, or another kind of reparse point. Reads no data, so a
+    /// cloud file stays where it is.
+    pub(super) fn probe(path: &Path) -> io::Result<File> {
+        OpenOptions::new()
+            .access_mode(FILE_READ_ATTRIBUTES)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+    }
+
+    /// The volume and file index of an open file: equal for two handles only when they are
+    /// one object on the disk.
+    pub(super) fn identity(file: &File) -> io::Result<(u64, u64)> {
+        let info = winapi_util::file::information(file)?;
+        Ok((info.volume_serial_number(), info.file_index()))
+    }
+
+    pub(super) fn names_of(file: &File) -> io::Result<u64> {
+        Ok(winapi_util::file::information(file)?.number_of_links())
+    }
+}
+
+fn read_bytes(path: &Path) -> io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    opened(fs::OpenOptions::new().read(true))
-        .open(path)?
+    open_checked(path, false, false)?.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+/// At most `limit` bytes of the file, and one more when it is longer (so a caller can tell).
+fn read_bytes_up_to(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    open_checked(path, false, false)?
+        .take(limit + 1)
         .read_to_end(&mut bytes)?;
     Ok(bytes)
 }
 
-fn write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+/// Replace the file's contents. A file that is also another file somewhere else (a hard link:
+/// the same file under two names, which a path check cannot see) is refused, since changing it
+/// here changes it there.
+fn write_bytes(path: &Path, bytes: &[u8]) -> io::Result<()> {
     use std::io::Write as _;
-    opened(
-        fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true),
-    )
-    .open(path)?
-    .write_all(bytes)
+    let mut file = open_checked(path, true, true)?;
+    if names_of(&file)? > 1 {
+        return Err(refused(HARD_LINKED));
+    }
+    file.set_len(0)?;
+    file.write_all(bytes)
 }
 
 /// A file for a worker: Plenipo's header (the path and the line range), then the lines
@@ -269,12 +410,11 @@ pub fn search(
         if files > MAX_SEARCHED_FILES || matches.len() >= MAX_MATCHES {
             break;
         }
-        let mut bytes = Vec::new();
-        if fs::File::open(&path)
-            .and_then(|mut f| f.read_to_end(&mut bytes))
-            .is_err()
-            || is_binary(&bytes)
-        {
+        // The same open as a read: a file that became a link is skipped, not followed.
+        let Ok(bytes) = read_bytes(&path) else {
+            continue;
+        };
+        if is_binary(&bytes) {
             continue;
         }
         let text = String::from_utf8_lossy(&bytes);
@@ -342,13 +482,9 @@ fn before_change(file: &Resolved) -> Before {
             binary: false,
         };
     }
-    // Read at most one byte past the limit: a file that grew since is not read whole.
-    let read = fs::File::open(&file.abs).and_then(|f| {
-        let mut bytes = Vec::new();
-        f.take(MAX_WATCH_READ + 1).read_to_end(&mut bytes)?;
-        Ok(bytes)
-    });
-    match read {
+    // Read at most one byte past the limit: a file that grew since is not read whole. The same
+    // open as a read: a file that became a link is not shown (P-GUARD-3).
+    match read_bytes_up_to(&file.abs, MAX_WATCH_READ) {
         Ok(bytes) if bytes.len() as u64 > MAX_WATCH_READ => Before::Unshown {
             bytes: bytes.len() as u64,
             binary: false,
@@ -391,11 +527,13 @@ pub fn edit_watched(
     all: bool,
 ) -> Result<(String, Written), String> {
     file.still_inside()?;
-    // A file too large for Watch is not read for it: its change shows as a summary.
+    // A file too large for Watch is not read for it: its change shows as a summary. The same
+    // open as a read: a file that became a link is not shown (P-GUARD-3).
     let size = fs::metadata(&file.abs).map_or(0, |m| m.len());
     let before = (size <= MAX_WATCH_READ)
-        .then(|| fs::read_to_string(&file.abs).ok())
-        .flatten();
+        .then(|| read_bytes(&file.abs).ok())
+        .flatten()
+        .and_then(|bytes| String::from_utf8(bytes).ok());
     let text = edit(file, old, new, all)?;
     let written = match before {
         Some(before) => {
@@ -488,8 +626,29 @@ pub fn move_path(from: &Resolved, to: &Resolved) -> Out {
         fs::create_dir_all(parent).map_err(|e| io(to.shown(), &e))?;
     }
     to.still_inside()?;
+    // The new name was free when it was checked; a file that appeared since would be replaced
+    // by the rename (a check, then the rename: Rust's standard library has no rename that
+    // refuses to replace; ADR-214).
+    if fs::symlink_metadata(&to.abs).is_ok() {
+        return Err(format!(
+            "{} appeared after it was checked, so nothing was moved",
+            to.shown()
+        ));
+    }
     fs::rename(&from.abs, &to.abs).map_err(|e| io(from.shown(), &e))?;
     Ok(format!("Moved {} to {}.", from.shown(), to.shown()))
+}
+
+/// A link to a folder, which is removed like a folder on Windows (and only the link goes).
+#[cfg(windows)]
+fn is_folder_link(kind: fs::FileType) -> bool {
+    use std::os::windows::fs::FileTypeExt as _;
+    kind.is_symlink_dir()
+}
+
+#[cfg(not(windows))]
+fn is_folder_link(_kind: fs::FileType) -> bool {
+    false
 }
 
 pub fn delete(path: &Resolved) -> Out {
@@ -498,7 +657,8 @@ pub fn delete(path: &Resolved) -> Out {
     }
     path.still_inside()?;
     let meta = fs::symlink_metadata(&path.abs).map_err(|e| io(path.shown(), &e))?;
-    if meta.is_dir() {
+    // A link is removed as a link: what it points to is never touched.
+    if meta.is_dir() || is_folder_link(meta.file_type()) {
         fs::remove_dir(&path.abs).map_err(|e| {
             format!(
                 "{} could not be deleted (only empty folders can be): {e}",
@@ -812,11 +972,203 @@ mod tests {
         let link = dir.path().join("link.txt");
         fs::write(&target, "t").unwrap();
         std::os::unix::fs::symlink(&target, &link).unwrap();
-        assert!(write_bytes(&link, b"x").is_err());
+        let why = write_bytes(&link, b"x").unwrap_err().to_string();
+        assert!(why.contains("became a link"), "{why}");
         assert!(read_bytes(&link).is_err());
         assert_eq!(fs::read_to_string(&target).unwrap(), "t");
         assert_eq!(read_bytes(&target).unwrap(), b"t");
         write_bytes(&target, b"new").unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "new");
+        // A dangling link at a name that is written for the first time creates nothing.
+        let dangling = dir.path().join("dangling.txt");
+        std::os::unix::fs::symlink(dir.path().join("elsewhere.txt"), &dangling).unwrap();
+        assert!(write_bytes(&dangling, b"x").is_err());
+        assert!(!dir.path().join("elsewhere.txt").exists());
+    }
+
+    /// Watch's "before" text is read like any other read (P-GUARD-3, ADR-214): a file that
+    /// became a link to somewhere else shows no text, not the other place's.
+    #[cfg(unix)]
+    #[test]
+    fn watch_never_shows_text_through_a_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("proj");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("notes.txt"), "mine").unwrap();
+        fs::write(dir.path().join("secret.txt"), "not yours").unwrap();
+        let ws = Workspace::open(&root.display().to_string()).unwrap();
+        let notes = ws.resolve("notes.txt").unwrap();
+        assert_eq!(before_change(&notes), Before::Text("mine".into()));
+        fs::remove_file(&notes.abs).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("secret.txt"), &notes.abs).unwrap();
+        assert_ne!(before_change(&notes), Before::Text("not yours".into()));
+        assert!(edit_watched(&notes, "not", "now", false).is_err());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("secret.txt")).unwrap(),
+            "not yours"
+        );
+    }
+
+    /// `mklink /J`: a junction to a folder, which any Windows user may make.
+    #[cfg(windows)]
+    fn junction(link: &Path, target: &Path) {
+        let out = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Windows (P-GUARD-3, ADR-214): a folder that became a junction after the path was checked
+    /// is never read from, written through, or deleted in; the Windows twin of
+    /// `a_folder_that_became_a_link_is_not_used`.
+    #[cfg(windows)]
+    #[test]
+    fn a_folder_that_became_a_junction_is_not_used() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("proj");
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::write(root.join("docs/notes.txt"), "mine").unwrap();
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("notes.txt"), "not yours").unwrap();
+        let ws = Workspace::open(&root.display().to_string()).unwrap();
+        let new = ws.resolve("docs/new.txt").unwrap();
+        let notes = ws.resolve("docs/notes.txt").unwrap();
+        let folder = ws.resolve("docs").unwrap();
+        fs::rename(root.join("docs"), dir.path().join("moved")).unwrap();
+        junction(&root.join("docs"), &outside);
+        assert!(write(&new, "x").is_err());
+        assert!(!outside.join("new.txt").exists());
+        assert!(read(&notes, 1, 10).is_err());
+        assert!(read_text(&notes, 1, usize::MAX).is_err());
+        assert!(edit(&notes, "not", "now", false).is_err());
+        assert!(delete(&notes).is_err());
+        assert!(list(&folder, &[]).is_err());
+        assert_eq!(
+            fs::read_to_string(outside.join("notes.txt")).unwrap(),
+            "not yours"
+        );
+    }
+
+    /// Windows (P-GUARD-3, ADR-214): the open itself refuses a link at the file's own name — a
+    /// junction always, and a symbolic link where this account may make one (GitHub's Windows
+    /// machines may; an ordinary account here may not, and the test says so and goes on).
+    #[cfg(windows)]
+    #[test]
+    fn a_link_at_the_last_part_is_refused_on_windows() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("target.txt"), "t").unwrap();
+        let link = dir.path().join("link");
+        junction(&link, &outside);
+        let why = read_bytes(&link).unwrap_err().to_string();
+        assert!(why.contains("became a link"), "{why}");
+        let why = write_bytes(&link, b"x").unwrap_err().to_string();
+        assert!(why.contains("became a link"), "{why}");
+        assert_eq!(fs::read_to_string(outside.join("target.txt")).unwrap(), "t");
+        // Plain files open as before, through the two-step open with its identity proof.
+        let plain = dir.path().join("plain.txt");
+        write_bytes(&plain, b"p").unwrap();
+        assert_eq!(read_bytes(&plain).unwrap(), b"p");
+        write_bytes(&plain, b"q").unwrap();
+        assert_eq!(fs::read_to_string(&plain).unwrap(), "q");
+        let file_link = dir.path().join("link.txt");
+        match std::os::windows::fs::symlink_file(outside.join("target.txt"), &file_link) {
+            Ok(()) => {
+                assert!(read_bytes(&file_link).is_err());
+                assert!(write_bytes(&file_link, b"x").is_err());
+                assert_eq!(fs::read_to_string(outside.join("target.txt")).unwrap(), "t");
+                // A dangling link at a name written for the first time creates nothing.
+                let dangling = dir.path().join("dangling.txt");
+                std::os::windows::fs::symlink_file(dir.path().join("elsewhere.txt"), &dangling)
+                    .unwrap();
+                assert!(write_bytes(&dangling, b"x").is_err());
+                assert!(!dir.path().join("elsewhere.txt").exists());
+            }
+            Err(e) => eprintln!("file symbolic links are not permitted for this account ({e}); that part is skipped"),
+        }
+    }
+
+    /// P-GUARD-3 (ADR-214): a file that is also another file somewhere else (a hard link) is
+    /// read and deleted, never written or edited.
+    #[test]
+    fn a_hard_linked_file_is_not_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("proj");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(dir.path().join("elsewhere.txt"), "shared").unwrap();
+        fs::hard_link(dir.path().join("elsewhere.txt"), root.join("shared.txt")).unwrap();
+        let ws = Workspace::open(&root.display().to_string()).unwrap();
+        let shared = ws.resolve("shared.txt").unwrap();
+        assert!(read(&shared, 1, 10).unwrap().contains("shared"));
+        let why = write(&shared, "changed").unwrap_err();
+        assert!(why.contains("hard link"), "{why}");
+        let why = edit(&shared, "shared", "changed", false).unwrap_err();
+        assert!(why.contains("hard link"), "{why}");
+        assert!(write_watched(&shared, "changed").is_err());
+        assert!(edit_watched(&shared, "shared", "changed", false).is_err());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("elsewhere.txt")).unwrap(),
+            "shared"
+        );
+        delete(&shared).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.path().join("elsewhere.txt")).unwrap(),
+            "shared"
+        );
+    }
+
+    /// P-GUARD-3 (ADR-214): a move never replaces a file that appeared at the new name after
+    /// the name was checked.
+    #[test]
+    fn a_move_refuses_a_name_that_appeared() {
+        let (_d, ws) = setup();
+        let from = ws.resolve("src/main.rs").unwrap();
+        let to = ws.resolve("src/other.rs").unwrap();
+        assert!(!to.exists);
+        fs::write(&to.abs, "appeared").unwrap();
+        let why = move_path(&from, &to).unwrap_err();
+        assert!(why.contains("appeared"), "{why}");
+        assert_eq!(fs::read_to_string(&to.abs).unwrap(), "appeared");
+        assert!(from.abs.exists());
+    }
+
+    /// P-GUARD-3 (ADR-214): deleting a link to a folder removes the link, never the folder.
+    #[test]
+    fn deleting_a_folder_link_removes_only_the_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("proj");
+        fs::create_dir_all(root.join("real")).unwrap();
+        fs::write(root.join("real/keep.txt"), "keep").unwrap();
+        #[cfg(windows)]
+        junction(&root.join("link"), &root.join("real"));
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("real"), root.join("link")).unwrap();
+        let ws = Workspace::open(&root.display().to_string()).unwrap();
+        // The link stays inside the folder, so it may be named; it is deleted as a link.
+        let link = ws.resolve("link").unwrap();
+        assert_eq!(link.rel, "real", "a link inside resolves to where it leads");
+        // Deleting the resolved path would delete `real`, so use the link's own name.
+        let link = Resolved {
+            abs: root.join("link"),
+            rel: "link".into(),
+            exists: true,
+            root: ws.root().to_path_buf(),
+        };
+        delete(&link).unwrap();
+        assert!(fs::symlink_metadata(root.join("link")).is_err());
+        assert_eq!(
+            fs::read_to_string(root.join("real/keep.txt")).unwrap(),
+            "keep"
+        );
     }
 }
