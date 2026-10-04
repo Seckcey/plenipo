@@ -12,10 +12,11 @@ use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
 use plenipo_liaison::Directory as _;
 use plenipo_liaison::{Liaison, LiaisonConfig};
 use plenipo_router::{CrossCompany, LimitBehavior, ModelInput, Router, RoutingOptions};
+use plenipo_runtime::agent::paid::MemoryPaidGate;
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSession, AgentSink, AgentTurn,
-    AgentUpdate, Effort, HostEnv, SessionChange, SessionStore, StepNote, TurnInput, TurnRef,
-    TurnResult,
+    AgentUpdate, Bridge, Effort, HostEnv, SessionChange, SessionStore, StepNote, TurnInput,
+    TurnRef, TurnResult,
 };
 use plenipo_runtime::{
     EventSink, ExecutablePolicy, ProfileRegistry, RuntimeEvent, Supervisor, SupervisorConfig,
@@ -271,14 +272,16 @@ async fn stack_with(
     Router,
     Workforce,
 ) {
-    stack_store(dir, liaison, |store| store).await
+    stack_store(dir, liaison, |_| {}, |store| store).await
 }
 
-/// The same, with the runtime's session store `wrap` makes of the Ledger's (one that holds a
-/// call, say: [`Gate`]).
+/// The same, with `tune` applied to the runtime's configuration (Plenipo's paid helper, say:
+/// [`harness_paid`]) and the runtime's session store `wrap` makes of the Ledger's (one that
+/// holds a call, say: [`Gate`]).
 async fn stack_store(
     dir: &Path,
     liaison: LiaisonConfig,
+    tune: impl FnOnce(&mut AgentConfig),
     wrap: impl FnOnce(Arc<dyn SessionStore>) -> Arc<dyn SessionStore>,
 ) -> (
     Arc<Ledger>,
@@ -300,6 +303,7 @@ async fn stack_store(
     let mut config = AgentConfig::new(dir.join("workspaces"));
     config.extra_env = vec![(HOME_VAR.into(), dir.join("home").display().to_string())];
     config.turn_timeout = Duration::from_secs(120);
+    tune(&mut config);
     let rt = AgentRuntime::new(
         config,
         builtin_adapters(),
@@ -334,7 +338,7 @@ async fn harness() -> H {
 
 /// The same, with Liaison set up as `liaison` says.
 async fn harness_with(liaison: LiaisonConfig) -> H {
-    harness_store(liaison, |store| store).await
+    harness_store(liaison, |_| {}, |store| store).await
 }
 
 /// A harness whose turns' records can be held ([`Gate`]), with Liaison set up as `liaison`
@@ -342,16 +346,46 @@ async fn harness_with(liaison: LiaisonConfig) -> H {
 async fn harness_gated(liaison: LiaisonConfig) -> (H, Arc<Gate>) {
     let gate = Arc::new(Gate::default());
     let held = gate.clone();
-    let h = harness_store(liaison, move |inner| {
-        Arc::new(GatedStore { inner, gate: held })
-    })
+    let h = harness_store(
+        liaison,
+        |_| {},
+        move |inner| Arc::new(GatedStore { inner, gate: held }),
+    )
     .await;
     (h, gate)
 }
 
-/// The same, with the runtime's session store `wrap` makes of the Ledger's.
+/// A harness with Plenipo's paid helper (ADR-085) — the fake `ollama` persona plays it, as in
+/// the runtime's own tests — and a stand-in key, kept in memory, for each paid AI tool in
+/// `keys`; the key's gate, to take the key away or read what was charged.
+async fn harness_paid(keys: &[&str]) -> (H, Arc<MemoryPaidGate>) {
+    let h = harness_store(
+        LiaisonConfig {
+            tick: Duration::from_millis(200),
+            ..LiaisonConfig::default()
+        },
+        |config| {
+            config.bridge = Some(Bridge {
+                executable: config
+                    .workspace_root
+                    .with_file_name("bin")
+                    .join(exe_name("ollama")),
+                args: vec!["--plenipo-ollama".into()],
+            });
+        },
+        |store| store,
+    )
+    .await;
+    let gate = Arc::new(MemoryPaidGate::with_key_for(keys));
+    h.rt.set_paid_gate(gate.clone());
+    (h, gate)
+}
+
+/// The same, with `tune` applied to the runtime's configuration and the runtime's session store
+/// `wrap` makes of the Ledger's.
 async fn harness_store(
     liaison: LiaisonConfig,
+    tune: impl FnOnce(&mut AgentConfig),
     wrap: impl FnOnce(Arc<dyn SessionStore>) -> Arc<dyn SessionStore>,
 ) -> H {
     let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
@@ -362,7 +396,7 @@ async fn harness_store(
         install_fake(&bin, stem);
     }
     let (ledger, rt, sup, liaison, router, workforce) =
-        stack_store(dir.path(), liaison, wrap).await;
+        stack_store(dir.path(), liaison, tune, wrap).await;
     let run = tokio::spawn(liaison.clone().run());
     H {
         ledger,
@@ -2030,6 +2064,107 @@ async fn a_usage_limit_holds_work_back_or_moves_it_on_as_the_owner_chose() {
         .await;
     assert_eq!(h.finished(&back).await.state, TaskState::Succeeded);
     assert_eq!(h.last_child(&back).assigned_to.as_deref(), Some("codex"));
+}
+
+/// Phase 25, item 4.4 (ADR-254): a worker whose subscription reaches its usage limit goes on
+/// with the same model on the same company's key, through the app's own wiring. It runs to the
+/// end through Plenipo's paid helper, it is charged, and the move is explained and recorded
+/// with the worker. With no key saved, nothing moves: the work waits for the subscription.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_worker_whose_subscription_reaches_its_limit_goes_on_with_the_same_model_on_the_key() {
+    let (h, gate) = harness_paid(&["anthropic-key"]).await;
+    // The key's own check lists Claude Sonnet with today's price (the stand-in helper's list).
+    let state = h.dir.path().join("home").join(".plenipo-fake-agent");
+    std::fs::write(state.join("models-anthropic-key"), "claude-sonnet-5-5\n").unwrap();
+    h.rt.refresh().await;
+    // The leads work on Codex, so Claude Code's limit holds back only the worker on it. The
+    // project lets its work use the Anthropic key.
+    let (department, _head) = h.department("Platform", "Platform Manager", "codex");
+    let s = h
+        .workforce
+        .create_project(&ProjectInput {
+            department_id: Some(department),
+            coordinator: Some(lead(&h.role("Supervisor"), "Keyline Coordinator", "codex")),
+            ..project_input("Keyline", &["claude-code", "codex", "anthropic-key"])
+        })
+        .unwrap();
+    let coordinator = s
+        .projects
+        .iter()
+        .find(|p| p.name == "Keyline")
+        .unwrap()
+        .coordinator_position_id
+        .clone()
+        .unwrap();
+    h.hire_auto("Senior Developer", "Backend Developer", &coordinator);
+    // The worker's model: Claude Sonnet on Claude Code, the owner's subscription.
+    h.router
+        .save_model(&ModelInput {
+            id: None,
+            runtime_id: "claude-code".into(),
+            name: Some("claude-sonnet-5-5".into()),
+            label: "Sonnet".into(),
+            features: vec![],
+            context_tokens: None,
+            cost: plenipo_router::CostClass::Economical,
+            effort: None,
+        })
+        .unwrap();
+    h.prefer("Senior Developer", &["Sonnet"]);
+
+    // The subscription first. Its worker reports Claude Code's usage limit.
+    let root = h
+        .objective(
+            &coordinator,
+            "Go [handoff:role:Backend Developer+usage-limit]",
+        )
+        .await;
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert_eq!(
+        h.last_child(&root).assigned_to.as_deref(),
+        Some("claude-code")
+    );
+
+    // The next task runs the same model on the Anthropic key, to the end, and says so.
+    let moved = h
+        .objective(&coordinator, "Once more [handoff:role:Backend Developer]")
+        .await;
+    assert_eq!(h.finished(&moved).await.state, TaskState::Succeeded);
+    let child = h.last_child(&moved);
+    assert_eq!(
+        child.state,
+        TaskState::Succeeded,
+        "{:#?}",
+        h.types(&child.id)
+    );
+    assert_eq!(child.assigned_to.as_deref(), Some("anthropic-key"));
+    assert_eq!(child.metadata["model"], "claude-sonnet-5-5");
+    let routing = &child.metadata["workforce"]["routing"];
+    assert_eq!(routing["onKeyFor"], "Claude Code", "{routing:#}");
+    let why = reason(&child);
+    assert!(
+        why.contains("on your Anthropic key: Claude Code reached its usage limit"),
+        "{why}"
+    );
+    assert!(why.contains("It costs money"), "{why}");
+    assert!(
+        !gate.charges().is_empty(),
+        "the step was charged to the key"
+    );
+
+    // With no key saved, nothing moves: the work waits for the subscription, and says why.
+    gate.set_key(None);
+    h.rt.refresh().await;
+    let held = h
+        .objective(&coordinator, "Again [handoff:role:Backend Developer]")
+        .await;
+    assert_eq!(h.finished(&held).await.state, TaskState::Succeeded);
+    assert!(h.ledger.child_tasks(&held).unwrap().is_empty());
+    let refused = h.rejections(&held);
+    assert!(
+        refused[0].contains("Claude Code reached its usage limit"),
+        "{refused:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
