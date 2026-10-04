@@ -5,6 +5,7 @@
 import { useContext } from "react";
 
 import { AgentsContext } from "../agents/context";
+import { saidAt } from "../agents/store";
 import { LiveConversation } from "./LiveConversation";
 
 export function LiveForTasks({
@@ -20,7 +21,11 @@ export function LiveForTasks({
   const agents = useContext(AgentsContext);
   if (!agents) return null;
   const { activity, turns } = agents.state;
-  const latest = (taskId: string) => activity[taskId]?.at(-1)?.ts ?? 0;
+  // When it last said something: the newest piece of words that are still coming.
+  const latest = (taskId: string) => {
+    const last = activity[taskId]?.at(-1);
+    return last ? saidAt(last) : 0;
+  };
   const candidates = [...new Set([...(preferred ? [preferred.taskId] : []), ...taskIds])];
   const taskId =
     preferred && (activity[preferred.taskId]?.length ?? 0) > 0

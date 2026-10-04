@@ -512,6 +512,15 @@ function ActivityLog({
             </li>
           );
         }
+        // Its thinking as it streams: one row that grows, not a row for each piece.
+        if (item.kind === "thinking") {
+          return (
+            <li key={item.key} className="agent-log__item" data-type="reasoning">
+              <span className="agent-log__label">Thinking</span>
+              <span className="agent-log__text">{item.text}</span>
+            </li>
+          );
+        }
         const d = describeActivity(item.activity.event);
         return (
           <li

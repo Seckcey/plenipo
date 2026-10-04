@@ -5,9 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AgentsContext, type AgentsContextValue } from "../agents/context";
 import { ChatContext, type ChatApi } from "../chat/context";
-import { initialAgentState } from "../agents/store";
+import { agentReducer, initialAgentState } from "../agents/store";
 import { position, worker } from "../test/orgFixtures";
 import { LiveConversation } from "./LiveConversation";
+import { LiveForTasks } from "./LiveForTasks";
 import { NowLine } from "./NowLine";
 import { liveProgress, liveWork, nowWords, progressWords, startingStep, stepWords } from "./words";
 
@@ -195,6 +196,55 @@ describe("the live conversation on screen (Phase 25, item 3.1)", () => {
         at({ type: "toolUse", tool: "Bash", summary: "npm test" }),
       ]).text,
     ).toEqual(["Let me run the tests.", "Running `npm test`"]);
+  });
+
+  it("says it is thinking while it thinks, in one line, and no more once it writes", () => {
+    const lines = (activity: AgentActivity[], running = true) => {
+      cleanup();
+      render(
+        <LiveConversation
+          taskId="t-1"
+          sessionId="s-1"
+          startedAt={null}
+          running={running}
+          who="Dev"
+        />,
+        { wrapper: provide({ "t-1": activity }) },
+      );
+      return within(screen.getByRole("log", { name: "What Dev says and does" }))
+        .getAllByRole("listitem")
+        .map((l) => l.textContent);
+    };
+    const thinking = [
+      at({ type: "toolUse", tool: "Read", summary: "a.ts" }),
+      at({ type: "reasoning", text: "I" }),
+      at({ type: "reasoning", text: " should" }),
+      at({ type: "reasoning", text: " check" }),
+    ];
+    expect(lines(thinking)).toEqual(["Reading a.ts", "Thinking…"]);
+    expect(lines([...thinking, at({ type: "textDelta", text: "Done." })])).toEqual([
+      "Reading a.ts",
+      "Done.",
+    ]);
+    // A task that stopped while thinking is not still thinking.
+    expect(lines(thinking, false)).toEqual(["Reading a.ts"]);
+  });
+
+  it("watches the team's task that said something last, words still coming included", () => {
+    let state = initialAgentState;
+    const send = (taskId: string, seq: number, ts: number, event: AgentEvent) => {
+      state = agentReducer(state, {
+        type: "update",
+        update: { kind: "activity", sessionId: "s-1", taskId, seq, ts, event },
+      });
+    };
+    send("t-a", 1, 100, { type: "textDelta", text: "Still " });
+    send("t-b", 1, 200, { type: "toolUse", tool: "Read", summary: "b.ts" });
+    send("t-a", 2, 300, { type: "textDelta", text: "writing." });
+    render(<LiveForTasks taskIds={["t-b", "t-a"]} preferred={null} who="Team" />, {
+      wrapper: provide(state.activity),
+    });
+    expect(screen.getByText("Still writing.")).toBeInTheDocument();
   });
 
   it("shows only the last lines in the details panel, and reads a conversation not loaded yet", () => {

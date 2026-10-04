@@ -26,8 +26,10 @@
 //! making it, as the real CLI does while the model writes them (Phase 18, Watch).
 //!
 //! Markers in the prompt pick a behavior: `[crash]`, `[malformed]`, `[usage-limit]`,
-//! `[auth-expired]`, `[offline]`, `[slow]`, `[unknown]`, `[big]`, `[delay:MS]` (answer
-//! normally after MS milliseconds, at most 20 seconds), and `[wait-for:NAME]` (answer normally
+//! `[auth-expired]`, `[offline]`, `[slow]`, `[unknown]`, `[big]`, `[think]` (Claude Code
+//! thinks first, its thinking streamed in small pieces as with `--thinking-display`),
+//! `[delay:MS]` (answer normally after MS milliseconds, at most 20 seconds), and
+//! `[wait-for:NAME]` (answer normally
 //! once the file NAME is in the state folder, at most a minute later: the test decides when, so
 //! the answer can't come before what it checks is in place). `[compact]` makes the AI tool
 //! shorten its memory of the conversation the way it says so (ADR-044): Claude Code's
@@ -1483,6 +1485,27 @@ fn claude_turn(args: &[String]) -> i32 {
         );
     }
     delay(&own);
+    if own.contains("[think]") {
+        // Like the real CLI with `--thinking-display summarized` (ADR-200): it thinks before it
+        // writes, and its thinking streams in small pieces.
+        out(&json!({
+            "type": "stream_event", "session_id": id,
+            "event": { "type": "content_block_start", "index": 0,
+                       "content_block": { "type": "thinking", "thinking": "" } }
+        }));
+        for piece in ["I", " sh", "ould", " check", " the", " file", " first", "."] {
+            out(&json!({
+                "type": "stream_event", "session_id": id,
+                "event": { "type": "content_block_delta", "index": 0,
+                           "delta": { "type": "thinking_delta", "thinking": piece } }
+            }));
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        out(&json!({
+            "type": "stream_event", "session_id": id,
+            "event": { "type": "content_block_stop", "index": 0 }
+        }));
+    }
     let calls = match &scripted {
         Some(step) => step.tools.clone(),
         None => tool_calls(&said),

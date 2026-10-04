@@ -165,6 +165,35 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     await screenshot(browser, "worker-result");
   });
 
+  it("shows Claude's thinking as one paragraph, not a few letters on each line", async () => {
+    const { browser } = app;
+    // The fake Claude Code thinks first, its thinking in eight small pieces (ADR-200).
+    await startTask(browser, "Claude Code", "Plan first [think]");
+    await waitForTurn(browser, 1, (t) => t.outcome === "completed", "Claude result with thinking");
+    await (await browser.$('//summary[contains(., "Live activity")]')).click();
+    const thinking = await waitUntil(async () => {
+      const rows = await browser.execute(
+        (selector) =>
+          [...document.querySelectorAll(`${selector} li[data-type="reasoning"]`)].map((li) =>
+            li.innerText.replace(/\s+/g, " ").trim(),
+          ),
+        TURNS,
+      );
+      return rows.length > 0 ? rows : null;
+    }, "the thinking row");
+    assert.deepEqual(thinking, ["Thinking I should check the file first."]);
+    // Its sign that it began to think is not a row of its own once the words came.
+    const signs = await browser.execute(
+      (selector) =>
+        [...document.querySelectorAll(`${selector} li[data-type="status"]`)].map((li) =>
+          li.innerText.replace(/\s+/g, " ").trim(),
+        ),
+      TURNS,
+    );
+    assert.ok(!signs.includes("Thinking Thinking"), signs.join(" | "));
+    await screenshot(browser, "worker-thinking");
+  });
+
   it("launches a Grok task over ACP with a normalized result", async () => {
     const { browser } = app;
     await startTask(browser, "Grok", "Hello Grok");
