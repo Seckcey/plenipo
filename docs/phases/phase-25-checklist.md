@@ -949,7 +949,9 @@ About 6 to 8 build sessions.
       check-in, and one delivery after it)
     - handoffs `a_check_in_never_ends_the_lead_hands_work_on_or_is_checked_as_an_answer`,
       `a_check_in_that_fails_leaves_the_lead_waiting`,
-      `a_check_in_that_cannot_start_leaves_no_mark`
+      `a_check_in_that_cannot_start_leaves_no_mark`,
+      `a_signed_out_lead_is_tried_once_and_checked_in_on_after_sign_in` (a try that can't start
+      isn't repeated and uses none of the 4)
     - handoffs `a_lead_can_stop_only_its_own_team` (the owner's task, a task further down, a
       finished one, a second stop, and a stop with another field are refused; stopping a
       waiting task stops its team), `a_stop_outside_a_check_in_is_refused_and_makes_no_request`

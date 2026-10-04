@@ -65,7 +65,8 @@ the router's `a_simulated_week_keeps_the_pace_and_lasts_to_the_reset` (paced, th
   (ADR-008).
 - **Check-ins.** While its team works, a lead is woken for a short check-in: when an answer comes
   back while other work still goes, and after a long wait (20 minutes). At most 4 a round, and
-  none while Stop all holds the work.
+  none while Stop all holds the work. If the lead's AI tool is signed out, it is tried once for each
+  new answer, not over and over, and those tries don't use up any of the 4.
 - **What it sees.** Who is working on what, and for how long, in Plenipo's own words, never
   words a worker wrote. Also the answers already back.
 - **What it can stop.** Only work it handed on itself, with a reason. It is stopped the same way

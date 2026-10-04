@@ -1293,18 +1293,29 @@ impl Ledger {
                      AND event_type = 'liaison.replies_delivered'",
                     id,
                 )?;
+                // Only check-ins that started count toward the round's cap; a try that couldn't
+                // start does not.
                 let check_ins: u32 = c.query_row(
                     "SELECT COUNT(*) FROM events WHERE task_id = ?1
+                     AND event_type = 'liaison.check_in_started'
+                     AND json_extract(payload, '$.round') = ?2",
+                    params![id, round],
+                    |r| r.get(0),
+                )?;
+                // Its last try this round, started or not: the next waits a quiet moment after.
+                let last_try: Option<i64> = c.query_row(
+                    "SELECT MAX(created_at) FROM events WHERE task_id = ?1
                      AND event_type IN ('liaison.check_in_started', 'liaison.check_in_skipped')
                      AND json_extract(payload, '$.round') = ?2",
                     params![id, round],
                     |r| r.get(0),
                 )?;
-                // The answers its last check-in already showed (`seen`): only others are new.
+                // The answers its last try already saw (`seen`), started or not: only others are
+                // new, so a try that couldn't start comes again only with a new answer.
                 let seen: Vec<String> = c
                     .query_row(
                         "SELECT payload FROM events WHERE task_id = ?1
-                         AND event_type = 'liaison.check_in_started'
+                         AND event_type IN ('liaison.check_in_started', 'liaison.check_in_skipped')
                          ORDER BY seq DESC LIMIT 1",
                         [id],
                         |r| r.get::<_, String>(0),
@@ -1358,6 +1369,7 @@ impl Ledger {
                     round,
                     check_ins,
                     check_in_failed,
+                    last_try: last_try.map(u64_of),
                 });
             }
             Ok(out)

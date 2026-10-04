@@ -1380,11 +1380,13 @@ pub struct CheckInCandidate {
     pub newest_answer: Option<(u64, Option<String>)>,
     /// When it last went back to waiting (ms).
     pub waiting_since: u64,
-    /// This round (its deliveries so far), and the check-ins tried in it.
+    /// This round (its deliveries so far), and the check-ins that started in it.
     pub round: u32,
     pub check_ins: u32,
     /// A check-in this round that didn't complete (its step failed): no more this round.
     pub check_in_failed: bool,
+    /// Its last check-in try this round, started or not (ms).
+    pub last_try: Option<u64>,
 }
 
 /// A lesson a worker learned from its work (ADR-024): what would help the next worker in its

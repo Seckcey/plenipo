@@ -1828,8 +1828,8 @@ async fn a_lead_can_stop_only_its_own_team() {
     );
 }
 
-/// A check-in that can't start (the lead's AI tool is signed out) leaves no mark: it is counted as
-/// tried, the lead still waits, and its next real delivery is a delivery, not a check-in.
+/// A check-in that can't start (the lead's AI tool is signed out) leaves no mark: it is recorded
+/// as skipped, the lead still waits, and its next real delivery is a delivery, not a check-in.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_check_in_that_cannot_start_leaves_no_mark() {
     let h = check_in_harness(200, HOUR, 4).await;
@@ -1861,6 +1861,53 @@ async fn a_check_in_that_cannot_start_leaves_no_mark() {
         "{}",
         h.text(&root)
     );
+}
+
+/// A signed-out lead is tried once for an answer, not over and over, and a try that can't start
+/// uses up none of the round's check-ins: once signed in, the next answer brings a real one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_signed_out_lead_is_tried_once_and_checked_in_on_after_sign_in() {
+    let h = check_in_harness(1000, HOUR, 1).await;
+    let (_, root) = h
+        .start(
+            "codex",
+            "Build it [handoff:claude-code] [handoff:claude-code+delay:8000] \
+             [handoff:claude-code+slow] [check-in-stop:slow]",
+        )
+        .await;
+    h.until("the team to be at work", |h| {
+        let children = h.children(&root);
+        children.len() == 3
+            && children
+                .iter()
+                .all(|t| matches!(t.state, TaskState::Running | TaskState::Succeeded))
+    })
+    .await;
+    let auth = h.fake_state().join("auth");
+    std::fs::write(&auth, "signed-out").unwrap();
+    h.until("a check-in to be tried", |h| {
+        h.count(&root, "liaison.check_in_skipped") > 0
+    })
+    .await;
+    // Two more debounce windows and many passes: still the one try.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert_eq!(h.count(&root, "liaison.check_in_skipped"), 1);
+    assert_eq!(h.count(&root, "liaison.check_in_started"), 0);
+    assert_eq!(h.task(&root).state, TaskState::Blocked, "it still waits");
+    std::fs::remove_file(&auth).unwrap();
+    // The cap is 1 and the skip didn't use it: the delayed answer brings the check-in.
+    assert_eq!(h.finished(&root).await.state, TaskState::Succeeded);
+    assert_eq!(h.count(&root, "liaison.check_in_started"), 1);
+    assert_eq!(h.count(&root, "liaison.check_in_skipped"), 1);
+    let delayed = h.child_with(&root, "[delay:8000]");
+    let slow = h.child_with(&root, "[slow]");
+    assert_eq!(h.task(&slow.id).state, TaskState::Cancelled);
+    let asked = h
+        .ledger
+        .last_task_event(&root, "liaison.stop_asked")
+        .unwrap()
+        .unwrap();
+    assert_eq!(asked.payload["triggeredBy"], delayed.id.as_str());
 }
 
 /// A stop in an ordinary answer (not a check-in) is refused and makes no request: the answer's

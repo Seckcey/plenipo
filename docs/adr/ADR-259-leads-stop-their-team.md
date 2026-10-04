@@ -39,7 +39,7 @@ A waiting lead (its task `blocked`, with requests still working) is checked in o
 
 - **when an answer comes back while other work still goes**, once no other answer came for a
   short moment (30 seconds to start with), so answers that come together bring one check-in;
-- **after a long wait**: 20 minutes since it last went back to waiting.
+- **after a long wait**: 20 minutes since it last went back to waiting or was last tried.
 
 There are at most **4 check-ins a round**. A round is the time from handing work on to getting
 every answer; check-ins are not rounds and don't count toward ADR-008's limit. The times and the
@@ -54,9 +54,11 @@ No check-in starts when:
 - the round's 4 are used;
 - one already failed this round.
 
-A check-in that can't start (its AI tool not signed in) leaves the lead waiting and counts toward
-the 4. The runtime's `check_in_turn` keeps the turn waiting in that case, where a real
-continuation would end it.
+A check-in that can't start (its AI tool not signed in) leaves the lead waiting. It is recorded
+with the answers it would have shown, and it doesn't count toward the 4. The next try comes only
+with a new answer or after the long wait, and never sooner than the short moment after the last
+try, so a signed-out lead is not tried over and over. The runtime's `check_in_turn` keeps the turn
+waiting in that case, where a real continuation would end it.
 
 ### What the lead is told
 
@@ -142,8 +144,13 @@ is refused (`liaison.handoff_rejected`) and never becomes a request.
   carried other blocks. It never finishes the lead, is never checked as an answer (ADR-256), and
   never hands work on.
 
-- **The one exception** is the owner's Stop on the lead itself during a check-in. That ends the
-  lead's turn as any Stop does, and the lead loses its round: its team is stopped with it.
+- **Two exceptions:**
+  - The owner's Stop on the lead itself during a check-in. That ends the lead's turn as any Stop
+    does, and the lead loses its round: its team is stopped with it.
+  - The Ledger failing. If the step can't be recorded, the lead's turn ends with a notice, as when
+    an answer's handoffs can't be recorded. If the Ledger can't even be read to tell whether the
+    step is a check-in, the step is taken as an ordinary answer, with a notice. Either way the
+    Ledger is failing for all work, not only check-ins.
 
 ### Recorded and shown
 
@@ -156,7 +163,7 @@ is refused (`liaison.handoff_rejected`) and never becomes a request.
   - `liaison.stop_refused` {taskId, why};
   - `liaison.check_in_started` and `liaison.checked_in` {step, round, number, outcome, stops,
     refused, ignored};
-  - `liaison.check_in_skipped` {why}.
+  - `liaison.check_in_skipped` {round, number, why, the answers it saw}.
 
 **For the owner:**
 
@@ -177,9 +184,9 @@ owner's Stop and Stop all stay on every page, as before.
 
 ### Limits (ADR-008 §9)
 
-ADR-008 §9 says 5 reply rounds and 12 handoffs. Since [ADR-016](ADR-016-development-department.md)
-§12 they are **8 rounds and 16 handoffs**, which is what Plenipo uses. ADR-008 now says so.
-Check-ins are not rounds.
+ADR-008 §9 said 5 reply rounds and 12 handoffs. Since
+[ADR-016](ADR-016-development-department.md) §12 the defaults are **8 rounds and 16 handoffs**,
+and ADR-008 now says so. Check-ins are not rounds.
 
 ## Consequences
 

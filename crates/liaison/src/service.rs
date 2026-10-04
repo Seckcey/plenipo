@@ -829,7 +829,8 @@ impl Liaison {
             return TurnDisposition::Finish;
         }
         // A lead's check-in on its team (ADR-259): this exact step began as one. It never
-        // finishes the lead, is never checked as an answer, and never hands work on.
+        // finishes the lead, is never checked as an answer, and never hands work on. If the
+        // Ledger can't be read, the step is taken as an ordinary answer, with a notice.
         match self
             .inner
             .ledger
@@ -1138,7 +1139,9 @@ impl Liaison {
     /// Whether a waiting lead is due a check-in now: `Some` with the answered task that brings
     /// it (none for a long wait). An answer brings one once no other came for the debounce
     /// time; a long wait brings one after `check_in_every`; never past the round's cap, and no
-    /// more in a round where one failed.
+    /// more in a round where one failed. An answer brings one only the debounce time after the
+    /// last try too, and the long wait counts from the last try; a try that couldn't start saw
+    /// its answers, so only a new answer or the long wait brings the next.
     fn check_in_due(
         &self,
         c: &plenipo_ledger::CheckInCandidate,
@@ -1149,12 +1152,16 @@ impl Liaison {
             return None;
         }
         let ms = |d: Duration| u64::try_from(d.as_millis()).unwrap_or(u64::MAX);
+        let quiet = |at: u64| now.saturating_sub(at) >= ms(config.check_in_debounce);
         if let Some((at, child)) = &c.newest_answer {
-            if now.saturating_sub(*at) >= ms(config.check_in_debounce) {
+            if quiet(*at) && c.last_try.is_none_or(quiet) {
                 return Some(child.clone());
             }
         }
-        (now.saturating_sub(c.waiting_since) >= ms(config.check_in_every)).then_some(None)
+        let since = c
+            .last_try
+            .map_or(c.waiting_since, |at| at.max(c.waiting_since));
+        (now.saturating_sub(since) >= ms(config.check_in_every)).then_some(None)
     }
 
     fn spawn_check_in(&self, candidate: plenipo_ledger::CheckInCandidate, by: Option<String>) {
@@ -1179,7 +1186,8 @@ impl Liaison {
     /// `check_in_turn`, which leaves the turn waiting when its AI tool can't take work). Only
     /// Plenipo's own facts about work still going; the answers back, as their workers' first
     /// lines between fresh markers. Skipped, not queued, while its AI tool is held or no place is
-    /// free; a try that can't start counts toward the round's check-ins.
+    /// free; a try that can't start is recorded with the answers it saw, and doesn't count toward
+    /// the round's check-ins.
     async fn check_in(
         &self,
         c: plenipo_ledger::CheckInCandidate,
@@ -1304,7 +1312,7 @@ impl Liaison {
                     l.append_event(task_event(
                         &tid,
                         "liaison.check_in_skipped",
-                        json!({ "round": round, "checkIn": number, "why": why }),
+                        json!({ "round": round, "checkIn": number, "why": why, "seen": seen }),
                     ))?;
                     Ok(())
                 })
