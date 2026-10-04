@@ -3,6 +3,7 @@ import type { OrgSnapshot } from "@plenipo/types";
 
 import { getOrganization, toCommandError } from "../api/commands";
 import { subscribeAgentUpdates, subscribeLedgerEvents, subscribeShared } from "../api/events";
+import { Newest } from "../api/newest";
 
 /** Ledger events after which the organization may look different (model choices and usage
  * limits change where each position's next worker would go). */
@@ -23,7 +24,8 @@ export function affectsOrganization(eventType: string): boolean {
 /**
  * The organization snapshot, kept live: Core owns the organization, so this reloads (debounced)
  * whenever the Ledger commits something that changes it, or runtime readiness changes. Changes
- * made from this window apply the snapshot their command returns.
+ * made from this window apply the snapshot their command returns. Only the newest answer shows
+ * ({@link Newest}).
  */
 export function useOrganization() {
   const [snapshot, setSnapshot] = useState<OrgSnapshot | null>(null);
@@ -32,25 +34,33 @@ export function useOrganization() {
   /** Increments on every change, so views can refresh dependent data (a position's work). */
   const [revision, setRevision] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [order] = useState(() => new Newest());
 
   const reload = useCallback(async () => {
+    const newest = order.start();
     try {
       const next = await getOrganization();
+      if (!newest()) return;
       setSnapshot(next);
       setStatus("ready");
       setError(null);
     } catch (reason) {
+      if (!newest()) return;
       setStatus((s) => (s === "ready" ? s : "error"));
       setError(toCommandError(reason).message);
     }
-  }, []);
+  }, [order]);
 
-  const apply = useCallback((next: OrgSnapshot) => {
-    setSnapshot(next);
-    setStatus("ready");
-    setError(null);
-    setRevision((r) => r + 1);
-  }, []);
+  const apply = useCallback(
+    (next: OrgSnapshot) => {
+      order.applied();
+      setSnapshot(next);
+      setStatus("ready");
+      setError(null);
+      setRevision((r) => r + 1);
+    },
+    [order],
+  );
 
   useEffect(() => {
     let disposed = false;

@@ -3,6 +3,7 @@ import type { ApprovalQueue, PermissionSet, PermissionsSnapshot } from "@plenipo
 
 import { getApprovals, getPermissions, toCommandError } from "../api/commands";
 import { subscribeLedgerEvents } from "../api/events";
+import { Newest } from "../api/newest";
 
 /** Ledger events after which the Permissions page may look different. */
 export function affectsPermissions(eventType: string): boolean {
@@ -25,25 +26,39 @@ export function affectsApprovals(eventType: string): boolean {
 }
 
 /** A value from Core kept live: reloaded (debounced) after relevant Ledger events; a change
- * applies what its command returns. */
+ * applies what its command returns. Only the newest answer shows ({@link Newest}). */
 export function useLive<T>(load: () => Promise<T>, relevant: (eventType: string) => boolean) {
   const [value, setValue] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [order] = useState(() => new Newest());
 
-  const reload = useCallback(async () => {
-    try {
-      setValue(await load());
+  /** Read it again. `quiet`: a failure is not shown (a look while a sign-in waits). */
+  const look = useCallback(
+    async (quiet: boolean) => {
+      const newest = order.start();
+      try {
+        const next = await load();
+        if (!newest()) return;
+        setValue(next);
+        setError(null);
+      } catch (reason) {
+        if (!quiet && newest()) setError(toCommandError(reason).message);
+      }
+    },
+    [load, order],
+  );
+
+  const reload = useCallback(() => look(false), [look]);
+
+  const apply = useCallback(
+    (next: T) => {
+      order.applied();
+      setValue(next);
       setError(null);
-    } catch (reason) {
-      setError(toCommandError(reason).message);
-    }
-  }, [load]);
-
-  const apply = useCallback((next: T) => {
-    setValue(next);
-    setError(null);
-  }, []);
+    },
+    [order],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -71,7 +86,9 @@ export function useLive<T>(load: () => Promise<T>, relevant: (eventType: string)
     };
   }, [reload, relevant]);
 
-  return { value, error, reload, apply };
+  const quietLook = useCallback(() => look(true), [look]);
+
+  return { value, error, reload, apply, quietLook };
 }
 
 /** Settings → Permissions, kept live. */
