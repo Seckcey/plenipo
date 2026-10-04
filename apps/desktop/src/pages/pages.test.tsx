@@ -27,6 +27,7 @@ import { ProjectPage } from "./ProjectPage";
 import { TaskPage } from "./TaskPage";
 import { WorkerPage } from "./WorkerPage";
 import { homeLine, homePip, type HomeMood } from "./words";
+import { afterChange } from "../test/core";
 
 vi.mock("../api/commands", async (importOriginal) => {
   const actual = await importOriginal<typeof commands>();
@@ -179,7 +180,7 @@ describe("Home", () => {
       role: "Security Auditor",
     });
     api.getHome.mockResolvedValue(sampleHome({ stuck: [{ event: ask, task: null }] }));
-    api.hirePosition.mockResolvedValue(sampleOrganization());
+    afterChange(api.hirePosition, sampleOrganization(), api.getOrganization);
     render(<HomePage go={go} approvals={approvals([])} learning={learning()} />);
     const list = await screen.findByRole("list", { name: "What's stuck" });
     expect(within(list).getByText("Website Supervisor needs a Security Auditor")).toBeVisible();
