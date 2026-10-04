@@ -62,6 +62,35 @@ describe("Enter sends (as in the Chat)", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  it("only finishes the word on a Mac or Linux too, where Enter comes just after it (key code 229)", () => {
+    const onSend = vi.fn();
+    render(<Box onSend={onSend} />);
+    const box = screen.getByRole("textbox", { name: "Words" });
+    expect(fireEvent.keyDown(box, { key: "Enter", keyCode: 229, isComposing: false })).toBe(true);
+    expect(onSend).not.toHaveBeenCalled();
+    // An ordinary Enter still sends.
+    expect(fireEvent.keyDown(box, { key: "Enter", keyCode: 13 })).toBe(false);
+    expect(onSend).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Enter as a new line in a box with no form, or no send button", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <textarea aria-label="Alone" onKeyDown={enterSends} />
+        <form aria-label="No send button">
+          <textarea aria-label="In a form" onKeyDown={enterSends} />
+          <button type="button">Attach</button>
+        </form>
+      </>,
+    );
+    for (const name of ["Alone", "In a form"]) {
+      const box = screen.getByRole("textbox", { name });
+      await user.type(box, "One{Enter}two");
+      expect(box).toHaveValue("One\ntwo");
+    }
+  });
+
   it("sends nothing while the send button cannot be pressed, and adds no new line", async () => {
     const onSend = vi.fn();
     const user = userEvent.setup();
