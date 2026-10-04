@@ -959,6 +959,13 @@ pub fn on_run_event<R: Runtime>(app: &tauri::AppHandle<R>, event: RunEvent) {
                 logs.flush();
             }
         }
+        // A Mac (Phase 23): clicking Plenipo's Dock icon while no window shows brings the window
+        // back, as every Mac app does.
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen {
+            has_visible_windows: false,
+            ..
+        } => start_close::show_main_window(app),
         _ => {}
     }
 }
