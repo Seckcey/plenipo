@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AgentSessionDetail, LedgerEvent } from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -163,6 +163,31 @@ describe("Projects", () => {
     await user().selectOptions(within(form).getByRole("combobox", { name: "Give it to" }), "p-eng");
     await user().click(within(form).getByRole("button", { name: "Give objective" }));
     expect(await within(form).findByRole("alert")).toHaveTextContent("no such project");
+  });
+
+  it("gives an objective with Enter; Shift+Enter starts a new line", async () => {
+    api.giveObjective.mockResolvedValue({
+      session: {},
+      turns: [{ taskId: "task-new", number: 1 }],
+      activity: [],
+    } as unknown as AgentSessionDetail);
+    show();
+    const form = await screen.findByRole("form", { name: "Give an objective" });
+    const box = within(form).getByRole("textbox", { name: "Objective for Website Relaunch" });
+    expect(box).toHaveAccessibleDescription("Enter sends. Shift and Enter start a new line.");
+    // To a busy lead its button cannot be pressed: Enter gives nothing, and adds no line.
+    await user().selectOptions(within(form).getByRole("combobox", { name: "Give it to" }), "p-web");
+    await user().type(box, "Add a{Shift>}{Enter}{/Shift}pricing page{Enter}");
+    expect(box).toHaveValue("Add a\npricing page");
+    // A word still being put together (an IME) is only finished.
+    await user().selectOptions(within(form).getByRole("combobox", { name: "Give it to" }), "p-eng");
+    fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+    expect(api.giveObjective).not.toHaveBeenCalled();
+    await user().type(box, "{Enter}");
+    expect(api.giveObjective).toHaveBeenCalledWith("p-eng", "Add a\npricing page", "pr-web");
+    expect(await within(form).findByRole("status")).toHaveTextContent(
+      "Objective given to Engineering Manager",
+    );
   });
 
   it("removes a working copy after asking, keeping its branch", async () => {

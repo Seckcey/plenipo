@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import type {
@@ -321,6 +321,49 @@ describe("Workers view", () => {
     await waitFor(() => expect(within(turns).getByText("Try again")).toBeInTheDocument());
     // One turn at a time: Send is disabled while turn 2 runs.
     expect(within(followUp).getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("starts a task and continues it with Enter; Shift+Enter starts a new line", async () => {
+    const done = detail({
+      session: session("s1", { title: "Say hello" }),
+      turns: [turn("t1", { running: false, result: completed("Hello!") })],
+    });
+    api.startAgentSession.mockResolvedValue(done);
+    api.getAgentSession.mockResolvedValue(done);
+    api.resumeAgentSession.mockResolvedValue(
+      detail({
+        session: session("s1", { title: "Say hello", activeTaskId: "t2", turnCount: 2 }),
+        turns: [...done.turns, turn("t2", { number: 2, objective: "And then\nmore" })],
+      }),
+    );
+    render(<Harness />);
+    const user = userEvent.setup();
+    const form = await screen.findByRole("form", { name: "New task" });
+    await within(form).findByText("Ready");
+    const objective = within(form).getByRole("textbox", { name: "Objective" });
+    expect(objective).toHaveAccessibleDescription("Enter sends. Shift and Enter start a new line.");
+    // Nothing written yet: Enter starts nothing, and adds no line.
+    await user.type(objective, "{Enter}");
+    expect(objective).toHaveValue("");
+    await user.type(objective, "Say{Shift>}{Enter}{/Shift}hello");
+    // A word still being put together (an IME) is only finished.
+    fireEvent.keyDown(objective, { key: "Enter", isComposing: true });
+    expect(api.startAgentSession).not.toHaveBeenCalled();
+    await user.keyboard("{Enter}");
+    expect(api.startAgentSession).toHaveBeenCalledWith("claude-code", "Say\nhello", "", false);
+
+    const followUp = await screen.findByRole("form", { name: "Continue the conversation" });
+    const box = within(followUp).getByRole("textbox");
+    expect(box).toHaveAccessibleDescription("Enter sends. Shift and Enter start a new line.");
+    await user.type(box, "And then{Shift>}{Enter}{/Shift}more{Enter}");
+    expect(api.resumeAgentSession).toHaveBeenCalledWith("s1", "And then\nmore");
+    // One turn at a time: while turn 2 runs, Send cannot be pressed, and Enter sends nothing.
+    await waitFor(() =>
+      expect(within(followUp).getByRole("button", { name: "Send" })).toBeDisabled(),
+    );
+    await user.type(box, "Again{Enter}");
+    expect(box).toHaveValue("Again");
+    expect(api.resumeAgentSession).toHaveBeenCalledTimes(1);
   });
 
   it("loads a session's full history when selected, even after partial live updates", async () => {

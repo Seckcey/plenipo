@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import type { OrgSnapshot, PositionInfo, ProjectInfo, Workspace } from "@plenipo/types";
 import { Button, StatusPill } from "@plenipo/ui";
 
 import { giveObjective, removeWorkspace, setUpDevelopment, toCommandError } from "../api/commands";
 import { ObjectiveFilesList } from "../files/ObjectiveFiles";
 import { useObjectiveFiles } from "../files/useObjectiveFiles";
+import { ENTER_SENDS, enterSends } from "../components/enterSends";
 import { ObjectiveResult } from "../components/ObjectiveResult";
 import { ConfirmDialog } from "../components/org/Modal";
 import { SetUpDevelopmentDialog } from "../components/org/OrgDialogs";
@@ -52,6 +53,8 @@ function ObjectiveForm({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
+  // Enter gives the objective (Shift+Enter is a new line), as in the Chat.
+  const keys = useId();
   const taker = takers.find((p) => p.id === takerId) ?? null;
   // Files dropped on the form go on the objective (Phase 21, ADR-093 §19).
   const [files, dropTarget] = useObjectiveFiles(true);
@@ -105,12 +108,17 @@ function ObjectiveForm({
           rows={3}
           maxLength={MAX_OBJECTIVE}
           placeholder="What should the team get done? Say how you will know it is done."
+          aria-describedby={keys}
           onChange={(e) => {
             setObjective(e.target.value);
             setSent(null);
           }}
+          onKeyDown={enterSends}
         />
       </label>
+      <span id={keys} className="visually-hidden">
+        {ENTER_SENDS}
+      </span>
       <ObjectiveFilesList state={files} />
       <div className="objective-form__row">
         <label className="field">

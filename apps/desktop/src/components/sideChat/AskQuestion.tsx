@@ -9,6 +9,7 @@ import type { PositionInfo } from "@plenipo/types";
 import { Button } from "@plenipo/ui";
 
 import { askSideQuestion, toCommandError } from "../../api/commands";
+import { ENTER_SENDS, enterSends } from "../enterSends";
 import { Modal } from "../org/Modal";
 import { Field, Footer, FormError } from "../org/OrgDialogs";
 import { canAsk } from "./canAsk";
@@ -50,6 +51,7 @@ function AskQuestionDialog({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const id = useId();
+  const keys = useId();
   const ask = async (e: FormEvent) => {
     e.preventDefault();
     setPending(true);
@@ -76,10 +78,15 @@ function AskQuestionDialog({
               rows={4}
               maxLength={40_000}
               required
+              aria-describedby={keys}
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={enterSends}
             />
           </Field>
+          <span id={keys} className="visually-hidden">
+            {ENTER_SENDS}
+          </span>
           <FormError error={error} />
         </div>
         <Footer
