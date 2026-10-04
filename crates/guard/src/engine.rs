@@ -1911,6 +1911,20 @@ mod tests {
         assert_eq!(d.verdict, Verdict::Allow, "{}", d.reason);
         let d = shell(&open, &CommandLine::new("pwsh", &["-e", "QQBC"]));
         assert_eq!(d.verdict, Verdict::Ask, "{}", d.reason);
+        // Looking `rm` up is not running it, with `rm` on the never-run list.
+        for text in ["command -v rm", "type rm"] {
+            let d = shell(&open, &CommandLine::new("bash", &["-c", text]));
+            assert_eq!(d.verdict, Verdict::Allow, "{text}: {}", d.reason);
+        }
+        // An owner's rule on a prefix catches it inside shell text, as on a command line.
+        let mut no_nohup = open.clone();
+        no_nohup.commands.blocked.push("nohup *".into());
+        let d = shell(
+            &no_nohup,
+            &CommandLine::new("bash", &["-c", "nohup make test"]),
+        );
+        assert_eq!(d.verdict, Verdict::Deny, "{}", d.reason);
+        assert!(d.reason.contains("bash runs nohup"), "{}", d.reason);
     }
 
     /// P-GUARD-1 (ADR-213): under Careful, a build or test command, and a program inside the

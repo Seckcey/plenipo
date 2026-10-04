@@ -630,7 +630,10 @@ const SHELL_PREFIXES: &[&str] = &[
 ];
 
 /// One statement of a POSIX shell or cmd: `VAR=x program args`, `exec program args`, and
-/// `program args`.
+/// `program args`. A prefix is a statement of its own as well as the program after it, so a
+/// rule naming either catches it (`nohup *` and `rm *` both catch `nohup rm x`), as they would
+/// on a command line. `command -v name` and `command -V name` only look a name up: they name
+/// `command` and nothing else.
 fn read_shell(line: usize, words: &[String], out: &mut Vec<Statement>) {
     let mut words = words;
     loop {
@@ -642,13 +645,29 @@ fn read_shell(line: usize, words: &[String], out: &mut Vec<Statement>) {
             // `VAR=x` before the program.
             words = &words[1..];
         } else if SHELL_PREFIXES.contains(&lower.as_str()) {
+            out.push(Statement {
+                line,
+                kind: StatementKind::Program(CommandLine {
+                    program: unquoted(first),
+                    args: words[1..].iter().map(|a| unquoted(a)).collect(),
+                }),
+            });
             words = &words[1..];
-            // The prefix's own options (`env -i`, `nice -n 10`, `ionice -c 3`).
+            // The prefix's own options (`env -i`, `nice -n 10`, `ionice -c 3`, `command -v`).
             let takes_a_number = matches!(lower.as_str(), "nice" | "ionice");
-            while words.first().is_some_and(|w| {
+            let mut looks_up = false;
+            while let Some(option) = words.first().filter(|w| {
                 w.starts_with('-') || (takes_a_number && w.chars().all(|c| c.is_ascii_digit()))
             }) {
+                // `command -v`, `-V`, and the two run together with `-p` (`-pv`).
+                looks_up |= lower == "command"
+                    && option.starts_with('-')
+                    && !option.starts_with("--")
+                    && option[1..].contains(['v', 'V']);
                 words = &words[1..];
+            }
+            if looks_up {
+                return;
             }
         } else {
             break;
@@ -902,6 +921,99 @@ mod tests {
             &inner_statements(&CommandLine::new("sh", &["-c", "sudo rm x"])),
         );
         assert_eq!(found, None);
+    }
+
+    /// Looking a program up names only the lookup: an owner who blocks `rm` can still ask
+    /// whether it is there. `command -p` runs it, so that is still caught.
+    #[test]
+    fn looking_a_program_up_does_not_name_it() {
+        let blocked = vec!["rm *".to_owned()];
+        let bash = |text: &str| inner_statements(&CommandLine::new("bash", &["-c", text]));
+        for text in [
+            "command -v rm",
+            "command -V rm",
+            "command -pv rm",
+            "command -v rm >/dev/null || echo missing",
+            "nohup command -v rm",
+            "type rm",
+            "type -P rm",
+            "which rm",
+        ] {
+            assert_eq!(first_caught(&blocked, &bash(text)), None, "{text}");
+        }
+        let names: Vec<String> = bash("command -v rm")
+            .iter()
+            .map(|s| match &s.kind {
+                StatementKind::Program(c) => c.shown(),
+                StatementKind::Opaque(why) => format!("?{why}"),
+            })
+            .collect();
+        assert_eq!(names, ["command -v rm"], "the lookup is still a statement");
+        for text in ["command -p rm x", "command rm x"] {
+            assert_eq!(
+                first_caught(&blocked, &bash(text)).map(|f| f.1),
+                Some("rm".to_owned()),
+                "{text}"
+            );
+        }
+        // PowerShell's lookup names Get-Command only.
+        let found = first_caught(
+            &blocked,
+            &statements("Get-Command rm\nGet-Command -Name rm"),
+        );
+        assert_eq!(found, None);
+        let found = first_caught(
+            &blocked,
+            &inner_statements(&CommandLine::new("pwsh", &["-c", "Get-Command rm"])),
+        );
+        assert_eq!(found, None);
+        // Running what it found is not a lookup: the reader cannot follow it, so it asks.
+        assert_eq!(
+            first_opaque(&statements("& (Get-Command rm) x")).map(|w| w.0),
+            Some(BY_VARIABLE)
+        );
+    }
+
+    /// A prefix is a statement of its own as well as the program after it, so an owner's rule
+    /// on either catches it, as on a command line.
+    #[test]
+    fn a_rule_on_a_prefix_catches_it_in_shell_text() {
+        let bash = |text: &str| inner_statements(&CommandLine::new("bash", &["-c", text]));
+        for (rule, text) in [
+            ("nohup *", "nohup rm x"),
+            ("env *", "env FOO=1 rm x"),
+            ("env *", "FOO=1 env -i make"),
+            ("time *", "time make test"),
+            ("exec *", "exec make"),
+            ("nice *", "nice -n 10 make"),
+            ("ionice *", "ionice -c 3 nice -n 5 make"),
+            ("nice *", "ionice -c 3 nice -n 5 make"),
+            ("builtin *", "builtin echo hi"),
+            ("command *", "command -v rm"),
+        ] {
+            let blocked = vec![rule.to_owned()];
+            let found = first_caught(&blocked, &bash(text)).map(|f| f.1);
+            let named = rule.split(' ').next().unwrap();
+            assert_eq!(found.as_deref(), Some(named), "{rule} on {text}");
+        }
+        // Every word in order: each prefix with what follows it, then the program.
+        let names: Vec<String> = bash("env FOO=1 nohup rm x")
+            .iter()
+            .map(|s| match &s.kind {
+                StatementKind::Program(c) => c.shown(),
+                StatementKind::Opaque(why) => format!("?{why}"),
+            })
+            .collect();
+        assert_eq!(names, ["env FOO=1 nohup rm x", "nohup rm x", "rm x"]);
+        // A rule on the program still catches it behind any prefix.
+        let rm = ["rm *".to_owned()];
+        let found = first_caught(&rm, &bash("env FOO=1 nohup rm x"));
+        assert_eq!(found.map(|f| f.1), Some("rm".to_owned()));
+        // No prefix rule: nothing new is caught.
+        assert_eq!(
+            first_caught(&["make *".to_owned()], &bash("nohup ls")),
+            None
+        );
     }
 
     #[test]
