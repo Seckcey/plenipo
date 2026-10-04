@@ -193,7 +193,7 @@ beforeEach(() => {
   ];
   permissions.settings.projects = [{ id: "pr-web", name: "Website Relaunch", setId: "read-only" }];
   api.getPermissions.mockResolvedValue(permissions);
-  api.setModelRule.mockResolvedValue(sampleRouting());
+  afterChange(api.setModelRule, sampleRouting(), api.getRouting);
 });
 
 afterEach(() => {

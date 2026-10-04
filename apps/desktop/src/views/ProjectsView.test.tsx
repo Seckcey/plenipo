@@ -166,8 +166,10 @@ describe("Projects", () => {
   });
 
   it("removes a working copy after asking, keeping its branch", async () => {
-    api.removeWorkspace.mockResolvedValue(
+    afterChange(
+      api.removeWorkspace,
       sampleWork({ workingCopies: [workingCopy({ state: "removed", removedAt: T0 })] }),
+      api.getProjectWork,
     );
     show();
     const copies = await screen.findByRole("table", { name: "Working copies" });

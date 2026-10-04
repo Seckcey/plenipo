@@ -79,7 +79,8 @@ mod tests {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::TcpListener;
 
-    /// A stand-in on this computer: records each request as it arrived, and answers `reply`.
+    /// A stand-in on this computer: records each request, and answers `reply`. Each connection
+    /// is served on its own, so a slow one never holds up the next.
     async fn stand_in(reply: &'static str) -> (u16, Arc<Mutex<Vec<Vec<u8>>>>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -87,35 +88,52 @@ mod tests {
         let seen = got.clone();
         tokio::spawn(async move {
             while let Ok((mut s, _)) = listener.accept().await {
-                let mut buf = Vec::new();
-                let mut chunk = [0u8; 4096];
-                // Read the head, then the body its Content-Length gives.
-                loop {
-                    let n = s.read(&mut chunk).await.unwrap_or(0);
-                    if n == 0 {
-                        break;
-                    }
-                    buf.extend_from_slice(&chunk[..n]);
-                    let text = String::from_utf8_lossy(&buf).to_string();
-                    if let Some(end) = text.find("\r\n\r\n") {
-                        let len = text
-                            .lines()
-                            .find_map(|l| {
-                                l.to_ascii_lowercase()
-                                    .strip_prefix("content-length:")
-                                    .map(|v| v.trim().parse::<usize>().unwrap_or(0))
-                            })
-                            .unwrap_or(0);
-                        if buf.len() >= end + 4 + len {
+                let seen = seen.clone();
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    // Read the head, then the body its Content-Length gives.
+                    loop {
+                        let n = s.read(&mut chunk).await.unwrap_or(0);
+                        if n == 0 {
                             break;
                         }
+                        buf.extend_from_slice(&chunk[..n]);
+                        let text = String::from_utf8_lossy(&buf).to_string();
+                        if let Some(end) = text.find("\r\n\r\n") {
+                            let len = text
+                                .lines()
+                                .find_map(|l| {
+                                    l.to_ascii_lowercase()
+                                        .strip_prefix("content-length:")
+                                        .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                                })
+                                .unwrap_or(0);
+                            if buf.len() >= end + 4 + len {
+                                break;
+                            }
+                        }
                     }
-                }
-                seen.lock().unwrap().push(buf);
-                let _ = s.write_all(reply.as_bytes()).await;
+                    seen.lock().unwrap().push(buf);
+                    let _ = s.write_all(reply.as_bytes()).await;
+                });
             }
         });
         (port, got)
+    }
+
+    /// The requests a stand-in got whose first line is `line` (`POST /v1/check HTTP/1.1`). A
+    /// request is found by its first line, never taken to be the first to arrive: on a busy
+    /// computer another program can reach a test's stand-in too (a port it freed and then
+    /// connected to can be handed to the stand-in in between).
+    fn with_first_line(got: &Mutex<Vec<Vec<u8>>>, line: &str) -> Vec<Vec<u8>> {
+        let want = format!("{line}\r\n");
+        got.lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.starts_with(want.as_bytes()))
+            .cloned()
+            .collect()
     }
 
     fn guard() -> Guard {
@@ -137,8 +155,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(answer, b"{}");
-        let request = got.lock().unwrap()[0].clone();
-        let text = String::from_utf8(request).unwrap();
+        let checks = with_first_line(&got, "POST /v1/check HTTP/1.1");
+        assert_eq!(checks.len(), 1, "exactly one check was sent");
+        let text = String::from_utf8(checks[0].clone()).unwrap();
         let (head, sent) = text.split_once("\r\n\r\n").unwrap();
         // Byte for byte: the key ID and the app version, and nothing else.
         assert_eq!(
@@ -193,7 +212,7 @@ mod tests {
                 .unwrap_err();
             assert!(err.contains(why), "{err}");
             // Nothing else was asked for (no redirect followed).
-            assert_eq!(got.lock().unwrap().len(), 1);
+            assert_eq!(with_first_line(&got, "POST /v1/check HTTP/1.1").len(), 1);
         }
     }
 
@@ -239,11 +258,12 @@ mod tests {
 
     #[tokio::test]
     async fn no_internet_is_a_failed_check_in_plain_words() {
-        // Nothing listens on this port.
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        let base = format!("http://127.0.0.1:{port}");
+        // Port 0: no program can ever listen there, and the system never hands it out, so the
+        // connection fails at once on every system without trying the network. A port the test
+        // freed for this would not do: on a busy computer the system can hand it to another
+        // test's stand-in before the check connects, and the check then reaches that stand-in
+        // (it did on 2026-10-04).
+        let base = "http://127.0.0.1:0".to_owned();
         let rules = OutboundRules::default().with_license_stand_in(Some(&base));
         let err = post(
             &guard(),

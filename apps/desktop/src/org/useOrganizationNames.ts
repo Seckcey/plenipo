@@ -3,24 +3,28 @@ import type { OrgSnapshot } from "@plenipo/types";
 
 import { getOrganization } from "../api/commands";
 import { subscribeLedgerEvents } from "../api/events";
+import { Newest } from "../api/newest";
 
 /**
  * The organization for the frame (the top bar's "Showing" picker): its departments and
  * projects. It reloads only when the organization itself changes (`org.*`), not on every
  * task, so the frame does not redraw with each worker's step. Pages that show live work use
- * `useOrganization`.
+ * `useOrganization`. Only the newest answer shows ({@link Newest}).
  */
 export function useOrganizationNames(): { snapshot: OrgSnapshot | null } {
   const [snapshot, setSnapshot] = useState<OrgSnapshot | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [order] = useState(() => new Newest());
 
   const reload = useCallback(async () => {
+    const newest = order.start();
     try {
-      setSnapshot(await getOrganization());
+      const next = await getOrganization();
+      if (newest.take()) setSnapshot(next);
     } catch {
       // The picker keeps what it had; pages report their own errors.
     }
-  }, []);
+  }, [order]);
 
   useEffect(() => {
     let disposed = false;

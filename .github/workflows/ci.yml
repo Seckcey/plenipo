@@ -249,15 +249,30 @@ jobs:
           PLENIPO_E2E_SCREENSHOTS: ${{ github.workspace }}/e2e-screenshots
           # The runner's browsers can take close to 30 seconds to start; allow 90 (ADR-028).
           PLENIPO_BROWSER_START_SECONDS: "90"
+          # The keyring daemon's own messages, and how it ended (tests/e2e/run-ci.sh).
+          PLENIPO_E2E_KEYRING_LOG: ${{ runner.temp }}/e2e-keyring/daemon.log
         # ADR-153: the Vault on Linux is the desktop's password store. This machine has none, so
         # GNOME Keyring is started for the run, unlocked, on the run's own session bus.
-        run: |
-          dbus-run-session -- bash -c 'gnome-keyring-daemon --components=secrets --daemonize --unlock <<< plenipo-ci > /dev/null && xvfb-run -a pnpm e2e'
+        run: dbus-run-session -- bash tests/e2e/run-ci.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: e2e-screenshots
           path: e2e-screenshots/
+          if-no-files-found: ignore
+          retention-days: 14
+      # When the run fails: the keyring daemon's log, and any process the kernel ended for want
+      # of memory (twice the daemon was gone partway through a run).
+      - name: Keep the keyring daemon's log
+        if: failure()
+        run: |
+          sudo dmesg -T 2> /dev/null | grep -iE "out of memory|killed process|gnome-keyring" | tail -20 \
+            > "$RUNNER_TEMP/e2e-keyring/kernel.log" || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: e2e-keyring
+          path: ${{ runner.temp }}/e2e-keyring/
           if-no-files-found: ignore
           retention-days: 14
 
