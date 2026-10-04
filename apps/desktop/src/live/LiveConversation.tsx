@@ -22,10 +22,17 @@ type Line =
   | { key: string; kind: "problem"; text: string }
   | { key: string; kind: "note"; text: string };
 
-function linesOf(activity: readonly AgentActivity[]): Line[] {
+function linesOf(activity: readonly AgentActivity[], running: boolean): Line[] {
   const lines: Line[] = [];
   const items = activityItems([...activity]);
   items.forEach((item, i) => {
+    if (item.kind === "thinking") {
+      // While it thinks, one line says so (its thinking itself is in Chat, ADR-200).
+      if (running && i === items.length - 1) {
+        lines.push({ key: item.key, kind: "step", text: "Thinking…" });
+      }
+      return;
+    }
     if (item.kind === "streaming") {
       // Still typing only when nothing came after it.
       lines.push({ key: item.key, kind: "words", text: item.text, typing: i === items.length - 1 });
@@ -97,7 +104,7 @@ export function LiveConversation({
     if (sessionId && !loaded && load) void load(sessionId).catch(() => undefined);
   }, [sessionId, loaded, load]);
   const now = useNow(running ? 15_000 : 60_000);
-  const all = linesOf(activity);
+  const all = linesOf(activity, running);
   const shown = last !== undefined ? all.slice(-last) : all;
   const progress = progressWords(liveProgress(activity), startedAt, now);
 

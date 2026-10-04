@@ -2799,19 +2799,24 @@ impl AgentRuntime {
             }
         }
         let buf = state.activity.entry(activity.task_id.clone()).or_default();
-        // Coalesce streamed text so a reload shows it without keeping every fragment.
-        if let (
-            AgentEvent::TextDelta { text },
-            Some(AgentActivity {
-                event: AgentEvent::TextDelta { text: last },
-                seq,
-                ..
-            }),
-        ) = (&activity.event, buf.back_mut())
-        {
-            if last.len() + text.len() <= 64 * 1024 {
-                last.push_str(text);
-                *seq = activity.seq;
+        // Coalesce streamed text, and streamed thinking, so a reload shows each as it was said
+        // without keeping every fragment, and a long thought never pushes earlier steps out.
+        // The joined piece takes the newest fragment's number and keeps its first one's time: a
+        // chat rebuilt after a reload reads it as when the thinking (or the words) began, and the
+        // next piece's time as when they ended ("Thought for 6 s").
+        if let Some(last) = buf.back_mut() {
+            let joined = match (&mut last.event, &activity.event) {
+                (AgentEvent::TextDelta { text: so_far }, AgentEvent::TextDelta { text })
+                | (AgentEvent::Reasoning { text: so_far }, AgentEvent::Reasoning { text })
+                    if so_far.len() + text.len() <= 64 * 1024 =>
+                {
+                    so_far.push_str(text);
+                    true
+                }
+                _ => false,
+            };
+            if joined {
+                last.seq = activity.seq;
                 return;
             }
         }
