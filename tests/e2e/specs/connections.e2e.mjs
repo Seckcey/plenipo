@@ -35,7 +35,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { after, before, describe, it } from "node:test";
@@ -245,6 +245,23 @@ function walk(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
     e.isDirectory() ? walk(join(dir, e.name)) : e.isFile() ? [join(dir, e.name)] : [],
   );
+}
+
+/**
+ * Every file Plenipo keeps for `home` (the Ledger, its logs, its settings), once no worker is
+ * still using Plenipo's tools. A worker's pass to the tools closes a moment after its step ends,
+ * and the pass's files go with it, so reading before then could find one gone between the
+ * listing and the reading.
+ */
+async function keptFiles(home) {
+  const data = join(home, ".local", "share", "com.eightwest.plenipo");
+  const passes = join(data, "runtime", "tool-tickets");
+  await waitUntil(
+    () => !existsSync(passes) || readdirSync(passes).length === 0,
+    "the workers' passes to Plenipo's tools to close",
+    30_000,
+  );
+  return walk(data);
 }
 
 /** A Plenipo tool call in the fake agent's objective. */
@@ -480,7 +497,7 @@ describe(
         for (const p of probes) assert.ok(!text.includes(p), `a sign-in value in ${name}`);
       }
       // Everything Plenipo keeps on this computer: the Ledger, its logs, its settings.
-      const kept = walk(join(home, ".local", "share", "com.eightwest.plenipo"));
+      const kept = await keptFiles(home);
       assert.ok(kept.length > 3, kept.join(", "));
       for (const file of kept) {
         const bytes = readFileSync(file);
@@ -524,9 +541,19 @@ async function onCardOf(browser, id, name) {
 /** Put the Supervisor role on connection `id`'s Who may use it, at Read and write. */
 async function supervisorMayUse(browser, id, card) {
   const who = `//li[@aria-labelledby="connection-${id}"]//section[@aria-labelledby="${id}-who"]`;
-  await (await browser.$(`${who}//select`)).selectByVisibleText("Supervisor");
-  await (await browser.$(`${who}//button[normalize-space()="Add"]`)).click();
-  await waitForText(browser, card, "Supervisor (every agent in this role)");
+  const role = await browser.$(`${who}//select`);
+  await role.selectByVisibleText("Supervisor");
+  // Add is on only once a role is chosen and no change is still being saved: a click before
+  // then does nothing.
+  const add = await browser.$(`${who}//button[normalize-space()="Add"]`);
+  await add.waitForEnabled({ timeout: 10_000 });
+  await add.waitForClickable({ timeout: 10_000 });
+  await add.click();
+  await waitForText(browser, card, "Supervisor (every agent in this role)").catch(async (e) => {
+    const on = (await add.isExisting()) && (await add.isEnabled());
+    console.error(`--- Add was ${on ? "on" : "off"}, with "${await role.getValue()}" chosen`);
+    throw e;
+  });
   const rw = await browser.$(`${who}//button[normalize-space()="Read and write"]`);
   await rw.waitForClickable({ timeout: 10_000 });
   await rw.click();
@@ -755,7 +782,8 @@ describe(
       for (const [name, text] of Object.entries(files)) {
         for (const p of probes) assert.ok(!text.includes(p), `a sign-in value in ${name}`);
       }
-      const kept = walk(join(home2, ".local", "share", "com.eightwest.plenipo"));
+      // The last test ends when the stand-in has the mail, a moment before its worker's step.
+      const kept = await keptFiles(home2);
       assert.ok(kept.length > 3, kept.join(", "));
       for (const file of kept) {
         const bytes = readFileSync(file);
@@ -776,6 +804,13 @@ describe(
         await waitForText(browser, card, "and cancelled at");
         await onCardOf(browser, id, "Yes, disconnect");
         await waitForText(browser, card, "Not connected", 30_000);
+        // The cancel at the service finishes after that. Its "Cancelling the sign-in at …" line
+        // then goes, and the cards below move up: the next click waits for it.
+        await waitUntil(
+          async () => !(await textOf(browser, card)).includes("Cancelling the sign-in at"),
+          `${id}'s cancel at the service to finish`,
+          30_000,
+        );
       }
       // The card says "Not connected" as soon as the sign-in is gone from the Vault; the cancel
       // at the service follows.
@@ -1137,7 +1172,7 @@ describe(
       for (const [name, text] of Object.entries(files)) {
         for (const p of probes) assert.ok(!text.includes(p), `a key in ${name}`);
       }
-      const kept = walk(join(home3, ".local", "share", "com.eightwest.plenipo"));
+      const kept = await keptFiles(home3);
       assert.ok(kept.length > 3, kept.join(", "));
       for (const file of kept) {
         const bytes = readFileSync(file);
