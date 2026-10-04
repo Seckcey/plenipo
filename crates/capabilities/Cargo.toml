@@ -101,8 +101,14 @@ windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_NetworkManagement_IpHelper",
     "Win32_Networking_WinSock",
+    # The file tools' open flags (P-GUARD-3, ADR-214).
+    "Win32_Storage_FileSystem",
     "Win32_System_Diagnostics_ToolHelp",
 ] }
+# Handle information for the file tools (P-GUARD-3, ADR-214): how many names a file has (a hard
+# link), and whether two handles are one file (volume and file index). A safe wrapper, already
+# in the lockfile through walkdir; Plenipo keeps its own no-unsafe rule.
+winapi-util = "0.1"
 # Screen capture for computer use (Phase 10).
 xcap = "0.9"
 
