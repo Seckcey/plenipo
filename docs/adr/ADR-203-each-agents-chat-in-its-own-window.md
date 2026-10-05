@@ -1,6 +1,6 @@
 # ADR-203: Each agent's chat in a window of its own
 
-- **Status:** Proposed. The direction is the owner's own, 2026-10-04: "When you click on an agent
+- **Status:** Accepted (2026-10-05). The direction is the owner's own, 2026-10-04: "When you click on an agent
   in the org chart, I want to be able to pop out their session like a claude cli or a codex cli
   interface. So I can see each chat just like I'm seeing ours right now." His answers to the
   design's four questions are below.
