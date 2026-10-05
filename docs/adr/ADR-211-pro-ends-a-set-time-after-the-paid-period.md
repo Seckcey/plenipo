@@ -1,7 +1,7 @@
 # ADR-211: Pro ends a set time after the paid period
 
-- **Status:** Proposed. The builder's fix for security finding P-DESK-1, with the Development
-  Coordinator's answers (2026-10-03). The owner accepts it at review.
+- **Status:** Accepted (2026-10-04). The builder's fix for security finding P-DESK-1, with the
+  Development Coordinator's answers (2026-10-03).
 - **Date:** 2026-10-03
 - **Phase:** none (the security review's fixes)
 - **Number:** ADR-210 to ADR-219 are the security work's block.

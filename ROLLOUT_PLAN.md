@@ -40,14 +40,14 @@ Phases keep their numbers, because many documents point at them; this list sets 
 | 7 | 21 | Workspace: panels, windows, files, and more than one organization | Delivered (v1.16.0), built beside Phase 16's Wave 2 (ADR-090 to ADR-094) |
 | 8 | 11A + 22 | Free and Pro editions and the license key, with the 8 West account service (users, Stripe billing, email, licenses) | 11A delivered (v1.18.0). Phase 22 built in the private repository `plenipo-account` (ADR-101), and **live** (the owner's word, 2026-10-01); its go-live was finished in its own session |
 | Final push 1 | 14 | Plenipo on your phone: a web interface built from scratch | **Delivered** (2026-10-01): part 14A in v1.19.0 (the sealed line, adding a phone, sign-in with a passkey, every page to read, Approve and Refuse, Stop all, and approvals kept on the PC), part 14B in v1.19.1 (Allow again, Stop the worker, Run again and Leave stopped, lessons, and objectives from the phone), and part 14C in v1.19.2 (notices when the page is closed). Plenipo's own relay, built in this repository, ships in v1.19.3 (ADR-149), and runs at `relay.getplenipo.com` since 2026-10-02; v1.19.4 turns phone access on (ADR-140 §4). Decisions: ADR-140 to ADR-149 |
-| Final push 2 | 23 | Mac and Linux | **In progress** (started 2026-10-02; ADR-150 to ADR-158): Wave 0 delivered (a Mac job in CI, and unsigned Mac and Linux trial builds); Wave 1, the shared base, in v1.20.0 and v1.21.0, its Guard safety review done (left in it: GitHub's Mac check becomes required once the flaky browser tests are fixed); Wave 2, Linux first look, in v1.23.0 (2026-10-03; left in it: the owner's check on a Linux PC, the sign-in answers on Linux, and the upgrade and update tests); Wave 3, the Mac, next |
+| Final push 2 | 23 | Mac and Linux | **In progress** (started 2026-10-02; ADR-150 to ADR-158): Wave 0 delivered (a Mac job in CI, and unsigned Mac and Linux trial builds); Wave 1, the shared base, in v1.20.0 and v1.21.0, its Guard safety review done (left in it: GitHub's Mac check becomes required once the flaky browser tests are fixed); Wave 2, Linux first look, in v1.23.0 (2026-10-03; left in it: the owner's check on a Linux PC, the sign-in answers on Linux, and the upgrade and update tests); Wave 3, the Mac: part A (fitting in on a Mac, and Plenipo's side of updates) in v1.25.0, compiled and tested on GitHub's Mac machine, with no Mac download yet (it waits for the Apple Developer Program, 3C) |
 | Final push 3 | 24 | Community | **Started beside Phase 23** (2026-10-02, ADR-160): its records and the attorney's drafts first; Guard's request path after Phase 23's Wave 1. Part 24A: ADR-161 to ADR-169; the owner answered on 2026-10-02 (13 and up with protections for teens; everything on a phone's keyboard, with GIFs and stickers; everyone listed in a directory unless they appear offline; points, a leaderboard, and rewards); the checklist (`docs/phases/phase-24-checklist.md`) and the attorney's drafts (`docs/legal/phase-24/`). Part 24B: the contract (`contracts/community/v1`) and the account service's side, switched off. Part 24C (people) started 2026-10-02: Plenipo follows the account service's own switch, so no release is needed to turn Community on (ADR-170), and each part is switched on when it is ready (ADR-171); ADR-172 (what part 24C changes). Part 24C delivered in v1.22.0 (2026-10-03), closed until 8 West opens it; ADR-173 (Leave this conversation deletes it from this PC) |
 | Parked | 16, Wave 4 | Tools for any model, then specialist jobs | No place in the order until the owner schedules it (ADR-131, ADR-132) |
 | Parked | 15 | Additional providers, departments, Windows servers, and Milepost | No place in the order until the owner schedules it (ADR-132) |
 | Parked | 9 | Sales department on HubSpot | Postponed (ADR-018), parked by ADR-132 |
-| Beside 23 and 24 | 25 | Fixes and a simpler Plenipo before launch | **Started** (2026-10-03, ADR-190): four waves, Wave 1 first; built beside Phases 23 and 24, each on its own branch from the latest `main`; checklist `docs/phases/phase-25-checklist.md` |
+| Beside 23 and 24 | 25 | Fixes and a simpler Plenipo before launch | **Delivered** (v1.25.0; ADR-190 to ADR-199 and ADR-250 to ADR-258): all four waves, and leads stop their team mid-task (ADR-259); checklist `docs/phases/phase-25-checklist.md`; left in it: the owner's checks on Windows 11 |
 
-Phases 0–8, 10, 11, 11A, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered, and Phase 16's Waves 1 to 3. Phase 22 is live (the owner's word, 2026-10-01). Phase 14, the first of the final push, is delivered (v1.19.0 to v1.19.2, its own relay in v1.19.3, and phone access on in v1.19.4); **Phase 23** is in progress (ADR-150), and **Phase 24** is being built beside it (ADR-160). Parked: Phase 16's Wave 4, Phase 15, and Phase 9. **Phase 25** (fixes and a simpler Plenipo before launch) started on 2026-10-03, beside them (ADR-190).
+Phases 0–8, 10, 11, 11A, 12A, 12, 13, 17, 18, 19, 20, and 21 are delivered, and Phase 16's Waves 1 to 3. Phase 22 is live (the owner's word, 2026-10-01). Phase 14, the first of the final push, is delivered (v1.19.0 to v1.19.2, its own relay in v1.19.3, and phone access on in v1.19.4); **Phase 23** is in progress (ADR-150), and **Phase 24** is being built beside it (ADR-160). Parked: Phase 16's Wave 4, Phase 15, and Phase 9. **Phase 25** (fixes and a simpler Plenipo before launch) is delivered (v1.25.0), with leads stopping their team mid-task (ADR-259).
 
 ---
 
@@ -2332,7 +2332,7 @@ Phase 22 (accounts), Phase 14 (the web interface's signed-in connection), Phase 
 
 **Added at the owner's direction (2026-10-03), ADR-190.** The owner tried Plenipo as a new user
 would and sent two lists: 17 bugs and changes, and six ideas kept from a pre-launch list. **Started
-2026-10-03, beside Phases 23 and 24.** Checklist, with the cause of every bug:
+2026-10-03, beside Phases 23 and 24; delivered in v1.25.0.** Checklist, with the cause of every bug:
 `docs/phases/phase-25-checklist.md`.
 
 ## Goal
@@ -2377,6 +2377,8 @@ makes the owner's AI plans last.
   - pacing each plan over its week or month
   - answers checked against Plenipo's own record of files, tests, and pull requests, and sent back
     when they don't match
+  - leads stop their team mid-task, in check-ins while the team works (the owner, 2026-10-03;
+    ADR-259)
 
 ## Technical Implementation
 

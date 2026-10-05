@@ -1,7 +1,7 @@
 # ADR-212: The owner compares six digits — both screens show the same check digits when a phone is added
 
-- **Status:** Proposed. Built from the security review's findings P-SRV-2 [High] and P-SRV-3
-  [Medium] (`PLENIPO-SECURITY-REPORT.MD`, 2026-10-02), for the owner to accept at review.
+- **Status:** Accepted (2026-10-04). Built from the security review's findings P-SRV-2 [High] and
+  P-SRV-3 [Medium] (`PLENIPO-SECURITY-REPORT.MD`, 2026-10-02).
 - **Date:** 2026-10-03
 - **Phase:** none (security hardening of Phase 14, Plenipo on your phone)
 - **Number:** ADR-210 to ADR-219 are the security work's block, so no session picks the same
