@@ -696,9 +696,15 @@ impl AgentRuntime {
     }
 
     /// `session` with the task IDs of its running or waiting turn (if any).
-    fn with_active(&self, mut session: AgentSession) -> AgentSession {
+    fn with_active(&self, session: AgentSession) -> AgentSession {
         let state = self.lock();
         let active = state.active.get(&session.id);
+        Self::with_claim(session, active)
+    }
+
+    /// `session` with the task its claim (`active`) runs or waits on. With
+    /// [`Self::decorated`] under one look at the claim, the summary and the turns agree.
+    fn with_claim(mut session: AgentSession, active: Option<&Active>) -> AgentSession {
         session.active_task_id = active
             .filter(|a| a.claim == Claim::Turn)
             .and_then(|a| a.task_id.clone());
@@ -709,12 +715,15 @@ impl AgentRuntime {
     }
 
     /// `turn` with the live state of its running step or wait, when it holds its session.
-    fn decorate(&self, mut turn: AgentTurn) -> AgentTurn {
+    fn decorate(&self, turn: AgentTurn) -> AgentTurn {
         let state = self.lock();
-        let Some(active) = state
-            .active
-            .get(&turn.session_id)
-            .filter(|a| a.task_id.as_deref() == Some(turn.task_id.as_str()))
+        let active = state.active.get(&turn.session_id);
+        Self::decorated(turn, active)
+    }
+
+    /// [`Self::decorate`], with the session's claim as one look read it (`active`).
+    fn decorated(mut turn: AgentTurn, active: Option<&Active>) -> AgentTurn {
+        let Some(active) = active.filter(|a| a.task_id.as_deref() == Some(turn.task_id.as_str()))
         else {
             return turn;
         };
@@ -1717,8 +1726,18 @@ impl AgentRuntime {
             .with_store(move |s| Ok((s.session(&id)?, s.turns(&id)?)))
             .await?;
         let session = session.ok_or_else(|| RuntimeError::UnknownSession(session_id.to_owned()))?;
-        let session = self.with_active(session);
-        let turns: Vec<AgentTurn> = turns.into_iter().map(|t| self.decorate(t)).collect();
+        // One look at the session's claim for the summary and every turn, so the answer never
+        // says the session is free while one of its turns reads as running, or the other way.
+        let (session, turns) = {
+            let state = self.lock();
+            let active = state.active.get(session_id);
+            let session = Self::with_claim(session, active);
+            let turns: Vec<AgentTurn> = turns
+                .into_iter()
+                .map(|t| Self::decorated(t, active))
+                .collect();
+            (session, turns)
+        };
         // The recent finished turns whose live pieces Plenipo no longer holds (it started again
         // since, or they are older than what it keeps in memory): what was kept of them instead,
         // from the record (ADR-203 §10). A turn not finished is never filled in, so its own live
@@ -4513,6 +4532,87 @@ pub fn validate_model(model: &str) -> Result<String, RuntimeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `session` reads the session's claim once for its summary and every turn: whatever that
+    /// claim is, the summary never says the session is free while one of its turns reads as
+    /// running (or waiting while it reads otherwise).
+    #[test]
+    fn the_summary_and_the_turns_agree_on_one_look_at_the_claim() {
+        let session = AgentSession {
+            id: "s".into(),
+            runtime_id: "codex".into(),
+            provider: "openai".into(),
+            provider_session_id: None,
+            provider_session_confirmed: false,
+            model: None,
+            effort: None,
+            title: "t".into(),
+            state: SessionState::Open,
+            working_dir: ".".into(),
+            created_at: 1,
+            updated_at: 1,
+            turn_count: 1,
+            active_task_id: None,
+            waiting_task_id: None,
+            metadata: serde_json::Value::Null,
+        };
+        let turn = AgentTurn {
+            task_id: "t1".into(),
+            session_id: "s".into(),
+            number: 1,
+            objective: "o".into(),
+            execution_id: None,
+            running: false,
+            waiting: false,
+            result: None,
+            steps: Vec::new(),
+            started_at: 1,
+            ended_at: None,
+        };
+        let claim = |claim: Claim, task: Option<&str>, execution: Option<&str>| Active {
+            claim,
+            runtime_id: None,
+            task_id: task.map(str::to_owned),
+            execution_id: execution.map(str::to_owned),
+            step: 1,
+            step_started_at: 1,
+            done: finished(),
+            interrupt: None,
+            waiting_for_hold: false,
+            stop_waiting: false,
+            releasing: false,
+            grant: None,
+            forced: None,
+            watch: None,
+        };
+        let claims = [
+            None,
+            Some(claim(Claim::Turn, None, None)),
+            Some(claim(Claim::Turn, Some("t1"), None)),
+            Some(claim(Claim::Turn, Some("t1"), Some("e1"))),
+            Some(claim(Claim::Turn, Some("t2"), Some("e2"))),
+            Some(claim(Claim::Wait, Some("t1"), None)),
+            Some(claim(Claim::Close, Some("t1"), None)),
+        ];
+        let (mut running, mut waiting) = (0, 0);
+        for active in &claims {
+            let s = AgentRuntime::with_claim(session.clone(), active.as_ref());
+            let t = AgentRuntime::decorated(turn.clone(), active.as_ref());
+            let what = active.as_ref().map(|a| (a.claim, a.task_id.clone()));
+            if t.running {
+                running += 1;
+                assert_eq!(s.active_task_id.as_deref(), Some("t1"), "{what:?}");
+            }
+            if t.waiting {
+                waiting += 1;
+                assert_eq!(s.waiting_task_id.as_deref(), Some("t1"), "{what:?}");
+            }
+            if s.active_task_id.as_deref() == Some("t1") {
+                assert!(!t.waiting, "{what:?}");
+            }
+        }
+        assert!(running >= 2 && waiting == 1, "the claims cover each state");
+    }
 
     #[test]
     fn objectives() {
