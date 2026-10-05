@@ -51,6 +51,36 @@ pub const MAX_OBJECTIVE_CHARS: usize = 10_000;
 pub const MAX_PROMPT_BYTES: usize = 256 * 1024;
 /// Activity numbering per step: step `n` numbers its activity from `(n - 1) * STEP_SEQ + 1`.
 pub const STEP_SEQ: u64 = 1_000_000;
+
+/// How many of a conversation's latest turns get their kept activity back when Plenipo no
+/// longer holds their live pieces (ADR-203 §10).
+pub const RECALLED_TURNS: usize = 10;
+
+/// What was kept of `turns` (each finished), as live activity: numbered by step the way live
+/// pieces are, step `n` from `(n - 1) * STEP_SEQ + 1`, and in order. A turn whose record cannot be
+/// read is left out; the chat still shows what was asked and the answer.
+fn recall(store: &dyn SessionStore, session_id: &str, turns: &[AgentTurn]) -> Vec<AgentActivity> {
+    let mut out = Vec::new();
+    for turn in turns {
+        let Ok(kept) = store.kept_activity(turn) else {
+            continue;
+        };
+        let mut counts: HashMap<u32, u64> = HashMap::new();
+        for piece in kept {
+            let step = piece.step.max(1);
+            let count = counts.entry(step).or_insert(0);
+            *count += 1;
+            out.push(AgentActivity {
+                session_id: session_id.to_owned(),
+                task_id: turn.task_id.clone(),
+                seq: u64::from(step - 1) * STEP_SEQ + *count,
+                ts: piece.ts,
+                event: piece.event,
+            });
+        }
+    }
+    out
+}
 /// Actor recorded for turns the person using the app asked for.
 pub const OWNER: &str = "owner";
 /// How long a task that talks (ADR-015) gets to stop itself when cancelled.
@@ -90,6 +120,22 @@ pub trait SessionStore: Send + Sync + 'static {
     /// Turns not finished — running, waiting, or never started (left behind when Plenipo
     /// stopped).
     fn unfinished_turns(&self) -> Result<Vec<AgentTurn>, String>;
+    /// A turn's activity as it was kept, oldest first (ADR-203 §10): its messages, tool calls,
+    /// results, and notes, each with its step and time. What a chat shows of a turn whose live
+    /// pieces Plenipo no longer holds, after a restart. None for a store that keeps none.
+    fn kept_activity(&self, _turn: &AgentTurn) -> Result<Vec<KeptActivity>, String> {
+        Ok(Vec::new())
+    }
+}
+
+/// One piece of a turn's activity as it was kept (ADR-203 §10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeptActivity {
+    /// The step it came in (1 for the objective).
+    pub step: u32,
+    /// When, in milliseconds since 1970.
+    pub ts: u64,
+    pub event: AgentEvent,
 }
 
 /// Identifies a turn when recording it.
@@ -1630,12 +1676,38 @@ impl AgentRuntime {
         let session = session.ok_or_else(|| RuntimeError::UnknownSession(session_id.to_owned()))?;
         let session = self.with_active(session);
         let turns: Vec<AgentTurn> = turns.into_iter().map(|t| self.decorate(t)).collect();
+        // The recent finished turns whose live pieces Plenipo no longer holds (it started again
+        // since, or they are older than what it keeps in memory): what was kept of them instead,
+        // from the record (ADR-203 §10). A turn not finished is never filled in, so its own live
+        // pieces, numbered the same way, are never taken for ones already shown.
+        let forgotten: Vec<AgentTurn> = {
+            let state = self.lock();
+            turns
+                .iter()
+                .rev()
+                .take(RECALLED_TURNS)
+                .filter(|t| t.result.is_some() && !state.activity.contains_key(&t.task_id))
+                .rev()
+                .cloned()
+                .collect()
+        };
+        let recalled = if forgotten.is_empty() {
+            Vec::new()
+        } else {
+            let id = session.id.clone();
+            self.with_store(move |s| Ok(recall(s, &id, &forgotten)))
+                .await
+                .unwrap_or_default()
+        };
         let state = self.lock();
-        let activity = turns
+        let mut activity: Vec<AgentActivity> = turns
             .iter()
             .filter_map(|t| state.activity.get(&t.task_id))
             .flat_map(|buf| buf.iter().cloned())
             .collect();
+        // Filled-in pieces come after the held ones, so `activity` is not in turn order: its
+        // readers group it by task and sort each task's pieces by `seq`.
+        activity.extend(recalled);
         Ok(AgentSessionDetail {
             session,
             turns,

@@ -868,6 +868,46 @@ async fn streamed_thinking_is_kept_whole_for_a_reload() {
 }
 
 #[tokio::test]
+async fn a_finished_turn_no_longer_held_shows_what_was_kept() {
+    // After a restart, or once a turn is older than what Plenipo holds in memory, a chat shows
+    // what was kept of it: its messages and steps, not its live pieces (ADR-203 §10).
+    let h = harness_config(&["claude"], None, |c| c.activity_turns = 1);
+    let (first, turn) = run(&h, "claude-code", "hello there").await;
+    assert!(
+        first
+            .activity
+            .iter()
+            .any(|a| matches!(a.event, AgentEvent::TextDelta { .. })),
+        "held live: {:?}",
+        first.activity
+    );
+    // Another conversation's turn pushes the first one's live pieces out of memory.
+    run(&h, "claude-code", "and another").await;
+    let again = h.rt.session(&first.session.id).await.unwrap();
+    let kept: Vec<_> = again
+        .activity
+        .iter()
+        .filter(|a| a.task_id == turn.task_id)
+        .collect();
+    assert!(
+        kept.iter()
+            .any(|a| matches!(&a.event, AgentEvent::Message { text } if text.contains("you said"))),
+        "{kept:?}"
+    );
+    assert!(
+        kept.iter()
+            .all(|a| !matches!(a.event, AgentEvent::TextDelta { .. })),
+        "only what was kept: {kept:?}"
+    );
+    // Numbered as live pieces are (step 1 from 1), in order, and in their conversation.
+    let seqs: Vec<u64> = kept.iter().map(|a| a.seq).collect();
+    assert_eq!(seqs, (1..=seqs.len() as u64).collect::<Vec<_>>());
+    assert!(kept
+        .iter()
+        .all(|a| a.ts > 0 && a.session_id == first.session.id));
+}
+
+#[tokio::test]
 async fn resume_continues_the_same_provider_session() {
     for runtime in RUNTIMES {
         let h = harness();

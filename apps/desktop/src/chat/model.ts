@@ -352,16 +352,23 @@ export function applyTurn(session: ChatSession, record: AgentTurn): ChatSession 
   let parts = base.parts;
   if (state !== "working" && state !== "waiting") {
     parts = closeOpen(parts, record.endedAt ?? base.startedAt, false);
-    const said = parts.some((p) => p.kind === "text" && answer !== null && p.text === answer);
+    // Said already: the same words, give or take the space around them.
+    const said = parts.some(
+      (p) => p.kind === "text" && answer !== null && p.text.trim() === answer.trim(),
+    );
     if (answer && answer.trim() !== "" && !said) {
       // The pieces on screen do not end with the answer: the last words are replaced by it when
-      // they are its beginning, and it is added after them when they are not.
+      // they are its beginning, and it is added after them when they are not. When the answer
+      // ends with them, it was joined from several messages that are all on screen already.
+      // (A turn filled in from its record may lack its last message: a step keeps at most so
+      // many pieces, ADR-203 §10. Its answer is then added after what was kept.)
       const open = lastIndexOfKind(parts, "text");
       const tail = parts[open];
-      if (open >= 0 && tail?.kind === "text" && answer.startsWith(tail.text.slice(0, 40))) {
+      const last = open >= 0 && tail?.kind === "text" ? tail : null;
+      if (last && answer.startsWith(last.text.slice(0, 40))) {
         parts = parts.slice();
-        parts[open] = { ...tail, text: answer, streaming: false };
-      } else if (!parts.some((p) => p.kind === "text")) {
+        parts[open] = { ...last, text: answer, streaming: false };
+      } else if (!last?.text.trim() || !answer.trim().endsWith(last.text.trim())) {
         parts = [...parts, { kind: "text", id: nextId("text"), text: answer, streaming: false }];
       }
     }
@@ -398,7 +405,9 @@ export function applyTurn(session: ChatSession, record: AgentTurn): ChatSession 
 export function mergeDetail(start: ChatSession, detail: AgentSessionDetail): ChatSession {
   if (detail.session.id !== start.sessionId) return start;
   let session = start;
-  for (const turn of detail.turns) session = applyTurn(session, turn);
+  // Each turn's record first (its place, and what was asked), not yet its end: its answer is
+  // added at the end only if its own pieces have not said it, so it is never said twice.
+  for (const turn of detail.turns) session = applyTurn(session, { ...turn, result: null });
   // Each turn's pieces in their own order (the numbers count within a turn).
   const ordered = detail.activity.slice().sort((a, b) => a.seq - b.seq);
   for (const activity of ordered) session = applyActivity(session, activity);

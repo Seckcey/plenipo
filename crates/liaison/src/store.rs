@@ -2,6 +2,7 @@
 //! sessions, and turns. The desktop app wires these; they live here because Liaison records its
 //! handoff steps in the same transactions as turn state (ADR-008), and its tests need them.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use plenipo_ledger::{
@@ -9,8 +10,8 @@ use plenipo_ledger::{
     RuntimeSessionState, Task, TaskState,
 };
 use plenipo_runtime::agent::{
-    AgentEvent, AgentSession, AgentTurn, Effort, SessionChange, SessionState, SessionStore,
-    StepNote, TurnInput, TurnOutcome, TurnRef, TurnResult, TurnStep, TurnTask, OWNER,
+    AgentEvent, AgentSession, AgentTurn, Effort, KeptActivity, SessionChange, SessionState,
+    SessionStore, StepNote, TurnInput, TurnOutcome, TurnRef, TurnResult, TurnStep, TurnTask, OWNER,
 };
 use plenipo_runtime::store::Loaded;
 use plenipo_runtime::{
@@ -513,6 +514,41 @@ impl SessionStore for LedgerSessionStore {
             .map(|t| self.to_turn(t))
             .collect()
     }
+
+    /// The turn's activity as `record_activity` kept it (ADR-203 §10): its own Ledger rows, each
+    /// read back as the event it was, at the step whose execution recorded it. Rows of other
+    /// kinds, and any that do not read back, are left out.
+    fn kept_activity(&self, turn: &AgentTurn) -> Result<Vec<KeptActivity>, String> {
+        let steps: HashMap<&str, u32> = turn
+            .steps
+            .iter()
+            .filter_map(|s| Some((s.execution_id.as_deref()?, s.number)))
+            .collect();
+        let rows = self
+            .0
+            .events_for_task(&turn.task_id)
+            .map_err(|e| e.to_string())?;
+        Ok(rows
+            .into_iter()
+            .filter(|row| row.event_type.starts_with("agent."))
+            .filter_map(|row| {
+                let event = serde_json::from_value::<AgentEvent>(row.payload).ok()?;
+                if event.ledger_type() != Some(row.event_type.as_str()) {
+                    return None;
+                }
+                let step = row
+                    .execution_id
+                    .as_deref()
+                    .and_then(|id| steps.get(id).copied())
+                    .unwrap_or(1);
+                Some(KeptActivity {
+                    step,
+                    ts: row.created_at,
+                    event,
+                })
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]
@@ -638,6 +674,71 @@ mod tests {
             ignored_lines: 0,
             prompt: None,
         }
+    }
+
+    #[test]
+    fn a_turns_kept_activity_reads_back_by_step() {
+        // What a chat shows of a finished turn after a restart (ADR-203 §10).
+        let ledger = Arc::new(Ledger::open_in_memory().unwrap());
+        let store = LedgerSessionStore(ledger.clone());
+        let s = session("s-1");
+        store.open_session(&s).unwrap();
+        let task_id = store
+            .begin_turn(&s, 1, &TurnInput::owner("Plan it"))
+            .unwrap();
+        let at = |execution_id: &'static str, step: u32| TurnRef {
+            session_id: "s-1",
+            task_id: &task_id,
+            execution_id: Some(execution_id),
+            step: Some(step),
+            actor: "agent:claude-code",
+        };
+        let tool = AgentEvent::ToolUse {
+            tool: "Read".into(),
+            summary: "a.ts".into(),
+            id: Some("call-1".into()),
+        };
+        let asked = AgentEvent::Message {
+            text: "Asked the team.".into(),
+        };
+        let done = AgentEvent::Message {
+            text: "All done.".into(),
+        };
+        store.record_activity(&at("e1", 1), &tool).unwrap();
+        store.record_activity(&at("e1", 1), &asked).unwrap();
+        store.record_activity(&at("e2", 2), &done).unwrap();
+        // Live-only pieces are never kept, so none come back.
+        store
+            .record_activity(&at("e2", 2), &AgentEvent::TextDelta { text: "All".into() })
+            .unwrap();
+        // Another row on the task, not one of its pieces.
+        ledger
+            .append_event(NewEvent {
+                task_id: Some(task_id.clone()),
+                source: "plenipo".into(),
+                event_type: "agent.result".into(),
+                payload: json!({ "outcome": "completed" }),
+                ..NewEvent::default()
+            })
+            .unwrap();
+        let mut turn = store.turns("s-1").unwrap().remove(0);
+        let step = |number: u32, execution_id: &str| TurnStep {
+            number,
+            execution_id: Some(execution_id.into()),
+            running: false,
+            result: None,
+            started_at: None,
+            ended_at: None,
+        };
+        turn.steps = vec![step(1, "e1"), step(2, "e2")];
+        let kept = store.kept_activity(&turn).unwrap();
+        assert_eq!(
+            kept.iter()
+                .map(|k| (k.step, k.event.clone()))
+                .collect::<Vec<_>>(),
+            [(1, tool), (1, asked), (2, done)]
+        );
+        assert!(kept.iter().all(|k| k.ts > 0));
     }
 
     #[test]
