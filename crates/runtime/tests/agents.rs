@@ -1136,6 +1136,123 @@ async fn one_turn_per_session_and_closing() {
     assert_eq!(overview.sessions[0].state, SessionState::Closed);
 }
 
+/// Wait until the turn of `task` has written some of its answer.
+async fn writing(h: &H, task: &str) {
+    let deadline = Instant::now() + WAIT;
+    while !h
+        .updates
+        .activity(task)
+        .iter()
+        .any(|e| matches!(e, AgentEvent::TextDelta { .. }))
+    {
+        assert!(Instant::now() < deadline, "it never started writing");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+/// A Kimi that stops mid-answer and ignores the stop (the owner's report, 2026-10-05): Stop
+/// still ends its task, as stopped, within seconds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kimi_that_hangs_and_ignores_the_stop_is_still_stopped() {
+    let h = harness();
+    let started =
+        h.rt.start_session("kimi", "write it [hang]", None)
+            .await
+            .unwrap();
+    let id = started.session.id.clone();
+    let task = running_task(&h.rt, &id).await;
+    writing(&h, &task).await;
+    let asked = Instant::now();
+    let stopped = tokio::time::timeout(Duration::from_secs(60), h.rt.cancel_task(&id, &task)).await;
+    let took = asked.elapsed();
+    assert!(stopped.is_ok(), "the stop never returned");
+    stopped.unwrap().unwrap();
+    let detail = settled(&h.rt, &id, 1).await;
+    assert_eq!(
+        outcome(&detail.turns[0]),
+        TurnOutcome::Cancelled,
+        "{detail:#?}"
+    );
+    assert!(took < Duration::from_secs(15), "the stop took {took:?}");
+}
+
+/// Stop all (the owner's report, 2026-10-05) with a turn on every kind of AI tool running at
+/// once, one of them a Kimi that hangs and ignores the stop: every turn ends as stopped, and
+/// soon.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stop_all_ends_every_turn_even_one_that_ignores_the_stop() {
+    let h = harness();
+    let mut running = Vec::new();
+    for (runtime, objective) in [
+        ("claude-code", "long [slow]"),
+        ("codex", "long [slow]"),
+        ("grok", "long [slow]"),
+        ("kimi", "write it [hang]"),
+    ] {
+        let started = h.rt.start_session(runtime, objective, None).await.unwrap();
+        let id = started.session.id.clone();
+        running_task(&h.rt, &id).await;
+        running.push((runtime, id));
+    }
+    let asked = Instant::now();
+    let stopped = tokio::time::timeout(Duration::from_secs(120), h.rt.stop_all_turns()).await;
+    let took = asked.elapsed();
+    assert_eq!(stopped, Ok(4), "every turn was stopped (took {took:?})");
+    for (runtime, id) in &running {
+        let detail = settled(&h.rt, id, 1).await;
+        assert_eq!(
+            outcome(&detail.turns[0]),
+            TurnOutcome::Cancelled,
+            "{runtime}: {detail:#?}"
+        );
+    }
+    assert!(took < Duration::from_secs(15), "Stop all took {took:?}");
+}
+
+/// A lead on Kimi whose turn goes on after a wait (its team's replies, a check-in) and hangs in
+/// that next step: Stop still ends it, as stopped.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kimi_lead_that_hangs_after_a_wait_is_still_stopped() {
+    let h = harness();
+    let _hook = with_hook(&h);
+    let (id, task) = waiting_turn(&h, "kimi").await;
+    h.rt.continue_turn(
+        &id,
+        &task,
+        "here are the replies [hang]",
+        StepNote::default(),
+    )
+    .await
+    .unwrap();
+    let deadline = Instant::now() + WAIT;
+    while h
+        .rt
+        .session(&id)
+        .await
+        .unwrap()
+        .session
+        .active_task_id
+        .as_deref()
+        != Some(task.as_str())
+    {
+        assert!(Instant::now() < deadline, "the next step never started");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let asked = Instant::now();
+    let stopped = tokio::time::timeout(Duration::from_secs(60), h.rt.cancel_task(&id, &task)).await;
+    let took = asked.elapsed();
+    assert!(stopped.is_ok(), "the stop never returned");
+    stopped.unwrap().unwrap();
+    let detail = turn_where(&h.rt, &id, 1, |t| t.result.is_some()).await;
+    assert_eq!(
+        outcome(&detail.turns[0]),
+        TurnOutcome::Cancelled,
+        "{detail:#?}"
+    );
+    assert!(took < Duration::from_secs(15), "the stop took {took:?}");
+}
+
 /// A member of the organization keeps one conversation for all its tasks, so stopping one
 /// task must never stop another (Phase 8).
 #[tokio::test]
