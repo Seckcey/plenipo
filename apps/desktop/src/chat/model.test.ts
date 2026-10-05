@@ -12,10 +12,12 @@ import {
   applyTurn,
   doingNow,
   emptySession,
+  endUnfinished,
   filesOf,
   fromDetail,
   isBusy,
   mergeDetail,
+  stuckTurns,
   type ChatSession,
 } from "./model";
 import { toolPhrase } from "./words";
@@ -241,6 +243,39 @@ describe("a turn's record", () => {
     });
     expect(turn(failed).state).toBe("failed");
     expect(turn(failed).problem).toBe("Not signed in");
+  });
+
+  it("shows a turn whose end was missed as stopped, until its real end comes", () => {
+    const writing = run([{ type: "textDelta", text: "Half an ans" }]);
+    expect(isBusy(writing)).toBe(true);
+    // Its record says it is over without saying how: not running, not waiting, no result.
+    const stuck = stuckTurns([record({ running: false })]);
+    expect(stuck).toEqual(new Set([TASK]));
+    const ended = endUnfinished(writing, 5000, stuck);
+    expect(isBusy(ended)).toBe(false);
+    expect(turn(ended)).toMatchObject({
+      state: "stopped",
+      endedAt: 5000,
+      problem: "It was no longer running.",
+    });
+    expect(turn(ended).parts[0]).toMatchObject({ text: "Half an ans", streaming: false });
+    // A turn over already is left as it is.
+    const done = applyTurn(emptySession(SESSION), finished("All done."));
+    expect(endUnfinished(done, 5000, stuck)).toBe(done);
+    // Its real end, when it comes, replaces it.
+    expect(turn(applyTurn(ended, finished("All done."))).state).toBe("done");
+  });
+
+  it("never ends a turn whose record says it is running or waiting", () => {
+    expect(
+      stuckTurns([record(), record({ running: false, waiting: true }), finished("x")]),
+    ).toEqual(new Set());
+    const writing = run([{ type: "textDelta", text: "Still going" }]);
+    expect(endUnfinished(writing, 5000, new Set())).toBe(writing);
+    // Only the stuck one ends; another turn running beside it goes on.
+    const two = applyTurn(writing, record({ taskId: "task-2", number: 2 }));
+    const ended = endUnfinished(two, 5000, new Set([TASK]));
+    expect(ended.turns.map((t) => t.state)).toEqual(["stopped", "working"]);
   });
 
   it("is waiting while its team answers, and working while a step runs", () => {

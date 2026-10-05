@@ -237,6 +237,56 @@ describe("each agent's chat in a window of its own (ADR-203)", () => {
     expect(kept().popped).toEqual([]);
   });
 
+  it("stops the agent from its own window, saying Stopping until it has", async () => {
+    const { win } = fakeWindow();
+    vi.spyOn(window, "open").mockReturnValue(win);
+    await show();
+    act(() => chat().openWindow(MANAGER));
+    const own = win.document.body;
+    await within(own).findByRole("log", { name: "Conversation with Development Manager" }, SLOW);
+    emit({ kind: "turn", ...turn("t2", { sessionId: "s1", number: 2, objective: "Go on" }) });
+    emit({ kind: "activity", ...activity("t2", 1, { type: "textDelta", text: "Going on now." }) });
+    await within(own).findByText("Going on now.", {}, SLOW);
+
+    let answer: (d: AgentSessionDetail) => void = () => undefined;
+    api.cancelAgentTurn.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    fireEvent.click(within(own).getByRole("button", { name: "Stop Development Manager" }));
+    expect(api.cancelAgentTurn).toHaveBeenCalledWith("s1");
+    expect(
+      await within(own).findByRole("button", { name: "Stopping Development Manager…" }),
+    ).toBeDisabled();
+
+    const stopped = turn("t2", {
+      sessionId: "s1",
+      number: 2,
+      objective: "Go on",
+      running: false,
+      endedAt: 3,
+      result: {
+        outcome: "cancelled",
+        summary: "You stopped it.",
+        text: "",
+        error: null,
+        providerSessionId: null,
+        model: null,
+        usage: null,
+        durationMs: 1,
+        ignoredLines: 0,
+      },
+    });
+    await act(async () => {
+      answer(detail("s1", [finished("t1", "Write a plan", "Here is the plan."), stopped]));
+      await Promise.resolve();
+    });
+    expect(await within(own).findByText(/Stopped\. You stopped it\./, {}, SLOW)).toBeVisible();
+    expect(within(own).queryByRole("button", { name: /^Stop/ })).not.toBeInTheDocument();
+  });
+
   it("goes back to the panel when its window is closed, or when Reset layout closes them all", async () => {
     vi.spyOn(window, "open").mockImplementation(() => fakeWindow().win);
     await show();

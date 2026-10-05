@@ -38,7 +38,12 @@ function useWidth(el: HTMLElement | null, win: Window): number {
   return width;
 }
 
-function stateOf(turn: ChatTurn | undefined, busy: boolean): { status: Status; words: string } {
+function stateOf(
+  turn: ChatTurn | undefined,
+  busy: boolean,
+  stopping: boolean,
+): { status: Status; words: string } {
+  if (busy && stopping) return { status: "pending", words: "Stopping" };
   if (busy && turn?.state === "waiting")
     return { status: "pending", words: "Waiting for its team" };
   if (busy) return { status: "ok", words: "Working" };
@@ -90,7 +95,9 @@ export function ChatWindow({
 
   const wide = width >= WIDE && !compact;
   const planShown = planChoice ?? wide;
-  const state = stateOf(last, busy);
+  const stopping = chat.stopping(tab.key);
+  const state = stateOf(last, busy, stopping);
+  const stopNote = chat.stopNote(tab.key);
 
   // Which AI tool, model, and effort answer: known once there is a conversation.
   const facts = session
@@ -157,6 +164,12 @@ export function ChatWindow({
               {chat.note(tab.key)}
             </p>
           )}
+          {stopNote && (
+            <p className="chat-note chat-window__note" role="status">
+              <Icon name="alert" size={14} />
+              {stopNote}
+            </p>
+          )}
           {textOnly && (
             <p className="chat-text-only">
               {runtime.label} writes answers only: it cannot save files or run programs. To have{" "}
@@ -166,6 +179,7 @@ export function ChatWindow({
           <Composer
             title={tab.title}
             busy={busy}
+            stopping={stopping}
             sending={chat.sending(tab.key)}
             queued={chat.queued(tab.key)}
             problem={chat.problem(tab.key)}
