@@ -469,6 +469,8 @@ fn reply(n: usize, prompt: &str, previous: Option<&str>) -> String {
 // ---- Plenipo Liaison messages ---------------------------------------------------------------
 
 const ROOT_HEADER: &str = "[Plenipo Liaison — instructions]";
+/// The owner's words given straight to a member (ADR-208): read as the Liaison's own.
+const DIRECT_HEADER: &str = "[Plenipo — instructions]";
 const REQUEST_HEADER: &str = "[Plenipo Liaison — handoff request]";
 const REPLIES_HEADER: &str = "[Plenipo Liaison — handoff replies]";
 const CHECK_IN_HEADER: &str = "[Plenipo Liaison — check-in]";
@@ -477,7 +479,7 @@ const FOOTER: &str = "[End of Plenipo instructions]";
 /// What kind of message the prompt is.
 enum Mode {
     Plain,
-    /// The owner's objective with Liaison's instructions.
+    /// The owner's objective with Liaison's instructions, or with Plenipo's own (ADR-208).
     Root,
     /// A handoff request; its first context block's first line (or the line naming a saved
     /// record the conversation already has) and whether Plenipo gave it tools.
@@ -497,7 +499,16 @@ enum Mode {
 }
 
 /// The prompt's mode and the text that counts: the objective (or the whole plain prompt).
+/// Each message's first line is kept in `headers.log`, for tests of how it was framed
+/// (ADR-208: the owner's words to an agent never come with the Liaison's).
 fn view(prompt: &str) -> (Mode, String) {
+    if let Ok(mut log) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(state_dir().join("headers.log"))
+    {
+        let _ = writeln!(log, "{}", prompt.lines().next().unwrap_or_default());
+    }
     if prompt.starts_with(CHECK_IN_HEADER) {
         // "- Senior Developer, task <ID>: "<request>" — running a command for 3 min."
         let working = prompt
@@ -585,7 +596,7 @@ fn view(prompt: &str) -> (Mode, String) {
             objective,
         );
     }
-    if prompt.starts_with(ROOT_HEADER) {
+    if prompt.starts_with(ROOT_HEADER) || prompt.starts_with(DIRECT_HEADER) {
         if let Some((_, objective)) = prompt.split_once(FOOTER) {
             return (Mode::Root, objective.trim().to_owned());
         }

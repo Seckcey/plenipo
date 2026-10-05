@@ -1505,6 +1505,64 @@ async fn objectives_go_only_to_staffed_persistent_positions() {
         .is_err());
 }
 
+/// Talking to an agent is direct (ADR-208): the owner's words reach a member's conversation with
+/// Plenipo's own instructions, never the Liaison's, and no Liaison message is made for them. The
+/// agent can still hand work to its team: the Liaison carries that, and its reply comes back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_owners_words_go_straight_to_the_agent() {
+    let h = harness().await;
+    let o = h.development();
+    let first = h
+        .objective(&o.coordinator, "Build it [handoff:role:Senior Developer]")
+        .await;
+    assert_eq!(h.finished(&first).await.state, TaskState::Succeeded);
+    let children = h.ledger.child_tasks(&first).unwrap();
+    assert_eq!(children.len(), 1, "{}", h.text(&first));
+    assert_eq!(children[0].state, TaskState::Succeeded);
+    assert!(
+        h.text(&first).contains("received 1 reply"),
+        "{}",
+        h.text(&first)
+    );
+    // Its next words go to the same conversation, which has its instructions by now.
+    let second = h.objective(&o.coordinator, "And the tests").await;
+    assert_eq!(h.finished(&second).await.state, TaskState::Succeeded);
+    let task = h.task(&second);
+    assert_eq!(
+        task.metadata["sessionId"],
+        h.task(&first).metadata["sessionId"]
+    );
+    assert!(h
+        .ledger
+        .liaison_messages_for_task(&second)
+        .unwrap()
+        .is_empty());
+
+    let log = std::fs::read_to_string(
+        h.dir
+            .path()
+            .join("home")
+            .join(".plenipo-fake-agent")
+            .join("headers.log"),
+    )
+    .unwrap();
+    let headers: Vec<&str> = log.lines().collect();
+    let count = |header: &str| headers.iter().filter(|l| **l == header).count();
+    assert_eq!(count("[Plenipo — instructions]"), 2, "{headers:#?}");
+    assert_eq!(count("[Plenipo Liaison — instructions]"), 0, "{headers:#?}");
+    // The hand-off and its reply are the Liaison's.
+    assert_eq!(
+        count("[Plenipo Liaison — handoff request]"),
+        1,
+        "{headers:#?}"
+    );
+    assert_eq!(
+        count("[Plenipo Liaison — handoff replies]"),
+        1,
+        "{headers:#?}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_worker_that_fails_leaves_as_failed_and_the_coordinator_carries_on() {
     let h = harness().await;
