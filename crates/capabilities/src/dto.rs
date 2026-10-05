@@ -549,6 +549,8 @@ pub enum FileRootKind {
     ProjectFolder,
     /// An objective's working copy of it (ADR-016).
     WorkingCopy,
+    /// The organization folder (ADR-205): its departments, projects, Files, and scratch pads.
+    OrganizationFolder,
 }
 
 /// The worker writing in a folder now (ADR-016's one writer).
@@ -565,12 +567,13 @@ pub struct FolderWriter {
     pub task_id: String,
 }
 
-/// One of the file view's top folders: a project's folder, or one of its working copies.
+/// One of the file view's top folders: a project's folder, one of its working copies, or the
+/// organization folder (ADR-205; its project fields are empty).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct FileRoot {
-    /// `project:<project ID>` or `copy:<working copy ID>`.
+    /// `project:<project ID>`, `copy:<working copy ID>`, or `org:folder`.
     pub id: String,
     pub project_id: String,
     pub project_name: String,
@@ -584,6 +587,10 @@ pub struct FileRoot {
     /// The worker writing in it now.
     #[ts(optional)]
     pub writer: Option<FolderWriter>,
+    /// A project's folder inside the organization folder (ADR-205): it is shown there, and its
+    /// working copies beside it. `None`: it is elsewhere on this PC, or it isn't a project folder.
+    #[ts(optional)]
+    pub inside_organization: Option<bool>,
 }
 
 /// The folders Plenipo knows, for the file view.
@@ -595,6 +602,10 @@ pub struct FileRoots {
     /// A worker is using the screen, mouse, and keyboard: blocked files are hidden and nothing
     /// is saved until the owner takes over (ADR-093 §14).
     pub desktop_in_use: bool,
+    /// The organization folder (ADR-205), the file view's first folder, once it has one.
+    #[serde(default)]
+    #[ts(optional)]
+    pub organization: Option<FileRoot>,
 }
 
 /// Where a task's worker kept its files (ADR-201), so the owner can find what it saved: Plenipo's
@@ -634,6 +645,25 @@ pub struct FolderEntry {
     pub blocked: bool,
     /// A program or a script: it opens in Plenipo as text only, never in another program.
     pub runs: bool,
+    /// One of the organization's own folders (ADR-205), and what it is for.
+    #[serde(default)]
+    #[ts(optional)]
+    pub place: Option<FolderPlace>,
+    /// Kept only online by a sync service such as OneDrive: opening it downloads it first.
+    #[serde(default)]
+    #[ts(optional)]
+    pub online_only: Option<bool>,
+}
+
+/// What one of the organization's own folders is for, as the file view marks it (ADR-205).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FolderPlace {
+    pub kind: plenipo_ledger::FolderKind,
+    /// In plain words: "Department", "Project", "Finished files", "Scratch pads", or "Website
+    /// Supervisor's scratch pad".
+    pub label: String,
 }
 
 /// One folder's contents.

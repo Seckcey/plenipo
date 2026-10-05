@@ -1,14 +1,15 @@
 //! The owner's own files (Phase 21, ADR-093): the file view, the editor, and Save.
 //!
-//! - **Only what Plenipo knows:** each active project's folder, and its objectives' working copies
-//!   that are still there. A file is named by its top folder (`project:<ID>` or `copy:<ID>`) and
-//!   its path inside, checked with Guard's path checker against the folder's real path (`..`,
-//!   links, junctions, device names, letter case), so a name can never lead outside. Git's own
-//!   folder is never listed, read, or written.
-//! - **One writer at a time** (ADR-016): a working copy (or a project folder a worker writes in
-//!   directly) that a worker is writing now opens read-only, naming the worker. A save checks
-//!   for a writer and writes while holding the lock a worker's step takes to open, so a step can
-//!   never start in the middle of a save.
+//! - **Only what Plenipo knows:** the organization folder (ADR-205), each active project's folder,
+//!   and its objectives' working copies that are still there. A file is named by its top folder
+//!   (`org:folder`, `project:<ID>`, or `copy:<ID>`) and its path inside, checked with Guard's path
+//!   checker against the folder's real path (`..`, links, junctions, device names, letter case),
+//!   so a name can never lead outside. Git's own folder is never listed, read, or written.
+//! - **One writer at a time** (ADR-016): a folder a worker is writing in now (its working copy,
+//!   a project folder it writes in directly, or its own folder) opens read-only, naming the
+//!   worker, through whichever top folder it is reached. A save checks for a writer and writes
+//!   while holding the lock a worker's step takes to open, so a step can never start in the
+//!   middle of a save.
 //! - **A worker at the keyboard:** while a worker uses the screen, mouse, and keyboard, nothing
 //!   is saved and blocked files are not shown, until the owner takes over (what a worker types
 //!   must never reach a file through the owner's editor).
@@ -25,7 +26,7 @@ use std::path::{Path, PathBuf};
 use base64::Engine as _;
 use plenipo_guard::paths::{blocked_by, Resolved, Workspace as Folder};
 use plenipo_guard::{Capability, Level};
-use plenipo_ledger::{Project, WorkspaceState};
+use plenipo_ledger::{FolderKind, Project, WorkspaceState};
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
 
@@ -334,7 +335,12 @@ fn what_it_is(name: &str, runs: bool) -> String {
 enum RootRef<'a> {
     Project(&'a str),
     Copy(&'a str),
+    /// The organization folder (ADR-205): there is one, so its name is always `org:folder`.
+    Organization,
 }
+
+/// The organization folder's name as a file view's top folder.
+pub(crate) const ORG_ROOT: &str = "org:folder";
 
 fn parse_root(root: &str) -> Result<RootRef<'_>> {
     let bad = || BrokerError::Invalid("That is not a folder Plenipo knows.".into());
@@ -346,6 +352,7 @@ fn parse_root(root: &str) -> Result<RootRef<'_>> {
     match kind {
         "project" => Ok(RootRef::Project(id)),
         "copy" => Ok(RootRef::Copy(id)),
+        "org" if root == ORG_ROOT => Ok(RootRef::Organization),
         _ => Err(bad()),
     }
 }
@@ -353,11 +360,39 @@ fn parse_root(root: &str) -> Result<RootRef<'_>> {
 /// A file view's top folder, found in the Ledger.
 struct KnownRoot {
     id: String,
-    project: Project,
+    /// The project it belongs to (`None`: the organization folder).
+    project: Option<Project>,
+    /// How it is named in a sentence: "the folder of Website", "the organization folder".
+    shown: String,
     kind: FileRootKind,
     folder: PathBuf,
     workspace_id: Option<String>,
     branch: Option<String>,
+}
+
+/// How a folder of the organization's is marked in the file view (ADR-205).
+fn place_label(kind: FolderKind, title: Option<&str>) -> String {
+    match kind {
+        FolderKind::Organization => "Organization folder".into(),
+        FolderKind::Department => "Department".into(),
+        FolderKind::Project => "Project".into(),
+        FolderKind::DepartmentFiles | FolderKind::ProjectFiles => "Finished files".into(),
+        FolderKind::ScratchPads => "Scratch pads".into(),
+        FolderKind::ScratchPad => match title {
+            Some(t) => format!("{t}'s scratch pad"),
+            None => "Scratch pad".into(),
+        },
+    }
+}
+
+/// The same place, letter case aside where the system ignores it.
+fn same_place(a: &Path, b: &Path) -> bool {
+    if cfg!(any(windows, target_os = "macos")) {
+        a.to_string_lossy()
+            .eq_ignore_ascii_case(&b.to_string_lossy())
+    } else {
+        a == b
+    }
 }
 
 /// Where a grant's files are: its working copy, or its project's folder when it works there
@@ -515,12 +550,36 @@ impl Broker {
     pub fn file_roots(&self) -> Result<FileRoots> {
         let writers = self.folder_writers();
         let mut roots = Vec::new();
+        // The organization folder first (ADR-205), as it really is on the disk.
+        let organization = self.ledger().organization_folder()?.map(|f| {
+            let path = PathBuf::from(&f.path);
+            FileRoot {
+                id: ORG_ROOT.into(),
+                project_id: String::new(),
+                project_name: String::new(),
+                kind: FileRootKind::OrganizationFolder,
+                label: self.organization_name(),
+                exists: path.is_dir()
+                    && !std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()),
+                path: f.path,
+                writer: None,
+                inside_organization: None,
+            }
+        });
+        let org_real = organization
+            .as_ref()
+            .filter(|o| o.exists)
+            .and_then(|o| dunce::canonicalize(&o.path).ok());
         let mut projects = self.ledger().list_projects()?;
         projects.retain(|p| p.status == "active" && p.deleted_at.is_none());
         projects.sort_by_key(|p| p.name.to_lowercase());
         for p in projects {
             if let Some(path) = p.local_path.clone() {
                 let id = format!("project:{}", p.id);
+                let inside = org_real.as_ref().is_some_and(|org| {
+                    dunce::canonicalize(&path)
+                        .is_ok_and(|real| real.ancestors().any(|a| same_place(a, org)))
+                });
                 roots.push(FileRoot {
                     writer: writers.get(&id).cloned(),
                     exists: Path::new(&path).is_dir(),
@@ -530,6 +589,7 @@ impl Broker {
                     kind: FileRootKind::ProjectFolder,
                     label: "Project folder".into(),
                     path,
+                    inside_organization: inside.then_some(true),
                 });
             }
             for w in self.ledger().project_workspaces(&p.id, 200)? {
@@ -547,13 +607,56 @@ impl Broker {
                     kind: FileRootKind::WorkingCopy,
                     label: w.branch.clone(),
                     path: folder.display().to_string(),
+                    inside_organization: None,
                 });
             }
         }
         Ok(FileRoots {
             roots,
             desktop_in_use: self.desktop_in_use(),
+            organization,
         })
+    }
+
+    /// The organization's own folders (ADR-205), where each really is, with its mark. A folder
+    /// that isn't there now is left out.
+    fn organization_places(&self) -> Vec<(PathBuf, FolderPlace)> {
+        let Ok(folders) = self.ledger().folders() else {
+            return Vec::new();
+        };
+        if folders.is_empty() {
+            return Vec::new();
+        }
+        let titles: std::collections::HashMap<String, String> = self
+            .ledger()
+            .org_records()
+            .map(|r| r.positions.into_iter().map(|p| (p.id, p.title)).collect())
+            .unwrap_or_default();
+        folders
+            .into_iter()
+            .filter_map(|f| {
+                let real = dunce::canonicalize(&f.path).ok()?;
+                let title = f.ref_id.as_ref().and_then(|id| titles.get(id));
+                Some((
+                    real,
+                    FolderPlace {
+                        kind: f.kind,
+                        label: place_label(f.kind, title.map(String::as_str)),
+                    },
+                ))
+            })
+            .collect()
+    }
+
+    /// The organization's name, as its Ledger keeps it.
+    fn organization_name(&self) -> String {
+        self.ledger()
+            .setting("organization")
+            .ok()
+            .flatten()
+            .and_then(|v| v["name"].as_str().map(str::to_owned))
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or_else(|| "Organization".into())
     }
 
     /// Where a task's worker kept its files (ADR-201): the folder the task's newest grant opened
@@ -602,20 +705,21 @@ impl Broker {
     }
 
     /// The worker writing in a folder that holds `abs` — through whichever known folder the file
-    /// is reached (a project folder inside another, ADR-093 §13) — if one is.
+    /// is reached (a project folder inside another, ADR-093 §13; a project's or an agent's own
+    /// folder inside the organization folder, ADR-205) — if one is. Every step that may change
+    /// files counts, in its working copy, its project folder, or its own folder.
     fn writer_over(&self, abs: &Path) -> Option<FolderWriter> {
-        for (root, writer) in self.folder_writers() {
-            let Ok(known) = self.known_root(&root) else {
-                continue;
-            };
-            let Ok(folder) = Folder::open(&known.folder.display().to_string()) else {
-                continue;
-            };
-            if abs.starts_with(folder.root()) {
-                return Some(writer);
-            }
-        }
-        None
+        let s = self.state();
+        let mut grants: Vec<&Grant> = s.grants.values().filter(|g| writes_in(g)).collect();
+        grants.sort_by_key(|g| g.opened_at);
+        grants
+            .into_iter()
+            .find(|g| {
+                g.workspace
+                    .as_ref()
+                    .is_some_and(|w| abs.ancestors().any(|a| same_place(a, w.root())))
+            })
+            .map(writer_of)
     }
 
     /// A worker is using the screen, mouse, and keyboard now (the owner has not taken over).
@@ -638,11 +742,35 @@ impl Broker {
                 })?;
                 Ok(KnownRoot {
                     id: root.to_owned(),
+                    shown: format!("the folder of {}", project.name),
                     kind: FileRootKind::ProjectFolder,
                     folder: PathBuf::from(folder),
                     workspace_id: None,
                     branch: None,
-                    project,
+                    project: Some(project),
+                })
+            }
+            RootRef::Organization => {
+                let folder = self.ledger().organization_folder()?.ok_or_else(|| {
+                    BrokerError::Invalid("This organization has no organization folder yet.".into())
+                })?;
+                let folder = PathBuf::from(folder.path);
+                // One that became a junction or link leads somewhere else (ADR-205).
+                if std::fs::symlink_metadata(&folder).is_ok_and(|m| m.file_type().is_symlink()) {
+                    return Err(BrokerError::Invalid(format!(
+                        "The organization folder ({}) is now a shortcut to another place, so \
+                         Plenipo doesn't open it.",
+                        folder.display()
+                    )));
+                }
+                Ok(KnownRoot {
+                    id: ORG_ROOT.into(),
+                    shown: "the organization folder".into(),
+                    kind: FileRootKind::OrganizationFolder,
+                    folder,
+                    workspace_id: None,
+                    branch: None,
+                    project: None,
                 })
             }
             RootRef::Copy(id) => {
@@ -658,11 +786,12 @@ impl Broker {
                     .ok_or_else(unknown)?;
                 Ok(KnownRoot {
                     id: root.to_owned(),
+                    shown: format!("the working copy of {}", project.name),
                     kind: FileRootKind::WorkingCopy,
                     folder: w.folder(),
                     workspace_id: Some(w.id.clone()),
                     branch: Some(w.branch.clone()),
-                    project,
+                    project: Some(project),
                 })
             }
         }
@@ -671,9 +800,14 @@ impl Broker {
     /// Open a known top folder and check a path inside it.
     fn resolve_owner(&self, root: &KnownRoot, path: &str) -> Result<(Folder, Resolved)> {
         let folder = Folder::open(&root.folder.display().to_string()).map_err(|_| {
+            let shown = &root.shown;
+            let mut sentence = shown.chars();
+            let capital = sentence
+                .next()
+                .map(|c| c.to_uppercase().chain(sentence).collect::<String>())
+                .unwrap_or_default();
             BrokerError::Invalid(format!(
-                "The folder of {} is not there any more ({}).",
-                root.project.name,
+                "{capital} is not there any more ({}).",
                 root.folder.display()
             ))
         })?;
@@ -702,6 +836,7 @@ impl Broker {
         let known = self.known_root(root)?;
         let (_, resolved) = self.resolve_owner(&known, path)?;
         let blocked = self.blocked_files()?;
+        let places = self.organization_places();
         let entries = std::fs::read_dir(&resolved.abs).map_err(|e| {
             BrokerError::Invalid(format!("Plenipo could not open that folder ({e})."))
         })?;
@@ -719,6 +854,19 @@ impl Broker {
             // A link is shown as what it leads to (a broken one as a file).
             let meta = std::fs::metadata(entry.path()).ok();
             let folder = meta.as_ref().is_some_and(std::fs::Metadata::is_dir);
+            // Read from the listing itself: looking never downloads a file kept only online.
+            let online_only = entry
+                .metadata()
+                .is_ok_and(|m| plenipo_guard::places::online_only(&m));
+            let place = folder
+                .then(|| {
+                    let at = entry.path();
+                    places
+                        .iter()
+                        .find(|(path, _)| same_place(path, &at))
+                        .map(|(_, place)| place.clone())
+                })
+                .flatten();
             out.push(FolderEntry {
                 size: meta
                     .as_ref()
@@ -730,6 +878,8 @@ impl Broker {
                 name,
                 path: rel,
                 folder,
+                place,
+                online_only: online_only.then_some(true),
             });
         }
         out.sort_by(|a, b| {
@@ -886,6 +1036,7 @@ impl Broker {
                 match known.kind {
                     FileRootKind::WorkingCopy => "working copy",
                     FileRootKind::ProjectFolder => "project folder",
+                    FileRootKind::OrganizationFolder => "folder",
                 }
             )));
         }
@@ -923,14 +1074,17 @@ impl Broker {
             "place": match known.kind {
                 FileRootKind::ProjectFolder => "projectFolder",
                 FileRootKind::WorkingCopy => "workingCopy",
+                FileRootKind::OrganizationFolder => "organizationFolder",
             },
-            "projectId": known.project.id,
-            "project": known.project.name,
             "path": self.redact(&resolved.rel),
             "bytes": bytes.len(),
             "added": added,
             "removed": removed,
         });
+        if let Some(project) = &known.project {
+            payload["projectId"] = project.id.as_str().into();
+            payload["project"] = project.name.as_str().into();
+        }
         if let (Some(id), Some(branch)) = (&known.workspace_id, &known.branch) {
             payload["workspaceId"] = id.as_str().into();
             payload["branch"] = branch.as_str().into();
@@ -1009,7 +1163,8 @@ impl Broker {
             .filter(|g| !g.revoked)
             .map(|g| g.session_id.clone())
             .collect();
-        self.watch()
+        let mut out: Vec<ChangingFile> = self
+            .watch()
             .changing(&sessions)
             .into_iter()
             .filter_map(|c| {
@@ -1020,7 +1175,50 @@ impl Broker {
                     position_id: c.position_id,
                 })
             })
-            .collect()
+            .collect();
+        // A file in a project folder inside the organization folder (ADR-205) is marked where
+        // the organization folder shows it too.
+        let org = self
+            .ledger()
+            .organization_folder()
+            .ok()
+            .flatten()
+            .and_then(|f| dunce::canonicalize(f.path).ok());
+        if let Some(org) = org {
+            let mut inside: std::collections::HashMap<String, Option<String>> =
+                std::collections::HashMap::new();
+            let mut more = Vec::new();
+            for c in &out {
+                let prefix = inside.entry(c.root.clone()).or_insert_with(|| {
+                    let known = self.known_root(&c.root).ok()?;
+                    if known.kind != FileRootKind::ProjectFolder {
+                        return None;
+                    }
+                    let real = dunce::canonicalize(&known.folder).ok()?;
+                    let rel = real.strip_prefix(&org).ok()?;
+                    Some(
+                        rel.components()
+                            .map(|p| p.as_os_str().to_string_lossy().into_owned())
+                            .collect::<Vec<_>>()
+                            .join("/"),
+                    )
+                });
+                if let Some(prefix) = prefix {
+                    more.push(ChangingFile {
+                        root: ORG_ROOT.into(),
+                        path: if prefix.is_empty() {
+                            c.path.clone()
+                        } else {
+                            format!("{prefix}/{}", c.path)
+                        },
+                        worker: c.worker.clone(),
+                        position_id: c.position_id.clone(),
+                    });
+                }
+            }
+            out.extend(more);
+        }
+        out
     }
 }
 
@@ -1477,5 +1675,161 @@ mod tests {
             assert!(why.to_string().contains("opens in Plenipo only"), "{why}");
             assert!(p.broker.owner_file_path(&p.root, name, false).is_ok());
         }
+    }
+
+    /// The organization folder (ADR-205): a department with its head, and a project inside it,
+    /// made by Plenipo's keeper; the harness's own project stays elsewhere on this PC.
+    fn with_organization_folder(p: &Project) -> PathBuf {
+        let root = p._dir.path().join("Acme");
+        crate::org_folder::create(&p.ledger, &root, "Acme", "owner").unwrap();
+        let templates = plenipo_workforce::templates::role_templates();
+        p.ledger.ensure_roles(&templates, "owner").unwrap();
+        let manager = p
+            .ledger
+            .org_records()
+            .unwrap()
+            .roles
+            .into_iter()
+            .find(|r| r.name == "Manager")
+            .unwrap()
+            .id;
+        p.ledger
+            .create_department_with_head(
+                "Development",
+                "",
+                &plenipo_ledger::NewPosition {
+                    title: "Development Manager".into(),
+                    role_id: manager,
+                    ..plenipo_ledger::NewPosition::default()
+                },
+                "owner",
+            )
+            .unwrap();
+        let kept = crate::org_folder::keep(&p.ledger, &[]);
+        assert!(kept.problems.is_empty(), "{kept:?}");
+        root
+    }
+
+    #[tokio::test]
+    async fn the_organization_folder_is_the_first_folder_with_its_folders_marked() {
+        let p = project();
+        assert!(p.broker.file_roots().unwrap().organization.is_none());
+        assert!(p.broker.list_folder(ORG_ROOT, "").is_err(), "no folder yet");
+        let root = with_organization_folder(&p);
+        // A project whose folder is inside the organization folder is marked so.
+        let inside = root.join("Development").join("Inside");
+        std::fs::create_dir_all(&inside).unwrap();
+        p.ledger
+            .create_project(
+                "Inside",
+                Some(&inside.display().to_string()),
+                None,
+                None,
+                "test",
+            )
+            .unwrap();
+        let roots = p.broker.file_roots().unwrap();
+        let org = roots.organization.clone().unwrap();
+        assert_eq!(org.id, ORG_ROOT);
+        assert_eq!(org.kind, FileRootKind::OrganizationFolder);
+        assert!(org.exists);
+        let by_name = |name: &str| roots.roots.iter().find(|r| r.project_name == name).unwrap();
+        assert_eq!(by_name("Inside").inside_organization, Some(true));
+        assert_eq!(by_name("Website").inside_organization, None);
+        // Its folders are marked with what they are for.
+        let top = p.broker.list_folder(ORG_ROOT, "").unwrap();
+        let mark = |l: &FolderListing, name: &str| {
+            l.entries
+                .iter()
+                .find(|e| e.name == name)
+                .unwrap_or_else(|| panic!("{name} in {l:?}"))
+                .place
+                .clone()
+                .map(|p| p.label)
+        };
+        assert_eq!(mark(&top, "Development").as_deref(), Some("Department"));
+        assert_eq!(mark(&top, "Read me.md"), None);
+        let dept = p.broker.list_folder(ORG_ROOT, "Development").unwrap();
+        assert_eq!(mark(&dept, "Files").as_deref(), Some("Finished files"));
+        assert_eq!(mark(&dept, "Scratch pads").as_deref(), Some("Scratch pads"));
+        let pads = p
+            .broker
+            .list_folder(ORG_ROOT, "Development/Scratch pads")
+            .unwrap();
+        assert_eq!(
+            mark(&pads, "Development Manager").as_deref(),
+            Some("Development Manager's scratch pad")
+        );
+        assert!(pads.entries.iter().all(|e| e.online_only.is_none()));
+    }
+
+    #[tokio::test]
+    async fn the_owner_reads_and_saves_in_the_organization_folder_and_nowhere_outside() {
+        let p = project();
+        let root = with_organization_folder(&p);
+        let pad = "Development/Scratch pads/Development Manager";
+        let pad_folder = pad.split('/').fold(root.clone(), |at, part| at.join(part));
+        std::fs::write(pad_folder.join("notes.md"), "plan\n").unwrap();
+        let notes = format!("{pad}/notes.md");
+        let view = p.broker.read_file(ORG_ROOT, &notes).unwrap();
+        assert!(view.read_only.is_none());
+        let saved = p
+            .broker
+            .save_file(
+                ORG_ROOT,
+                &notes,
+                "plan, done\n",
+                false,
+                LineEnding::Lf,
+                None,
+            )
+            .unwrap();
+        assert!(matches!(saved, SaveOutcome::Saved { .. }));
+        let event = p
+            .ledger
+            .recent_events(20)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.event_type == "file.saved")
+            .unwrap();
+        assert_eq!(event.payload["place"], "organizationFolder");
+        assert_eq!(event.payload["root"], ORG_ROOT);
+        assert!(event.payload.get("projectId").is_none());
+        // Never outside it, never git's own folder, and only the one organization folder.
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        for path in ["../website/README.md", ".git/config", "Development/../../x"] {
+            assert!(p.broker.read_file(ORG_ROOT, path).is_err(), "{path}");
+        }
+        for bad in ["org:other", "org:", "org:folder/x"] {
+            assert!(p.broker.list_folder(bad, "").is_err(), "{bad}");
+        }
+    }
+
+    /// The reviewer's O2 for the owner's own view: an organization folder that became a junction
+    /// or link is not opened, and its files aren't read through it.
+    #[tokio::test]
+    async fn an_organization_folder_that_became_a_link_is_not_opened() {
+        let p = project();
+        let root = with_organization_folder(&p);
+        let moved = p._dir.path().join("moved");
+        std::fs::rename(&root, &moved).unwrap();
+        #[cfg(windows)]
+        {
+            let status = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(&root)
+                .arg(&moved)
+                .stdout(std::process::Stdio::null())
+                .status()
+                .unwrap();
+            assert!(status.success());
+        }
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&moved, &root).unwrap();
+        let org = p.broker.file_roots().unwrap().organization.unwrap();
+        assert!(!org.exists);
+        let why = p.broker.list_folder(ORG_ROOT, "").unwrap_err().to_string();
+        assert!(why.contains("shortcut"), "{why}");
+        assert!(p.broker.read_file(ORG_ROOT, "Read me.md").is_err());
     }
 }
