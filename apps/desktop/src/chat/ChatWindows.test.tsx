@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useEffect } from "react";
 import type { AgentSessionDetail, AgentTurn, AgentUpdate, PopOutNotice } from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -99,14 +100,25 @@ function finished(taskId: string, objective: string, text: string): AgentTurn {
   });
 }
 
-function detail(id: string, turns: AgentTurn[], metadata: object = MEMBER): AgentSessionDetail {
+function detail(
+  id: string,
+  turns: AgentTurn[],
+  metadata: Record<string, unknown> = MEMBER,
+): AgentSessionDetail {
   return { session: session(id, { metadata }), turns, activity: [] };
 }
 
-/** The chats, for the test to drive. */
-let chat: ChatApi;
+/** The chats, for the test to drive (kept once drawn). */
+const grabbed: { chat: ChatApi | null } = { chat: null };
+const chat = (): ChatApi => {
+  if (!grabbed.chat) throw new Error("the chats are not drawn yet");
+  return grabbed.chat;
+};
 function Grab() {
-  chat = useChat();
+  const api = useChat();
+  useEffect(() => {
+    grabbed.chat = api;
+  });
   const ws = useWorkspace();
   return (
     <button type="button" onClick={() => ws.reset()}>
@@ -176,7 +188,7 @@ describe("each agent's chat in a window of its own (ADR-203)", () => {
     const { win, close } = fakeWindow();
     const open = vi.spyOn(window, "open").mockReturnValue(win);
     await show();
-    act(() => chat.open(MANAGER));
+    act(() => chat().open(MANAGER));
     await screen.findByRole("log", { name: "Conversation with Development Manager" }, SLOW);
 
     // From the chat's header in the panel.
@@ -224,8 +236,8 @@ describe("each agent's chat in a window of its own (ADR-203)", () => {
   it("goes back to the panel when its window is closed, or when Reset layout closes them all", async () => {
     vi.spyOn(window, "open").mockImplementation(() => fakeWindow().win);
     await show();
-    act(() => chat.openWindow(MANAGER));
-    act(() => chat.openWindow({ sessionId: "s2", title: "Developer (on call)" }));
+    act(() => chat().openWindow(MANAGER));
+    act(() => chat().openWindow({ sessionId: "s2", title: "Developer (on call)" }));
     await waitFor(() => expect(kept().popped).toHaveLength(2));
     await waitFor(() => expect(api.preparePopOut).toHaveBeenCalledTimes(2));
 
@@ -273,10 +285,10 @@ describe("each agent's chat in a window of its own (ADR-203)", () => {
     vi.spyOn(window, "open").mockImplementation(() => fakeWindow().win);
     await show();
     for (let i = 1; i <= 7; i += 1) {
-      act(() => chat.openWindow({ sessionId: `w${i}`, title: `Worker ${i}` }));
+      act(() => chat().openWindow({ sessionId: `w${i}`, title: `Worker ${i}` }));
     }
     await waitFor(() => expect(kept().popped).toHaveLength(6));
-    expect(chat.windowOf("session:w7")).toBeNull();
+    expect(chat().windowSlot("session:w7")).toBeNull();
     expect(
       await screen.findByText(/6 chats have windows of their own already/, {}, SLOW),
     ).toBeInTheDocument();
@@ -285,7 +297,7 @@ describe("each agent's chat in a window of its own (ADR-203)", () => {
 
   it("says a handed-off worker's messages are its lead's", async () => {
     await show();
-    act(() => chat.open({ sessionId: "s2", title: "Developer (on call)" }));
+    act(() => chat().open({ sessionId: "s2", title: "Developer (on call)" }));
     const log = await screen.findByRole(
       "log",
       { name: "Conversation with Developer (on call)" },
@@ -294,7 +306,7 @@ describe("each agent's chat in a window of its own (ADR-203)", () => {
     expect(await within(log).findByText("From its lead", {}, SLOW)).toBeInTheDocument();
     expect(within(log).getByText("Check the page")).toBeInTheDocument();
     // Your own chat with an agent says no such thing.
-    act(() => chat.open(MANAGER));
+    act(() => chat().open(MANAGER));
     const mine = await screen.findByRole(
       "log",
       { name: "Conversation with Development Manager" },

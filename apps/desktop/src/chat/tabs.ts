@@ -208,7 +208,7 @@ export function isChatTabs(v: unknown): v is Omit<ChatTabs, "popped"> & { popped
   if (s.popped === undefined) return true;
   if (!Array.isArray(s.popped) || s.popped.length > MAX_CHAT_WINDOWS) return false;
   const popped: unknown[] = s.popped;
-  const tabs = s.tabs as ChatTab[];
+  const tabs = s.tabs;
   return (
     popped.every(isPopped) &&
     // Each window shows one open chat, and each chat is in one window.

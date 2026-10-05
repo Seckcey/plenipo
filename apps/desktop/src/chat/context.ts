@@ -25,7 +25,7 @@ export interface ChatApi {
   /** Bring a chat's own window to the front. */
   focusWindow: (key: string) => void;
   /** The window a chat is in (1 to 6), or `null` while it is in the panel. */
-  windowOf: (key: string) => number | null;
+  windowSlot: (key: string) => number | null;
   /** The conversation a chat shows (its ID): the tab's, or its position's agent's. */
   sessionOf: (tab: ChatTab) => string | null;
   /** The conversation a chat shows, as far as Plenipo has it; `null` before the first message. */

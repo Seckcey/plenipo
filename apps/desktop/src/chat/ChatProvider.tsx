@@ -32,6 +32,7 @@ import {
 } from "./model";
 import {
   closeTab,
+  keyOf,
   MAX_CHAT_WINDOWS,
   NO_TABS,
   openTab,
@@ -411,6 +412,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       canPopOut: focusChatWindow !== undefined,
       popOut: (key) => popOutIn(tabsRef.current, key),
       openWindow: (target) => {
+        // Nothing to open (no position, no conversation): no other chat pops out instead.
+        if (keyOf(target) === null) return;
         const opened = openTab(tabsRef.current, target);
         if (opened.active) popOutIn(opened, opened.active);
       },
@@ -422,7 +425,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         const slot = slotOf(tabsRef.current, key);
         if (slot !== null) focusChatWindow?.(slot);
       },
-      windowOf: (key) => slotOf(tabs, key),
+      windowSlot: (key) => slotOf(tabs, key),
       sessionOf: (tab) => sessionOfTab(tab, agentState),
       conversation: (tab) => {
         const id = sessionOfTab(tab, agentState);
