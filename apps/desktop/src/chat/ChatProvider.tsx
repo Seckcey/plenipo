@@ -45,9 +45,11 @@ import {
   setSession,
   showTab,
   slotOf,
+  tabFor,
   TABS_KEY,
   type ChatTab,
   type ChatTabs,
+  type ChatTarget,
 } from "./tabs";
 
 type Conversations = Record<string, ChatSession>;
@@ -75,6 +77,17 @@ function saysBusy(message: string): boolean {
   return /already running|waiting to continue|busy with/i.test(message);
 }
 
+/** The same chat, so showing it again changes nothing. */
+function sameTab(a: ChatTab | undefined, b: ChatTab): boolean {
+  return (
+    a !== undefined &&
+    a.key === b.key &&
+    a.positionId === b.positionId &&
+    a.sessionId === b.sessionId &&
+    a.title === b.title
+  );
+}
+
 function withoutKey<T>(all: Record<string, T>, key: string): Record<string, T> {
   if (!(key in all)) return all;
   const rest = { ...all };
@@ -90,6 +103,14 @@ function saysNothingRuns(message: string): boolean {
 /** What a chat says when its agent goes on working after Stop. */
 function notStoppedYet(title: string): string {
   return `${title} has not stopped yet. Try Stop all, the red button on the map.`;
+}
+
+/** Every open chat: the panel's tabs, then those shown only elsewhere (the Workers page). */
+function openChats(panel: ChatTabs, elsewhere: Record<string, ChatTab>): ChatTab[] {
+  return [
+    ...panel.tabs,
+    ...Object.values(elsewhere).filter((s) => !panel.tabs.some((t) => t.key === s.key)),
+  ];
 }
 
 /** One live update applied to the conversations held (others are not loaded, so skipped). */
@@ -134,6 +155,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // Words arrive many times a second: typing in the message box comes first.
     startTransition(() => setConversationsState(next));
   }, []);
+
+  // Chats shown outside the Chat panel (the Workers page), by key, while something shows them.
+  const [shown, setShownState] = useState<Record<string, ChatTab>>({});
+  const shownRef = useRef(shown);
+  const shownCount = useRef(new Map<string, number>());
+  const setShown = useCallback(
+    (change: (s: Record<string, ChatTab>) => Record<string, ChatTab>) => {
+      const next = change(shownRef.current);
+      if (next === shownRef.current) return;
+      shownRef.current = next;
+      setShownState(next);
+    },
+    [],
+  );
 
   const [queues, setQueuesState] = useState<Record<string, string[]>>({});
   const queuesRef = useRef(queues);
@@ -303,7 +338,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   /** Send each chat's oldest waiting message whose agent is free now. */
   const flush = useCallback(() => {
-    for (const tab of tabsRef.current.tabs) {
+    for (const tab of openChats(tabsRef.current, shownRef.current)) {
       const waiting = queuesRef.current[tab.key];
       if (!waiting || waiting.length === 0) continue;
       if (sendingRef.current[tab.key] || busyNow(tab)) continue;
@@ -317,16 +352,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     flushRef.current = flush;
   }, [flush]);
 
-  // The conversations the open chats show are fetched once, then kept live.
+  // The conversations the open chats show (in the panel, or elsewhere) are fetched once, then
+  // kept live.
   const wanted = useMemo(
     () =>
-      tabs.tabs
+      openChats(tabs, shown)
         .map(
           (tab) =>
             tab.sessionId ?? (tab.positionId ? positionSession(agentState, tab.positionId) : null),
         )
         .filter((id): id is string => id !== null),
-    [tabs, agentState],
+    [tabs, shown, agentState],
   );
   useEffect(() => {
     for (const id of wanted) if (!conversationsRef.current[id]) load(id);
@@ -421,8 +457,32 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [onChatWindowClosed, setTabs],
   );
 
+  /** Show a chat elsewhere while something draws it; each one shown counts, so two can share. */
+  const showElsewhere = useCallback(
+    (target: ChatTarget) => {
+      const tab = tabFor(target);
+      if (!tab) return () => undefined;
+      const key = tab.key;
+      shownCount.current.set(key, (shownCount.current.get(key) ?? 0) + 1);
+      setShown((s) => (sameTab(s[key], tab) ? s : { ...s, [key]: tab }));
+      let done = false;
+      return () => {
+        if (done) return;
+        done = true;
+        const left = (shownCount.current.get(key) ?? 1) - 1;
+        if (left > 0) {
+          shownCount.current.set(key, left);
+          return;
+        }
+        shownCount.current.delete(key);
+        setShown((s) => withoutKey(s, key));
+      };
+    },
+    [setShown],
+  );
+
   const api = useMemo<ChatApi>(() => {
-    const tabOf = (key: string) => tabs.tabs.find((t) => t.key === key);
+    const tabOf = (key: string) => openChats(tabs, shown).find((t) => t.key === key);
     /** Give the chat `key` of `state` a window of its own, or say why it stays in the panel. */
     const popOutIn = (state: ChatTabs, key: string) => {
       const slot = slotOf(state, key);
@@ -478,6 +538,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (slot !== null) focusChatWindow?.(slot);
       },
       windowSlot: (key) => slotOf(tabs, key),
+      showElsewhere,
+      tab: (key) => tabOf(key) ?? null,
       sessionOf: (tab) => sessionOfTab(tab, agentState),
       conversation: (tab) => {
         const id = sessionOfTab(tab, agentState);
@@ -561,6 +623,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, [
     tabs,
+    shown,
     conversations,
     agentState,
     queues,
@@ -570,6 +633,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     problems,
     notes,
     setTabs,
+    showElsewhere,
     setStopping,
     refresh,
     cancelTurn,

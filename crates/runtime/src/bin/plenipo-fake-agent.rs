@@ -30,7 +30,9 @@
 //! thinks first, its thinking streamed in small pieces as with `--thinking-display`;
 //! `[think:TEXT]` thinks TEXT instead, cut into five-byte pieces, and `[think-late]` says a few
 //! words first, the last one unfinished, then thinks — ADR-216),
-//! `[delay:MS]` (answer normally after MS milliseconds, at most 20 seconds), and
+//! `[delay:MS]` (answer normally after MS milliseconds, at most 20 seconds), `[hang]` (Kimi
+//! writes half an answer, then says nothing more, never answers the prompt, and ignores a
+//! cancel: only ending its process ends the task), and
 //! `[wait-for:NAME]` (answer normally
 //! once the file NAME is in the state folder, at most a minute later: the test decides when, so
 //! the answer can't come before what it checks is in place). `[compact]` makes the AI tool
@@ -233,6 +235,14 @@ fn auth_has(flag: &str) -> bool {
 
 /// The sign-in the status command reports.
 fn auth_mode() -> &'static str {
+    // `check-delay` in the state folder: the check takes that many milliseconds (at most 20
+    // seconds), so a test can stop a step while it is still starting.
+    if let Some(ms) = std::fs::read_to_string(state_dir().join("check-delay"))
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+    {
+        std::thread::sleep(Duration::from_millis(ms.min(20_000)));
+    }
     ["signed-out", "api-key", "cloud", "unknown-status"]
         .into_iter()
         .find(|m| auth_has(m))
@@ -2931,6 +2941,14 @@ impl KimiAgent {
             if said.contains(marker) {
                 acp_error(id, code, message);
                 return true;
+            }
+        }
+        if said.contains("[hang]") {
+            // Stops mid-answer (the owner's report, 2026-10-05): nothing more, no answer to the
+            // prompt, and a cancel goes unheard. Only ending the process ends the task.
+            grok_chunk(&session, "half an ans");
+            loop {
+                std::thread::sleep(Duration::from_secs(3600));
             }
         }
         if said.contains("[slow]") {
