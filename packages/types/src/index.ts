@@ -392,6 +392,7 @@ export type { OrgWorker } from "./generated/OrgWorker";
 // Phase 25 (ADR-205): the organization folder.
 export type { Folder } from "./generated/Folder";
 export type { FolderKind } from "./generated/FolderKind";
+export type { FolderPlace } from "./generated/FolderPlace";
 export type { FolderSync } from "./generated/FolderSync";
 export type { OrgFolderInfo } from "./generated/OrgFolderInfo";
 // Phase 16 Wave 3 (ADR-085, paid AI keys with spending caps): spending caps and prices.

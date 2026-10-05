@@ -205,9 +205,9 @@ What was there (read at `306af756`, v1.26.0):
     `orgs/OrgFolder.tsx` (the alert, and Settings → Organization's **Organization folder** row)
 - **§1.2, a chosen folder:** checked again when the organization is made, before anything is made.
 - **§2, Scratch pads** of agents in no department: made the first time one is needed.
-- **Not yet (parts 2 to 4):** Files, work in its place, and organizations made before this. The
-  first organization, and every organization made before this version, show "This organization
-  has no organization folder yet."
+- **Not yet:** Files (part 2, below), work in its place (part 3), and organizations made before
+  this (part 4). The first organization, and every organization made before this version, show
+  "This organization has no organization folder yet."
 - **Checked:**
   - the Ledger's `folders` tests (one of each kind, the organization folder first, paths, events,
     rows never deleted)
@@ -220,3 +220,40 @@ What was there (read at `306af756`, v1.26.0):
     `a_new_organization_gets_its_organization_folder`
   - the screens: `Organizations.test.tsx` (the folder line, Change…, a refused place, the OneDrive
     alert word for word, the Settings row, another sync service's words)
+
+### Part 2 (B2): Files opens the organization folder (2026-10-05)
+
+- **Code:** `crates/capabilities/src/broker/owner_files.rs` (the `org:folder` top folder, its
+  marks, and the one-writer check); `FileRootKind::OrganizationFolder`, `FileRoots.organization`,
+  `FileRoot.insideOrganization`, `FolderEntry.place` and `onlineOnly`, `FolderPlace`;
+  `plenipo_guard::places::online_only`; on screen, `files/FilesPanel.tsx` and
+  `ledger/format.ts`.
+- **§15, what Files shows:** the organization folder first, opened by itself, with its folders
+  marked (Department, Project, Finished files, Scratch pads, "Website Supervisor's scratch pad");
+  then **Working copies**, for projects whose folder is inside it; then **Elsewhere on this PC**,
+  for project folders outside it, each with its working copies, as before. An organization with no
+  organization folder shows Files exactly as before; with nothing at all, "No organization folder
+  yet".
+- **§12, the alert in Files:** at the top while OneDrive keeps the folder online and it isn't set
+  to stay on this device, with **Show in folder** and **Check again**.
+- **§14, files kept only online:** marked "online only" from the folder listing's own marks
+  (`FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`, `RECALL_ON_OPEN`, `OFFLINE`), so looking never
+  downloads them.
+- **One writer at a time (ADR-093 §10) now reaches every folder a step may change files in**,
+  through whichever top folder it is reached: a working copy, a project folder, and, new, an
+  agent's own folder. Before, a step in its own folder was not counted, so the owner could save
+  over a file a worker was writing there.
+- **A change a worker makes** in a project folder inside the organization folder is marked where
+  the organization folder shows it too. A change in an agent's own folder is not marked yet: Watch
+  doesn't name its folder (part 3).
+- **A save in the organization folder** is recorded as `file.saved` with `place:
+"organizationFolder"` and no project; Activity says "You saved … in the organization folder".
+- **An organization folder that became a junction or link** isn't opened, and Files says it isn't
+  there.
+- **Checked:**
+  - `owner_files` tests (the first folder with its marks, projects inside it, reading and saving
+    in it and nowhere outside, `org:` names, a folder that became a junction)
+  - the broker's `an_agents_own_folder_is_read_only_for_the_owner_while_it_works_there`
+  - Guard's `files_kept_only_online_are_known_by_their_marks`
+  - `Files.test.tsx` (opened first, marks, online only, Working copies, Elsewhere on this PC, the
+    alert, the empty state) and `format.test.ts`

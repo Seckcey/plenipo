@@ -3,11 +3,12 @@ import type { FileRootKind } from "./FileRootKind";
 import type { FolderWriter } from "./FolderWriter";
 
 /**
- * One of the file view's top folders: a project's folder, or one of its working copies.
+ * One of the file view's top folders: a project's folder, one of its working copies, or the
+ * organization folder (ADR-205; its project fields are empty).
  */
 export type FileRoot = { 
 /**
- * `project:<project ID>` or `copy:<working copy ID>`.
+ * `project:<project ID>`, `copy:<working copy ID>`, or `org:folder`.
  */
 id: string, projectId: string, projectName: string, kind: FileRootKind, 
 /**
@@ -25,4 +26,9 @@ exists: boolean,
 /**
  * The worker writing in it now.
  */
-writer?: FolderWriter, };
+writer?: FolderWriter, 
+/**
+ * A project's folder inside the organization folder (ADR-205): it is shown there, and its
+ * working copies beside it. `None`: it is elsewhere on this PC, or it isn't a project folder.
+ */
+insideOrganization?: boolean, };

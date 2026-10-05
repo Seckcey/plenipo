@@ -428,6 +428,7 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Change… (choose another folder)                                                | browse, pick directory, open file dialog                                                   |
 | Always keep on this device (OneDrive) / Keep Downloaded (Mac)                  | pinned, hydrated, Files On-Demand                                                          |
 | kept only online                                                               | placeholder, dehydrated, cloud-only file                                                   |
+| Elsewhere on this PC (project folders outside the organization folder)         | external roots, other locations                                                            |
 | Safety: Light / Careful / Strict (Settings → Safety, ADR-201)                  | permission mode, sandbox level, bypass permissions, YOLO mode                              |
 | Everyday work (the leads' starting permission set)                             | default capability profile, standard grant                                                 |
 | writes answers only (an AI tool that cannot save files or run programs)        | text-only model, no tool use, no function calling                                          |

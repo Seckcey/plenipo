@@ -9,4 +9,8 @@ export type FileRoots = { roots: Array<FileRoot>,
  * A worker is using the screen, mouse, and keyboard: blocked files are hidden and nothing
  * is saved until the owner takes over (ADR-093 §14).
  */
-desktopInUse: boolean, };
+desktopInUse: boolean, 
+/**
+ * The organization folder (ADR-205), the file view's first folder, once it has one.
+ */
+organization?: FileRoot, };

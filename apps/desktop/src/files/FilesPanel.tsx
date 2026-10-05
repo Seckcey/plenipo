@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import type { ChangingFile, FileRoot, FileRoots, FolderListing } from "@plenipo/types";
+import type {
+  ChangingFile,
+  FileRoot,
+  FileRoots,
+  FolderListing,
+  FolderPlace,
+  OrgFolderInfo,
+} from "@plenipo/types";
 import { Banner, Button, EmptyState, IconButton, Icon, StatusDot, cx } from "@plenipo/ui";
 
 import {
   getChangingFiles,
   getFileRoots,
+  getOrgFolder,
   listFolder,
   openFileOutside,
+  openOrgFolder,
   showInFolder,
   toCommandError,
 } from "../api/commands";
@@ -16,6 +25,7 @@ import { usePanelWindow, useWorkspaceIfAny } from "../workspace/context";
 import { insideWindow } from "../workspace/popout";
 import { ATTACH_EVENT, DROP_ATTRIBUTE, fileKey, nameOf, sizeWords, type DraggedFile } from "./refs";
 import { systemWords } from "../system/words";
+import { KeepOnThisDeviceAlert } from "../orgs/OrgFolder";
 
 /** Events after which the folders, or who writes in them, may have changed. */
 function changesTheFolders(type: string): boolean {
@@ -23,6 +33,7 @@ function changesTheFolders(type: string): boolean {
     type.startsWith("guard.grant_") ||
     type.startsWith("workspace.") ||
     type.startsWith("org.project_") ||
+    type.startsWith("folder.") ||
     type === "file.saved"
   );
 }
@@ -33,7 +44,7 @@ type Listed = FolderListing | { error: string };
 interface Row {
   key: string;
   level: number;
-  kind: "project" | "root" | "copies" | "folder" | "file";
+  kind: "project" | "root" | "copies" | "group" | "folder" | "file";
   label: string;
   root?: FileRoot;
   /** The top folder and the path inside it (folders and files). */
@@ -47,10 +58,33 @@ interface Row {
   changing?: ChangingFile;
   writer?: string | undefined;
   note?: string | undefined;
+  /** One of the organization's own folders, and what it is for (ADR-205). */
+  place?: FolderPlace | undefined;
+  /** Kept only online by a sync service: opening it downloads it first. */
+  onlineOnly?: boolean;
 }
 
 const PROJECT = "p:";
 const COPIES = "c:";
+/** The organization folder's groups (ADR-205): working copies of its projects, and project
+ * folders elsewhere on this PC. */
+const GROUP = "g:";
+const COPIES_GROUP = `${GROUP}copies`;
+const ELSEWHERE = `${GROUP}elsewhere`;
+
+/** The icon of one of the organization's own folders. */
+function placeIcon(place: FolderPlace | undefined) {
+  switch (place?.kind) {
+    case "department":
+      return "department" as const;
+    case "scratchPads":
+      return "workers" as const;
+    case "scratchPad":
+      return "user" as const;
+    default:
+      return "projects" as const;
+  }
+}
 
 /** The dropped-on element under a point, in Plenipo's own window (from a pop-out too). */
 function dropTargetAt(
@@ -74,11 +108,14 @@ function dropTargetAt(
 }
 
 /**
- * The Files panel (Phase 21, ADR-093): each project's folder and its working copies, as a tree.
- * Only the folders Plenipo knows. Folders load as they open. Marks say which files a worker is
- * changing now, which files workers may not touch, and which working copy a worker is writing.
- * Open a file in Plenipo (double-click or Enter), in another program, or in its folder. Drag a
- * file onto an objective to put it on the objective.
+ * The Files panel (Phase 21, ADR-093): the organization folder (ADR-205) first, open, with its
+ * departments, projects, Files, and scratch pads marked; then the working copies of its projects,
+ * and project folders elsewhere on this PC. Without an organization folder, each project's folder
+ * and its working copies, as before. Only the folders Plenipo knows. Folders load as they open.
+ * Marks say which files a worker is changing now, which files workers may not touch, which folder
+ * a worker is writing in, and which files are kept only online. Open a file in Plenipo
+ * (double-click or Enter), in another program, or in its folder. Drag a file onto an objective to
+ * put it on the objective.
  */
 export function FilesPanel({ go }: { go: Go }) {
   const ws = useWorkspaceIfAny();
@@ -91,6 +128,9 @@ export function FilesPanel({ go }: { go: Go }) {
   const [listings, setListings] = useState<ReadonlyMap<string, Listed>>(() => new Map());
   const [selected, setSelected] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  // The organization folder's sync state, for the keep-on-this-computer alert (ADR-205 §3).
+  const [orgFolder, setOrgFolder] = useState<OrgFolderInfo | null>(null);
+  const opened = useRef(false);
   const expandedRef = useRef(expanded);
   useEffect(() => {
     expandedRef.current = expanded;
@@ -115,9 +155,12 @@ export function FilesPanel({ go }: { go: Go }) {
     getChangingFiles()
       .then(setChanging)
       .catch(() => undefined);
+    getOrgFolder()
+      .then(setOrgFolder)
+      .catch(() => undefined);
     // The open folders again (a worker may have added files).
     for (const key of expandedRef.current) {
-      if (key.startsWith(PROJECT) || key.startsWith(COPIES)) continue;
+      if (key.startsWith(PROJECT) || key.startsWith(COPIES) || key.startsWith(GROUP)) continue;
       const at = key.indexOf("/");
       if (at > 0) load(key.slice(0, at), key.slice(at + 1));
     }
@@ -153,6 +196,16 @@ export function FilesPanel({ go }: { go: Go }) {
       for (const s of stops) s();
     };
   }, [visible, refresh]);
+
+  // The organization folder opens by itself the first time it is shown.
+  useEffect(() => {
+    const org = roots?.organization;
+    if (!org?.exists || opened.current) return;
+    opened.current = true;
+    const key = fileKey(org.id, "");
+    setExpanded((all) => new Set(all).add(key));
+    load(org.id, "");
+  }, [roots, load]);
 
   const toggle = (key: string, rootId?: string, path?: string) => {
     setExpanded((all) => {
@@ -206,6 +259,8 @@ export function FilesPanel({ go }: { go: Go }) {
           size: e.size,
           blocked: e.blocked,
           runs: e.runs,
+          place: e.place,
+          onlineOnly: e.onlineOnly === true,
         };
         const c = changingAt.get(key);
         if (c) row.changing = c;
@@ -222,53 +277,86 @@ export function FilesPanel({ go }: { go: Go }) {
         });
       }
     };
+    const addRoot = (r: FileRoot, level: number, label: string) => {
+      const key = fileKey(r.id, "");
+      const open = expanded.has(key);
+      out.push({
+        key,
+        level,
+        kind: "root",
+        label,
+        root: r,
+        rootId: r.id,
+        path: "",
+        expanded: r.exists ? open : undefined,
+        writer: r.writer?.worker,
+        note: r.exists ? undefined : "The folder is not there any more",
+      });
+      if (open && r.exists) addFolder(r.id, "", level + 1);
+    };
     const byProject = new Map<string, FileRoot[]>();
     for (const r of roots.roots)
       byProject.set(r.projectId, [...(byProject.get(r.projectId) ?? []), r]);
-    for (const [projectId, list] of byProject) {
-      const projectKey = `${PROJECT}${projectId}`;
-      const projectOpen = expanded.has(projectKey);
-      out.push({
-        key: projectKey,
-        level: 1,
-        kind: "project",
-        label: list[0]?.projectName ?? "Project",
-        expanded: projectOpen,
-      });
-      if (!projectOpen) continue;
-      const folder = list.find((r) => r.kind === "projectFolder");
-      const copies = list.filter((r) => r.kind === "workingCopy");
-      const addRoot = (r: FileRoot, level: number, label: string) => {
-        const key = fileKey(r.id, "");
-        const open = expanded.has(key);
+    /** Each project's folder and working copies, from `level`; `copiesOnly`: its folder is
+     * shown in the organization folder already. */
+    const addProjects = (projects: [string, FileRoot[]][], level: number, copiesOnly: boolean) => {
+      for (const [projectId, list] of projects) {
+        const projectKey = `${PROJECT}${projectId}`;
+        const projectOpen = expanded.has(projectKey);
         out.push({
-          key,
+          key: projectKey,
           level,
-          kind: "root",
-          label,
-          root: r,
-          rootId: r.id,
-          path: "",
-          expanded: r.exists ? open : undefined,
-          writer: r.writer?.worker,
-          note: r.exists ? undefined : "The folder is not there any more",
+          kind: "project",
+          label: list[0]?.projectName ?? "Project",
+          expanded: projectOpen,
         });
-        if (open && r.exists) addFolder(r.id, "", level + 1);
-      };
-      if (folder) addRoot(folder, 2, "Project folder");
-      if (copies.length > 0) {
-        const copiesKey = `${COPIES}${projectId}`;
-        const copiesOpen = expanded.has(copiesKey);
-        out.push({
-          key: copiesKey,
-          level: 2,
-          kind: "copies",
-          label: `Working copies (${copies.length})`,
-          expanded: copiesOpen,
-        });
-        if (copiesOpen) for (const c of copies) addRoot(c, 3, c.label);
+        if (!projectOpen) continue;
+        const folder = list.find((r) => r.kind === "projectFolder");
+        const copies = list.filter((r) => r.kind === "workingCopy");
+        if (copiesOnly) {
+          for (const c of copies) addRoot(c, level + 1, c.label);
+          continue;
+        }
+        if (folder) addRoot(folder, level + 1, "Project folder");
+        if (copies.length > 0) {
+          const copiesKey = `${COPIES}${projectId}`;
+          const copiesOpen = expanded.has(copiesKey);
+          out.push({
+            key: copiesKey,
+            level: level + 1,
+            kind: "copies",
+            label: `Working copies (${copies.length})`,
+            expanded: copiesOpen,
+          });
+          if (copiesOpen) for (const c of copies) addRoot(c, level + 2, c.label);
+        }
       }
+    };
+    const org = roots.organization;
+    if (!org) {
+      addProjects([...byProject], 1, false);
+      return out;
     }
+    // The organization folder first (ADR-205).
+    addRoot(org, 1, org.label);
+    const inside = [...byProject].filter(([, list]) =>
+      list.some((r) => r.kind === "projectFolder" && r.insideOrganization === true),
+    );
+    const withCopies = inside.filter(([, list]) => list.some((r) => r.kind === "workingCopy"));
+    const elsewhere = [...byProject].filter(([id]) => !inside.some(([i]) => i === id));
+    const group = (
+      key: string,
+      label: string,
+      projects: [string, FileRoot[]][],
+      copiesOnly: boolean,
+    ) => {
+      if (projects.length === 0) return;
+      const open = expanded.has(key);
+      out.push({ key, level: 1, kind: "group", label, expanded: open });
+      if (open) addProjects(projects, 2, copiesOnly);
+    };
+    group(COPIES_GROUP, "Working copies", withCopies, true);
+    group(ELSEWHERE, "Elsewhere on this PC", elsewhere, false);
     return out;
   }, [roots, listings, expanded, changing]);
 
@@ -333,11 +421,12 @@ export function FilesPanel({ go }: { go: Go }) {
       </div>
     );
   }
-  if (roots && roots.roots.length === 0) {
+  if (roots && roots.roots.length === 0 && !roots.organization) {
     return (
       <div className="files-panel files-panel--empty">
-        <EmptyState pip="coding" title="No project folders yet">
-          Give a project a folder on its page, and its files show here, with the working copies
+        <EmptyState pip="coding" title="No organization folder yet">
+          Organizations you make from now on get one, with a folder for each department and project.
+          Give a project a folder on its page, and its files show here too, with the working copies
           workers make.
         </EmptyState>
       </div>
@@ -396,6 +485,17 @@ export function FilesPanel({ go }: { go: Go }) {
       {problem && (
         <Banner tone="error" role="alert" title={problem} onDismiss={() => setProblem(null)} />
       )}
+      {roots?.organization && (
+        <KeepOnThisDeviceAlert
+          info={orgFolder}
+          onShow={roots.organization.exists ? () => act(() => openOrgFolder()) : undefined}
+          onCheck={() => {
+            getOrgFolder()
+              .then(setOrgFolder)
+              .catch(() => undefined);
+          }}
+        />
+      )}
       {roots?.desktopInUse && (
         <Banner
           tone="pending"
@@ -409,7 +509,11 @@ export function FilesPanel({ go }: { go: Go }) {
         ref={tree}
         className={cx("files-tree", dragging && "files-tree--dragging")}
         role="tree"
-        aria-label="Project folders and working copies"
+        aria-label={
+          roots?.organization
+            ? "Organization folder, working copies, and project folders"
+            : "Project folders and working copies"
+        }
         onKeyDown={onKey}
       >
         {rows.map((row) => {
@@ -474,17 +578,33 @@ export function FilesPanel({ go }: { go: Go }) {
                     ? "projects"
                     : row.kind === "copies"
                       ? "branch"
-                      : row.kind === "root"
-                        ? row.root?.kind === "workingCopy"
+                      : row.kind === "group"
+                        ? row.key === COPIES_GROUP
                           ? "branch"
-                          : "projects"
-                        : row.kind === "folder"
-                          ? "projects"
-                          : "file"
+                          : "globe"
+                        : row.kind === "root"
+                          ? row.root?.kind === "workingCopy"
+                            ? "branch"
+                            : row.root?.kind === "organizationFolder"
+                              ? "organization"
+                              : "projects"
+                          : row.kind === "folder"
+                            ? placeIcon(row.place)
+                            : "file"
                 }
                 size={14}
               />
               <span className="files-tree__name">{row.label}</span>
+              {row.place && <span className="files-tree__mark">{row.place.label}</span>}
+              {row.onlineOnly && (
+                <span
+                  className="files-tree__mark"
+                  title="Kept only online: opening it downloads it first"
+                >
+                  <Icon name="globe" size={12} />
+                  online only
+                </span>
+              )}
               {row.writer && (
                 <StatusDot
                   className="files-tree__mark"
@@ -528,6 +648,7 @@ export function FilesPanel({ go }: { go: Go }) {
 }
 
 function rootPathOf(roots: FileRoots | null, rootId: string | undefined): string | undefined {
+  if (roots?.organization?.id === rootId) return roots?.organization?.path;
   return roots?.roots.find((r) => r.id === rootId)?.path;
 }
 
