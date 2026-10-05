@@ -123,6 +123,10 @@ beforeEach(() => {
   });
   vi.mocked(commands.openWorkFolder).mockResolvedValue(undefined);
   vi.mocked(commands.getChainOrders).mockResolvedValue([]);
+  // Fetching a conversation again finds nothing new unless a test says what Plenipo has.
+  vi.mocked(commands.getAgentSession).mockRejectedValue(
+    new commands.PlenipoCommandError("notReady", "Not in this test."),
+  );
 });
 
 afterEach(() => {
@@ -255,6 +259,92 @@ describe("a chat with an agent (ADR-200)", () => {
     expect(commands.giveObjective).toHaveBeenCalledTimes(1);
   });
 
+  it("says Stopping while the stop goes, and says so when the agent goes on working", async () => {
+    vi.mocked(commands.giveObjective).mockResolvedValue(
+      detail([turn("t1", { objective: "First", startedAt: started })]),
+    );
+    let answer: (d: AgentSessionDetail) => void = () => undefined;
+    vi.mocked(commands.cancelAgentTurn).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
+    await screen.findByRole("log", {}, SLOW);
+    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+
+    // Plenipo asks its AI tool to stop, and ends it if it does not: that takes a moment.
+    const stopping = screen.getByRole("button", { name: "Stopping Development Manager…" });
+    expect(stopping).toBeDisabled();
+    expect(screen.getByText("Stopping")).toBeInTheDocument();
+    await user.click(stopping);
+    expect(commands.cancelAgentTurn).toHaveBeenCalledTimes(1);
+
+    // Its AI tool went on: the chat says so, and Stop is there again.
+    await act(async () => {
+      answer(detail([turn("t1", { objective: "First", startedAt: started })]));
+      await Promise.resolve();
+    });
+    expect(
+      await screen.findByText(
+        "Development Manager has not stopped yet. Try Stop all, the red button on the map.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop Development Manager" })).toBeEnabled();
+
+    // When it ends after all, the note goes.
+    emit({ kind: "turn", ...done("t1", "") });
+    await waitFor(() => expect(screen.queryByText(/has not stopped yet/)).not.toBeInTheDocument());
+  });
+
+  it("shows a turn whose end was missed as stopped, when Stop finds nothing running", async () => {
+    vi.mocked(commands.giveObjective).mockResolvedValue(
+      detail([turn("t1", { objective: "First", startedAt: started })]),
+    );
+    vi.mocked(commands.cancelAgentTurn).mockRejectedValue(
+      new commands.PlenipoCommandError("notReady", "No turn is running in this session."),
+    );
+    // Plenipo has no end for it either, and nothing runs in the conversation.
+    vi.mocked(commands.getAgentSession).mockResolvedValue(
+      detail([turn("t1", { objective: "First", startedAt: started, running: false })], {
+        activeTaskId: null,
+      }),
+    );
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
+    await screen.findByRole("log", {}, SLOW);
+    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+
+    expect(await screen.findByText(/Stopped\. It was no longer running\./, {}, SLOW)).toBeVisible();
+    expect(commands.getAgentSession).toHaveBeenCalledWith("s1");
+    expect(screen.queryByRole("button", { name: /^Stop/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says why a stop did not work, under its own heading", async () => {
+    vi.mocked(commands.giveObjective).mockResolvedValue(
+      detail([turn("t1", { objective: "First", startedAt: started })]),
+    );
+    vi.mocked(commands.cancelAgentTurn).mockRejectedValue(
+      new commands.PlenipoCommandError(
+        "notReady",
+        "The turn is still starting; try again in a moment.",
+      ),
+    );
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
+    await screen.findByRole("log", {}, SLOW);
+    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+
+    const alert = await screen.findByRole("alert", {}, SLOW);
+    expect(alert).toHaveTextContent("Could not stop Development Manager");
+    expect(alert).toHaveTextContent("The turn is still starting; try again in a moment.");
+    expect(alert).not.toHaveTextContent("That message did not go");
+    expect(screen.getByRole("button", { name: "Stop Development Manager" })).toBeEnabled();
+  });
+
   it("says why a message did not go, and keeps the box ready", async () => {
     vi.mocked(commands.giveObjective).mockRejectedValue(
       new commands.PlenipoCommandError("invalidInput", "Development Manager is vacant."),
@@ -262,6 +352,7 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat();
     await user.type(screen.getByLabelText("Message to Development Manager"), "Hello{Enter}");
     const alert = await screen.findByRole("alert", {}, SLOW);
+    expect(alert).toHaveTextContent("That message did not go");
     expect(alert).toHaveTextContent("Development Manager is vacant.");
     await user.click(within(alert).getByRole("button", { name: /dismiss/i }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();

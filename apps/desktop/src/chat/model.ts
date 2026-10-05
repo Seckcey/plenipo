@@ -102,6 +102,29 @@ export function isBusy(session: ChatSession): boolean {
   return session.turns.some((t) => !isOver(t));
 }
 
+/**
+ * Plenipo says no turn is running in this conversation, after you pressed Stop: a turn still shown
+ * as running had its end missed, and shows as stopped. Its real end replaces this if it comes.
+ */
+export function endUnfinished(session: ChatSession, at: number): ChatSession {
+  if (!isBusy(session)) return session;
+  return {
+    ...session,
+    turns: session.turns.map((t) =>
+      isOver(t)
+        ? t
+        : {
+            ...t,
+            state: "stopped",
+            endedAt: t.endedAt ?? at,
+            parts: closeOpen(t.parts, t.endedAt ?? at, false),
+            status: null,
+            problem: t.problem ?? "It was no longer running.",
+          },
+    ),
+  };
+}
+
 // ---- Parts -------------------------------------------------------------------------------------
 
 let counter = 0;

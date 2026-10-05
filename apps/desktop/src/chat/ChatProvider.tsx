@@ -13,7 +13,6 @@ import { storedKey } from "@plenipo/ui";
 import { useAgents } from "../agents/useAgents";
 import { isRunning, isWaiting, liaisonInfo, type AgentState } from "../agents/store";
 import {
-  cancelAgentTurn,
   getAgentSession,
   giveObjective,
   resumeAgentSession,
@@ -21,12 +20,14 @@ import {
 } from "../api/commands";
 import { subscribeAgentUpdates } from "../api/events";
 import { useWorkspaceIfAny } from "../workspace/context";
-import { ChatContext, type ChatApi } from "./context";
+import { ChatContext, type ChatApi, type ChatProblem } from "./context";
 import {
   applyActivity,
   applyTurn,
   emptySession,
+  endUnfinished,
   isBusy,
+  isOver,
   mergeDetail,
   type ChatSession,
 } from "./model";
@@ -73,6 +74,23 @@ function saysBusy(message: string): boolean {
   return /already running|waiting to continue|busy with/i.test(message);
 }
 
+function withoutKey<T>(all: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in all)) return all;
+  const rest = { ...all };
+  delete rest[key];
+  return rest;
+}
+
+/** Stop's answer when nothing runs: the chat missed its turn's end. */
+function saysNothingRuns(message: string): boolean {
+  return /no turn is running/i.test(message);
+}
+
+/** What a chat says when its agent goes on working after Stop. */
+function notStoppedYet(title: string): string {
+  return `${title} has not stopped yet. Try Stop all, the red button on the map.`;
+}
+
 /** One live update applied to the conversations held (others are not loaded, so skipped). */
 function applyUpdate(all: Conversations, update: AgentUpdate): Conversations {
   if (update.kind !== "activity" && update.kind !== "turn") return all;
@@ -91,6 +109,8 @@ function applyUpdate(all: Conversations, update: AgentUpdate): Conversations {
 export function ChatProvider({ children }: { children: ReactNode }) {
   const agents = useAgents();
   const agentState = agents.state;
+  // Through the agents' store, so every page sees what Plenipo answered (not only the chats).
+  const { cancel: cancelTurn, loadSession } = agents;
   const ws = useWorkspaceIfAny();
   const show = ws?.show;
 
@@ -126,8 +146,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   );
   const [sendingKeys, setSendingKeys] = useState<Record<string, boolean>>({});
   const sendingRef = useRef<Record<string, boolean>>({});
-  const [problems, setProblems] = useState<Record<string, string | null>>({});
+  const [problems, setProblems] = useState<Record<string, ChatProblem | null>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [stoppingKeys, setStoppingKeys] = useState<Record<string, boolean>>({});
+  const stoppingRef = useRef<Record<string, boolean>>({});
+  const setStopping = useCallback((key: string, on: boolean) => {
+    stoppingRef.current = { ...stoppingRef.current, [key]: on };
+    setStoppingKeys(stoppingRef.current);
+  }, []);
+  /** An agent that did not stop when asked: the turn it went on with, and what to try next. */
+  const [stopNotes, setStopNotes] = useState<Record<string, { taskId: string; text: string }>>(
+    {},
+  );
 
   /** Conversations being fetched, and the live updates that came for them meanwhile. */
   const loading = useRef(new Map<string, AgentUpdate[]>());
@@ -258,7 +288,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           // Busy after all: it waits for the agent, first in line.
           setQueues((q) => ({ ...q, [tab.key]: [text, ...(q[tab.key] ?? [])] }));
         } else {
-          setProblems((p) => ({ ...p, [tab.key]: message }));
+          setProblems((p) => ({
+            ...p,
+            [tab.key]: { heading: "That message did not go", message },
+          }));
         }
         return false;
       } finally {
@@ -300,8 +333,32 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     for (const id of wanted) if (!conversationsRef.current[id]) load(id);
   }, [wanted, load]);
 
-  // A turn that ended while its end was missed (the window was asleep): fetched again once, and
-  // what waited goes then.
+  /**
+   * Fetch a conversation again: Plenipo says no turn runs in it while the chat shows one, so the
+   * turn's end was missed. A turn still unfinished in what comes back, while Plenipo says nothing
+   * runs, shows as stopped. What waited goes then.
+   */
+  const refresh = useCallback(
+    async (id: string) => {
+      const at = Date.now();
+      let detail: AgentSessionDetail;
+      try {
+        detail = await loadSession(id);
+      } catch {
+        // Not reachable now: the chat stays as it is until Plenipo next tells it something.
+        return;
+      }
+      const idle = !isRunning(detail.session) && !isWaiting(detail.session);
+      setConversations((c) => {
+        const merged = mergeDetail(c[id] ?? emptySession(id), detail);
+        return { ...c, [id]: idle ? endUnfinished(merged, at) : merged };
+      });
+      queueMicrotask(() => flushRef.current());
+    },
+    [setConversations, loadSession],
+  );
+
+  // A turn that ended while its end was missed (the window was asleep): fetched again once.
   const stale = useMemo(
     () =>
       wanted.flatMap((id) => {
@@ -318,14 +375,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     for (const { id, key } of stale) {
       if (refetched.current.has(key)) continue;
       refetched.current.add(key);
-      getAgentSession(id)
-        .then((detail) => {
-          take(detail);
-          queueMicrotask(() => flushRef.current());
-        })
-        .catch(() => undefined);
+      void refresh(id);
     }
-  }, [stale, take]);
+  }, [stale, refresh]);
 
   // Each chat with a window of its own (ADR-203) has its window open: after a restart too, and
   // one that cannot open goes back to the panel. A chat put back, or closed, has its window
@@ -456,13 +508,48 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       stop: async (key) => {
         const tab = tabOf(key);
         const id = tab ? sessionOfTab(tab, agentState) : null;
-        if (!tab || !id) return;
-        // What waited stays waiting: stopping one task is not cancelling the next.
+        if (!tab || !id || stoppingRef.current[key]) return;
+        // The turn being stopped: a message that waited may start the next one meanwhile.
+        const s = agentState.sessions[id];
+        const shown =
+          conversationsRef.current[id]?.turns.find((t) => !isOver(t))?.taskId ??
+          s?.activeTaskId ??
+          s?.waitingTaskId ??
+          null;
+        setStopping(key, true);
+        setStopNotes((n) => withoutKey(n, key));
+        setProblems((p) => ({ ...p, [key]: null }));
+        // What waited stays waiting: stopping one task is not cancelling the next. Plenipo asks
+        // the AI tool to stop, ends it if it does not, and answers once the turn is recorded.
         try {
-          take(await cancelAgentTurn(id));
+          const detail = await cancelTurn(id);
+          take(detail);
+          const still = detail.session.activeTaskId ?? detail.session.waitingTaskId;
+          if (still && (shown === null || still === shown)) {
+            setStopNotes((n) => ({ ...n, [key]: { taskId: still, text: notStoppedYet(tab.title) } }));
+          }
         } catch (reason) {
-          setProblems((p) => ({ ...p, [key]: toCommandError(reason).message }));
+          const message = toCommandError(reason).message;
+          if (saysNothingRuns(message)) {
+            await refresh(id);
+          } else {
+            setProblems((p) => ({
+              ...p,
+              [key]: { heading: `Could not stop ${tab.title}`, message },
+            }));
+          }
+        } finally {
+          setStopping(key, false);
         }
+      },
+      stopping: (key) => stoppingKeys[key] === true,
+      stopNote: (key) => {
+        const note = stopNotes[key];
+        const tab = tabOf(key);
+        const id = tab ? sessionOfTab(tab, agentState) : null;
+        const turn = id ? conversations[id]?.turns.find((t) => t.taskId === note?.taskId) : null;
+        // Only while the turn it went on with is still running.
+        return note && turn && !isOver(turn) ? note.text : null;
       },
       sending: (key) => sendingKeys[key] === true,
       note: (key) => notes[key] ?? null,
@@ -475,9 +562,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     agentState,
     queues,
     sendingKeys,
+    stoppingKeys,
+    stopNotes,
     problems,
     notes,
     setTabs,
+    setStopping,
+    refresh,
+    cancelTurn,
     setQueues,
     show,
     focusChatWindow,
