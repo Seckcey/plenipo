@@ -33,9 +33,7 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Folder> {
 fn get(conn: &Connection, kind: FolderKind, ref_id: Option<&str>) -> Result<Option<Folder>> {
     Ok(conn
         .query_row(
-            &format!(
-                "SELECT {COLS} FROM folders WHERE kind = ?1 AND COALESCE(ref_id, '') = ?2"
-            ),
+            &format!("SELECT {COLS} FROM folders WHERE kind = ?1 AND COALESCE(ref_id, '') = ?2"),
             params![kind.as_str(), ref_id.unwrap_or("")],
             row,
         )
@@ -44,7 +42,11 @@ fn get(conn: &Connection, kind: FolderKind, ref_id: Option<&str>) -> Result<Opti
 
 fn by_id(conn: &Connection, id: &str) -> Result<Option<Folder>> {
     Ok(conn
-        .query_row(&format!("SELECT {COLS} FROM folders WHERE id = ?1"), [id], row)
+        .query_row(
+            &format!("SELECT {COLS} FROM folders WHERE id = ?1"),
+            [id],
+            row,
+        )
         .optional()?)
 }
 
@@ -56,7 +58,9 @@ fn invalid(message: impl Into<String>) -> LedgerError {
 /// with nothing around it.
 fn check_path(path: &str) -> Result<()> {
     if path.is_empty() || path.trim() != path {
-        return Err(invalid("a folder's path can't be empty or start or end with a space"));
+        return Err(invalid(
+            "a folder's path can't be empty or start or end with a space",
+        ));
     }
     if path.chars().count() > MAX_FOLDER_PATH {
         return Err(invalid(format!(
@@ -67,7 +71,9 @@ fn check_path(path: &str) -> Result<()> {
         return Err(invalid("a folder's path can't hold control characters"));
     }
     if !Path::new(path).is_absolute() {
-        return Err(invalid(format!("{path} is not a full path on this computer")));
+        return Err(invalid(format!(
+            "{path} is not a full path on this computer"
+        )));
     }
     Ok(())
 }
@@ -139,7 +145,9 @@ impl Ledger {
                 )))
             }
             (Some(false), true) => {
-                return Err(invalid("the organization folder belongs to the organization"))
+                return Err(invalid(
+                    "the organization folder belongs to the organization",
+                ))
             }
             _ => {}
         }
@@ -200,13 +208,16 @@ impl Ledger {
                     crate::now_ms() as i64
                 ],
             )?;
-            let folder = by_id(tx, &id)?
-                .ok_or_else(|| LedgerError::NotFound(format!("folder {id}")))?;
+            let folder =
+                by_id(tx, &id)?.ok_or_else(|| LedgerError::NotFound(format!("folder {id}")))?;
             let event_type = match origin {
                 FolderOrigin::Made => "folder.made",
                 FolderOrigin::Adopted => "folder.adopted",
             };
-            out.push(events::insert(tx, folder_event(actor, event_type, &folder))?);
+            out.push(events::insert(
+                tx,
+                folder_event(actor, event_type, &folder),
+            )?);
             Ok(folder)
         })
     }
@@ -217,7 +228,10 @@ impl Ledger {
         self.write(|tx, out| {
             let folder =
                 by_id(tx, id)?.ok_or_else(|| LedgerError::NotFound(format!("folder {id}")))?;
-            out.push(events::insert(tx, folder_event(actor, "folder.remade", &folder))?);
+            out.push(events::insert(
+                tx,
+                folder_event(actor, "folder.remade", &folder),
+            )?);
             Ok(())
         })
     }
@@ -283,14 +297,22 @@ mod tests {
         // The same place twice, in other letters too, is refused.
         let d = l.create_department("Marketing", "", None, "owner").unwrap();
         let again = l.record_folder(
-            &new(FolderKind::Department, Some(&d.id), &place("ACME/scratch PADS")),
+            &new(
+                FolderKind::Department,
+                Some(&d.id),
+                &place("ACME/scratch PADS"),
+            ),
             FolderOrigin::Made,
             "plenipo",
         );
         assert!(again.is_err(), "{again:?}");
         let dept = l
             .record_folder(
-                &new(FolderKind::Department, Some(&d.id), &place("Acme/Marketing")),
+                &new(
+                    FolderKind::Department,
+                    Some(&d.id),
+                    &place("Acme/Marketing"),
+                ),
                 FolderOrigin::Made,
                 "plenipo",
             )
@@ -302,7 +324,11 @@ mod tests {
         // One department folder for the department.
         assert!(l
             .record_folder(
-                &new(FolderKind::Department, Some(&d.id), &place("Acme/Marketing (2)")),
+                &new(
+                    FolderKind::Department,
+                    Some(&d.id),
+                    &place("Acme/Marketing (2)")
+                ),
                 FolderOrigin::Made,
                 "plenipo",
             )

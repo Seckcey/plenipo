@@ -61,7 +61,7 @@ pub fn read_me(organization: &str) -> String {
 }
 
 /// An empty, ordinary folder (not a link or junction), or nothing at all, is free to use.
-fn free(path: &Path) -> bool {
+pub fn free(path: &Path) -> bool {
     match std::fs::symlink_metadata(path) {
         Err(e) => e.kind() == std::io::ErrorKind::NotFound,
         Ok(meta) => {

@@ -14,7 +14,8 @@ pub use dto::{
     AppInfo, BuildProfile, CommandError, CommandErrorKind, LocalPath, SyntheticTaskAction,
 };
 pub use organizations::{
-    OrgDeletePreview, OrgListing, OrgOpened, OrgStart, OrgSummary, OrgTemplate, OrgWorker,
+    FolderSync, OrgDeletePreview, OrgFolderInfo, OrgListing, OrgOpened, OrgStart, OrgSummary,
+    OrgTemplate, OrgWorker,
 };
 pub use upkeep::{
     AvailableUpdate, CloseWindow, DiagnosticsFile, InstallWay, Recovery, RecoveryCause,

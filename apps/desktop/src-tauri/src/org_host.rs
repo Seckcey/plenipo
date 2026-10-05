@@ -241,6 +241,17 @@ pub fn build<R: Runtime>(
         let busy = supervisor.clone();
         backup_host::start_daily(&ledger, stopped.clone(), move || busy.active_count() > 0);
     }
+    // The organization folder (ADR-205): each department, project, and position gets its folder
+    // as the org chart changes, and a missing one is made again where it was. An organization
+    // without an organization folder is left alone.
+    let folders = plenipo_capabilities::org_folder::FolderKeeper::new(
+        ledger.clone(),
+        crate::folder_commands::trusted(app),
+    );
+    folders.listen();
+    if how.run {
+        folders.nudge();
+    }
     let stack = Arc::new(OrgStack {
         stopped,
         place,
@@ -254,6 +265,7 @@ pub fn build<R: Runtime>(
         workforce,
         notices,
         watchers,
+        folders,
     });
     // Work a usage limit stopped is picked back up once the limit is over (Phase 25, item 4.2).
     if how.run {

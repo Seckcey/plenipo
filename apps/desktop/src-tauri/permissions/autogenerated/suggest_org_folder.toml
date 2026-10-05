@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-suggest-org-folder"
+description = "Enables the suggest_org_folder command without any pre-configured scope."
+commands.allow = ["suggest_org_folder"]
+
+[[permission]]
+identifier = "deny-suggest-org-folder"
+description = "Denies the suggest_org_folder command without any pre-configured scope."
+commands.deny = ["suggest_org_folder"]

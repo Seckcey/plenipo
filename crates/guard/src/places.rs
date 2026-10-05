@@ -140,7 +140,7 @@ impl SystemPlaces {
     }
 
     /// The system's own folders, at and above which a junction or link is not looked at.
-    fn trusted(&self) -> Vec<PathBuf> {
+    pub fn trusted(&self) -> Vec<PathBuf> {
         self.profile
             .iter()
             .chain(self.documents.iter())
@@ -366,10 +366,9 @@ pub fn place_problem(path: &str, places: &SystemPlaces) -> Result<PathBuf, Strin
     Ok(real_path)
 }
 
-/// Who syncs a folder online, when Plenipo can tell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
+/// Who syncs a folder online, when Plenipo can tell (the screens' own word is
+/// `plenipo_core::FolderSync`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyncedBy {
     /// OneDrive: Plenipo can see whether it is told to keep the folder on this device.
     OneDrive,
@@ -386,6 +385,11 @@ pub fn onedrive_roots() -> Vec<PathBuf> {
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .collect()
+}
+
+/// The OneDrive folder `path` is in, of `onedrive`.
+pub fn onedrive_root_of(path: &Path, onedrive: &[PathBuf]) -> Option<PathBuf> {
+    onedrive.iter().find(|root| within(path, root)).cloned()
 }
 
 /// Whether a sync service keeps `path` online: OneDrive when it is inside one of `onedrive`

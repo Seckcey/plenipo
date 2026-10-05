@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-org-folder"
+description = "Enables the get_org_folder command without any pre-configured scope."
+commands.allow = ["get_org_folder"]
+
+[[permission]]
+identifier = "deny-get-org-folder"
+description = "Denies the get_org_folder command without any pre-configured scope."
+commands.deny = ["get_org_folder"]
