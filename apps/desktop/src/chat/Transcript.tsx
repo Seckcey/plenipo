@@ -3,6 +3,7 @@ import type { WorkFolder } from "@plenipo/types";
 import { Button, Icon, cx } from "@plenipo/ui";
 
 import { getWorkFolder, openWorkFolder, toCommandError } from "../api/commands";
+import { tokens } from "../routing/format";
 import { useNow } from "../runtime/useNow";
 import { Markdown } from "./Markdown";
 import {
@@ -32,12 +33,15 @@ export function Transcript({
   session,
   title,
   askFrom = null,
+  tool = null,
   onOpenLink,
 }: {
   session: ChatSession | null;
   title: string;
   /** Who each message is from, when it is not you ("From its lead", ADR-203). */
   askFrom?: string | null;
+  /** Its AI tool, by name: said when it reports no tokens. */
+  tool?: string | null;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -93,6 +97,7 @@ export function Transcript({
               turn={turn}
               title={title}
               askFrom={askFrom}
+              tool={tool}
               onOpenLink={onOpenLink}
             />
           ))
@@ -139,11 +144,13 @@ const TurnView = memo(function TurnView({
   turn,
   title,
   askFrom,
+  tool,
   onOpenLink,
 }: {
   turn: ChatTurn;
   title: string;
   askFrom: string | null;
+  tool: string | null;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
   const live = !isOver(turn);
@@ -169,7 +176,7 @@ const TurnView = memo(function TurnView({
             {turn.problem}
           </p>
         )}
-        {isOver(turn) && <TurnFoot turn={turn} />}
+        {isOver(turn) && <TurnFoot turn={turn} tool={tool} />}
       </div>
     </article>
   );
@@ -362,15 +369,47 @@ function FilesCard({
   );
 }
 
-/** Under a finished answer: how long it took, and its model. */
-function TurnFoot({ turn }: { turn: ChatTurn }) {
+/**
+ * Under a finished answer: how long it took, its model, and its tokens (pieces of words) over all
+ * its steps, which open to show how many it read, reused, and wrote (I2). A turn stopped before a
+ * step reported says "at least"; an AI tool that reports none says so.
+ */
+function TurnFoot({ turn, tool }: { turn: ChatTurn; tool: string | null }) {
+  const [open, setOpen] = useState(false);
   const parts: string[] = [];
   if (turn.endedAt !== null) parts.push(`${elapsed(turn.endedAt - turn.startedAt)}`);
   if (turn.model) parts.push(turn.model);
-  if (turn.usage) {
-    const total = turn.usage.inputTokens + turn.usage.outputTokens;
-    if (total > 0) parts.push(`${Math.round(total / 100) / 10}k tokens`);
-  }
-  if (parts.length === 0) return null;
-  return <p className="chat-turn__foot">{parts.join(" · ")}</p>;
+  const usage = turn.usage;
+  const total = usage ? usage.inputTokens + usage.outputTokens : 0;
+  const counted =
+    usage && total > 0 ? `${turn.usageAtLeast ? "at least " : ""}${tokens(total)} tokens` : null;
+  if (!counted && turn.state === "done" && tool) parts.push(`${tool} did not report tokens`);
+  if (parts.length === 0 && !counted) return null;
+  return (
+    <>
+      <p className="chat-turn__foot">
+        {parts.join(" · ")}
+        {counted && (
+          <>
+            {parts.length > 0 && " · "}
+            <button
+              type="button"
+              className="chat-turn__tokens"
+              aria-expanded={open}
+              onClick={() => setOpen(!open)}
+            >
+              {counted}
+            </button>
+          </>
+        )}
+      </p>
+      {open && usage && (
+        <p className="chat-turn__usage">
+          {tokens(usage.inputTokens)} read
+          {usage.cachedInputTokens > 0 && ` (${tokens(usage.cachedInputTokens)} reused)`} ·{" "}
+          {tokens(usage.outputTokens)} written
+        </p>
+      )}
+    </>
+  );
 }

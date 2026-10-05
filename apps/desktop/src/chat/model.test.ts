@@ -18,6 +18,7 @@ import {
   isBusy,
   mergeDetail,
   stuckTurns,
+  turnTokens,
   type ChatSession,
 } from "./model";
 import { toolPhrase } from "./words";
@@ -181,6 +182,49 @@ describe("tool calls", () => {
     ]);
     const words = turn(s).parts[0];
     expect(words).toMatchObject({ kind: "text", streaming: false });
+  });
+});
+
+describe("tokens (I2)", () => {
+  const used = (inputTokens: number, outputTokens: number, cachedInputTokens = 0) => ({
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+  });
+
+  it("adds up what each step reports live, by step", () => {
+    // Step 2's activity is numbered from 1,000,001 (STEP_SEQ).
+    const s = [
+      act(1, { type: "usage", usage: used(100, 10) }),
+      act(2, { type: "usage", usage: used(150, 20) }),
+      act(1_000_001, { type: "usage", usage: used(300, 30, 200) }),
+    ].reduce(applyActivity, emptySession(SESSION));
+    // A step's newer report replaces its older one; the steps are added up.
+    expect(turn(s).usage).toEqual(used(450, 50, 200));
+  });
+
+  it("adds up a turn's record over its steps, and says at least when stopped early", () => {
+    const step = (number: number, usage: ReturnType<typeof used> | null) => ({
+      number,
+      executionId: `e${number}`,
+      running: false,
+      startedAt: 1000,
+      endedAt: 2000,
+      result: { ...(finished("x").result as NonNullable<AgentTurn["result"]>), usage },
+    });
+    const two = { ...finished("x"), steps: [step(1, used(100, 10)), step(2, used(200, 20, 50))] };
+    expect(turnTokens(two)).toEqual({ usage: used(300, 30, 50), atLeast: false });
+    const stopped = {
+      ...finished("x", "cancelled"),
+      steps: [step(1, used(100, 10)), step(2, null)],
+    };
+    expect(turnTokens(stopped)).toEqual({ usage: used(100, 10), atLeast: true });
+    expect(turn(applyTurn(emptySession(SESSION), stopped))).toMatchObject({
+      usage: used(100, 10),
+      usageAtLeast: true,
+    });
+    // A turn recorded before steps were: its final result's alone.
+    expect(turnTokens(finished("x")).usage).toEqual(used(10, 5));
   });
 });
 
