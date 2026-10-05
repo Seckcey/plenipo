@@ -4624,6 +4624,7 @@ mod tests {
             session_id: "s".into(),
             number: 1,
             objective: "o".into(),
+            requested_by: crate::agent::dto::RequestedBy::owner(),
             execution_id: None,
             running: false,
             waiting: false,
