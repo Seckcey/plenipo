@@ -14,6 +14,12 @@ const policies = [
     description:
       "How Plenipo handles local records, AI requests, website visits, and support information.",
   },
+  {
+    slug: "moderation",
+    title: "How we keep Community safe",
+    description:
+      "How 8 West Ventures, LLC handles blocks, reports, and safety in Plenipo Community.",
+  },
 ];
 
 // The same Markdown is readable on GitHub and rendered here. Keeping it inside
