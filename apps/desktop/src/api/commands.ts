@@ -1350,11 +1350,16 @@ export function setAddOnTools(
 
 /**
  * Tell Plenipo this window's page is about to open `target` (a panel, or one chat, ADR-203) in its
- * own window (`place`: where the panel was dropped; none for where it was last). Plenipo allows
- * the next new window of this page for that target only, once.
+ * own window (`place`: where the panel was dropped; none for where it was last; `title`: a chat
+ * window's agent, for its title bar). Plenipo allows the next new window of this page for that
+ * target only, once.
  */
-export function preparePopOut(target: PopOutTarget, place: WindowPlace | null): Promise<void> {
-  return call<void>("prepare_pop_out", { target, place });
+export function preparePopOut(
+  target: PopOutTarget,
+  place: WindowPlace | null,
+  title?: string,
+): Promise<void> {
+  return call<void>("prepare_pop_out", { target, place, title: title ?? null });
 }
 
 /** Bring a popped-out panel's (or chat's) window to the front. `false` when it is not open. */

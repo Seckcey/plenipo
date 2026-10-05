@@ -196,7 +196,11 @@ describe("each agent's chat in a window of its own (ADR-203)", () => {
       screen.getByRole("button", { name: "Pop out: Development Manager's chat in its own window" }),
     );
     await waitFor(() =>
-      expect(api.preparePopOut).toHaveBeenCalledWith({ kind: "chat", slot: 1 }, null),
+      expect(api.preparePopOut).toHaveBeenCalledWith(
+        { kind: "chat", slot: 1 },
+        null,
+        "Development Manager",
+      ),
     );
     await waitFor(() => expect(open).toHaveBeenCalledWith("about:blank", "_blank"));
     const own = win.document.body;
@@ -270,7 +274,11 @@ describe("each agent's chat in a window of its own (ADR-203)", () => {
     vi.spyOn(window, "open").mockReturnValueOnce(win).mockReturnValueOnce(null);
     await show();
     await waitFor(() =>
-      expect(api.preparePopOut).toHaveBeenCalledWith({ kind: "chat", slot: 3 }, null),
+      expect(api.preparePopOut).toHaveBeenCalledWith(
+        { kind: "chat", slot: 3 },
+        null,
+        "Development Manager",
+      ),
     );
     await within(win.document.body).findByRole(
       "log",

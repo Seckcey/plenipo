@@ -23,14 +23,16 @@ fn org_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<String, CommandEr
 }
 
 /// The page is about to open `target` (a panel, or a chat's window) in its own window (`place`:
-/// where the panel was dropped, or none for where it was last). Plenipo allows the next
-/// `window.open` of this window's page for that target only, once, within a few seconds.
+/// where the panel was dropped, or none for where it was last; `title`: a chat window's agent,
+/// for its title bar). Plenipo allows the next `window.open` of this window's page for that
+/// target only, once, within a few seconds.
 #[tauri::command]
 pub fn prepare_pop_out<R: Runtime>(
     window: WebviewWindow<R>,
     popouts: State<'_, PopOuts>,
     target: PopOutTarget,
     place: Option<WindowPlace>,
+    title: Option<String>,
 ) -> Result<(), CommandError> {
     let parent = org_window(&window)?;
     if !target.is_valid() {
@@ -43,7 +45,7 @@ pub fn prepare_pop_out<R: Runtime>(
             ));
         }
     }
-    popouts.request(&parent, target, place);
+    popouts.request(&parent, target, place, title.as_deref());
     Ok(())
 }
 

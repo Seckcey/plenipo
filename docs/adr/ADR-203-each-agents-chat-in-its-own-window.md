@@ -9,7 +9,8 @@
 - **Touches:** [ADR-092 (panels and windows)](ADR-092-panels-and-windows.md) (a pop-out can now be
   one chat, not only a whole panel), [ADR-200 (a live chat with each agent)](ADR-200-a-live-chat-with-each-agent.md)
   (a chat can leave the Chat panel), and [ADR-202 (the chain of command)](ADR-202-the-chain-of-command.md)
-  (unchanged: a worker handed its work by its lead is watched, not messaged).
+  (unchanged: an on-call position's messages go through its lead, and a worker's handed-off
+  conversation is watched, not messaged).
 - **Made by:** 8 West Ventures, LLC, for Plenipo.
 
 > **On screen** (ADR-010, plain words and rank names): **Pop out chat**, **Pop out**, **Put back in
@@ -56,7 +57,8 @@ chat after a restart (the second part, below).
    conversation, plus a double-click on the map.** Also: Enter sends, Shift+Enter starts a new
    line (built in v1.25.0).
 4. **Show the steps after a restart.**
-5. **On-call workers stay watch-only** (asked separately: "no"). The chain of command stands.
+5. **No orders straight to an on-call worker** (asked separately: "no"). The chain of command
+   stands: see "Unchanged" below.
 
 ## Decision
 
@@ -68,7 +70,10 @@ chat after a restart (the second part, below).
    commands as before, with no new ones, and still the organization's window's alone.
 2. **Labels** are `popout-<key>--<window>--<n>`, the key being the panel's (`terminal`, `files`,
    `chat`) or `chat_<slot>`. A chat's window is a pop-out like any other: **no commands**. Its
-   place on screen is kept by its slot (`popout-chat_3--main`), never by an agent's name.
+   place on screen is kept by its slot (`popout-chat_3--main`), never by an agent's name. Its
+   title bar names its agent ("Plenipo · Website Supervisor"): the page sends the name with the
+   request, and Plenipo cleans it to one line of at most 80 characters. A title is shown, never
+   kept, and never a label.
 3. **The Chat keeps which chats have windows** (`popped` beside the open tabs, kept on this
    computer). A chat takes the first free slot. The workspace opens the windows one at a time,
    with the panels'. The Chat draws each one into its window (`ChatWindows`), so a window shows
@@ -103,8 +108,10 @@ chat after a restart (the second part, below).
 
 - **Allow-first** (ADR-201): a window adds no permission and no question. Light, Careful and
   Strict work as before.
-- **The chain of command** (ADR-202): a worker whose work comes from its lead is watched in its
-  window, not messaged.
+- **The chain of command** (ADR-202), exactly as in the Chat panel:
+  - An on-call position's own chat still takes a message. The message goes to its lead, who hands
+    it on, and the chat says so ("Sent to …").
+  - Only a worker's handed-off conversation (work its lead gave it) is watched, not messaged.
 - **Privacy:** a window shows only what the Chat panel shows. Live pieces are redacted by the
   runtime before they leave it, and Ledger rows were redacted before they were stored.
 
@@ -133,7 +140,8 @@ chat after a restart (the second part, below).
   wire format.
 - **App** (`apps/desktop/src-tauri/src/workspace_windows.rs`, `workspace_commands.rs`):
   - labels, requests, places, and closing by target;
-  - `prepare_pop_out` refuses a slot that is not 1 to 6;
+  - `prepare_pop_out` refuses a slot that is not 1 to 6, and takes a chat window's title
+    (`window_title`: one line, at most 80 characters) for its title bar;
   - IPC tests: a chat's window can call nothing; the commands refuse a bad target, an old
     `panel` argument, and slot 7.
 - **Page** (`apps/desktop/src/`):

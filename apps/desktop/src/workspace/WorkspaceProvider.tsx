@@ -210,7 +210,9 @@ export function WorkspaceProvider({
         return true;
       }
       try {
-        await preparePopOut(target, place ?? null);
+        // A chat's window is named for its agent in its title bar (Plenipo sets it).
+        if (target.kind === "chat") await preparePopOut(target, place ?? null, title);
+        else await preparePopOut(target, place ?? null);
       } catch (reason) {
         setProblem(toCommandError(reason).message);
         return false;

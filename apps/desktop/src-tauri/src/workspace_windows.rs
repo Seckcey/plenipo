@@ -75,7 +75,25 @@ fn place_key(label: &str) -> Option<String> {
 struct Request {
     target: PopOutTarget,
     place: Option<WindowPlace>,
+    /// What the page asked to call a chat's window (its agent's name), cleaned.
+    title: Option<String>,
     at: Instant,
+}
+
+/// The longest window title taken from a page (characters).
+const MAX_TITLE: usize = 80;
+
+/// What a page asked to call a chat's window (its agent's name, ADR-203): one line, no control
+/// characters, at most [`MAX_TITLE`] characters; `None` when nothing is left. A title is only
+/// shown in the window's title bar: never a label, never kept.
+pub fn window_title(asked: Option<&str>) -> Option<String> {
+    let line: String = asked?
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+    let capped: String = line.chars().take(MAX_TITLE).collect();
+    (!capped.is_empty()).then_some(capped)
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -114,24 +132,35 @@ impl PopOuts {
     }
 
     /// The page of `parent` is about to open `target` in its own window (at `place`, where the
-    /// panel was dropped, or where it was last).
-    pub fn request(&self, parent: &str, target: PopOutTarget, place: Option<WindowPlace>) {
+    /// panel was dropped, or where it was last; a chat's window titled `title`).
+    pub fn request(
+        &self,
+        parent: &str,
+        target: PopOutTarget,
+        place: Option<WindowPlace>,
+        title: Option<&str>,
+    ) {
         let place = place.filter(WindowPlace::is_sane);
         lock(&self.requests).insert(
             parent.to_owned(),
             Request {
                 target,
                 place,
+                title: window_title(title),
                 at: Instant::now(),
             },
         );
     }
 
-    /// The window `parent`'s page opens now: the panel or chat it asked for, if it asked lately.
-    /// A request is used once.
-    fn take(&self, parent: &str) -> Option<(PopOutTarget, Option<WindowPlace>)> {
+    /// The window `parent`'s page opens now: the panel or chat it asked for (with its place and
+    /// title), if it asked lately. A request is used once.
+    fn take(&self, parent: &str) -> Option<(PopOutTarget, Option<WindowPlace>, Option<String>)> {
         let request = lock(&self.requests).remove(parent)?;
-        (request.at.elapsed() <= REQUEST_LIFETIME).then_some((request.target, request.place))
+        (request.at.elapsed() <= REQUEST_LIFETIME).then_some((
+            request.target,
+            request.place,
+            request.title,
+        ))
     }
 
     /// Where the pop-out was last.
@@ -209,7 +238,7 @@ pub fn on_new_window<R: Runtime>(
     let Some(popouts) = app.try_state::<PopOuts>() else {
         return NewWindowResponse::Deny;
     };
-    let Some((target, dropped)) = popouts.take(parent) else {
+    let Some((target, dropped, asked)) = popouts.take(parent) else {
         log::info!("refused a new window {parent}'s page did not ask Plenipo for");
         return NewWindowResponse::Deny;
     };
@@ -236,7 +265,11 @@ pub fn on_new_window<R: Runtime>(
     // shows (ADR-092 §10).
     .visible(shown_with(app, parent))
     .focused(shown_with(app, parent))
-    .title(format!("Plenipo · {}", target.title()))
+    // A chat's window is named for its agent (WebView titles do not reach the title bar).
+    .title(match (target, asked) {
+        (PopOutTarget::Chat { .. }, Some(name)) => format!("Plenipo · {name}"),
+        _ => format!("Plenipo · {}", target.title()),
+    })
     .min_inner_size(SMALLEST.0, SMALLEST.1)
     .inner_size(FIRST_SIZE.0, FIRST_SIZE.1);
     if let Some(place) = place {
@@ -503,15 +536,18 @@ mod tests {
     fn a_window_opens_only_right_after_its_page_asked_and_once() {
         let popouts = PopOuts::new(None);
         assert!(popouts.take(MAIN).is_none(), "nothing was asked");
-        popouts.request(MAIN, panel(PanelId::Terminal), None);
+        popouts.request(MAIN, panel(PanelId::Terminal), None, None);
         assert!(
             popouts.take("org-ab12").is_none(),
             "another window's page did not ask"
         );
-        assert_eq!(popouts.take(MAIN), Some((panel(PanelId::Terminal), None)));
+        assert_eq!(
+            popouts.take(MAIN),
+            Some((panel(PanelId::Terminal), None, None))
+        );
         assert!(popouts.take(MAIN).is_none(), "a request is used once");
         // A stale request is refused.
-        popouts.request(MAIN, panel(PanelId::Files), None);
+        popouts.request(MAIN, panel(PanelId::Files), None, None);
         lock(&popouts.requests).get_mut(MAIN).expect("asked").at -= REQUEST_LIFETIME * 2;
         assert!(popouts.take(MAIN).is_none());
     }
@@ -568,7 +604,32 @@ mod tests {
                 width: 10.0,
                 height: 10.0,
             }),
+            None,
         );
-        assert_eq!(popouts.take(MAIN), Some((panel(PanelId::Files), None)));
+        assert_eq!(
+            popouts.take(MAIN),
+            Some((panel(PanelId::Files), None, None))
+        );
+    }
+
+    #[test]
+    fn a_chat_window_is_titled_with_its_agent_in_one_short_clean_line() {
+        let popouts = PopOuts::new(None);
+        let chat = PopOutTarget::Chat { slot: 2 };
+        popouts.request(MAIN, chat, None, Some("  Website\nSupervisor\u{7} "));
+        assert_eq!(
+            popouts.take(MAIN),
+            Some((chat, None, Some("Website Supervisor".into())))
+        );
+        assert_eq!(window_title(Some(" \t\n")), None);
+        assert_eq!(window_title(None), None);
+        let long = "x".repeat(MAX_TITLE + 20);
+        assert_eq!(
+            window_title(Some(&long)).map(|t| t.chars().count()),
+            Some(MAX_TITLE)
+        );
+        // Characters, not bytes: a name in another script is cut whole.
+        let name = "é".repeat(MAX_TITLE + 1);
+        assert_eq!(window_title(Some(&name)), Some("é".repeat(MAX_TITLE)));
     }
 }
