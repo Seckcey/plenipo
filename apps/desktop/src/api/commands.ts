@@ -139,6 +139,7 @@ import type {
   ObjectiveFile,
   SaveOutcome,
   OrgDeletePreview,
+  OrgFolderInfo,
   OrgListing,
   OrgOpened,
   OrgStart,
@@ -1444,9 +1445,42 @@ export function getOrganizations(): Promise<OrgListing> {
   return call<OrgListing>("get_organizations");
 }
 
-/** Make an organization: a template, a copy of another one's setup, or from scratch. */
-export function createOrganization(name: string, start: OrgStart): Promise<OrgSummary> {
-  return call<OrgSummary>("create_organization", { name, start });
+/**
+ * Make an organization: a template, a copy of another one's setup, or from scratch. Its
+ * organization folder (ADR-205) goes in `folder` when the owner chose one, otherwise in
+ * Documents → Plenipo.
+ */
+export function createOrganization(
+  name: string,
+  start: OrgStart,
+  folder: string | null = null,
+): Promise<OrgSummary> {
+  return call<OrgSummary>("create_organization", { name, start, folder });
+}
+
+// ---- The organization folder (Phase 25, ADR-205) -------------------------------------------
+
+/**
+ * Where a new organization named `name` would get its folder (in `folder` when the owner chose
+ * one), who syncs it, or why it can't be used.
+ */
+export function suggestOrgFolder(name: string, folder: string | null): Promise<OrgFolderInfo> {
+  return call<OrgFolderInfo>("suggest_org_folder", { name, folder });
+}
+
+/** Choose a folder with the system's own folder chooser; `null` when none was chosen. */
+export function chooseFolder(): Promise<OrgFolderInfo | null> {
+  return call<OrgFolderInfo | null>("choose_folder");
+}
+
+/** This organization's folder: where it is, whether it is there, and who syncs it. */
+export function getOrgFolder(): Promise<OrgFolderInfo> {
+  return call<OrgFolderInfo>("get_org_folder");
+}
+
+/** Open this organization's folder in File Explorer. */
+export function openOrgFolder(): Promise<void> {
+  return call<void>("open_org_folder");
 }
 
 /** Show another organization in this window (the page loads again). */
