@@ -3377,36 +3377,9 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// A name that is safe as one folder's name on every system: no slashes, colons, or other
-/// marks a file name cannot hold, no dots or spaces at the end, no Windows device name, and at
-/// most 60 characters. `fallback` when nothing is left.
-pub(crate) fn folder_name(name: &str, fallback: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| {
-            if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
-                ' '
-            } else {
-                c
-            }
-        })
-        .collect();
-    let mut out = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
-    out = out.chars().take(60).collect::<String>();
-    let out = out.trim_matches(|c: char| c == '.' || c == ' ').to_owned();
-    const DEVICES: &[&str] = &[
-        "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
-        "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
-    ];
-    let stem = out.split('.').next().unwrap_or("").to_ascii_lowercase();
-    if out.is_empty() {
-        fallback.to_owned()
-    } else if DEVICES.contains(&stem.as_str()) {
-        format!("_{out}")
-    } else {
-        out
-    }
-}
+/// A name that is safe as one folder's name on every system (Guard's, shared with the
+/// organization folder, ADR-205).
+pub(crate) use plenipo_guard::places::folder_name;
 
 /// What a worker's note says beyond its permissions (ADR-201).
 #[derive(Debug, Clone, Copy, Default)]
