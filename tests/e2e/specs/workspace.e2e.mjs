@@ -282,6 +282,74 @@ describe("Phase 21 the workspace: panels, windows, files, and the editor (real a
     );
   });
 
+  it("pops an agent's chat out into a window of its own, and puts it back (ADR-203)", async () => {
+    const { browser } = app;
+    /** Which chats have windows of their own (kept on this computer). */
+    const popped = () =>
+      browser.execute(
+        () => JSON.parse(localStorage.getItem("plenipo.chat") ?? "null")?.popped ?? [],
+      );
+    /** The Website Supervisor's tile on the map. */
+    const tile = (event) =>
+      browser.execute((e) => {
+        const b = [...document.querySelectorAll("button[data-node-id]")].find((x) =>
+          (x.getAttribute("aria-label") ?? "").startsWith("Website Supervisor,"),
+        );
+        if (!b) return false;
+        if (e === "click") b.click();
+        else b.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+        return true;
+      }, event);
+    /** In the chat's own window: it shows the chat, then Put back closes it. */
+    const seeThenPutBack = (shot) =>
+      inPopOut(browser, async () => {
+        await waitUntil(
+          () => exists(browser, 'section[aria-label="Chat with Website Supervisor"]'),
+          "the chat in its own window",
+          20_000,
+        );
+        if (shot) await screenshot(browser, shot);
+        try {
+          await clickButton(browser, "Put back in the Chat panel");
+        } catch (e) {
+          // The window closes under the click: that is Put back working.
+          if (!/no such window/i.test(String(e))) throw e;
+        }
+      });
+
+    await nav(browser, "Organization");
+    await waitUntil(() => tile("click"), "the Website Supervisor's tile");
+    const before = (await browser.getWindowHandles()).length;
+    // From its details: Pop out chat.
+    await clickButton(browser, "Pop out Website Supervisor's chat");
+    await waitUntil(
+      async () => (await browser.getWindowHandles()).length > before,
+      "the chat's own window",
+      20_000,
+    );
+    assert.deepEqual(
+      (await popped()).map((p) => p.slot),
+      [1],
+    );
+    await seeThenPutBack("chat-own-window");
+    await waitUntil(async () => (await popped()).length === 0, "the chat back in the panel");
+    await waitUntil(
+      async () => (await browser.getWindowHandles()).length === before,
+      "its window gone",
+    );
+
+    // A double-click on the agent does the same.
+    await tile("dblclick");
+    await waitUntil(async () => (await popped()).length === 1, "popped out by a double-click");
+    await waitUntil(
+      async () => (await browser.getWindowHandles()).length > before,
+      "the chat's own window again",
+      20_000,
+    );
+    await seeThenPutBack(null);
+    await waitUntil(async () => (await popped()).length === 0, "back in the panel again");
+  });
+
   it("opens README.md from Files, edits it, and saves it as yours", async () => {
     const { browser } = app;
     await clickButton(browser, "Files");

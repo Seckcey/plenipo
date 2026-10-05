@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../api/commands";
 import * as events from "../api/events";
+import { ChatContext, type ChatApi } from "../chat/context";
 import type { useApprovals } from "../guard/usePermissions";
 import type { Learning } from "../learning/useLearning";
 import { emptyOrganization, largeOrganization, sampleOrganization } from "../test/orgFixtures";
@@ -493,6 +494,19 @@ describe("A worker's page", () => {
     const now = await screen.findByRole("list", { name: "Working on" });
     await user.click(within(now).getByRole("button", { name: /Build the pricing page/ }));
     expect(go).toHaveBeenLastCalledWith({ view: "task", id: "task-web" });
+  });
+
+  it("pops its chat out into a window of its own (ADR-203)", async () => {
+    const chat = { open: vi.fn(), openWindow: vi.fn(), canPopOut: true } as unknown as ChatApi;
+    render(
+      <ChatContext.Provider value={chat}>
+        <WorkerPage id="p-web" go={go} onOpenSession={vi.fn()} />
+      </ChatContext.Provider>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Pop out chat" }));
+    expect(chat.openWindow).toHaveBeenCalledWith(
+      expect.objectContaining({ positionId: "p-web", title: "Website Supervisor" }),
+    );
   });
 });
 

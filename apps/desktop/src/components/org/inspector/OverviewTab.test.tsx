@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ChatContext, type ChatApi } from "../../../chat/context";
 import { TerminalContext, type TerminalApi } from "../../../terminal/context";
 import { sampleOrganization } from "../../../test/orgFixtures";
 import { OverviewTab } from "./OverviewTab";
@@ -47,5 +48,39 @@ describe("the Overview tab's Watch button", () => {
     cleanup();
     show("p-mkt", vi.fn());
     expect(screen.queryByRole("button", { name: /^Watch/ })).toBeNull();
+  });
+});
+
+describe("the Overview tab's chat (ADR-200, ADR-203)", () => {
+  function withChat(canPopOut: boolean) {
+    const chat = { open: vi.fn(), openWindow: vi.fn(), canPopOut } as unknown as ChatApi;
+    const snapshot = sampleOrganization();
+    const p = snapshot.positions.find((x) => x.id === "p-eng")!;
+    render(
+      <ChatContext.Provider value={chat}>
+        <OverviewTab p={p} snapshot={snapshot} actions={actions} onSelect={vi.fn()} />
+      </ChatContext.Provider>,
+    );
+    const target = { positionId: p.id, sessionId: p.agent?.sessionId ?? null, title: p.title };
+    return { chat, target, title: p.title };
+  }
+
+  it("opens its chat in the Chat panel, or in a window of its own", async () => {
+    const user = userEvent.setup();
+    const { chat, target, title } = withChat(true);
+    const alone = screen.getByRole("button", { name: `Pop out ${title}'s chat` });
+    expect(alone).toHaveAccessibleDescription(
+      "The same chat in a window of its own, beside your work. Up to six at once.",
+    );
+    await user.click(alone);
+    expect(chat.openWindow).toHaveBeenCalledWith(target);
+    await user.click(screen.getByRole("button", { name: `Chat with ${title}` }));
+    expect(chat.open).toHaveBeenCalledWith(target);
+  });
+
+  it("offers no window of its own where chats cannot have one", () => {
+    const { title } = withChat(false);
+    expect(screen.getByRole("button", { name: `Chat with ${title}` })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: `Pop out ${title}'s chat` })).toBeNull();
   });
 });
