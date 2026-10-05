@@ -5739,7 +5739,8 @@ body.popout {
   margin: 0;
 }
 
-.chat-step {
+/* Where a turn went on in a new step (its team's replies came back). Not .chat-step: a tool's. */
+.chat-stepmark {
   margin: var(--ui-space-2) 0 0;
   padding-top: var(--ui-space-2);
   border-top: 1px dashed var(--ui-border);
@@ -5747,7 +5748,7 @@ body.popout {
   font-size: var(--ui-font-xs);
 }
 
-.chat-step:first-child {
+.chat-stepmark:first-child {
   margin-top: 0;
   padding-top: 0;
   border-top: 0;

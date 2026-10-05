@@ -221,7 +221,7 @@ const TurnView = memo(function TurnView({
         </div>
       )}
       <div className="chat-turn__answer">
-        {turn.stepStarts.length > 0 && <p className="chat-step">Step 1</p>}
+        {turn.stepStarts.length > 0 && <p className="chat-stepmark">Step 1</p>}
         {turn.parts.map((part, i) => {
           const mark = marks.get(i);
           const own = pieces[i];
@@ -229,7 +229,7 @@ const TurnView = memo(function TurnView({
             <Fragment key={part.id}>
               {mark && (
                 <>
-                  <p className="chat-step">
+                  <p className="chat-stepmark">
                     Step {mark.step} ·{" "}
                     {sent.length > 0 ? "continued with handoff replies" : "continued"}
                   </p>
