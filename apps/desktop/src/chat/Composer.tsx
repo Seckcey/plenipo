@@ -2,6 +2,7 @@ import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Banner, Icon, IconButton, cx } from "@plenipo/ui";
 
 import { ENTER_SENDS, isSendKey } from "../components/enterSends";
+import type { ChatProblem } from "./context";
 
 /** The longest message (the same limit as an objective). */
 export const MAX_MESSAGE = 20_000;
@@ -9,12 +10,13 @@ export const MAX_MESSAGE = 20_000;
 /**
  * Where you write to an agent (ADR-200): Enter sends, Shift+Enter starts a new line. While the
  * agent works, what you send waits its turn (listed above the box, each with a button to take it
- * back), and Stop stops the work now. The line under the box says which AI tool, model, and
+ * back), and Stop stops the work now (it says Stopping until it has). The line under the box says which AI tool, model, and
  * effort answer.
  */
 export function Composer({
   title,
   busy,
+  stopping,
   sending,
   queued,
   problem,
@@ -27,9 +29,11 @@ export function Composer({
 }: {
   title: string;
   busy: boolean;
+  /** A stop is on its way. */
+  stopping: boolean;
   sending: boolean;
   queued: readonly string[];
-  problem: string | null;
+  problem: ChatProblem | null;
   /** Why nothing can be sent here (a worker that takes work only from its lead). */
   disabledReason: string | null;
   /** The AI tool, model, and effort, in plain words. */
@@ -75,13 +79,8 @@ export function Composer({
         </ol>
       )}
       {problem && (
-        <Banner
-          tone="error"
-          role="alert"
-          title="That message did not go"
-          onDismiss={onDismissProblem}
-        >
-          {problem}
+        <Banner tone="error" role="alert" title={problem.heading} onDismiss={onDismissProblem}>
+          {problem.message}
         </Banner>
       )}
       {disabledReason && <p className="chat-composer__blocked">{disabledReason}</p>}
@@ -116,8 +115,9 @@ export function Composer({
           {busy && (
             <IconButton
               icon="stop"
-              label={`Stop ${title}`}
+              label={stopping ? `Stopping ${title}…` : `Stop ${title}`}
               className="chat-composer__stop"
+              disabled={stopping}
               onClick={onStop}
             />
           )}
