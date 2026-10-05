@@ -235,6 +235,14 @@ fn auth_has(flag: &str) -> bool {
 
 /// The sign-in the status command reports.
 fn auth_mode() -> &'static str {
+    // `check-delay` in the state folder: the check takes that many milliseconds (at most 20
+    // seconds), so a test can stop a step while it is still starting.
+    if let Some(ms) = std::fs::read_to_string(state_dir().join("check-delay"))
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+    {
+        std::thread::sleep(Duration::from_millis(ms.min(20_000)));
+    }
     ["signed-out", "api-key", "cloud", "unknown-status"]
         .into_iter()
         .find(|m| auth_has(m))
