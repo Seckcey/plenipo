@@ -1430,10 +1430,14 @@ async fn a_restart_interrupts_workflows_in_flight_and_resumes_nothing() {
     let (_, root) = h
         .start("codex", "Build it [handoff:claude-code+slow]")
         .await;
-    h.until("the child to run", |h| {
-        h.children(&root)
-            .first()
-            .is_some_and(|c| c.state == TaskState::Running)
+    // Until the child's program has started. Its task reads as running a moment before that,
+    // and the first runtime lives on here (a real restart ends it): it would record the start
+    // after the count below.
+    h.until("the child's program to start", |h| {
+        h.children(&root).first().is_some_and(|c| {
+            c.state == TaskState::Running
+                && !h.ledger.executions_for_task(&c.id).unwrap().is_empty()
+        })
     })
     .await;
     let child = h.only_child(&root);
