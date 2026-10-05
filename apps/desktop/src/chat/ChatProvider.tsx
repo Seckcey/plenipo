@@ -155,9 +155,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setStoppingKeys(stoppingRef.current);
   }, []);
   /** An agent that did not stop when asked: the turn it went on with, and what to try next. */
-  const [stopNotes, setStopNotes] = useState<Record<string, { taskId: string; text: string }>>(
-    {},
-  );
+  const [stopNotes, setStopNotes] = useState<Record<string, { taskId: string; text: string }>>({});
 
   /** Conversations being fetched, and the live updates that came for them meanwhile. */
   const loading = useRef(new Map<string, AgentUpdate[]>());
@@ -526,7 +524,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           take(detail);
           const still = detail.session.activeTaskId ?? detail.session.waitingTaskId;
           if (still && (shown === null || still === shown)) {
-            setStopNotes((n) => ({ ...n, [key]: { taskId: still, text: notStoppedYet(tab.title) } }));
+            setStopNotes((n) => ({
+              ...n,
+              [key]: { taskId: still, text: notStoppedYet(tab.title) },
+            }));
           }
         } catch (reason) {
           const message = toCommandError(reason).message;

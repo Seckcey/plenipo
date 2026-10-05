@@ -79,12 +79,7 @@ export function Composer({
         </ol>
       )}
       {problem && (
-        <Banner
-          tone="error"
-          role="alert"
-          title={problem.heading}
-          onDismiss={onDismissProblem}
-        >
+        <Banner tone="error" role="alert" title={problem.heading} onDismiss={onDismissProblem}>
           {problem.message}
         </Banner>
       )}
