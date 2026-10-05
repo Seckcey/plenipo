@@ -243,3 +243,21 @@ export function positionSession(state: AgentState, positionId: string): string |
   }
   return null;
 }
+
+/** The most conversations a position's chat shows as one thread. */
+export const THREAD_MAX = 10;
+
+/**
+ * A position's conversations, oldest first, closed ones too: its chat shows them as one thread
+ * (B5). An on-call worker gets a new conversation for each task its lead hands it, so this is
+ * everything it was asked and answered. At most the newest `THREAD_MAX`.
+ */
+export function positionThread(state: AgentState, positionId: string): string[] {
+  return state.order
+    .filter((id) => {
+      const s = state.sessions[id];
+      return s !== undefined && liaisonInfo(s).positionId === positionId;
+    })
+    .slice(0, THREAD_MAX)
+    .sort((a, b) => (state.sessions[a]?.createdAt ?? 0) - (state.sessions[b]?.createdAt ?? 0));
+}

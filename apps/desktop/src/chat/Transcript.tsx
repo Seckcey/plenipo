@@ -98,10 +98,12 @@ export function Transcript({
             </p>
           </div>
         ) : (
-          turns.map((turn) => (
+          turns.map((turn, i) => (
             <TurnView
               key={turn.taskId}
               turn={turn}
+              // Its place in what this chat shows (a thread of several conversations, B5).
+              number={i + 1}
               title={title}
               askFrom={askFrom}
               tool={tool}
@@ -172,6 +174,7 @@ function stepMarks(
 /** One message and its answer. Drawn again only when it changes. */
 const TurnView = memo(function TurnView({
   turn,
+  number,
   title,
   askFrom,
   tool,
@@ -180,6 +183,7 @@ const TurnView = memo(function TurnView({
   onOpenLink,
 }: {
   turn: ChatTurn;
+  number: number;
   title: string;
   askFrom: string | null;
   tool: string | null;
@@ -201,7 +205,7 @@ const TurnView = memo(function TurnView({
   return (
     <article
       className="chat-turn"
-      aria-label={`Message ${turn.number}`}
+      aria-label={`Message ${number}`}
       // How it stands, for the real-app tests (the screen says it in words).
       data-state={turn.state}
       data-outcome={turn.outcome ?? undefined}

@@ -262,4 +262,58 @@ describe("what agents say to each other, in their chats (B5)", () => {
       await screen.findByRole("log", { name: "Conversation with Website Supervisor" }, SLOW),
     ).toBeInTheDocument();
   });
+
+  it("shows an on-call worker's whole thread: each task it was handed, oldest first", async () => {
+    // Its first task's conversation was closed once it answered; its second one is new.
+    const first = { ...WORKER, state: "closed" as const, createdAt: 1_000 };
+    const second = session("s-worker-2", {
+      title: "Fix the header",
+      createdAt: 5_000,
+      metadata: WORKER.metadata,
+    });
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [runtime("claude-code")],
+      sessions: [LEAD, second, first],
+      notices: [],
+    });
+    api.getAgentSession.mockImplementation((id) =>
+      id === "s-worker-2"
+        ? Promise.resolve({
+            session: second,
+            turns: [finished("t-worker-2", "s-worker-2", "Fix the header", "Header fixed.")],
+            activity: [],
+          })
+        : id === "s-worker"
+          ? Promise.resolve({ ...DETAILS["s-worker"]!, session: first })
+          : Promise.reject(new Error("not in this test")),
+    );
+    api.getTaskHandoffs.mockImplementation((taskId) =>
+      Promise.resolve(
+        taskId === "t-worker"
+          ? { ...none(taskId), received: handoff() }
+          : taskId === "t-worker-2"
+            ? {
+                ...none(taskId),
+                received: handoff({
+                  messageId: "m2",
+                  objective: "Fix the header",
+                  childTaskId: "t-worker-2",
+                  childSessionId: "s-worker-2",
+                  reply: { ...handoff().reply!, messageId: "r2", state: "pending" },
+                }),
+              }
+            : none(taskId),
+      ),
+    );
+    await openChat({ positionId: "p-dev", title: "Senior Developer" });
+    const log = await screen.findByRole("log", { name: "Conversation with Senior Developer" });
+    const one = await within(log).findByRole("article", { name: "Message 1" }, SLOW);
+    const two = await within(log).findByRole("article", { name: "Message 2" }, SLOW);
+    expect(one).toHaveTextContent("Review the parser");
+    expect(two).toHaveTextContent("Fix the header");
+    expect(await within(one).findByText(/got it/, {}, SLOW)).toBeInTheDocument();
+    expect(
+      await within(two).findByText(/on its way to Website Supervisor/, {}, SLOW),
+    ).toBeVisible();
+  });
 });
