@@ -11,8 +11,7 @@ use plenipo_ledger::{
 };
 use plenipo_runtime::agent::{
     AgentEvent, AgentSession, AgentTurn, Effort, KeptActivity, SessionChange, SessionState,
-    SessionStore,
-    StepNote, TurnInput, TurnOutcome, TurnRef, TurnResult, TurnStep, TurnTask, OWNER,
+    SessionStore, StepNote, TurnInput, TurnOutcome, TurnRef, TurnResult, TurnStep, TurnTask, OWNER,
 };
 use plenipo_runtime::store::Loaded;
 use plenipo_runtime::{
@@ -710,12 +709,7 @@ mod tests {
         store.record_activity(&at("e2", 2), &done).unwrap();
         // Live-only pieces are never kept, so none come back.
         store
-            .record_activity(
-                &at("e2", 2),
-                &AgentEvent::TextDelta {
-                    text: "All".into(),
-                },
-            )
+            .record_activity(&at("e2", 2), &AgentEvent::TextDelta { text: "All".into() })
             .unwrap();
         // Another row on the task, not one of its pieces.
         ledger

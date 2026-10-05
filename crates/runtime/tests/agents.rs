@@ -890,9 +890,8 @@ async fn a_finished_turn_no_longer_held_shows_what_was_kept() {
         .filter(|a| a.task_id == turn.task_id)
         .collect();
     assert!(
-        kept.iter().any(
-            |a| matches!(&a.event, AgentEvent::Message { text } if text.contains("you said"))
-        ),
+        kept.iter()
+            .any(|a| matches!(&a.event, AgentEvent::Message { text } if text.contains("you said"))),
         "{kept:?}"
     );
     assert!(
