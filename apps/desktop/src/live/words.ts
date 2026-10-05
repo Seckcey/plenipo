@@ -9,14 +9,26 @@ import type { AgentActivity, PlanStep, PositionInfo, TaskState } from "@plenipo/
 const LIVE: ReadonlySet<TaskState> = new Set(["running", "blocked", "awaitingApproval"]);
 
 /** A position's work going on now, with its conversation (up to 3: a page shows each). */
-export function liveWork(
-  p: PositionInfo,
-): { taskId: string; sessionId: string; objective: string; startedAt: number | null }[] {
+export function liveWork(p: PositionInfo): {
+  taskId: string;
+  sessionId: string;
+  objective: string;
+  startedAt: number | null;
+  state: TaskState;
+}[] {
   if (p.staffing === "persistent") {
     const t = p.currentTask;
     const sessionId = t?.sessionId ?? p.agent?.sessionId ?? null;
     return t && sessionId && LIVE.has(t.state)
-      ? [{ taskId: t.id, sessionId, objective: t.objective, startedAt: t.startedAt }]
+      ? [
+          {
+            taskId: t.id,
+            sessionId,
+            objective: t.objective,
+            startedAt: t.startedAt,
+            state: t.state,
+          },
+        ]
       : [];
   }
   return p.workers
@@ -28,6 +40,7 @@ export function liveWork(
               sessionId: w.sessionId,
               objective: w.objective,
               startedAt: w.startedAt,
+              state: w.state,
             },
           ]
         : [],
@@ -186,7 +199,9 @@ export function nowWords(activity: readonly AgentActivity[]): string | null {
       case "reasoning":
         return "Thinking";
       case "status":
-        if (e.phase === "starting") return e.text;
+        // A step starting, or a wait in its own words: for the AI company, or no word from the
+        // AI tool for a long time (the owner's report, 2026-10-05: not "Writing" forever).
+        if (e.phase === "starting" || e.phase === "waiting") return e.text;
         break;
       case "plan": {
         const p = liveProgress(activity);
@@ -198,4 +213,15 @@ export function nowWords(activity: readonly AgentActivity[]): string | null {
     }
   }
   return null;
+}
+
+/**
+ * What a tile's line says for work in `state` now: its wait, while it waits, or what it is doing.
+ * A lead waiting for its team no longer says "Writing its answer" from its last words (the owner's
+ * report, 2026-10-05).
+ */
+export function nowFor(state: TaskState, activity: readonly AgentActivity[]): string | null {
+  if (state === "blocked") return "Waiting for its team";
+  if (state === "awaitingApproval") return "Waiting for your approval";
+  return nowWords(activity);
 }
