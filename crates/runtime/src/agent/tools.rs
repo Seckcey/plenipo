@@ -111,8 +111,25 @@ pub trait ToolProvider: Send + Sync + 'static {
     }
 }
 
+/// Hides secrets in text before it is shown or recorded (the capability broker's redactor).
+pub trait TextRedaction: Send + Sync {
+    /// `text` with every secret hidden.
+    fn redact(&self, text: &str) -> String;
+    /// `text` with every secret hidden whose end lies at or after `start` (a byte index at a
+    /// character's start), for text shown live as it streams (ADR-216): the first `start` bytes
+    /// come back as they are, byte for byte; a secret that began before `start` is hidden from
+    /// `start` on; one that ended before `start` is left alone.
+    fn redact_from(&self, text: &str, start: usize) -> String;
+    /// What stands in for a hidden `what` ("private key"), as `redact` would write it.
+    fn hidden(&self, what: &str) -> String;
+    /// Where, in `text`, a stored secret that has whitespace in it may have begun and not ended
+    /// (a byte index at a character's start), so live text waits there for the rest (ADR-216);
+    /// `None` when the end of `text` cannot be one.
+    fn stored_secret_start(&self, text: &str) -> Option<usize>;
+}
+
 /// Hides secrets in text before it is shown or recorded (installed by the capability broker).
-pub type TextFilter = Arc<dyn Fn(&str) -> String + Send + Sync>;
+pub type TextFilter = Arc<dyn TextRedaction>;
 
 /// `prompt` with the tools note before it.
 pub fn with_note(note: &str, prompt: &str) -> String {

@@ -1667,7 +1667,7 @@ impl AiTools {
             .map(str::trim)
             .find(|l| !l.is_empty())
             .unwrap_or(otherwise);
-        let filtered = (self.inner.broker.text_filter())(line);
+        let filtered = self.inner.broker.text_filter().redact(line);
         filtered.chars().take(200).collect()
     }
 

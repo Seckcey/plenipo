@@ -4630,6 +4630,7 @@ dependencies = [
  "libc",
  "nix 0.31.3",
  "plenipo-core",
+ "plenipo-guard",
  "process-wrap",
  "serde",
  "serde_json",

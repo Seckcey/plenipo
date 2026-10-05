@@ -448,13 +448,16 @@ pub async fn save_diagnostics_file<R: Runtime>(
         .join("diagnostics");
     let about = about(&app).await;
     let ledger = Arc::clone(&app.state::<Arc<Ledger>>());
-    let filter = app
-        .try_state::<plenipo_capabilities::Broker>()
-        .map(|b| b.text_filter())
-        .unwrap_or_else(|| {
+    let filter: crate::logs::Filter = match app.try_state::<plenipo_capabilities::Broker>() {
+        Some(b) => {
+            let f = b.text_filter();
+            Arc::new(move |t: &str| f.redact(t))
+        }
+        None => {
             let r = plenipo_guard::Redactor::default();
             Arc::new(move |t: &str| r.redact(t).into_owned())
-        });
+        }
+    };
     let logs = crate::logs::installed()
         .map(|l| l.files())
         .unwrap_or_default();
