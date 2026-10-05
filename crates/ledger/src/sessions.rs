@@ -307,6 +307,25 @@ impl Ledger {
         })
     }
 
+    /// The owner's open direct chat with the on-call position `position_id` (ADR-208:
+    /// `metadata.directChat`, and the position in `metadata.workforce`), the newest if several.
+    pub fn open_direct_session(&self, position_id: &str) -> Result<Option<RuntimeSession>> {
+        self.read(|c| {
+            Ok(c.query_row(
+                &format!(
+                    "SELECT {SESSION_COLUMNS} FROM runtime_sessions s
+                     WHERE s.state = 'open'
+                       AND json_extract(s.metadata, '$.directChat') = 1
+                       AND json_extract(s.metadata, '$.workforce.positionId') = ?1
+                     ORDER BY s.created_at DESC, s.rowid DESC LIMIT 1"
+                ),
+                [position_id],
+                session_row,
+            )
+            .optional()?)
+        })
+    }
+
     /// Open sessions of organization members and their workers (`metadata.workforce`), newest
     /// first.
     pub fn open_workforce_sessions(&self) -> Result<Vec<RuntimeSession>> {
@@ -539,6 +558,23 @@ mod tests {
         assert!(l.agent_sessions("agent-2").unwrap().is_empty());
         l.close_runtime_session("s-b", "owner").unwrap();
         assert_eq!(ids(l.open_workforce_sessions().unwrap()), ["s-a"]);
+    }
+
+    /// An on-call position's open direct chat with the owner (ADR-208), and nobody else's.
+    #[test]
+    fn an_on_call_positions_open_direct_chat_is_found() {
+        let l = ledger();
+        let mut direct = new_session("s-direct");
+        direct.metadata = json!({ "directChat": true, "workforce": { "positionId": "p-dev" } });
+        l.open_runtime_session(direct, "owner").unwrap();
+        let mut member = new_session("s-member");
+        member.metadata = json!({ "workforce": { "positionId": "p-dev", "agentId": "a-1" } });
+        l.open_runtime_session(member, "owner").unwrap();
+        let found = |position: &str| l.open_direct_session(position).unwrap().map(|s| s.id);
+        assert_eq!(found("p-dev").as_deref(), Some("s-direct"));
+        assert_eq!(found("p-other"), None);
+        l.close_runtime_session("s-direct", "owner").unwrap();
+        assert_eq!(found("p-dev"), None, "an ended chat is not taken up again");
     }
 
     #[test]

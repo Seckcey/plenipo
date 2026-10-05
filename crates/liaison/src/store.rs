@@ -404,12 +404,7 @@ impl SessionStore for LedgerSessionStore {
                     Some(_) => self
                         .0
                         .begin_handoff_turn(task_id, &session.id, number, &actor),
-                    None => self.0.transition_task(
-                        task_id,
-                        TaskState::Running,
-                        &actor,
-                        Some("turn started"),
-                    ),
+                    None => self.0.begin_task_turn(task_id, &session.id, number, &actor),
                 };
                 started.map(|t| t.id).map_err(|e| e.to_string())
             }

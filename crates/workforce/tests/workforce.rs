@@ -3562,10 +3562,13 @@ async fn an_order_that_skips_a_level_is_told_to_the_lead_and_reported_back_up() 
     assert!(!h.task(&again).objective.contains("News from your team"));
 }
 
-/// An on-call position takes its work from its lead (ADR-202): the owner's order goes to the
-/// lead's conversation, which is asked to hand it on, and the leads above are told.
+/// Talking to an on-call worker is direct (ADR-208, amending ADR-202 point 4): the owner's words
+/// go to the position's own conversation, with a worker staffed for each message, which leaves
+/// when its answer is done. The conversation stays open: a follow-up resumes the same AI-tool
+/// conversation, so the next worker remembers the first message, until the owner ends the chat.
+/// Every lead above is told, and the result goes back up one level at a time.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn an_order_for_an_on_call_position_goes_through_its_lead() {
+async fn talking_to_an_on_call_worker_is_direct() {
     let h = harness().await;
     let o = h.development();
     let detail = h
@@ -3573,26 +3576,43 @@ async fn an_order_for_an_on_call_position_goes_through_its_lead() {
         .give_objective(&o.developer, "Write the tests", None)
         .await
         .unwrap();
+    let session = detail.session.id.clone();
+    let metadata = &detail.session.metadata;
     assert_eq!(
-        detail.session.metadata["workforce"]["positionId"], o.coordinator,
-        "the lead's conversation took it"
+        metadata["workforce"]["positionId"], o.developer,
+        "its own conversation took it"
     );
+    assert_eq!(metadata["directChat"], true);
+    assert_eq!(metadata["liaison"]["origin"], "member");
     let task = detail.turns.last().unwrap().task_id.clone();
-    let asked = h.task(&task).objective;
-    assert!(asked.starts_with("Write the tests"), "{asked}");
-    assert!(
-        asked.contains("hand it to role:Senior Developer"),
-        "{asked}"
+    let first = h.task(&task);
+    assert_eq!(
+        first.objective, "Write the tests",
+        "no lead is asked to hand it on"
     );
+    assert_eq!(first.requested_by, "owner");
+    assert_eq!(first.parent_task_id, None);
+    let worker = first.metadata["workforce"]["agentId"].clone();
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    assert_in_order(
+        &h.types(&task),
+        &[
+            "org.worker_spawned",
+            "org.worker_started",
+            "org.worker_retired",
+        ],
+    );
+    // Every lead above is told, and the result goes back up.
     let order = h.records(&task, "chain.order");
     assert_eq!(order[0]["position"], "Senior Developer");
-    assert_eq!(order[0]["via"]["title"], "Cloudline Coordinator");
-    assert_eq!(order[0]["leads"][0]["title"], "Development Manager");
-    h.finished(&task).await;
-    let reports = h.reports(&task, 1).await;
-    assert_eq!(reports[0]["from"], "Cloudline Coordinator");
-    assert_eq!(reports[0]["to"], "Development Manager");
-    assert_eq!(reports[0]["about"], "Senior Developer");
+    assert!(order[0]["via"].is_null(), "{order:?}");
+    assert_eq!(order[0]["leads"][0]["title"], "Cloudline Coordinator");
+    assert_eq!(order[0]["leads"][1]["title"], "Development Manager");
+    let reports = h.reports(&task, 2).await;
+    assert_eq!(reports[0]["from"], "Senior Developer");
+    assert_eq!(reports[0]["to"], "Cloudline Coordinator");
+    assert_eq!(reports[1]["from"], "Cloudline Coordinator");
+    assert_eq!(reports[1]["to"], "Development Manager");
     let parts = |id: &str| {
         h.workforce
             .chain_orders(id)
@@ -3602,6 +3622,38 @@ async fn an_order_for_an_on_call_position_goes_through_its_lead() {
             .collect::<Vec<_>>()
     };
     assert_eq!(parts(&o.developer), [ChainPart::Doer]);
-    assert_eq!(parts(&o.coordinator), [ChainPart::Via]);
+    assert_eq!(parts(&o.coordinator), [ChainPart::Told]);
     assert_eq!(parts(&o.head), [ChainPart::Told]);
+
+    // A follow-up resumes the same conversation: a new worker, which remembers the first message.
+    let next = h
+        .workforce
+        .give_objective(&o.developer, "And the docs", None)
+        .await
+        .unwrap();
+    assert_eq!(next.session.id, session);
+    let second = next.turns.last().unwrap().task_id.clone();
+    assert_eq!(h.finished(&second).await.state, TaskState::Succeeded);
+    assert_ne!(h.task(&second).metadata["workforce"]["agentId"], worker);
+    assert_eq!(
+        h.text(&second),
+        "Turn 2: you said \"And the docs\". Previous: Some(\"Write the tests\")."
+    );
+
+    // Ending the chat closes it; the next message starts a new conversation.
+    h.rt.close_session(&session).await.unwrap();
+    let fresh = h
+        .workforce
+        .give_objective(&o.developer, "Start over", None)
+        .await
+        .unwrap();
+    assert_ne!(fresh.session.id, session);
+    let third = fresh.turns.last().unwrap().task_id.clone();
+    assert_eq!(h.finished(&third).await.state, TaskState::Succeeded);
+    assert!(
+        h.text(&third)
+            .starts_with("Turn 1: you said \"Start over\""),
+        "{}",
+        h.text(&third)
+    );
 }
