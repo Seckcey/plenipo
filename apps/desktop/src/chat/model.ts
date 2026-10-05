@@ -103,15 +103,28 @@ export function isBusy(session: ChatSession): boolean {
 }
 
 /**
- * Plenipo says no turn is running in this conversation, after you pressed Stop: a turn still shown
- * as running had its end missed, and shows as stopped. Its real end replaces this if it comes.
+ * The turns whose own record, as Plenipo has it now, says they are over without saying how: not
+ * running, not waiting, and no result. Only these are stuck; a turn the record says is running or
+ * waiting is live, whatever the session's summary says.
  */
-export function endUnfinished(session: ChatSession, at: number): ChatSession {
-  if (!isBusy(session)) return session;
+export function stuckTurns(records: readonly AgentTurn[]): Set<string> {
+  return new Set(records.filter((r) => !r.running && !r.waiting && !r.result).map((r) => r.taskId));
+}
+
+/**
+ * Turns whose end was missed (`stuck`, from their records) show as stopped, so the chat stops
+ * showing them as running. Every other turn is left as it is. A real end replaces this if it comes.
+ */
+export function endUnfinished(
+  session: ChatSession,
+  at: number,
+  stuck: ReadonlySet<string>,
+): ChatSession {
+  if (!session.turns.some((t) => !isOver(t) && stuck.has(t.taskId))) return session;
   return {
     ...session,
     turns: session.turns.map((t) =>
-      isOver(t)
+      isOver(t) || !stuck.has(t.taskId)
         ? t
         : {
             ...t,

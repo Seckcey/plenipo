@@ -323,6 +323,59 @@ describe("a chat with an agent (ADR-200)", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("keeps a turn its record says is running, even when the session reads idle a moment behind", async () => {
+    vi.mocked(commands.giveObjective).mockResolvedValue(
+      detail([turn("t1", { objective: "First", startedAt: started })]),
+    );
+    vi.mocked(commands.cancelAgentTurn).mockRejectedValue(
+      new commands.PlenipoCommandError("invalidInput", "No turn is running in this session."),
+    );
+    // The session's summary was read before the turn was claimed; the turn's own record runs.
+    vi.mocked(commands.getAgentSession).mockResolvedValue(
+      detail([turn("t1", { objective: "First", startedAt: started, running: true })], {
+        activeTaskId: null,
+      }),
+    );
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
+    await screen.findByRole("log", {}, SLOW);
+    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+
+    await waitFor(() => expect(commands.getAgentSession).toHaveBeenCalledWith("s1"), SLOW);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Stop Development Manager" })).toBeEnabled(),
+    );
+    expect(screen.queryByText(/It was no longer running/)).not.toBeInTheDocument();
+  });
+
+  it("clears a stuck turn while another turn in the conversation runs on", async () => {
+    vi.mocked(commands.giveObjective).mockResolvedValue(
+      detail([turn("t1", { objective: "First", startedAt: started })]),
+    );
+    vi.mocked(commands.cancelAgentTurn).mockRejectedValue(
+      new commands.PlenipoCommandError("invalidInput", "No turn is running in this session."),
+    );
+    // The first turn's record is over without saying how; a second one runs now.
+    vi.mocked(commands.getAgentSession).mockResolvedValue(
+      detail(
+        [
+          turn("t1", { objective: "First", startedAt: started, running: false }),
+          turn("t2", { objective: "Second", number: 2, startedAt: started + 1_000 }),
+        ],
+        { activeTaskId: "t2" },
+      ),
+    );
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
+    await screen.findByRole("log", {}, SLOW);
+    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+
+    expect(await screen.findByText(/Stopped\. It was no longer running\./, {}, SLOW)).toBeVisible();
+    expect(screen.getAllByText(/It was no longer running/)).toHaveLength(1);
+    // The second turn is still working: Stop is there for it.
+    expect(screen.getByRole("button", { name: "Stop Development Manager" })).toBeEnabled();
+  });
+
   it("says why a stop did not work, under its own heading", async () => {
     vi.mocked(commands.giveObjective).mockResolvedValue(
       detail([turn("t1", { objective: "First", startedAt: started })]),

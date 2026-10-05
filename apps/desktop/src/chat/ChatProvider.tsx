@@ -29,6 +29,7 @@ import {
   isBusy,
   isOver,
   mergeDetail,
+  stuckTurns,
   type ChatSession,
 } from "./model";
 import {
@@ -333,8 +334,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   /**
    * Fetch a conversation again: Plenipo says no turn runs in it while the chat shows one, so the
-   * turn's end was missed. A turn still unfinished in what comes back, while Plenipo says nothing
-   * runs, shows as stopped. What waited goes then.
+   * turn's end was missed. A turn whose own record now says it is over without saying how shows
+   * as stopped; one the record says is running or waiting stays live (the session's summary is
+   * read apart from the turns, so it can be a moment behind them). What waited goes then.
    */
   const refresh = useCallback(
     async (id: string) => {
@@ -346,10 +348,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         // Not reachable now: the chat stays as it is until Plenipo next tells it something.
         return;
       }
-      const idle = !isRunning(detail.session) && !isWaiting(detail.session);
+      const stuck = stuckTurns(detail.turns);
       setConversations((c) => {
         const merged = mergeDetail(c[id] ?? emptySession(id), detail);
-        return { ...c, [id]: idle ? endUnfinished(merged, at) : merged };
+        return { ...c, [id]: endUnfinished(merged, at, stuck) };
       });
       queueMicrotask(() => flushRef.current());
     },
