@@ -125,7 +125,7 @@ beforeEach(() => {
   vi.mocked(commands.getChainOrders).mockResolvedValue([]);
   // Fetching a conversation again finds nothing new unless a test says what Plenipo has.
   vi.mocked(commands.getAgentSession).mockRejectedValue(
-    new commands.PlenipoCommandError("notReady", "Not in this test."),
+    new commands.PlenipoCommandError("invalidInput", "Not in this test."),
   );
 });
 
@@ -304,7 +304,7 @@ describe("a chat with an agent (ADR-200)", () => {
       detail([turn("t1", { objective: "First", startedAt: started })]),
     );
     vi.mocked(commands.cancelAgentTurn).mockRejectedValue(
-      new commands.PlenipoCommandError("notReady", "No turn is running in this session."),
+      new commands.PlenipoCommandError("invalidInput", "No turn is running in this session."),
     );
     // Plenipo has no end for it either, and nothing runs in the conversation.
     vi.mocked(commands.getAgentSession).mockResolvedValue(
@@ -329,7 +329,7 @@ describe("a chat with an agent (ADR-200)", () => {
     );
     vi.mocked(commands.cancelAgentTurn).mockRejectedValue(
       new commands.PlenipoCommandError(
-        "notReady",
+        "invalidInput",
         "The turn is still starting; try again in a moment.",
       ),
     );
