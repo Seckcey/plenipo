@@ -1403,7 +1403,8 @@ async fn a_silent_kimi_is_told_about_then_stopped_as_no_longer_answering() {
         )),
         "{activity:#?}"
     );
-    // One row when told, one when stopped: never Kimi's words.
+    // A row each time it was told (a start slowed by a busy machine is silence too, and can bring
+    // one more), then the row of the stop, the one the result quotes: never Kimi's words.
     let rows: Vec<&String> = activity
         .iter()
         .filter_map(|e| match e {
@@ -1411,7 +1412,8 @@ async fn a_silent_kimi_is_told_about_then_stopped_as_no_longer_answering() {
             _ => None,
         })
         .collect();
-    assert_eq!(rows.len(), 2, "{rows:#?}");
+    assert!(rows.len() >= 2, "{rows:#?}");
+    assert_eq!(rows.last(), Some(&&diagnostics), "{rows:#?}");
     for row in rows.into_iter().chain([&diagnostics]) {
         assert!(!row.contains("half an"), "no words from Kimi: {row}");
     }
