@@ -1,8 +1,12 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { WorkFolder } from "@plenipo/types";
+import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { HandoffView, WorkFolder } from "@plenipo/types";
 import { Button, Icon, cx } from "@plenipo/ui";
 
+import { useLiaisonRevision, useTaskHandoffs } from "../agents/useTaskHandoffs";
 import { getWorkFolder, openWorkFolder, toCommandError } from "../api/commands";
+import { AskedBy, RepliesBack, ReplyBack, RequestCard, type ChatLiaison } from "./Exchanges";
+import { matchRequests, splitHandoffs } from "./handoffBlocks";
+import { tokens } from "../routing/format";
 import { useNow } from "../runtime/useNow";
 import { Markdown } from "./Markdown";
 import {
@@ -32,14 +36,21 @@ export function Transcript({
   session,
   title,
   askFrom = null,
+  tool = null,
+  liaison = null,
   onOpenLink,
 }: {
   session: ChatSession | null;
   title: string;
   /** Who each message is from, when it is not you ("From its lead", ADR-203). */
   askFrom?: string | null;
+  /** Its AI tool, by name: said when it reports no tokens. */
+  tool?: string | null;
+  /** It works with other agents through Liaison: their requests and replies show here (B5). */
+  liaison?: ChatLiaison | null;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
+  const revision = useLiaisonRevision();
   const box = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const [away, setAway] = useState(false);
@@ -87,12 +98,17 @@ export function Transcript({
             </p>
           </div>
         ) : (
-          turns.map((turn) => (
+          turns.map((turn, i) => (
             <TurnView
               key={turn.taskId}
               turn={turn}
+              // Its place in what this chat shows (a thread of several conversations, B5).
+              number={i + 1}
               title={title}
               askFrom={askFrom}
+              tool={tool}
+              liaison={liaison}
+              revision={revision}
               onOpenLink={onOpenLink}
             />
           ))
@@ -134,32 +150,114 @@ function Announcer({ turn, title }: { turn: ChatTurn | undefined; title: string 
   );
 }
 
+/**
+ * Where each step after the first begins, and the replies that came back into it: each reply goes
+ * to the first step that began after it was written (Plenipo passes replies on in the next step).
+ */
+function stepMarks(
+  turn: ChatTurn,
+  sent: readonly HandoffView[],
+): Map<number, { step: number; replies: HandoffView[] }> {
+  const marks = new Map<number, { step: number; replies: HandoffView[] }>();
+  for (const start of turn.stepStarts) {
+    marks.set(start.firstPart, { step: start.step, replies: [] });
+  }
+  for (const view of sent) {
+    const reply = view.reply;
+    if (!reply || reply.state !== "delivered") continue;
+    const start = turn.stepStarts.find((s) => s.at >= reply.createdAt);
+    if (start) marks.get(start.firstPart)?.replies.push(view);
+  }
+  return marks;
+}
+
 /** One message and its answer. Drawn again only when it changes. */
 const TurnView = memo(function TurnView({
   turn,
+  number,
   title,
   askFrom,
+  tool,
+  liaison,
+  revision,
   onOpenLink,
 }: {
   turn: ChatTurn;
+  number: number;
   title: string;
   askFrom: string | null;
+  tool: string | null;
+  liaison: ChatLiaison | null;
+  revision: number;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
   const live = !isOver(turn);
   const files = isOver(turn) ? filesOf(turn) : [];
+  // What it asked of its team, and who asked it (B5): Liaison's record of this task.
+  const handoffs = useTaskHandoffs(liaison ? turn.taskId : null, turn.taskId, revision, !live);
+  const received = liaison ? (handoffs?.received ?? null) : null;
+  const sent = handoffs?.sent ?? [];
+  const pieces = turn.parts.map((p) => (p.kind === "text" ? splitHandoffs(p.text) : null));
+  const asked = pieces.flatMap((ps) => (ps ?? []).filter((p) => p.kind === "handoff"));
+  const views = matchRequests(asked, sent);
+  const marks = stepMarks(turn, sent);
+  let request = 0;
   return (
-    <article className="chat-turn" aria-label={`Message ${turn.number}`}>
+    <article
+      className="chat-turn"
+      aria-label={`Message ${number}`}
+      // How it stands, for the real-app tests (the screen says it in words).
+      data-state={turn.state}
+      data-outcome={turn.outcome ?? undefined}
+    >
       {turn.ask.trim() !== "" && (
         <div className="chat-turn__ask">
-          {askFrom && <span className="chat-turn__from">{askFrom}</span>}
+          {received && liaison ? (
+            <AskedBy view={received} worker={title} liaison={liaison} />
+          ) : (
+            askFrom && <span className="chat-turn__from">{askFrom}</span>
+          )}
           <p>{turn.ask}</p>
         </div>
       )}
       <div className="chat-turn__answer">
-        {turn.parts.map((part) => (
-          <PartView key={part.id} part={part} live={live} onOpenLink={onOpenLink} />
-        ))}
+        {turn.stepStarts.length > 0 && <p className="chat-step">Step 1</p>}
+        {turn.parts.map((part, i) => {
+          const mark = marks.get(i);
+          const own = pieces[i];
+          return (
+            <Fragment key={part.id}>
+              {mark && (
+                <>
+                  <p className="chat-step">
+                    Step {mark.step} ·{" "}
+                    {sent.length > 0 ? "continued with handoff replies" : "continued"}
+                  </p>
+                  <RepliesBack views={mark.replies} />
+                </>
+              )}
+              {own && liaison && own.some((p) => p.kind === "handoff") ? (
+                own.map((piece, j) =>
+                  piece.kind === "text" ? (
+                    <div key={j} className="chat-words">
+                      <Markdown text={piece.text} onOpenLink={onOpenLink} />
+                    </div>
+                  ) : (
+                    <RequestCard
+                      key={j}
+                      to={piece.to}
+                      objective={piece.objective}
+                      view={views[request++] ?? null}
+                      liaison={liaison}
+                    />
+                  ),
+                )
+              ) : (
+                <PartView part={part} live={live} onOpenLink={onOpenLink} />
+              )}
+            </Fragment>
+          );
+        })}
         {live && <LiveRow turn={turn} />}
         {files.length > 0 && <FilesCard taskId={turn.taskId} files={files} title={title} />}
         {turn.problem && (
@@ -169,7 +267,10 @@ const TurnView = memo(function TurnView({
             {turn.problem}
           </p>
         )}
-        {isOver(turn) && <TurnFoot turn={turn} />}
+        {received?.reply && liaison && !live && (
+          <ReplyBack view={received} worker={title} liaison={liaison} />
+        )}
+        {isOver(turn) && <TurnFoot turn={turn} tool={tool} />}
       </div>
     </article>
   );
@@ -362,15 +463,47 @@ function FilesCard({
   );
 }
 
-/** Under a finished answer: how long it took, and its model. */
-function TurnFoot({ turn }: { turn: ChatTurn }) {
+/**
+ * Under a finished answer: how long it took, its model, and its tokens (pieces of words) over all
+ * its steps, which open to show how many it read, reused, and wrote (I2). A turn stopped before a
+ * step reported says "at least"; an AI tool that reports none says so.
+ */
+function TurnFoot({ turn, tool }: { turn: ChatTurn; tool: string | null }) {
+  const [open, setOpen] = useState(false);
   const parts: string[] = [];
   if (turn.endedAt !== null) parts.push(`${elapsed(turn.endedAt - turn.startedAt)}`);
   if (turn.model) parts.push(turn.model);
-  if (turn.usage) {
-    const total = turn.usage.inputTokens + turn.usage.outputTokens;
-    if (total > 0) parts.push(`${Math.round(total / 100) / 10}k tokens`);
-  }
-  if (parts.length === 0) return null;
-  return <p className="chat-turn__foot">{parts.join(" · ")}</p>;
+  const usage = turn.usage;
+  const total = usage ? usage.inputTokens + usage.outputTokens : 0;
+  const counted =
+    usage && total > 0 ? `${turn.usageAtLeast ? "at least " : ""}${tokens(total)} tokens` : null;
+  if (!counted && turn.state === "done" && tool) parts.push(`${tool} did not report tokens`);
+  if (parts.length === 0 && !counted) return null;
+  return (
+    <>
+      <p className="chat-turn__foot">
+        {parts.join(" · ")}
+        {counted && (
+          <>
+            {parts.length > 0 && " · "}
+            <button
+              type="button"
+              className="chat-turn__tokens"
+              aria-expanded={open}
+              onClick={() => setOpen(!open)}
+            >
+              {counted}
+            </button>
+          </>
+        )}
+      </p>
+      {open && usage && (
+        <p className="chat-turn__usage">
+          {tokens(usage.inputTokens)} read
+          {usage.cachedInputTokens > 0 && ` (${tokens(usage.cachedInputTokens)} reused)`} ·{" "}
+          {tokens(usage.outputTokens)} written
+        </p>
+      )}
+    </>
+  );
 }
