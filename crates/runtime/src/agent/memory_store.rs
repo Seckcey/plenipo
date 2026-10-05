@@ -4,14 +4,16 @@
 use std::sync::{Mutex, MutexGuard};
 
 use crate::agent::dto::{AgentEvent, AgentSession, AgentTurn, TurnResult, TurnStep};
-use crate::agent::service::{SessionChange, SessionStore, StepNote, TurnInput, TurnRef, TurnTask};
+use crate::agent::service::{
+    KeptActivity, SessionChange, SessionStore, StepNote, TurnInput, TurnRef, TurnTask,
+};
 
 #[derive(Debug, Default)]
 struct Data {
     sessions: Vec<AgentSession>,
     turns: Vec<AgentTurn>,
-    /// (task ID, event) in recording order.
-    activity: Vec<(String, AgentEvent)>,
+    /// (task ID, what was kept) in recording order.
+    activity: Vec<(String, KeptActivity)>,
     changes: Vec<(String, SessionChange)>,
     /// (task ID, step reason) in recording order.
     notes: Vec<(String, StepNote)>,
@@ -33,7 +35,7 @@ impl MemorySessionStore {
             .activity
             .iter()
             .filter(|(t, _)| t == task_id)
-            .map(|(_, e)| e.clone())
+            .map(|(_, k)| k.event.clone())
             .collect()
     }
 
@@ -203,10 +205,25 @@ impl SessionStore for MemorySessionStore {
     }
 
     fn record_activity(&self, turn: &TurnRef<'_>, event: &AgentEvent) -> Result<(), String> {
-        self.lock()
-            .activity
-            .push((turn.task_id.to_owned(), event.clone()));
+        self.lock().activity.push((
+            turn.task_id.to_owned(),
+            KeptActivity {
+                step: turn.step.unwrap_or(1),
+                ts: crate::now_ms(),
+                event: event.clone(),
+            },
+        ));
         Ok(())
+    }
+
+    fn kept_activity(&self, turn: &AgentTurn) -> Result<Vec<KeptActivity>, String> {
+        Ok(self
+            .lock()
+            .activity
+            .iter()
+            .filter(|(t, _)| *t == turn.task_id)
+            .map(|(_, k)| k.clone())
+            .collect())
     }
 
     fn finish_turn(&self, turn_ref: &TurnRef<'_>, result: &TurnResult) -> Result<(), String> {

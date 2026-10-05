@@ -398,7 +398,9 @@ export function applyTurn(session: ChatSession, record: AgentTurn): ChatSession 
 export function mergeDetail(start: ChatSession, detail: AgentSessionDetail): ChatSession {
   if (detail.session.id !== start.sessionId) return start;
   let session = start;
-  for (const turn of detail.turns) session = applyTurn(session, turn);
+  // Each turn's record first (its place, and what was asked), not yet its end: its answer is
+  // added at the end only if its own pieces have not said it, so it is never said twice.
+  for (const turn of detail.turns) session = applyTurn(session, { ...turn, result: null });
   // Each turn's pieces in their own order (the numbers count within a turn).
   const ordered = detail.activity.slice().sort((a, b) => a.seq - b.seq);
   for (const activity of ordered) session = applyActivity(session, activity);

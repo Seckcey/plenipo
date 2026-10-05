@@ -316,6 +316,48 @@ describe("from what Plenipo keeps", () => {
     const again = applyActivity(s, act(3, { type: "textDelta", text: "Reading" }));
     expect(again).toBe(s);
   });
+
+  it("says a finished turn's answer once when its live pieces say it too", () => {
+    // Opening the chat of an agent that has just finished: its words are still held.
+    const detail: AgentSessionDetail = {
+      session: session(),
+      turns: [{ ...finished("Hello!"), objective: "Say hello" }],
+      activity: [
+        act(1, { type: "textDelta", text: "Hello!" }),
+        act(2, { type: "message", text: "Hello!" }),
+      ],
+    };
+    const t = turn(fromDetail(detail));
+    expect(t.parts.map((p) => (p.kind === "text" ? p.text : p.kind))).toEqual(["Hello!"]);
+    expect(t.state).toBe("done");
+    // Its answer, when no piece says it, is still there.
+    const bare = turn(fromDetail({ ...detail, activity: [] }));
+    expect(bare.parts.map((p) => (p.kind === "text" ? p.text : p.kind))).toEqual(["Hello!"]);
+  });
+
+  it("shows a finished turn's steps from what was kept, after a restart (ADR-203)", () => {
+    // Plenipo no longer holds the live pieces: it sends what the record kept instead, whole
+    // messages and steps, numbered by step as live pieces are.
+    const detail: AgentSessionDetail = {
+      session: session(),
+      turns: [{ ...finished("Saved plan.md."), objective: "Write a plan" }],
+      activity: [
+        act(1, { type: "sessionStarted", providerSessionId: "p", model: "sonnet" }),
+        act(2, { type: "toolUse", tool: "write_file", summary: "plan.md", id: "c1" }),
+        act(3, { type: "toolResult", tool: null, isError: false, summary: "saved", id: "c1" }),
+        act(4, { type: "message", text: "Saved plan.md." }),
+      ],
+    };
+    const t = turn(fromDetail(detail));
+    expect(t.state).toBe("done");
+    expect(t.parts.map((p) => p.kind)).toEqual(["tools", "text"]);
+    const tools = t.parts[0];
+    expect(tools?.kind === "tools" && tools.calls.map((c) => [c.summary, c.state])).toEqual([
+      ["plan.md", "done"],
+    ]);
+    // The answer is said once.
+    expect(t.parts.filter((p) => p.kind === "text")).toHaveLength(1);
+  });
 });
 
 describe("what it is doing now", () => {

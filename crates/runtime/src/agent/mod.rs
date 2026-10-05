@@ -29,7 +29,8 @@ pub use dto::*;
 pub use memory_store::MemorySessionStore;
 pub use preview::{WritePreview, WriteTool};
 pub use service::{
-    unavailable_outcome, AgentConfig, AgentRuntime, AgentSink, Bridge, NotFree, RuntimeHold,
+    unavailable_outcome, AgentConfig, AgentRuntime, AgentSink, Bridge, KeptActivity, NotFree,
+    RuntimeHold,
     SessionChange, SessionStart, SessionStore, StepNote, TurnDisposition, TurnEnd, TurnHook,
     TurnInput, TurnRef, TurnTask, MAX_PROMPT_BYTES, OWNER, STEP_SEQ,
 };
