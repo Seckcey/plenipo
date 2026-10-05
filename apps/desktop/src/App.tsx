@@ -60,6 +60,7 @@ import { EditorPage } from "./files/EditorPage";
 import { ChatButton } from "./chat/ChatButton";
 import { ChatPanel } from "./chat/ChatPanel";
 import { ChatProvider } from "./chat/ChatProvider";
+import { WorkersPage } from "./workers/WorkersPage";
 import { ChatWindows } from "./chat/ChatWindows";
 import { FilesButton } from "./files/FilesButton";
 import { useFileExplorerDrops } from "./files/useObjectiveFiles";
@@ -78,7 +79,6 @@ import { OrganizationView } from "./views/OrganizationView";
 import { ProjectsView } from "./views/ProjectsView";
 import { RuntimesView } from "./views/RuntimesView";
 import { SettingsView } from "./views/SettingsView";
-import { WorkersView } from "./views/WorkersView";
 import { LimitBanners } from "./limits/LimitBanners";
 import { SpendingBanner } from "./spending/SpendingBanner";
 import { RecoveryBanners } from "./upkeep/RecoveryBanners";
@@ -293,10 +293,6 @@ function Shell({ core }: { core: CoreState }) {
     setSelectedSession(id);
     writeSession(SELECTED_SESSION_KEY, id);
   };
-  const showExecution = (id: string) => {
-    select(id);
-    navigate("runtimes");
-  };
   const openSession = (id: string) => go({ view: "workers", id });
   const openTask = (id: string) => go({ view: "activity", id });
   const openPosition = (id: string) => go({ view: "organization", id });
@@ -482,10 +478,9 @@ function Shell({ core }: { core: CoreState }) {
             />
           )}
           {view === "workers" && (
-            <WorkersView
+            <WorkersPage
               selectedSessionId={selectedSession}
               onSelectSession={selectSession}
-              onShowExecution={showExecution}
               onOpenRuntimes={(id) => go({ view: "runtimes", id: id ?? null })}
               onOpenPosition={openPosition}
               onOpenPage={go}
