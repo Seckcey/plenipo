@@ -455,6 +455,7 @@ describe("A worker's page", () => {
           sessionId: "session-web",
           number: 1,
           objective: "Build the pricing page",
+          requestedBy: { kind: "owner" },
           executionId: null,
           running: false,
           waiting: false,

@@ -10,9 +10,9 @@ use std::time::{Duration, Instant};
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSession, AgentSessionDetail,
     AgentSink, AgentTurn, AgentUpdate, AuthState, Bridge, BriefInput, Effort, HoldFor, HostEnv,
-    InstallState, MemorySessionStore, SessionChange, SessionStart, SessionState, SessionStore,
-    StatusPhase, StepInfo, StepNote, StepTools, ToolProvider, TurnDisposition, TurnEnd, TurnHook,
-    TurnInput, TurnOutcome, TurnRef, TurnResult, TurnTask, STEP_SEQ,
+    InstallState, MemorySessionStore, RequestedBy, SessionChange, SessionStart, SessionState,
+    SessionStore, StatusPhase, StepInfo, StepNote, StepTools, ToolProvider, TurnDisposition,
+    TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef, TurnResult, TurnTask, STEP_SEQ,
 };
 use plenipo_runtime::{
     BriefKind, BriefWhy, EventSink, ExecutablePolicy, ExecutionState, MetadataStore, NoteKind,
@@ -1471,6 +1471,7 @@ fn unstarted(task_id: &str, session_id: &str, objective: &str) -> AgentTurn {
         session_id: session_id.into(),
         number: 1,
         objective: objective.into(),
+        requested_by: RequestedBy::owner(),
         execution_id: None,
         running: false,
         waiting: false,

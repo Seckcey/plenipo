@@ -712,6 +712,7 @@ impl AgentRuntime {
                         result: None,
                         started_at: Some(active.step_started_at),
                         ended_at: None,
+                        started_by: None,
                     }),
                 }
             }

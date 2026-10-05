@@ -66,7 +66,15 @@ describe("Plenipo's own text with a task (ADR-044)", () => {
           startedAt: 1,
           endedAt: 2,
         },
-        { number: 2, executionId: "e2", running: true, result: null, startedAt: 3, endedAt: null },
+        {
+          number: 2,
+          executionId: "e2",
+          running: true,
+          result: null,
+          startedAt: 3,
+          endedAt: null,
+          startedBy: { kind: "replies", messageIds: ["r1"] },
+        },
       ],
     });
     expect(turnPromptSizes(steps)).toEqual([size()]);
