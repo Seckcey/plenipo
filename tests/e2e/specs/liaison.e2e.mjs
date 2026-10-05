@@ -21,68 +21,46 @@ import {
   waitUntil,
   waitForShell,
 } from "../lib/app.mjs";
+import {
+  CHAT,
+  CHAT_LOG,
+  openFolds,
+  sessionTitled,
+  startConversation,
+  stopChat,
+  waitForChat,
+  waitForTurn,
+} from "../lib/chat.mjs";
 
 const home = makeHome();
 const env = installFakeTools(home);
 mkdirSync(join(home, ".plenipo-fake-agent"), { recursive: true });
 writeFileSync(join(home, ".plenipo-fake-agent", "auth"), "subscription");
 
-const TURNS = '[aria-label="Tasks"]';
-const NEW_TASK = 'form[aria-label="New task"]';
-const HEADER = ".detail__header";
-
-/** Snapshot the turns of the selected session in one in-page read. */
-function turns(browser) {
-  return browser.execute((selector) => {
-    return [...document.querySelectorAll(`${selector} > li`)].map((li) => ({
-      running: li.getAttribute("data-running") === "true",
-      waiting: li.getAttribute("data-waiting") === "true",
-      outcome: li.getAttribute("data-outcome"),
-      text: li.innerText.replace(/\s+/g, " ").trim(),
-    }));
-  }, TURNS);
-}
-
-/** Screenshot with the selected session's turns in view. (A DOM scroll: WebKit's WebDriver
- * rejects wheel actions inside the app's scroll area.) */
+/** Screenshot with the chat's turns in view. (A DOM scroll: WebKit's WebDriver rejects wheel
+ * actions inside the app's scroll area.) */
 async function screenshotTurns(browser, name) {
   await browser.execute((selector) => {
     document.querySelector(selector)?.scrollIntoView({ block: "start" });
-  }, TURNS);
+  }, CHAT_LOG);
   await screenshot(browser, name);
 }
 
-const waitForTurn = (browser, n, predicate, what, timeoutMs = 45_000) =>
-  waitUntil(
-    async () => {
-      const t = (await turns(browser))[n - 1];
-      return t && predicate(t) ? t : null;
-    },
-    what,
-    timeoutMs,
-  );
-
-/** The text of the handoff card for `destinationLabel` in the selected session. */
+/** The text of the request card for `destinationLabel` in the lead's chat (its reply opened). */
 async function handoffCard(browser, destinationLabel) {
-  const card = await browser.$(`li[aria-label^="Handoff to ${destinationLabel}"]`);
+  await openFolds(browser);
+  const card = await browser.$(`${CHAT} li[aria-label^="Handoff to ${destinationLabel}"]`);
   return (await card.isExisting()) ? (await card.getText()).replace(/\s+/g, " ") : "";
 }
 
-async function startTask(browser, runtimeLabel, objective, { handoffs }) {
-  await nav(browser, "Workers");
-  const radio = await browser.$(`//label[.//span[normalize-space()="${runtimeLabel}"]]//input`);
-  await radio.waitForExist({ timeout: 10_000 });
-  await radio.click();
-  await waitUntil(
-    async () => (await textOf(browser, NEW_TASK)).includes("Ready"),
-    `${runtimeLabel} ready`,
-  );
-  const allow = await browser.$('//label[contains(., "Allow handoffs")]//input');
-  if ((await allow.isSelected()) !== handoffs) await allow.click();
-  const box = await browser.$(`${NEW_TASK} textarea`);
-  await box.setValue(objective);
-  await clickButton(browser, "Start task");
-  await waitForText(browser, `${HEADER} h2`, objective);
+/** A task outside the organization (the Workers page), with handoffs allowed or not. */
+const startTask = (browser, runtimeLabel, objective, { handoffs }) =>
+  startConversation(browser, runtimeLabel, objective, { handoffs });
+
+/** The lead's conversation may hand work to others (Liaison is on for it). */
+async function handoffsAllowed(browser, title) {
+  const session = await sessionTitled(browser, title);
+  assert.equal(session.metadata?.liaison?.enabled, true, `handoffs allowed for ${title}`);
 }
 
 describe("Phase 4 Liaison handoffs (real app, fake CLIs)", () => {
@@ -99,9 +77,16 @@ describe("Phase 4 Liaison handoffs (real app, fake CLIs)", () => {
     const { browser } = app;
     await waitForShell(browser);
     await startTask(browser, "Codex", "Write a parser [handoff:claude-code]", { handoffs: true });
-    await waitForText(browser, HEADER, "Handoffs allowed");
+    await handoffsAllowed(browser, "Write a parser");
 
-    const t = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "Codex result");
+    // (Its step marks name the replies once Liaison's record of them is in.)
+    const t = await waitForTurn(
+      browser,
+      1,
+      (t) =>
+        t.outcome === "completed" && t.text.includes("Step 2 · continued with handoff replies"),
+      "Codex result",
+    );
     // The review came back into the originating Codex workflow as a second step.
     assert.match(
       t.text,
@@ -123,22 +108,20 @@ describe("Phase 4 Liaison handoffs (real app, fake CLIs)", () => {
     }
     await screenshotTurns(browser, "handoff-codex-to-claude");
 
-    // The Claude Code worker's own session: the request it was started for, and its answer.
+    // The Claude Code worker's own chat: who asked it, the request, and its answer.
     await clickButton(browser, "Open worker conversation");
-    await waitForText(browser, HEADER, "Handoff worker");
-    await waitForText(browser, '[aria-label="Handoff request"]', "Asked by Codex");
+    await waitForChat(browser, "Review the answer above");
+    await waitForText(browser, `${CHAT} [aria-label="Request from Codex"]`, "Codex asked");
     const review = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "review");
     assert.match(
       review.text,
       /Turn 1: you asked "Review the answer above"; context: "Turn 1: you said \\"Write a parser/,
     );
-    assert.equal(
-      await (await browser.$('form[aria-label="Continue the conversation"]')).isExisting(),
-      false,
-    );
+    // Its work comes from who asked it: watched, not messaged.
+    assert.equal(await (await browser.$(`${CHAT} textarea`)).isEnabled(), false);
     await screenshotTurns(browser, "handoff-worker-session");
-    await clickButton(browser, "Open requester conversation");
-    await waitForText(browser, `${HEADER} h2`, "Write a parser");
+    await clickButton(browser, "Open Codex's conversation");
+    await waitForChat(browser, "Write a parser");
   });
 
   it("A1: the Ledger holds the complete trail and the delegation tree", async () => {
@@ -204,16 +187,16 @@ describe("Phase 4 Liaison handoffs (real app, fake CLIs)", () => {
       async () => (await handoffCard(browser, "Claude Code")).includes("Worker running"),
       "the handoff worker running",
     );
-    await waitForText(browser, '[role="status"]', "waiting for replies to its handoffs");
+    await waitForText(browser, `${CHAT} .chat-head__state`, "Waiting for its team");
     await screenshotTurns(browser, "handoff-waiting");
-    await clickButton(browser, "Cancel task");
+    await stopChat(browser);
     await waitForTurn(browser, 1, (t) => t.outcome === "cancelled", "cancelled");
     await waitUntil(
       async () => (await handoffCard(browser, "Claude Code")).includes("Cancelled"),
       "the handoff cancelled",
     );
     await clickButton(browser, "Open worker conversation");
-    await waitForText(browser, HEADER, "Handoff worker");
+    await waitForChat(browser, "Review the answer above");
     await waitForTurn(browser, 1, (t) => t.outcome === "cancelled", "the worker stopped");
   });
 
@@ -222,8 +205,10 @@ describe("Phase 4 Liaison handoffs (real app, fake CLIs)", () => {
     await startTask(browser, "Claude Code", "Ask around [handoff:gemini]", { handoffs: true });
     const t = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "result");
     assert.match(t.text, /received 1 reply: Plenipo: rejected: Reason: missing destination/);
-    const card = await handoffCard(browser, "gemini");
-    assert.match(card, /Refused/);
+    const card = await waitUntil(async () => {
+      const text = await handoffCard(browser, "gemini");
+      return text.includes("Refused") ? text : null;
+    }, "the refused handoff");
     assert.match(card, /no AI tool named "gemini"/);
     // Nothing was sent to another provider instead.
     assert.equal(

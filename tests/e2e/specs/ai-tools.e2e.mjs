@@ -24,6 +24,7 @@ import {
   waitForShell,
   waitUntil,
 } from "../lib/app.mjs";
+import { CHAT_LOG, startConversation } from "../lib/chat.mjs";
 
 const RELEASES = process.env.PLENIPO_AI_TOOL_RELEASES;
 const RELEASES_PORT = 8766;
@@ -50,7 +51,6 @@ const readState = (name) => (existsSync(state(name)) ? readFileSync(state(name),
 const PAGE = 'ul[aria-label="AI tools"]';
 const PANEL = 'section[aria-label="Terminal"]';
 const card = (label) => `li[aria-label="${label} AI tool"]`;
-const NEW_TASK = 'form[aria-label="New task"]';
 const ALL_EVENTS = 'ol[aria-label="All events"]';
 const AUTO_UPDATE = '//button[@role="switch"][@aria-label="Update AI tools by themselves"]';
 
@@ -132,20 +132,8 @@ async function openAiTools(browser) {
   await openCards(browser);
 }
 
-async function startTask(browser, runtimeLabel, objective) {
-  await nav(browser, "Workers");
-  const radio = await browser.$(`//label[.//span[normalize-space()="${runtimeLabel}"]]//input`);
-  await radio.waitForExist({ timeout: 10_000 });
-  await radio.click();
-  await waitUntil(
-    async () => (await textOf(browser, NEW_TASK)).includes("Ready"),
-    `${runtimeLabel} ready`,
-  );
-  const box = await browser.$(`${NEW_TASK} textarea`);
-  await box.setValue(objective);
-  await clickButton(browser, "Start task");
-  await waitForText(browser, ".detail__header h2", objective.replace(/\s*\[.*$/, ""));
-}
+/** A task on `runtimeLabel`: a conversation outside the organization (the Workers page). */
+const startTask = startConversation;
 
 /** The owner's own keys, one at a time, in the terminal tab on show. */
 async function type(browser, keys) {
@@ -354,7 +342,7 @@ describe("Phase 19 the AI tools page (real app, fake AI tools)", () => {
   it("shows this week's usage for Claude Code by model, and how much of the plan is left", async () => {
     const { browser } = app;
     await startTask(browser, "Claude Code", "Say hello [plan:9]");
-    await waitForText(browser, '[aria-label="Tasks"]', "Turn 1:");
+    await waitForText(browser, CHAT_LOG, "Turn 1:");
     await openAiTools(browser);
     // Claude Code reports how much of the plan is used in its own task messages.
     await waitForText(browser, card("Claude Code"), "5-hour: 9% used, resets");
