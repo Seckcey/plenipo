@@ -358,6 +358,45 @@ describe("from what Plenipo keeps", () => {
     // The answer is said once.
     expect(t.parts.filter((p) => p.kind === "text")).toHaveLength(1);
   });
+
+  it("adds the answer after what was kept when its last message was not kept", () => {
+    // A big step keeps at most so many pieces: its last message may be missing.
+    const detail: AgentSessionDetail = {
+      session: session(),
+      turns: [{ ...finished("All done: the tests pass."), objective: "Fix it" }],
+      activity: [
+        act(1, { type: "message", text: "Let me look at the tests." }),
+        act(2, { type: "toolUse", tool: "bash", summary: "npm test", id: "c1" }),
+      ],
+    };
+    const t = turn(fromDetail(detail));
+    expect(t.parts.map((p) => (p.kind === "text" ? p.text : p.kind))).toEqual([
+      "Let me look at the tests.",
+      "tools",
+      "All done: the tests pass.",
+    ]);
+  });
+
+  it("adds no answer joined from messages already on screen, nor one said with other spacing", () => {
+    const joined: AgentSessionDetail = {
+      session: session(),
+      turns: [{ ...finished("Part one.\n\nPart two."), objective: "Go" }],
+      activity: [
+        act(1, { type: "message", text: "Part one." }),
+        act(2, { type: "toolUse", tool: "bash", summary: "ls", id: "c1" }),
+        act(3, { type: "message", text: "Part two." }),
+      ],
+    };
+    expect(
+      turn(fromDetail(joined)).parts.map((p) => (p.kind === "text" ? p.text : p.kind)),
+    ).toEqual(["Part one.", "tools", "Part two."]);
+    const spaced: AgentSessionDetail = {
+      session: session(),
+      turns: [{ ...finished("Hello!"), objective: "Say hello" }],
+      activity: [act(1, { type: "message", text: "Hello!\n" })],
+    };
+    expect(turn(fromDetail(spaced)).parts.filter((p) => p.kind === "text")).toHaveLength(1);
+  });
 });
 
 describe("what it is doing now", () => {

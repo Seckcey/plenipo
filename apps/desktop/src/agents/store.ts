@@ -262,7 +262,13 @@ export function agentReducer(state: AgentState, action: AgentAction): AgentState
       const nextActivity = { ...next.activity };
       for (const [taskId, items] of byTask) {
         const newest = items.at(-1)?.seq ?? 0;
-        const newer = (state.activity[taskId] ?? []).flatMap((a) => newerThan(a, newest));
+        // A finished turn never streams again: what the snapshot has of it is all of it. (Filled
+        // in from the record once Plenipo let its live pieces go, it is numbered afresh, so its
+        // numbers say nothing about the live ones held here, ADR-203 §10.)
+        const finished = turns.some((t) => t.taskId === taskId && t.result !== null);
+        const newer = finished
+          ? []
+          : (state.activity[taskId] ?? []).flatMap((a) => newerThan(a, newest));
         nextActivity[taskId] = cap(items.concat(newer));
       }
       return { ...next, activity: nextActivity };

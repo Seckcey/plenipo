@@ -1705,6 +1705,8 @@ impl AgentRuntime {
             .filter_map(|t| state.activity.get(&t.task_id))
             .flat_map(|buf| buf.iter().cloned())
             .collect();
+        // Filled-in pieces come after the held ones, so `activity` is not in turn order: its
+        // readers group it by task and sort each task's pieces by `seq`.
         activity.extend(recalled);
         Ok(AgentSessionDetail {
             session,

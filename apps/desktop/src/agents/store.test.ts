@@ -342,6 +342,75 @@ describe("agent store — streamed thinking and words, joined", () => {
   });
 });
 
+describe("agent store — a finished turn filled in from the record (ADR-203)", () => {
+  it("takes a finished turn's snapshot as the whole of it, never with the live pieces again", () => {
+    // The page held the turn's live pieces, numbered as they came.
+    let state = initialAgentState;
+    const live: [number, AgentEvent][] = [
+      [1, { type: "toolUse", tool: "Read", summary: "a.ts" }],
+      [2, { type: "toolResult", tool: null, isError: false, summary: "ok" }],
+      [3, delta("Done")],
+      [4, delta(" now.")],
+      [5, { type: "message", text: "Done now." }],
+    ];
+    for (const [seq, event] of live) {
+      state = agentReducer(state, {
+        type: "update",
+        update: { kind: "activity", ...activity("t1", seq, event) },
+      });
+    }
+    // Plenipo let them go, and fills the turn in from its record: the kept pieces, numbered
+    // afresh from 1.
+    const kept = [
+      activity("t1", 1, { type: "toolUse", tool: "Read", summary: "a.ts" }),
+      activity("t1", 2, { type: "toolResult", tool: null, isError: false, summary: "ok" }),
+      activity("t1", 3, { type: "message", text: "Done now." }),
+    ];
+    const ended = turn("t1", {
+      running: false,
+      result: {
+        outcome: "completed",
+        summary: "Done now.",
+        text: "Done now.",
+        error: null,
+        providerSessionId: "p",
+        model: null,
+        usage: null,
+        durationMs: 1,
+        ignoredLines: 0,
+      },
+    });
+    state = agentReducer(state, {
+      type: "sessionLoaded",
+      detail: { session: session("s1"), turns: [ended], activity: kept },
+    });
+    const rows = activityItems(state.activity.t1 ?? []).map((i) =>
+      i.kind === "event" ? i.activity.event.type : i.kind,
+    );
+    expect(rows).toEqual(["toolUse", "toolResult", "message"]);
+    // A turn still running keeps what came live after its snapshot, as before.
+    state = agentReducer(state, {
+      type: "update",
+      update: { kind: "activity", ...activity("t2", 1, delta("a")) },
+    });
+    state = agentReducer(state, {
+      type: "update",
+      update: { kind: "activity", ...activity("t2", 2, delta("b")) },
+    });
+    state = agentReducer(state, {
+      type: "sessionLoaded",
+      detail: {
+        session: session("s1"),
+        turns: [ended, turn("t2", { number: 2 })],
+        activity: [...kept, activity("t2", 1, delta("a"))],
+      },
+    });
+    expect(
+      activityItems(state.activity.t2 ?? []).map((i) => i.kind === "streaming" && i.text),
+    ).toEqual(["ab"]);
+  });
+});
+
 describe("agent store — waiting turns and steps (Phase 4)", () => {
   const done = (text: string) => ({
     outcome: "completed" as const,
