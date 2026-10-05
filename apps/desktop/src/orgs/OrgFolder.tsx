@@ -4,22 +4,7 @@ import { Button } from "@plenipo/ui";
 
 import { getOrgFolder, openOrgFolder, toCommandError } from "../api/commands";
 import { FormError } from "../components/org/OrgDialogs";
-
-/** The last part of a folder's path: its own name. */
-export function folderName(path: string): string {
-  const parts = path.split(/[\\/]+/).filter((p) => p !== "");
-  return parts[parts.length - 1] ?? path;
-}
-
-/**
- * Whether to tell the owner to keep the folder on this computer (the owner's decision,
- * 2026-10-05): OneDrive syncs it and it isn't set to "Always keep on this device", or another
- * service syncs it and Plenipo can't tell.
- */
-export function needsKeepAlert(info: OrgFolderInfo | null): boolean {
-  if (!info?.path || !info.syncedBy) return false;
-  return info.syncedBy === "other" || info.keptOnThisDevice !== true;
-}
+import { folderName, needsKeepAlert } from "./orgFolderWords";
 
 /**
  * The alert, in plain words, when a sync service keeps the organization folder online (ADR-205
@@ -33,9 +18,9 @@ export function KeepOnThisDeviceAlert({
 }: {
   info: OrgFolderInfo | null;
   /** Show the folder in File Explorer (only once it is there). */
-  onShow?: () => void;
+  onShow?: (() => void) | undefined;
   /** Look again whether it is set to stay on this device. */
-  onCheck?: () => void;
+  onCheck?: (() => void) | undefined;
 }) {
   if (!needsKeepAlert(info) || !info?.path) return null;
   const name = folderName(info.path);
