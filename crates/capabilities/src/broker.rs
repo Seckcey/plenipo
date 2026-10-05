@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::{Duration, Instant};
 
 use plenipo_guard::engine::{doing, Request, Scope};
-use plenipo_guard::redact::Redactor;
+use plenipo_guard::redact::{Redactor, MARKER};
 use plenipo_guard::websites::{safe_address, safe_addresses};
 use plenipo_guard::{
     evaluate, level_for, levels_for, Capability, CommandLine, Decision, GrantState, Guard, Layer,
@@ -24,8 +24,8 @@ use plenipo_ledger::{
     WorkspaceState,
 };
 use plenipo_runtime::agent::tools::{
-    FileAccess, FileAnswer, Pending, StepInfo, StepTools, TextFilter, ToolProvider, ToolServer,
-    SERVER_NAME,
+    FileAccess, FileAnswer, Pending, StepInfo, StepTools, TextFilter, TextRedaction, ToolProvider,
+    ToolServer, SERVER_NAME,
 };
 use plenipo_runtime::Supervisor;
 use serde_json::{json, Value};
@@ -726,6 +726,34 @@ fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
     options.open(path)?.write_all(text.as_bytes())
 }
 
+/// The broker's redactor as the runtime's text filter: the stored secrets and the recognizable
+/// formats, as they are at the time of each call.
+struct Redaction(Arc<RwLock<Redactor>>);
+
+impl Redaction {
+    fn with<T>(&self, f: impl FnOnce(&Redactor) -> T) -> T {
+        f(&self.0.read().unwrap_or_else(|p| p.into_inner()))
+    }
+}
+
+impl TextRedaction for Redaction {
+    fn redact(&self, text: &str) -> String {
+        self.with(|r| r.redact(text).into_owned())
+    }
+
+    fn redact_from(&self, text: &str, start: usize) -> String {
+        self.with(|r| r.redact_from(text, start).into_owned())
+    }
+
+    fn hidden(&self, what: &str) -> String {
+        format!("{MARKER}{what}]")
+    }
+
+    fn stored_secret_start(&self, text: &str) -> Option<usize> {
+        self.with(|r| r.stored_secret_start(text))
+    }
+}
+
 impl Broker {
     /// The broker. Approvals left pending when Plenipo stopped are marked expired, and old
     /// tickets are removed. Call [`Broker::start`] to open the tool server.
@@ -971,14 +999,7 @@ impl Broker {
 
     /// A filter for the agent runtime: hides secrets in activity and results.
     pub fn text_filter(&self) -> TextFilter {
-        let redactor = Arc::clone(&self.inner.redactor);
-        Arc::new(move |text: &str| {
-            redactor
-                .read()
-                .unwrap_or_else(|p| p.into_inner())
-                .redact(text)
-                .into_owned()
-        })
+        Arc::new(Redaction(Arc::clone(&self.inner.redactor)))
     }
 
     // ---- Grants -----------------------------------------------------------------------------

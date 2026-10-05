@@ -14,6 +14,7 @@ pub mod discovery;
 pub mod dto;
 pub mod grok;
 pub mod kimi;
+pub mod live_text;
 pub mod memory_store;
 pub mod ollama;
 pub mod paid;

@@ -1185,7 +1185,9 @@ async fn a_paid_key_saved_once_works_in_every_organization() {
     let (_, info) = second.rt.recheck("openrouter").await.unwrap();
     assert!(info.ready, "{info:#?}");
     let filter = second.broker.text_filter();
-    assert!(!filter(&format!("the service said {key}")).contains(key));
+    assert!(!filter
+        .redact(&format!("the service said {key}"))
+        .contains(key));
     assert!(plenipo_capabilities::paid::any_key(&second.broker));
     // Removed: the second organization can no longer use it.
     first.tools.remove_paid_key("openrouter").await.unwrap();
@@ -1270,7 +1272,9 @@ async fn a_paid_key_is_kept_only_in_the_vault_and_only_with_the_switch_with_no_s
     assert!(!events.contains(key) && !events.contains("abcdef012345"));
     assert!(!format!("{page:?}").contains(key));
     let filter = h.broker.text_filter();
-    assert!(!filter(&format!("the service said {key}")).contains(key));
+    assert!(!filter
+        .redact(&format!("the service said {key}"))
+        .contains(key));
     assert!(plenipo_capabilities::paid::any_key(&h.broker));
     // Removed: gone from the Vault too, and OpenRouter is not ready.
     let page = h.tools.remove_paid_key("openrouter").await.unwrap();
@@ -1365,7 +1369,11 @@ async fn a_replaced_or_removed_key_never_stays_in_the_vault_unlisted() {
     let config = h.broker.guard().config().unwrap();
     assert_eq!(config.paid_keys.len(), 1);
     assert!(plenipo_capabilities::vault::stored_ids(&config).contains(&now[0].id));
-    assert!(!h.broker.text_filter()(&format!("said {second}")).contains(second));
+    assert!(!h
+        .broker
+        .text_filter()
+        .redact(&format!("said {second}"))
+        .contains(second));
     // Once it lets go, Remove works.
     h.vault.refuse_deletes.store(false, Ordering::SeqCst);
     h.tools.remove_paid_key("openrouter").await.unwrap();

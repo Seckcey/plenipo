@@ -36,6 +36,7 @@ use crate::agent::discovery::{
     MAX_PAID_CHECK_OUTPUT, MAX_PROBE_OUTPUT,
 };
 use crate::agent::dto::*;
+use crate::agent::live_text::{ends_blocks, LiveKind, LiveText};
 use crate::agent::paid::{PaidBill, PaidCharge, PaidGate, PaidKey, PaidLimits};
 use crate::agent::tools::{with_note, FileAnswer, StepInfo, StepTools, TextFilter, ToolProvider};
 use crate::dto::{AgentAttribution, BriefKind, NoteKind, OutputLine, OutputStream, PromptSize};
@@ -2601,6 +2602,7 @@ impl AgentRuntime {
             context_used: None,
             paid: None,
             paid_bill: None,
+            live: LiveText::default(),
         };
         let ctx = match paid {
             Some(Ok(step)) => TurnContext {
@@ -3022,6 +3024,9 @@ struct TurnContext {
     paid: Option<PaidStep>,
     /// The paid step's bill, once its program ended.
     paid_bill: Option<PaidBill>,
+    /// The step's streamed words and thinking, held back so secrets are redacted as whole words
+    /// (ADR-216).
+    live: LiveText,
 }
 
 /// A paid step's charge (ADR-085): what was set aside, and what the step may send.
@@ -3182,22 +3187,79 @@ impl TurnContext {
         }
     }
 
-    async fn event(&mut self, event: AgentEvent) {
-        let runtime = self.runtime.clone();
-        let event = match runtime.filter() {
-            Some(f) => filtered(&f, event),
-            None => event,
-        };
+    /// Send one event to the live screens, and keep it for a reload (the runtime's buffer).
+    fn emit(&mut self, event: AgentEvent) {
         self.seq += 1;
         let activity = AgentActivity {
             session_id: self.session.id.clone(),
             task_id: self.task_id.clone(),
             seq: self.seq,
             ts: crate::now_ms(),
-            event: event.clone(),
+            event,
         };
-        runtime.buffer(&activity);
-        runtime.inner.sink.emit(AgentUpdate::Activity(activity));
+        self.runtime.buffer(&activity);
+        self.runtime
+            .inner
+            .sink
+            .emit(AgentUpdate::Activity(activity));
+    }
+
+    /// Send on the live text still held back (ADR-216): before an event of another kind, and
+    /// when the turn ends.
+    fn flush_live(&mut self, filter: Option<&TextFilter>) {
+        for kind in [LiveKind::Words, LiveKind::Thinking] {
+            self.flush_kind(kind, filter);
+        }
+    }
+
+    /// Send on one kind's held text.
+    fn flush_kind(&mut self, kind: LiveKind, filter: Option<&TextFilter>) {
+        let text = self.live.flush(kind, filter);
+        if !text.is_empty() {
+            self.emit(kind.event(text));
+        }
+    }
+
+    async fn event(&mut self, event: AgentEvent) {
+        let runtime = self.runtime.clone();
+        let filter = runtime.filter();
+        // Live text is redacted as whole words (ADR-216): a streamed piece goes on only up to
+        // its newest whitespace, with the word being written held back until the redactor can
+        // see it whole; an event of any other kind sends the held text on first, so the order
+        // is kept.
+        let event = match event {
+            AgentEvent::TextDelta { text } => {
+                // Words after thinking: the held thinking goes on first, so the screen keeps
+                // the order; and the other way round below.
+                self.flush_kind(LiveKind::Thinking, filter.as_ref());
+                let text = self.live.push(LiveKind::Words, &text, filter.as_ref());
+                if text.is_empty() {
+                    return;
+                }
+                AgentEvent::TextDelta { text }
+            }
+            AgentEvent::Reasoning { text } => {
+                self.flush_kind(LiveKind::Words, filter.as_ref());
+                let text = self.live.push(LiveKind::Thinking, &text, filter.as_ref());
+                if text.is_empty() {
+                    return;
+                }
+                AgentEvent::Reasoning { text }
+            }
+            other => {
+                // A message, a tool call, a sign, and the like end the blocks of text: what is
+                // held goes on first, so the screen keeps the order (`ends_blocks`). A wait for
+                // the AI company, counts and plans pass by without ending one.
+                if ends_blocks(&other) {
+                    self.flush_live(filter.as_ref());
+                }
+                match &filter {
+                    Some(f) => filtered(f, other),
+                    None => other,
+                }
+            }
+        };
+        self.emit(event.clone());
 
         match &event {
             AgentEvent::SessionStarted {
@@ -3291,6 +3353,9 @@ impl TurnContext {
 
     async fn complete(mut self, result: TurnResult, done: Option<watch::Sender<bool>>) {
         let runtime = self.runtime.clone();
+        // Live text still held back goes on before the turn is recorded (ADR-216).
+        let filter = runtime.filter();
+        self.flush_live(filter.as_ref());
         // The step's program has ended: its grant ends before anything else is recorded (a
         // pending approval would otherwise hold its task).
         if let Some(grant) = self.grant.take() {
@@ -3421,15 +3486,17 @@ impl TurnContext {
     }
 }
 
-/// `event` with secrets hidden in its text.
+/// `event` with secrets hidden in its text. Streamed words and thinking (`TextDelta`,
+/// `Reasoning`) are not here: they are redacted as whole words on their way in (`LiveText`,
+/// ADR-216), since a pattern needs a whole token and a piece may hold half of one.
 fn filtered(f: &TextFilter, event: AgentEvent) -> AgentEvent {
     match event {
-        AgentEvent::TextDelta { text } => AgentEvent::TextDelta { text: f(&text) },
-        AgentEvent::Message { text } => AgentEvent::Message { text: f(&text) },
-        AgentEvent::Reasoning { text } => AgentEvent::Reasoning { text: f(&text) },
+        AgentEvent::Message { text } => AgentEvent::Message {
+            text: f.redact(&text),
+        },
         AgentEvent::ToolUse { tool, summary, id } => AgentEvent::ToolUse {
             tool,
-            summary: f(&summary),
+            summary: f.redact(&summary),
             id,
         },
         AgentEvent::ToolResult {
@@ -3440,29 +3507,29 @@ fn filtered(f: &TextFilter, event: AgentEvent) -> AgentEvent {
         } => AgentEvent::ToolResult {
             tool,
             is_error,
-            summary: f(&summary),
+            summary: f.redact(&summary),
             id,
         },
         AgentEvent::Status { phase, text } => AgentEvent::Status {
             phase,
-            text: f(&text),
+            text: f.redact(&text),
         },
         AgentEvent::Notice { level, text } => AgentEvent::Notice {
             level,
-            text: f(&text),
+            text: f.redact(&text),
         },
-        AgentEvent::MemoryShortened { detail } => {
-            AgentEvent::MemoryShortened { detail: f(&detail) }
-        }
+        AgentEvent::MemoryShortened { detail } => AgentEvent::MemoryShortened {
+            detail: f.redact(&detail),
+        },
         other => other,
     }
 }
 
 /// `result` with secrets hidden in its text.
 fn filtered_result(f: &TextFilter, mut result: TurnResult) -> TurnResult {
-    result.summary = f(&result.summary);
-    result.text = result.text.map(|t| f(&t));
-    result.error = result.error.map(|e| f(&e));
+    result.summary = f.redact(&result.summary);
+    result.text = result.text.map(|t| f.redact(&t));
+    result.error = result.error.map(|e| f.redact(&e));
     result
 }
 
