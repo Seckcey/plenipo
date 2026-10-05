@@ -16,9 +16,9 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
@@ -85,6 +85,20 @@ fn recall(store: &dyn SessionStore, session_id: &str, turns: &[AgentTurn]) -> Ve
 pub const OWNER: &str = "owner";
 /// How long a task that talks (ADR-015) gets to stop itself when cancelled.
 const CANCEL_GRACE: Duration = Duration::from_secs(5);
+/// How long a stopped turn gets to end by itself once its process was ended (the supervisor has
+/// already waited for the process and its output); after that the runtime ends it
+/// ([`AgentRuntime::force_end`]).
+const HARD_END_WAIT: Duration = Duration::from_secs(5);
+/// How long [`AgentRuntime::force_end`] waits, at most, for the hook to hear of the step's end:
+/// a hook stuck as the step's own finisher was never holds up the stop.
+const FORCED_HOOK_WAIT: Duration = Duration::from_secs(3);
+/// How long an AI tool may say nothing before the owner is told ([`AgentConfig::stall_note`]).
+pub const STALL_NOTE: Duration = Duration::from_secs(3 * 60);
+/// How long an AI tool may say nothing, with no tool call or file of its own open, before
+/// Plenipo stops the step as no longer answering ([`AgentConfig::stall_end`]).
+pub const STALL_END: Duration = Duration::from_secs(10 * 60);
+/// The event kinds a stalled or force-ended step's diagnostics list, newest first.
+const DIAGNOSTIC_EVENTS: usize = 10;
 /// How long a task waits, at most, while its AI tool is held for a sign-in or an update
 /// (ADR-058 §5, ADR-059 §4); after that it goes on.
 pub const HOLD_WAIT: Duration = Duration::from_secs(10 * 60);
@@ -303,6 +317,14 @@ pub struct AgentConfig {
     /// How long a new turn waits, at most, for the session's ended turn to be let go
     /// ([`RELEASE_WAIT`]).
     pub release_wait: Duration,
+    /// How long a running step may say nothing before the owner is told ([`STALL_NOTE`]). With
+    /// a tool call or a file request open, [`AgentConfig::stall_end`] instead.
+    pub stall_note: Duration,
+    /// How long a running step may say nothing, with no tool call or file request open, before
+    /// it is stopped as no longer answering ([`STALL_END`]). With one open, only the turn's own
+    /// time limit ends it. An AI tool that never closes a tool call it opened (a `ToolUse` that
+    /// gets no result) keeps one open, so there too only the turn's limit ends the stall.
+    pub stall_end: Duration,
 }
 
 /// A program Plenipo runs in place of an AI tool's own (for the sign-in check and tasks),
@@ -330,6 +352,8 @@ impl AgentConfig {
             bridge: None,
             hold_wait: HOLD_WAIT,
             release_wait: RELEASE_WAIT,
+            stall_note: STALL_NOTE,
+            stall_end: STALL_END,
         }
     }
 }
@@ -360,12 +384,30 @@ struct Active {
     interrupt: Option<mpsc::UnboundedSender<()>>,
     /// The step waits for its AI tool, held by an update or a sign-in tab ([`HoldFor`]).
     waiting_for_hold: bool,
-    /// The owner stopped it while it waited: it ends as cancelled, before it starts.
+    /// The owner stopped it while it waited or started: it ends as cancelled, before it runs.
     stop_waiting: bool,
     /// The turn has ended (or a stop ended its wait) and is only being recorded: nothing runs
     /// under it any more, and it is let go once recorded. A new turn waits for that
     /// ([`AgentRuntime::reserve_turn`]); a continuation is still refused meanwhile.
     releasing: bool,
+    /// The running step's grant of Plenipo's tools, closed by [`AgentRuntime::force_end`].
+    grant: Option<String>,
+    /// The running step's conversation mark at launch and what it sent (ADR-044), recorded as
+    /// not delivered by [`AgentRuntime::force_end`] when it ends the step.
+    sent: Option<(u64, Delivery)>,
+    /// Set when [`AgentRuntime::force_end`] ended the running step: its own finisher, if it ever
+    /// comes, then records and announces nothing.
+    forced: Option<Arc<AtomicBool>>,
+    /// The running step's watch, for the diagnostics of a step the runtime ends itself.
+    watch: Option<Arc<Mutex<StepWatch>>>,
+}
+
+/// What Stop all did ([`AgentRuntime::stop_all_turns_report`]): how many turns it stopped, and
+/// the sessions it could not stop, with why.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StopAllReport {
+    pub stopped: usize,
+    pub not_stopped: Vec<(String, String)>,
 }
 
 /// Why [`AgentRuntime::try_reserve`] could not claim a session: the error, and whether the
@@ -661,9 +703,15 @@ impl AgentRuntime {
     }
 
     /// `session` with the task IDs of its running or waiting turn (if any).
-    fn with_active(&self, mut session: AgentSession) -> AgentSession {
+    fn with_active(&self, session: AgentSession) -> AgentSession {
         let state = self.lock();
         let active = state.active.get(&session.id);
+        Self::with_claim(session, active)
+    }
+
+    /// `session` with the task its claim (`active`) runs or waits on. With
+    /// [`Self::decorated`] under one look at the claim, the summary and the turns agree.
+    fn with_claim(mut session: AgentSession, active: Option<&Active>) -> AgentSession {
         session.active_task_id = active
             .filter(|a| a.claim == Claim::Turn)
             .and_then(|a| a.task_id.clone());
@@ -674,12 +722,15 @@ impl AgentRuntime {
     }
 
     /// `turn` with the live state of its running step or wait, when it holds its session.
-    fn decorate(&self, mut turn: AgentTurn) -> AgentTurn {
+    fn decorate(&self, turn: AgentTurn) -> AgentTurn {
         let state = self.lock();
-        let Some(active) = state
-            .active
-            .get(&turn.session_id)
-            .filter(|a| a.task_id.as_deref() == Some(turn.task_id.as_str()))
+        let active = state.active.get(&turn.session_id);
+        Self::decorated(turn, active)
+    }
+
+    /// [`Self::decorate`], with the session's claim as one look read it (`active`).
+    fn decorated(mut turn: AgentTurn, active: Option<&Active>) -> AgentTurn {
+        let Some(active) = active.filter(|a| a.task_id.as_deref() == Some(turn.task_id.as_str()))
         else {
             return turn;
         };
@@ -753,12 +804,24 @@ impl AgentRuntime {
 
     /// Emit the turn as recorded, with its live state.
     async fn emit_turn(&self, session_id: &str, task_id: &str) {
+        self.emit_turn_with(session_id, task_id, None).await;
+    }
+
+    /// [`AgentRuntime::emit_turn`], for a turn that has ended with `ended`: shown with that result
+    /// even when the Ledger could not record it, so the screens never show a turn that ended as
+    /// still running ("Writing" forever, the owner's report, 2026-10-05).
+    async fn emit_turn_with(&self, session_id: &str, task_id: &str, ended: Option<&TurnResult>) {
         let (s, t) = (session_id.to_owned(), task_id.to_owned());
         match self
             .with_store(move |store| Ok(store.turns(&s)?.into_iter().find(|x| x.task_id == t)))
             .await
         {
-            Ok(Some(turn)) => {
+            Ok(Some(mut turn)) => {
+                if let Some(result) = ended.filter(|_| turn.result.is_none()) {
+                    turn.result = Some(result.clone());
+                    turn.running = false;
+                    turn.waiting = false;
+                }
                 let turn = self.decorate(turn);
                 self.inner.sink.emit(AgentUpdate::Turn(turn));
             }
@@ -1311,6 +1374,14 @@ impl AgentRuntime {
 
     /// Stop every turn running or waiting now, as Stop does for one. Returns how many stopped.
     pub async fn stop_all_turns(&self) -> usize {
+        self.stop_all_turns_report().await.stopped
+    }
+
+    /// [`Self::stop_all_turns`], saying also which sessions could not be stopped and why. Every
+    /// turn is stopped at the same time, so one that is slow to stop never holds up the rest
+    /// (the owner's report, 2026-10-05: Stop all seemed to do nothing). A turn that ended by
+    /// itself meanwhile is neither.
+    pub async fn stop_all_turns_report(&self) -> StopAllReport {
         let sessions: Vec<String> = {
             let state = self.lock();
             state
@@ -1320,37 +1391,34 @@ impl AgentRuntime {
                 .map(|(id, _)| id.clone())
                 .collect()
         };
-        let mut stopped = 0;
-        let mut starting = Vec::new();
+        // Each stop's session, by its task: a stop that fails even to finish is still named.
+        let mut stopping = tokio::task::JoinSet::new();
+        let mut named = HashMap::new();
         for id in sessions {
-            match self.cancel(&id, None).await {
-                Ok(_) => stopped += 1,
-                Err(RuntimeError::NotReady(why)) if why.contains("still starting") => {
-                    starting.push(id);
-                }
-                Err(_) => {}
-            }
+            let this = self.clone();
+            let session = id.clone();
+            let stop = stopping.spawn(async move { this.cancel(&session, None).await });
+            named.insert(stop.id(), id);
         }
-        // A turn still starting reaches the hold in a moment (its AI tool waits for Allow
-        // again), and can be stopped there: tried again for up to two seconds.
-        for _ in 0..40 {
-            if starting.is_empty() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            let mut still = Vec::new();
-            for id in starting {
-                match self.cancel(&id, None).await {
-                    Ok(_) => stopped += 1,
-                    Err(RuntimeError::NotReady(why)) if why.contains("still starting") => {
-                        still.push(id);
-                    }
-                    Err(_) => {}
+        let mut report = StopAllReport::default();
+        while let Some(joined) = stopping.join_next_with_id().await {
+            let (stop, why) = match joined {
+                Ok((_, Ok(_))) => {
+                    report.stopped += 1;
+                    continue;
                 }
-            }
-            starting = still;
+                Ok((_, Err(RuntimeError::NotReady(why))))
+                    if why.starts_with("No turn is running") =>
+                {
+                    continue;
+                }
+                Ok((stop, Err(e))) => (stop, e.to_string()),
+                Err(e) => (e.id(), e.to_string()),
+            };
+            let session = named.remove(&stop).unwrap_or_default();
+            report.not_stopped.push((session, why));
         }
-        stopped
+        report
     }
 
     fn release_hold(&self, runtime_id: &str, reason: HoldFor) {
@@ -1675,8 +1743,18 @@ impl AgentRuntime {
             .with_store(move |s| Ok((s.session(&id)?, s.turns(&id)?)))
             .await?;
         let session = session.ok_or_else(|| RuntimeError::UnknownSession(session_id.to_owned()))?;
-        let session = self.with_active(session);
-        let turns: Vec<AgentTurn> = turns.into_iter().map(|t| self.decorate(t)).collect();
+        // One look at the session's claim for the summary and every turn, so the answer never
+        // says the session is free while one of its turns reads as running, or the other way.
+        let (session, turns) = {
+            let state = self.lock();
+            let active = state.active.get(session_id);
+            let session = Self::with_claim(session, active);
+            let turns: Vec<AgentTurn> = turns
+                .into_iter()
+                .map(|t| Self::decorated(t, active))
+                .collect();
+            (session, turns)
+        };
         // The recent finished turns whose live pieces Plenipo no longer holds (it started again
         // since, or they are older than what it keeps in memory): what was kept of them instead,
         // from the record (ADR-203 §10). A turn not finished is never filled in, so its own live
@@ -2136,8 +2214,25 @@ impl AgentRuntime {
                 Option<mpsc::UnboundedSender<()>>,
             ),
             Waiting(String),
-            /// Waiting for its AI tool (an update or a sign-in tab): it ends before it starts.
-            Held(watch::Receiver<bool>),
+            /// Waiting for its AI tool (an update or a sign-in tab), or still starting (its
+            /// check, its tools): marked, it ends as stopped before it runs.
+            Starting(watch::Receiver<bool>),
+        }
+        // It has ended and is only being recorded (#198): nothing is left to stop. It is let go in
+        // a moment; the answer waits for that, so it shows the turn ended.
+        let releasing = self
+            .lock()
+            .active
+            .get(session_id)
+            .filter(|a| a.releasing)
+            .map(|a| a.task_id.clone());
+        if let Some(task) = releasing {
+            let _ = tokio::time::timeout(
+                self.inner.config.release_wait,
+                self.released_now(session_id, task.as_deref()),
+            )
+            .await;
+            return self.session(session_id).await;
         }
         let target = {
             let mut state = self.lock();
@@ -2175,26 +2270,23 @@ impl AgentRuntime {
                     }
                     Target::Waiting(task)
                 }
-                _ if active.waiting_for_hold && active.execution_id.is_none() => {
-                    let done = active.done.clone();
-                    if let Some(active) = state.active.get_mut(session_id) {
-                        active.stop_waiting = true;
+                _ => match active.execution_id.clone() {
+                    // Waiting for its AI tool, or still starting: no process yet. Marked, the
+                    // step ends as stopped before it runs (`wait_for_hold`, `launch_step`).
+                    None => {
+                        let done = active.done.clone();
+                        if let Some(active) = state.active.get_mut(session_id) {
+                            active.stop_waiting = true;
+                        }
+                        Target::Starting(done)
                     }
-                    Target::Held(done)
-                }
-                _ => {
-                    let execution = active.execution_id.clone().ok_or_else(|| {
-                        RuntimeError::NotReady(
-                            "The turn is still starting; try again in a moment.".into(),
-                        )
-                    })?;
-                    Target::Running(
+                    Some(execution) => Target::Running(
                         execution,
                         active.task_id.clone(),
                         active.done.clone(),
                         active.interrupt.clone(),
-                    )
-                }
+                    ),
+                },
             }
         };
         let waiting = match target {
@@ -2206,9 +2298,20 @@ impl AgentRuntime {
                         .await
                         .is_ok();
                 if !stopped {
-                    self.inner.supervisor.cancel(&execution).await?;
+                    // Its program and everything it started are ended; the supervisor waits for
+                    // them and their output.
+                    let _ = self.inner.supervisor.cancel(&execution).await;
+                    // A step that still has not ended by itself is ended here: recorded as
+                    // stopped, its session let go (the owner's report, 2026-10-05).
+                    if tokio::time::timeout(HARD_END_WAIT, done.wait_for(|d| *d))
+                        .await
+                        .is_err()
+                    {
+                        if let Some(task) = &task {
+                            self.force_end(session_id, task, &execution).await;
+                        }
+                    }
                 }
-                let _ = tokio::time::timeout(Duration::from_secs(15), done.wait_for(|d| *d)).await;
                 // The step may have ended just before the cancel, with the turn going on to wait
                 // for handoff replies (it already reads as waiting): end that wait as well. It is
                 // claimed for the cancel in the same look, so a continuation cannot start first.
@@ -2223,9 +2326,12 @@ impl AgentRuntime {
                 }
             }
             Target::Waiting(task_id) => Some(task_id),
-            Target::Held(mut done) => {
+            Target::Starting(mut done) => {
+                // A step waiting for its AI tool wakes to the mark; a step still starting sees it
+                // before it runs anything. The answer waits a moment for that.
                 self.inner.holds_changed.notify_waiters();
-                let _ = tokio::time::timeout(Duration::from_secs(15), done.wait_for(|d| *d)).await;
+                let _ =
+                    tokio::time::timeout(CANCEL_GRACE + HARD_END_WAIT, done.wait_for(|d| *d)).await;
                 None
             }
         };
@@ -2248,6 +2354,156 @@ impl AgentRuntime {
             .await;
         }
         self.session(session_id).await
+    }
+
+    /// Wait until `session_id` no longer holds the turn of `task_id` (it was let go).
+    async fn released_now(&self, session_id: &str, task_id: Option<&str>) {
+        loop {
+            let released = self.inner.turn_released.notified();
+            tokio::pin!(released);
+            released.as_mut().enable();
+            let held = self
+                .lock()
+                .active
+                .get(session_id)
+                .is_some_and(|a| a.task_id.as_deref() == task_id);
+            if !held {
+                return;
+            }
+            released.await;
+        }
+    }
+
+    /// End a stopped step that has not ended by itself: its AI tool did not answer the stop, its
+    /// program was ended, and the step's own finisher still has not come (the owner's report,
+    /// 2026-10-05). The turn is recorded as stopped, with one row of diagnostics and never the
+    /// AI tool's words; the hook hears of it, its tools are closed, its session is let go, and
+    /// the screens are told. The step's finisher, if it ever comes, records and announces
+    /// nothing more.
+    async fn force_end(&self, session_id: &str, task_id: &str, execution_id: &str) {
+        let (grant, step, runtime_id, watch) = {
+            let mut state = self.lock();
+            let Some(active) = state.active.get_mut(session_id).filter(|a| {
+                a.task_id.as_deref() == Some(task_id)
+                    && a.execution_id.as_deref() == Some(execution_id)
+                    && !a.releasing
+            }) else {
+                return;
+            };
+            // Under the same lock as the finisher's own looks (`complete`): one of the two ends
+            // the step, never both.
+            match &active.forced {
+                Some(forced) if !forced.swap(true, Ordering::SeqCst) => {}
+                _ => return,
+            }
+            // Only being recorded now: a new turn of the session waits for that (#198) instead
+            // of being refused as busy.
+            active.releasing = true;
+            let ended = (
+                active.grant.clone(),
+                active.step,
+                active.runtime_id.clone().unwrap_or_default(),
+                active.watch.clone(),
+            );
+            // What it sent may or may not have reached the AI tool: it goes out in full again.
+            if let Some((mark, sent)) = active.sent.take() {
+                Self::step_finished(&mut state, session_id, mark, sent, false, None);
+            }
+            ended
+        };
+        if let Some(grant) = grant {
+            self.close_tools(grant).await;
+        }
+        let process = self
+            .inner
+            .supervisor
+            .record(execution_id)
+            .map(|r| r.state == crate::dto::ExecutionState::Running);
+        let (label, diagnostics) = match &watch {
+            Some(w) => {
+                let w = w.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let why = "its AI tool did not answer the stop, and its step did not end";
+                (w.label, Some(w.diagnostics(why, process)))
+            }
+            None => ("Its AI tool", None),
+        };
+        let result = administrative(
+            TurnOutcome::Cancelled,
+            &format!("Stopped. {label} didn't answer the stop, so Plenipo ended it."),
+            diagnostics.clone(),
+        );
+        // The hook hears of the end as of any other, before it is recorded: a check-in step is
+        // closed, and what the hook kept for the step is let go. A step that did not complete
+        // always finishes, so what the hook decides is not needed; and it waits a few seconds
+        // at most, since the finisher may be stuck in the same hook. Whether the AI tool kept
+        // the conversation can't be told (`memory_mark: None`).
+        if let Some(hook) = self.hook() {
+            let id = session_id.to_owned();
+            if let Ok(Some(session)) = self.with_store(move |s| s.session(&id)).await {
+                let end = TurnEnd {
+                    session,
+                    task_id: task_id.to_owned(),
+                    step,
+                    execution_id: Some(execution_id.to_owned()),
+                    result: result.clone(),
+                    memory_mark: None,
+                };
+                let _ = tokio::time::timeout(
+                    FORCED_HOOK_WAIT,
+                    tokio::task::spawn_blocking(move || hook.turn_ended(&end)),
+                )
+                .await;
+            }
+        }
+        let (sid, tid, eid) = (
+            session_id.to_owned(),
+            task_id.to_owned(),
+            execution_id.to_owned(),
+        );
+        let stored = result.clone();
+        let actor = format!("agent:{runtime_id}");
+        if let Err(e) = self
+            .with_store(move |s| {
+                let turn = TurnRef {
+                    session_id: &sid,
+                    task_id: &tid,
+                    execution_id: Some(&eid),
+                    step: Some(step),
+                    actor: &actor,
+                };
+                if let Some(text) = diagnostics {
+                    let note = AgentEvent::Notice {
+                        level: NoticeLevel::Warning,
+                        text,
+                    };
+                    s.record_activity(&turn, &note)?;
+                }
+                s.finish_turn(&turn, &stored)
+            })
+            .await
+        {
+            self.notice(e.to_string());
+        }
+        {
+            let mut state = self.lock();
+            if state
+                .active
+                .get(session_id)
+                .is_some_and(|a| a.task_id.as_deref() == Some(task_id))
+            {
+                state.active.remove(session_id);
+            }
+        }
+        self.inner.turn_released.notify_waiters();
+        self.emit_turn_with(session_id, task_id, Some(&result))
+            .await;
+        if let Ok(Some(session)) = {
+            let id = session_id.to_owned();
+            self.with_store(move |s| s.session(&id)).await
+        } {
+            self.emit_session(session);
+        }
+        self.released();
     }
 
     /// closeSession: no further turns. The provider keeps its own transcript.
@@ -2390,6 +2646,10 @@ impl AgentRuntime {
                 waiting_for_hold: false,
                 stop_waiting: false,
                 releasing: false,
+                grant: None,
+                sent: None,
+                forced: None,
+                watch: None,
             },
         );
         Ok(Reservation {
@@ -2397,6 +2657,15 @@ impl AgentRuntime {
             session_id: session_id.to_owned(),
             done: Some(done_tx),
         })
+    }
+
+    /// Whether the owner stopped `task_id`'s step in `session_id` while it was starting (no
+    /// process yet): then nothing is run.
+    fn stopped_while_starting(&self, session_id: &str, task_id: &str) -> bool {
+        self.lock()
+            .active
+            .get(session_id)
+            .is_some_and(|a| a.task_id.as_deref() == Some(task_id) && a.stop_waiting)
     }
 
     async fn run_turn(
@@ -2676,6 +2945,11 @@ impl AgentRuntime {
             paid: None,
             paid_bill: None,
             live: LiveText::default(),
+            forced: Arc::new(AtomicBool::new(false)),
+            watch: Arc::new(Mutex::new(StepWatch::new(
+                adapter.label(),
+                ready.cli_version.clone(),
+            ))),
         };
         let ctx = match paid {
             Some(Ok(step)) => TurnContext {
@@ -2701,6 +2975,16 @@ impl AgentRuntime {
             }
             None => ctx,
         };
+        // Stopped while the step was starting: nothing is run.
+        if self.stopped_while_starting(&session.id, &task_id) {
+            let result = administrative(
+                TurnOutcome::Cancelled,
+                &format!("Stopped before {} started.", adapter.label()),
+                None,
+            );
+            ctx.complete(result, done).await;
+            return self.session(&session_id).await;
+        }
         let execution_id = match self.inner.supervisor.launch(spec).await {
             Ok(record) => record.id,
             Err(e) => {
@@ -2721,9 +3005,28 @@ impl AgentRuntime {
                 return self.session(&session_id).await;
             }
         };
-        if let Some(active) = self.lock().active.get_mut(&session.id) {
-            active.execution_id = Some(execution_id.clone());
-            active.interrupt = interrupt_tx;
+        // A stop that came while the step was starting, after the look above, ends it now.
+        let stopped = {
+            let mut state = self.lock();
+            match state.active.get_mut(&session.id) {
+                Some(active) if active.task_id.as_deref() == Some(task_id.as_str()) => {
+                    active.execution_id = Some(execution_id.clone());
+                    active.interrupt = interrupt_tx;
+                    active.grant.clone_from(&ctx.grant);
+                    active.sent = Some((ctx.mark, ctx.delivery));
+                    active.forced = Some(Arc::clone(&ctx.forced));
+                    active.watch = Some(Arc::clone(&ctx.watch));
+                    active.stop_waiting
+                }
+                _ => false,
+            }
+        };
+        if stopped {
+            let supervisor = self.inner.supervisor.clone();
+            let id = execution_id.clone();
+            tokio::spawn(async move {
+                let _ = supervisor.cancel(&id).await;
+            });
         }
         self.emit_turn(&session_id, &task_id).await;
         self.emit_session(session);
@@ -2836,16 +3139,16 @@ impl AgentRuntime {
     }
 
     /// A step that launched at `mark` ended, having sent `sent`: the conversation has it when
-    /// the step `finished`; otherwise what it sent in full is in doubt.
+    /// the step `finished`; otherwise what it sent in full is in doubt. Under the caller's lock,
+    /// where it decides who ends the step (`complete` or [`Self::force_end`]).
     fn step_finished(
-        &self,
+        state: &mut State,
         session_id: &str,
         mark: u64,
         sent: Delivery,
         finished: bool,
         context_used: Option<u64>,
     ) {
-        let mut state = self.lock();
         let Some(c) = state.conversations.get_mut(session_id) else {
             return;
         };
@@ -3100,6 +3403,154 @@ struct TurnContext {
     /// The step's streamed words and thinking, held back so secrets are redacted as whole words
     /// (ADR-216).
     live: LiveText,
+    /// Set when the runtime ended this step itself ([`AgentRuntime::force_end`]): its finisher
+    /// then records and announces nothing.
+    forced: Arc<AtomicBool>,
+    /// What the runtime knows of the running step, for a stall and for its diagnostics; shared
+    /// with [`Active`] so a stop can read it while the step is stuck.
+    watch: Arc<Mutex<StepWatch>>,
+}
+
+/// What the runtime knows of a running step, for a stall and its diagnostics: when the AI tool
+/// last said anything, what is open, and the kinds of its latest events. Never its words.
+struct StepWatch {
+    label: &'static str,
+    /// The version the AI tool's check read.
+    cli_version: Option<String>,
+    /// The kinds of the latest events, newest last, with when they came ([`DIAGNOSTIC_EVENTS`]).
+    recent: VecDeque<(&'static str, Instant)>,
+    /// When the AI tool last wrote a line, on either stream (the step's start before that).
+    last_heard: Instant,
+    /// Its tool calls not answered yet: by the AI tool's IDs, and a count of calls without one.
+    open_tools: std::collections::HashSet<String>,
+    open_unnamed: u32,
+    /// Its file requests Plenipo has not answered yet (ADR-027; one may wait for the owner).
+    files_pending: usize,
+    /// What its connection waits on, in the parser's words ([`TurnParser::waiting_on`]).
+    waiting_on: Vec<String>,
+    /// Lines read from the AI tool but not handled yet, at the last look.
+    queued_lines: usize,
+}
+
+impl StepWatch {
+    fn new(label: &'static str, cli_version: Option<String>) -> Self {
+        Self {
+            label,
+            cli_version,
+            recent: VecDeque::new(),
+            last_heard: Instant::now(),
+            open_tools: std::collections::HashSet::new(),
+            open_unnamed: 0,
+            files_pending: 0,
+            waiting_on: Vec::new(),
+            queued_lines: 0,
+        }
+    }
+
+    /// A tool call or a file request of the AI tool is open: a long silence is then the tool's
+    /// work, or the owner's decision, not the AI tool stalling.
+    fn busy(&self) -> bool {
+        !self.open_tools.is_empty() || self.open_unnamed > 0 || self.files_pending > 0
+    }
+
+    /// Note one of the step's events: its kind, and the tool calls it opens or answers.
+    fn saw(&mut self, event: &AgentEvent) {
+        if self.recent.len() == DIAGNOSTIC_EVENTS {
+            self.recent.pop_front();
+        }
+        self.recent.push_back((event_kind(event), Instant::now()));
+        match event {
+            AgentEvent::ToolUse { id: Some(id), .. } => {
+                self.open_tools.insert(id.clone());
+            }
+            AgentEvent::ToolUse { id: None, .. } => self.open_unnamed += 1,
+            AgentEvent::ToolResult { id: Some(id), .. } => {
+                self.open_tools.remove(id);
+            }
+            AgentEvent::ToolResult { id: None, .. } => {
+                self.open_unnamed = self.open_unnamed.saturating_sub(1);
+            }
+            _ => {}
+        }
+    }
+
+    /// One line for Plenipo's makers on why the step was stopped or seems stuck (`why`): the AI
+    /// tool and its version, whether its program still ran, how long it has been silent, what
+    /// was open and what its connection waited on, the lines not yet read, and the kinds and
+    /// ages of its latest events. Never anything the AI tool wrote.
+    fn diagnostics(&self, why: &str, process: Option<bool>) -> String {
+        let now = Instant::now();
+        let age = |at: Instant| {
+            let ms = now.saturating_duration_since(at).as_millis();
+            if ms < 1000 {
+                format!("{ms} ms")
+            } else {
+                format!("{} s", ms / 1000)
+            }
+        };
+        let version = self.cli_version.as_deref().unwrap_or("version unknown");
+        let process = match process {
+            Some(true) => "still running",
+            Some(false) => "ended",
+            None => "not known",
+        };
+        let waiting = if self.waiting_on.is_empty() {
+            "nothing it said".to_owned()
+        } else {
+            self.waiting_on.join("; ")
+        };
+        let recent = if self.recent.is_empty() {
+            "none".to_owned()
+        } else {
+            self.recent
+                .iter()
+                .rev()
+                .map(|(kind, at)| format!("{kind} {}", age(*at)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        format!(
+            "Diagnostics for Plenipo's makers (no words from the worker): {why}. {} {version}; \
+             its program {process}; last heard {} ago; open tool calls {}; file requests \
+             waiting {}; it waited on: {waiting}; lines not yet read {}; latest events, newest \
+             first: {recent}.",
+            self.label,
+            age(self.last_heard),
+            self.open_tools.len() + self.open_unnamed as usize,
+            self.files_pending,
+            self.queued_lines,
+        )
+    }
+}
+
+/// A stretch of time in plain words: "10 minutes", "1 minute", "45 seconds", "a moment".
+fn spoken(d: Duration) -> String {
+    let s = d.as_secs();
+    match s {
+        0 => "a moment".into(),
+        1 => "1 second".into(),
+        2..=59 => format!("{s} seconds"),
+        60..=119 => "1 minute".into(),
+        _ => format!("{} minutes", s / 60),
+    }
+}
+
+/// An event's kind as the Ledger and the screens name it (`textDelta`, `toolUse`, …): never
+/// what it says.
+fn event_kind(event: &AgentEvent) -> &'static str {
+    match event {
+        AgentEvent::SessionStarted { .. } => "sessionStarted",
+        AgentEvent::TextDelta { .. } => "textDelta",
+        AgentEvent::Message { .. } => "message",
+        AgentEvent::Reasoning { .. } => "reasoning",
+        AgentEvent::ToolUse { .. } => "toolUse",
+        AgentEvent::ToolResult { .. } => "toolResult",
+        AgentEvent::Notice { .. } => "notice",
+        AgentEvent::Usage { .. } => "usage",
+        AgentEvent::MemoryShortened { .. } => "memoryShortened",
+        AgentEvent::Plan { .. } => "plan",
+        AgentEvent::Status { .. } => "status",
+    }
 }
 
 /// A paid step's charge (ADR-085): what was set aside, and what the step may send.
@@ -3127,7 +3578,29 @@ impl TurnContext {
         let mut stopping = false;
         // Answers to the files the AI tool asked Plenipo for (ADR-027), as they come.
         let (answers_tx, mut answers) = mpsc::unbounded_channel::<(u64, FileAnswer)>();
+        // A long silence (the owner's report, 2026-10-05): the owner is told once per silence,
+        // then the step is stopped as no longer answering. With a tool call or a file request
+        // open, the silence is that work's (or the owner's decision): told later, and only the
+        // turn's own time limit ends it.
+        let (note_after, end_after) = (
+            self.runtime.inner.config.stall_note,
+            self.runtime.inner.config.stall_end,
+        );
+        let mut noted = false;
+        let mut stalled: Option<String> = None;
         loop {
+            let (heard, busy) = {
+                let w = self.watch();
+                (w.last_heard, w.busy())
+            };
+            let wake = match (noted, busy) {
+                (false, false) => Some(heard + note_after),
+                (false, true) => Some(heard + end_after),
+                (true, false) => Some(heard + end_after),
+                (true, true) => None,
+            }
+            .filter(|_| !stopping)
+            .map(tokio::time::Instant::from_std);
             let parsed = tokio::select! {
                 line = rx.recv() => {
                     let Some(line) = line else { break };
@@ -3138,9 +3611,19 @@ impl TurnContext {
                         parser.stderr(&line.text);
                         continue;
                     }
+                    {
+                        let mut w = self.watch();
+                        w.last_heard = Instant::now();
+                        w.queued_lines = rx.len();
+                    }
+                    noted = false;
                     parser.line(&line.text, line.truncated)
                 }
                 Some((id, answer)) = answers.recv() => {
+                    {
+                        let mut w = self.watch();
+                        w.files_pending = w.files_pending.saturating_sub(1);
+                    }
                     if stopping {
                         continue;
                     }
@@ -3160,12 +3643,42 @@ impl TurnContext {
                     interrupt = None;
                     continue;
                 }
+                () = async {
+                    match wake {
+                        Some(at) => tokio::time::sleep_until(at).await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    self.watch().waiting_on = parser.waiting_on();
+                    if noted {
+                        // Silent far too long with nothing open: stopped as no longer
+                        // answering, with one row of diagnostics. Drained like a policy stop.
+                        let diagnostics = self.stall_diagnostics(end_after);
+                        self.diagnostic_row(diagnostics.clone()).await;
+                        stalled = Some(diagnostics);
+                        if let Some(id) = &self.execution_id {
+                            stopping = true;
+                            let supervisor = self.runtime.inner.supervisor.clone();
+                            let id = id.clone();
+                            tokio::spawn(async move {
+                                let _ = supervisor.terminate(&id).await;
+                            });
+                        }
+                    } else {
+                        noted = true;
+                        let silent = if busy { end_after } else { note_after };
+                        self.stall_note(silent, end_after, busy).await;
+                    }
+                    continue;
+                }
             };
+            self.watch().waiting_on = parser.waiting_on();
             self.write(parsed.send);
             if parsed.close_input {
                 self.input = None;
             }
             for request in parsed.files {
+                self.watch().files_pending += 1;
                 self.file_request(request, &answers_tx);
             }
             // Changes being written go to the tool provider, which checks them (ADR-055).
@@ -3217,12 +3730,103 @@ impl TurnContext {
             },
         };
         self.input = None;
-        let result = parser.finish(&end);
+        let mut result = parser.finish(&end);
+        // Stopped as no longer answering: said so in plain words, with its diagnostics.
+        if let Some(diagnostics) = stalled {
+            let label = self.watch().label;
+            result.outcome = TurnOutcome::TimedOut;
+            result.summary = format!(
+                "Stopped: {label} stopped answering (no word for {}). Try again.",
+                spoken(end_after)
+            );
+            result.error = Some(cap(&diagnostics, MAX_EVENT_TEXT));
+        }
         self.context_used = parser.context_used();
         if let Some(step) = &self.paid {
             self.paid_bill = parser.paid_bill(&step.price, end.started);
         }
         self.complete(result, done).await;
+    }
+
+    /// The running step's watch ([`StepWatch`]).
+    fn watch(&self) -> MutexGuard<'_, StepWatch> {
+        self.watch
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The diagnostics of a step stopped as no longer answering after `silence`.
+    fn stall_diagnostics(&self, silence: Duration) -> String {
+        let process = self
+            .execution_id
+            .as_ref()
+            .and_then(|id| self.runtime.inner.supervisor.record(id))
+            .map(|r| r.state == crate::dto::ExecutionState::Running);
+        self.watch()
+            .diagnostics(&format!("it said nothing for {}", spoken(silence)), process)
+    }
+
+    /// Tell the owner the AI tool has said nothing for `silence`, instead of "Writing" forever,
+    /// and keep one row of diagnostics. `busy`: a tool call or a file request of its own is open.
+    async fn stall_note(&mut self, silence: Duration, end_after: Duration, busy: bool) {
+        let label = self.watch().label;
+        let text = if busy {
+            format!(
+                "No word from {label} for {} while its tool call or file request is open. \
+                 Press Stop to end it, or wait.",
+                spoken(silence)
+            )
+        } else {
+            format!(
+                "No word from {label} for {}. Plenipo stops it after {} of silence; press Stop to \
+                 end it now, or wait.",
+                spoken(silence),
+                spoken(end_after)
+            )
+        };
+        self.event(AgentEvent::Status {
+            phase: StatusPhase::Waiting,
+            text,
+        })
+        .await;
+        let diagnostics = self.stall_diagnostics(silence);
+        self.diagnostic_row(diagnostics).await;
+    }
+
+    /// One row of diagnostics on the turn, shown live and kept in the Ledger whatever the step's
+    /// activity cap: kinds, ages, and states only, never the AI tool's words.
+    async fn diagnostic_row(&mut self, text: String) {
+        let note = AgentEvent::Notice {
+            level: NoticeLevel::Warning,
+            text,
+        };
+        // Live text still held back goes on first, as before any notice (ADR-216).
+        let filter = self.runtime.filter();
+        self.flush_live(filter.as_ref());
+        self.emit(note.clone());
+        let (session_id, task_id, execution_id, actor, step) = (
+            self.session.id.clone(),
+            self.task_id.clone(),
+            self.execution_id.clone(),
+            self.actor(),
+            self.step,
+        );
+        if let Err(e) = self
+            .runtime
+            .with_store(move |s| {
+                let turn = TurnRef {
+                    session_id: &session_id,
+                    task_id: &task_id,
+                    execution_id: execution_id.as_deref(),
+                    step: Some(step),
+                    actor: &actor,
+                };
+                s.record_activity(&turn, &note)
+            })
+            .await
+        {
+            self.runtime.notice(e.to_string());
+        }
     }
 
     /// Carry out a file the AI tool asked for (ADR-027) through the step's grant, and send the
@@ -3294,6 +3898,7 @@ impl TurnContext {
     }
 
     async fn event(&mut self, event: AgentEvent) {
+        self.watch().saw(&event);
         let runtime = self.runtime.clone();
         let filter = runtime.filter();
         // Live text is redacted as whole words (ADR-216): a streamed piece goes on only up to
@@ -3449,14 +4054,22 @@ impl TurnContext {
         };
         result.prompt = Some(self.size);
         // Only a finished step counts as delivered: a failed one may or may not have reached
-        // the AI tool, so what it sent in full goes out in full again.
-        runtime.step_finished(
-            &self.session.id,
-            self.mark,
-            self.delivery,
-            result.outcome == TurnOutcome::Completed,
-            self.context_used,
-        );
+        // the AI tool, so what it sent in full goes out in full again. Unless the runtime ended
+        // the step meanwhile (`force_end`), which recorded it as not delivered: looked at under
+        // the same lock, so one of the two records it, never both.
+        {
+            let mut state = runtime.lock();
+            if !self.forced.load(Ordering::SeqCst) {
+                AgentRuntime::step_finished(
+                    &mut state,
+                    &self.session.id,
+                    self.mark,
+                    self.delivery,
+                    result.outcome == TurnOutcome::Completed,
+                    self.context_used,
+                );
+            }
+        }
         if let Some(id) = &self.execution_id {
             let (pid, model, usage) = (
                 result.provider_session_id.clone(),
@@ -3474,6 +4087,14 @@ impl TurnContext {
                     a.usage = usage;
                 }
             });
+        }
+        // Ended by the runtime meanwhile (`force_end`): it recorded the turn and let the session
+        // go. What is above (tools closed, spending settled) still had to happen; nothing more.
+        if self.forced.load(Ordering::SeqCst) {
+            if let Some(done) = done {
+                let _ = done.send(true);
+            }
+            return;
         }
         // The hook (if any) decides whether the turn finishes or waits to continue.
         let disposition = match runtime.hook() {
@@ -3495,12 +4116,26 @@ impl TurnContext {
             }
             None => TurnDisposition::Finish,
         };
+        // The result as the screens get it, even if the Ledger refuses it (`emit_turn_with`).
+        let ended = result.clone();
+        let mut recorded = true;
         if disposition == TurnDisposition::Finish {
             // Nothing runs under the turn any more: it is recorded, then let go. A new turn of
             // the session waits for that instead of being refused ([`AgentRuntime::reserve_turn`]);
-            // a continuation is still refused, since the claim stays until it is let go.
-            if let Some(active) = runtime.lock().active.get_mut(&self.session.id) {
-                active.releasing = true;
+            // a continuation is still refused, since the claim stays until it is let go. Looked
+            // at under the same lock as `force_end`: one of the two ends the step, never both.
+            {
+                let mut state = runtime.lock();
+                if self.forced.load(Ordering::SeqCst) {
+                    drop(state);
+                    if let Some(done) = done {
+                        let _ = done.send(true);
+                    }
+                    return;
+                }
+                if let Some(active) = state.active.get_mut(&self.session.id) {
+                    active.releasing = true;
+                }
             }
             let (session_id, task_id, execution_id, actor, step, stored) = (
                 self.session.id.clone(),
@@ -3524,6 +4159,7 @@ impl TurnContext {
                 .await
             {
                 runtime.notice(e.to_string());
+                recorded = false;
             }
         }
         self.session.updated_at = crate::now_ms();
@@ -3534,17 +4170,35 @@ impl TurnContext {
 
         {
             let mut state = runtime.lock();
+            // Ended by the runtime while the hook decided (`force_end`): the session is no longer
+            // this step's to change.
+            if self.forced.load(Ordering::SeqCst) {
+                drop(state);
+                if let Some(done) = done {
+                    let _ = done.send(true);
+                }
+                return;
+            }
+            let ours = state
+                .active
+                .get(&self.session.id)
+                .is_some_and(|a| a.task_id.as_deref() == Some(self.task_id.as_str()));
             match &disposition {
-                TurnDisposition::Finish => {
+                TurnDisposition::Finish if ours => {
                     state.active.remove(&self.session.id);
                 }
-                TurnDisposition::Suspended { .. } => {
+                TurnDisposition::Suspended { .. } if ours => {
                     if let Some(active) = state.active.get_mut(&self.session.id) {
                         active.claim = Claim::Wait;
                         active.execution_id = None;
                         active.done = finished();
+                        active.grant = None;
+                        active.sent = None;
+                        active.forced = None;
+                        active.watch = None;
                     }
                 }
+                _ => {}
             }
         }
         if disposition == TurnDisposition::Finish {
@@ -3553,7 +4207,10 @@ impl TurnContext {
         if let Some(done) = done {
             let _ = done.send(true);
         }
-        runtime.emit_turn(&self.session.id, &self.task_id).await;
+        let shown = (!recorded).then_some(&ended);
+        runtime
+            .emit_turn_with(&self.session.id, &self.task_id, shown)
+            .await;
         runtime.emit_session(self.session);
         runtime.released();
     }
@@ -3938,6 +4595,88 @@ pub fn validate_model(model: &str) -> Result<String, RuntimeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `session` reads the session's claim once for its summary and every turn: whatever that
+    /// claim is, the summary never says the session is free while one of its turns reads as
+    /// running (or waiting while it reads otherwise).
+    #[test]
+    fn the_summary_and_the_turns_agree_on_one_look_at_the_claim() {
+        let session = AgentSession {
+            id: "s".into(),
+            runtime_id: "codex".into(),
+            provider: "openai".into(),
+            provider_session_id: None,
+            provider_session_confirmed: false,
+            model: None,
+            effort: None,
+            title: "t".into(),
+            state: SessionState::Open,
+            working_dir: ".".into(),
+            created_at: 1,
+            updated_at: 1,
+            turn_count: 1,
+            active_task_id: None,
+            waiting_task_id: None,
+            metadata: serde_json::Value::Null,
+        };
+        let turn = AgentTurn {
+            task_id: "t1".into(),
+            session_id: "s".into(),
+            number: 1,
+            objective: "o".into(),
+            execution_id: None,
+            running: false,
+            waiting: false,
+            result: None,
+            steps: Vec::new(),
+            started_at: 1,
+            ended_at: None,
+        };
+        let claim = |claim: Claim, task: Option<&str>, execution: Option<&str>| Active {
+            claim,
+            runtime_id: None,
+            task_id: task.map(str::to_owned),
+            execution_id: execution.map(str::to_owned),
+            step: 1,
+            step_started_at: 1,
+            done: finished(),
+            interrupt: None,
+            waiting_for_hold: false,
+            stop_waiting: false,
+            releasing: false,
+            grant: None,
+            sent: None,
+            forced: None,
+            watch: None,
+        };
+        let claims = [
+            None,
+            Some(claim(Claim::Turn, None, None)),
+            Some(claim(Claim::Turn, Some("t1"), None)),
+            Some(claim(Claim::Turn, Some("t1"), Some("e1"))),
+            Some(claim(Claim::Turn, Some("t2"), Some("e2"))),
+            Some(claim(Claim::Wait, Some("t1"), None)),
+            Some(claim(Claim::Close, Some("t1"), None)),
+        ];
+        let (mut running, mut waiting) = (0, 0);
+        for active in &claims {
+            let s = AgentRuntime::with_claim(session.clone(), active.as_ref());
+            let t = AgentRuntime::decorated(turn.clone(), active.as_ref());
+            let what = active.as_ref().map(|a| (a.claim, a.task_id.clone()));
+            if t.running {
+                running += 1;
+                assert_eq!(s.active_task_id.as_deref(), Some("t1"), "{what:?}");
+            }
+            if t.waiting {
+                waiting += 1;
+                assert_eq!(s.waiting_task_id.as_deref(), Some("t1"), "{what:?}");
+            }
+            if s.active_task_id.as_deref() == Some("t1") {
+                assert!(!t.waiting, "{what:?}");
+            }
+        }
+        assert!(running >= 2 && waiting == 1, "the claims cover each state");
+    }
 
     #[test]
     fn objectives() {

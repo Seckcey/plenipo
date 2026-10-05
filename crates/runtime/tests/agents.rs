@@ -282,6 +282,8 @@ struct GateState {
     closed: Vec<String>,
     /// Sessions with a `finish_turn` held now.
     holding: Vec<String>,
+    /// Sessions whose `finish_turn` the store refuses, as the Ledger refuses a transition.
+    refusing: Vec<String>,
 }
 
 /// While this lives, its session's `finish_turn` is held. Dropped — at the latest when a test
@@ -308,6 +310,24 @@ impl Gate {
             gate: self,
             session_id: session_id.to_owned(),
         }
+    }
+
+    /// From now on the store refuses to record `session_id`'s turns.
+    fn refuse(&self, session_id: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .refusing
+            .push(session_id.to_owned());
+    }
+
+    fn refuses(&self, session_id: &str) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .refusing
+            .iter()
+            .any(|s| s == session_id)
     }
 
     fn open(&self, session_id: &str) {
@@ -389,6 +409,9 @@ impl SessionStore for GatedStore {
     }
     fn finish_turn(&self, turn: &TurnRef<'_>, result: &TurnResult) -> Result<(), String> {
         self.gate.pass(turn.session_id);
+        if self.gate.refuses(turn.session_id) {
+            return Err("the Ledger refused it (a test)".into());
+        }
         self.inner.finish_turn(turn, result)
     }
     fn turns(&self, session_id: &str) -> Result<Vec<AgentTurn>, String> {
@@ -1134,6 +1157,382 @@ async fn one_turn_per_session_and_closing() {
     let overview = h.rt.overview().await.unwrap();
     assert_eq!(overview.sessions.len(), 1);
     assert_eq!(overview.sessions[0].state, SessionState::Closed);
+}
+
+/// Wait until the turn of `task` has written some of its answer.
+async fn writing(h: &H, task: &str) {
+    let deadline = Instant::now() + WAIT;
+    while !h
+        .updates
+        .activity(task)
+        .iter()
+        .any(|e| matches!(e, AgentEvent::TextDelta { .. }))
+    {
+        assert!(Instant::now() < deadline, "it never started writing");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+/// A Kimi that stops mid-answer and ignores the stop (the owner's report, 2026-10-05): Stop
+/// still ends its task, as stopped, within seconds.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kimi_that_hangs_and_ignores_the_stop_is_still_stopped() {
+    let h = harness();
+    let started =
+        h.rt.start_session("kimi", "write it [hang]", None)
+            .await
+            .unwrap();
+    let id = started.session.id.clone();
+    let task = running_task(&h.rt, &id).await;
+    writing(&h, &task).await;
+    let asked = Instant::now();
+    let stopped = tokio::time::timeout(Duration::from_secs(60), h.rt.cancel_task(&id, &task)).await;
+    let took = asked.elapsed();
+    assert!(stopped.is_ok(), "the stop never returned");
+    stopped.unwrap().unwrap();
+    let detail = settled(&h.rt, &id, 1).await;
+    assert_eq!(
+        outcome(&detail.turns[0]),
+        TurnOutcome::Cancelled,
+        "{detail:#?}"
+    );
+    assert!(took < Duration::from_secs(15), "the stop took {took:?}");
+}
+
+/// Stop all (the owner's report, 2026-10-05) with a turn on every kind of AI tool running at
+/// once, one of them a Kimi that hangs and ignores the stop: every turn ends as stopped, and
+/// soon.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stop_all_ends_every_turn_even_one_that_ignores_the_stop() {
+    let h = harness();
+    let mut running = Vec::new();
+    for (runtime, objective) in [
+        ("claude-code", "long [slow]"),
+        ("codex", "long [slow]"),
+        ("grok", "long [slow]"),
+        ("kimi", "write it [hang]"),
+    ] {
+        let started = h.rt.start_session(runtime, objective, None).await.unwrap();
+        let id = started.session.id.clone();
+        running_task(&h.rt, &id).await;
+        running.push((runtime, id));
+    }
+    let asked = Instant::now();
+    let stopped = tokio::time::timeout(Duration::from_secs(120), h.rt.stop_all_turns()).await;
+    let took = asked.elapsed();
+    assert_eq!(stopped, Ok(4), "every turn was stopped (took {took:?})");
+    for (runtime, id) in &running {
+        let detail = settled(&h.rt, id, 1).await;
+        assert_eq!(
+            outcome(&detail.turns[0]),
+            TurnOutcome::Cancelled,
+            "{runtime}: {detail:#?}"
+        );
+    }
+    assert!(took < Duration::from_secs(15), "Stop all took {took:?}");
+}
+
+/// A lead on Kimi whose turn goes on after a wait (its team's replies, a check-in) and hangs in
+/// that next step: Stop still ends it, as stopped.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_kimi_lead_that_hangs_after_a_wait_is_still_stopped() {
+    let h = harness();
+    let _hook = with_hook(&h);
+    let (id, task) = waiting_turn(&h, "kimi").await;
+    h.rt.continue_turn(
+        &id,
+        &task,
+        "here are the replies [hang]",
+        StepNote::default(),
+    )
+    .await
+    .unwrap();
+    let deadline = Instant::now() + WAIT;
+    while h
+        .rt
+        .session(&id)
+        .await
+        .unwrap()
+        .session
+        .active_task_id
+        .as_deref()
+        != Some(task.as_str())
+    {
+        assert!(Instant::now() < deadline, "the next step never started");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let asked = Instant::now();
+    let stopped = tokio::time::timeout(Duration::from_secs(60), h.rt.cancel_task(&id, &task)).await;
+    let took = asked.elapsed();
+    assert!(stopped.is_ok(), "the stop never returned");
+    stopped.unwrap().unwrap();
+    let detail = turn_where(&h.rt, &id, 1, |t| t.result.is_some()).await;
+    assert_eq!(
+        outcome(&detail.turns[0]),
+        TurnOutcome::Cancelled,
+        "{detail:#?}"
+    );
+    assert!(took < Duration::from_secs(15), "the stop took {took:?}");
+}
+
+/// Holds the first turn's finisher in `turn_ended` until let go: the step's process has ended,
+/// but its own finisher is stuck, the case a stop must still end. Holds the next call too (the
+/// stop's own word of the end), which must not hold up the stop. At most a minute, so a failing
+/// test never waits on a held thread. Keeps each end it hears of: task, step, and outcome.
+#[derive(Default)]
+struct StuckHook {
+    stuck: Mutex<bool>,
+    changed: std::sync::Condvar,
+    calls: AtomicUsize,
+    ends: Mutex<Vec<(String, u32, TurnOutcome)>>,
+}
+
+impl StuckHook {
+    fn let_go(&self) {
+        *self.stuck.lock().unwrap() = false;
+        self.changed.notify_all();
+    }
+
+    fn ends(&self) -> Vec<(String, u32, TurnOutcome)> {
+        self.ends.lock().unwrap().clone()
+    }
+}
+
+impl TurnHook for StuckHook {
+    fn turn_ended(&self, end: &TurnEnd) -> TurnDisposition {
+        self.ends
+            .lock()
+            .unwrap()
+            .push((end.task_id.clone(), end.step, end.result.outcome));
+        if self.calls.fetch_add(1, Ordering::SeqCst) < 2 {
+            let mut stuck = self.stuck.lock().unwrap();
+            *stuck = true;
+            let _ = self
+                .changed
+                .wait_timeout_while(stuck, Duration::from_secs(60), |s| *s)
+                .unwrap();
+        }
+        TurnDisposition::Finish
+    }
+}
+
+/// A stopped step whose own finisher never comes (the owner's report, 2026-10-05: Stop did
+/// nothing): Plenipo ends it within seconds, records it as stopped with its diagnostics and
+/// never the AI tool's words, tells the hook, and lets the session go (a new objective meanwhile
+/// waits for that). The finisher, when it comes at last, records nothing more.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stopped_step_whose_finisher_is_stuck_is_ended_by_plenipo() {
+    let h = harness();
+    let hook = Arc::new(StuckHook::default());
+    h.rt.set_hook(hook.clone());
+    let started =
+        h.rt.start_session("claude-code", "long [slow]", None)
+            .await
+            .unwrap();
+    let id = started.session.id.clone();
+    let task = running_task(&h.rt, &id).await;
+    writing(&h, &task).await;
+    let asked = Instant::now();
+    let stop = {
+        let (rt, id, task) = (h.rt.clone(), id.clone(), task.clone());
+        tokio::spawn(async move { rt.cancel_task(&id, &task).await })
+    };
+    // While Plenipo records the step it ended (its word to the hook is held too), the next
+    // objective waits for that (#198) instead of being refused as busy.
+    let deadline = Instant::now() + WAIT;
+    while hook.calls.load(Ordering::SeqCst) < 2 {
+        assert!(Instant::now() < deadline, "the stop never told the hook");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    h.rt.resume_session(&id, "next").await.unwrap();
+    let stopped = tokio::time::timeout(Duration::from_secs(60), stop).await;
+    let took = asked.elapsed();
+    stopped.expect("the stop returned").unwrap().unwrap();
+    assert!(took < Duration::from_secs(25), "the stop took {took:?}");
+    let detail = settled(&h.rt, &id, 1).await;
+    let result = detail.turns[0].result.clone().expect("a result");
+    assert_eq!(result.outcome, TurnOutcome::Cancelled);
+    assert_eq!(
+        result.summary,
+        "Stopped. Claude Code didn't answer the stop, so Plenipo ended it."
+    );
+    let diagnostics = result.error.clone().expect("diagnostics");
+    assert!(
+        diagnostics.starts_with("Diagnostics for Plenipo's makers (no words from the worker)"),
+        "{diagnostics}"
+    );
+    assert!(diagnostics.contains("Claude Code"), "{diagnostics}");
+    assert!(diagnostics.contains("textDelta"), "{diagnostics}");
+    assert!(
+        !diagnostics.contains("tick"),
+        "no words from the worker: {diagnostics}"
+    );
+    // The hook heard of the stop as of any end (Liaison closes a check-in step on it), though it
+    // held that call as well.
+    let ends = hook.ends();
+    assert!(
+        ends.len() >= 2,
+        "the finisher's end, then the stop's: {ends:?}"
+    );
+    assert_eq!((ends[0].0.as_str(), ends[0].1), (task.as_str(), 1));
+    assert_eq!(ends[1], (task.clone(), 1, TurnOutcome::Cancelled));
+    // The next objective ran while the old finisher is still stuck.
+    let detail = settled(&h.rt, &id, 2).await;
+    assert_eq!(outcome(&detail.turns[1]), TurnOutcome::Completed);
+    // Let go at last, the old finisher records nothing more.
+    hook.let_go();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let detail = h.rt.session(&id).await.unwrap();
+    assert_eq!(detail.turns.len(), 2);
+    assert_eq!(detail.turns[0].result.as_ref(), Some(&result));
+    assert_eq!(outcome(&detail.turns[1]), TurnOutcome::Completed);
+}
+
+/// A Kimi that says nothing for a long time (the owner's report, 2026-10-05: "writing"
+/// forever): the owner is told in plain words, then the step is stopped as no longer answering,
+/// with Try again. Each time one row of diagnostics, never Kimi's words.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_silent_kimi_is_told_about_then_stopped_as_no_longer_answering() {
+    let h = harness_config(personas(), None, |c| {
+        c.stall_note = Duration::from_millis(600);
+        c.stall_end = Duration::from_millis(1500);
+    });
+    let started =
+        h.rt.start_session("kimi", "write it [hang]", None)
+            .await
+            .unwrap();
+    let id = started.session.id.clone();
+    let task = running_task(&h.rt, &id).await;
+    let detail = settled(&h.rt, &id, 1).await;
+    let result = detail.turns[0].result.clone().expect("a result");
+    assert_eq!(result.outcome, TurnOutcome::TimedOut, "{result:#?}");
+    assert!(
+        result
+            .summary
+            .starts_with("Stopped: Kimi stopped answering (no word for"),
+        "{}",
+        result.summary
+    );
+    assert!(result.summary.ends_with("Try again."), "{}", result.summary);
+    let diagnostics = result.error.clone().expect("diagnostics");
+    assert!(
+        diagnostics.contains("its answer to the prompt (`session/prompt`"),
+        "{diagnostics}"
+    );
+    assert!(
+        diagnostics.contains("its program still running"),
+        "{diagnostics}"
+    );
+    // Told first, in plain words.
+    let activity = h.updates.activity(&task);
+    assert!(
+        activity.iter().any(|e| matches!(
+            e,
+            AgentEvent::Status { phase: StatusPhase::Waiting, text } if text.starts_with("No word from Kimi")
+        )),
+        "{activity:#?}"
+    );
+    // A row each time it was told (a start slowed by a busy machine is silence too, and can bring
+    // one more), then the row of the stop, the one the result quotes: never Kimi's words.
+    let rows: Vec<&String> = activity
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::Notice { text, .. } if text.starts_with("Diagnostics") => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert!(rows.len() >= 2, "{rows:#?}");
+    assert_eq!(rows.last(), Some(&&diagnostics), "{rows:#?}");
+    for row in rows.into_iter().chain([&diagnostics]) {
+        assert!(!row.contains("half an"), "no words from Kimi: {row}");
+    }
+}
+
+/// A stop while a step is still starting (its check running, no process yet) is honoured: the
+/// step ends as stopped and nothing runs, instead of "try again in a moment".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_while_a_step_is_starting_is_honoured() {
+    let (h, _gate) = gated(|_| {});
+    std::fs::create_dir_all(h.state()).unwrap();
+    std::fs::write(h.state().join("check-delay"), "3000").unwrap();
+    let rt = h.rt.clone();
+    let start = tokio::spawn(async move {
+        rt.start_session_with(
+            SessionStart {
+                id: Some(RELEASED.into()),
+                runtime_id: "claude-code".into(),
+                model: None,
+                effort: None,
+                title: None,
+                metadata: serde_json::Value::Null,
+            },
+            TurnInput::owner("write it"),
+        )
+        .await
+    });
+    // In its check: claimed, no process yet.
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    h.rt.cancel_turn(RELEASED).await.unwrap();
+    std::fs::remove_file(h.state().join("check-delay")).unwrap();
+    start.await.unwrap().unwrap();
+    let detail = settled(&h.rt, RELEASED, 1).await;
+    let result = detail.turns[0].result.clone().expect("a result");
+    assert_eq!(result.outcome, TurnOutcome::Cancelled);
+    assert_eq!(result.summary, "Stopped before Claude Code started.");
+    assert!(detail.turns[0].execution_id.is_none(), "nothing ran");
+}
+
+/// Stop pressed again while a stopped turn is being recorded (#198's window): nothing is left to
+/// stop, and it says so without an error, instead of "No turn is running".
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stop_while_a_stopped_turn_is_recorded_answers_without_an_error() {
+    let (h, gate) = gated(|_| {});
+    let _hook = with_hook(&h);
+    let held = gate.close(RELEASED);
+    start_released(&h, "plan it [wait]").await;
+    let deadline = Instant::now() + WAIT;
+    let task = loop {
+        let detail = h.rt.session(RELEASED).await.unwrap();
+        if let Some(task) = detail.session.waiting_task_id.clone() {
+            break task;
+        }
+        assert!(Instant::now() < deadline, "the turn never waited");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    };
+    let rt = h.rt.clone();
+    let first = tokio::spawn(async move { rt.cancel_task(RELEASED, &task).await });
+    gate.holding(RELEASED).await;
+    let rt = h.rt.clone();
+    let again = tokio::spawn(async move { rt.cancel_turn(RELEASED).await });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    drop(held);
+    again.await.unwrap().unwrap();
+    first.await.unwrap().unwrap();
+    let detail = turn_where(&h.rt, RELEASED, 1, |t| t.result.is_some()).await;
+    assert_eq!(outcome(&detail.turns[0]), TurnOutcome::Cancelled);
+}
+
+/// A turn whose end the Ledger refuses to record is still shown ended, with its result: the
+/// screens never keep "Writing" for it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_turn_the_ledger_refuses_to_record_is_still_shown_ended() {
+    let (h, gate) = gated(|_| {});
+    gate.refuse(RELEASED);
+    start_released(&h, "first").await;
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let shown = h.updates.0.lock().unwrap().iter().any(|u| {
+            matches!(u, AgentUpdate::Turn(t) if t.session_id == RELEASED
+                && !t.running
+                && t.result.as_ref().is_some_and(|r| r.outcome == TurnOutcome::Completed))
+        });
+        if shown {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the turn was never shown ended");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
 }
 
 /// A member of the organization keeps one conversation for all its tasks, so stopping one
