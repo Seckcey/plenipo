@@ -12,6 +12,7 @@ import {
   applyTurn,
   doingNow,
   emptySession,
+  endUnfinished,
   filesOf,
   fromDetail,
   isBusy,
@@ -241,6 +242,24 @@ describe("a turn's record", () => {
     });
     expect(turn(failed).state).toBe("failed");
     expect(turn(failed).problem).toBe("Not signed in");
+  });
+
+  it("shows a turn whose end was missed as stopped, until its real end comes", () => {
+    const writing = run([{ type: "textDelta", text: "Half an ans" }]);
+    expect(isBusy(writing)).toBe(true);
+    const ended = endUnfinished(writing, 5000);
+    expect(isBusy(ended)).toBe(false);
+    expect(turn(ended)).toMatchObject({
+      state: "stopped",
+      endedAt: 5000,
+      problem: "It was no longer running.",
+    });
+    expect(turn(ended).parts[0]).toMatchObject({ text: "Half an ans", streaming: false });
+    // A turn over already is left as it is.
+    const done = applyTurn(emptySession(SESSION), finished("All done."));
+    expect(endUnfinished(done, 5000)).toBe(done);
+    // Its real end, when it comes, replaces it.
+    expect(turn(applyTurn(ended, finished("All done."))).state).toBe("done");
   });
 
   it("is waiting while its team answers, and working while a step runs", () => {
