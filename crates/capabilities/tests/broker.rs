@@ -2754,6 +2754,50 @@ async fn plenipo_starts_light_an_agent_saves_a_file_and_runs_a_program() {
     assert!(Path::new(&found.path).join("clear-temp.ps1").is_file());
 }
 
+/// An organization with an organization folder (ADR-205) keeps work that belongs to no project
+/// inside it, never in a folder worked out from its name: another organization of the same name
+/// may have that one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn work_with_no_project_stays_in_the_organizations_own_folder() {
+    let h = harness_light().await;
+    let root = h.dir.path().join("Acme (2)");
+    plenipo_capabilities::org_folder::create(&h.ledger, &root, "Acme", "owner").unwrap();
+    let manager = h
+        .workforce
+        .snapshot()
+        .unwrap()
+        .positions
+        .into_iter()
+        .find(|p| p.title == "Development Manager")
+        .unwrap()
+        .id;
+    let work = tool(
+        "write_file",
+        serde_json::json!({ "path": "notes.md", "content": "plan" }),
+    );
+    let detail = h
+        .workforce
+        .give_objective(&manager, &format!("[tools-list] {work}"), None)
+        .await
+        .unwrap();
+    let task = detail.turns.last().unwrap().task_id.clone();
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    assert_eq!(
+        std::fs::read_to_string(root.join("Development Manager").join("notes.md")).unwrap(),
+        "plan"
+    );
+    assert!(!h
+        .dir
+        .path()
+        .join("files")
+        .join("Organization")
+        .join("Development Manager")
+        .exists());
+    let found = h.broker.work_folder(&task).unwrap().unwrap();
+    // (Its path may be written the long way or in Windows' short names.)
+    assert!(found.path.contains("Acme (2)"), "{found:?}");
+}
+
 /// In its team's project folder, a lead reads, plans, and hands each change on (ADR-016, kept by
 /// ADR-201): the worker making a change is the folder's one writer, so the owner is never locked
 /// out while a lead only thinks. It is told why.

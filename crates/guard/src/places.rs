@@ -570,7 +570,7 @@ mod tests {
             let why = place_problem(&linked.display().to_string(), &places).unwrap_err();
             assert!(why.contains("shortcut"), "{linked:?}: {why}");
         }
-        assert!(link_on_the_way(&out.join("x"), &[home.clone()]).is_some());
+        assert!(link_on_the_way(&out.join("x"), std::slice::from_ref(&home)).is_some());
         assert_eq!(link_on_the_way(&real_inner.join("x"), &[home]), None);
         // The folders above the profile's own are the system's: a link there isn't looked at.
         let via = base.join("via");

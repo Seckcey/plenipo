@@ -1046,15 +1046,38 @@ impl Broker {
     /// The folder for work that belongs to no project (ADR-201): `<files>/<organization>/<name>`,
     /// where the name is the project's, or the position's when there is no project. Made here
     /// when it is not there yet. `None` when Plenipo has no such place or cannot make it.
+    ///
+    /// An organization with an organization folder (ADR-205) keeps it there, never in a folder
+    /// worked out from its name, which another organization of the same name may have.
     fn own_folder(&self, scope: &Scope, position_id: Option<&str>) -> Option<String> {
-        let base = self.inner.config.files_dir.as_ref()?;
         let l = self.ledger();
-        let organization = l
-            .setting("organization")
+        let recorded = l
+            .organization_folder()
             .ok()
             .flatten()
-            .and_then(|v| v["name"].as_str().map(str::to_owned))
-            .unwrap_or_default();
+            .map(|f| std::path::PathBuf::from(f.path));
+        let organization_folder = match recorded {
+            // One that became a junction or link leads somewhere else: no folder (ADR-205).
+            Some(folder)
+                if std::fs::symlink_metadata(&folder).is_ok_and(|m| m.file_type().is_symlink()) =>
+            {
+                return None
+            }
+            Some(folder) => folder,
+            None => {
+                let organization = l
+                    .setting("organization")
+                    .ok()
+                    .flatten()
+                    .and_then(|v| v["name"].as_str().map(str::to_owned))
+                    .unwrap_or_default();
+                self.inner
+                    .config
+                    .files_dir
+                    .as_ref()?
+                    .join(folder_name(&organization, "Organization"))
+            }
+        };
         let name = match (&scope.project, position_id) {
             (Some(p), _) => p.name.clone(),
             (None, Some(id)) => l
@@ -1064,9 +1087,7 @@ impl Broker {
                 .map_or_else(|| scope.role_name.clone(), |p| p.title),
             (None, None) => scope.role_name.clone(),
         };
-        let path = base
-            .join(folder_name(&organization, "Organization"))
-            .join(folder_name(&name, "Agent"));
+        let path = organization_folder.join(folder_name(&name, "Agent"));
         std::fs::create_dir_all(&path).ok()?;
         Some(path.display().to_string())
     }
