@@ -89,6 +89,9 @@ const CANCEL_GRACE: Duration = Duration::from_secs(5);
 /// already waited for the process and its output); after that the runtime ends it
 /// ([`AgentRuntime::force_end`]).
 const HARD_END_WAIT: Duration = Duration::from_secs(5);
+/// How long [`AgentRuntime::force_end`] waits, at most, for the hook to hear of the step's end:
+/// a hook stuck as the step's own finisher was never holds up the stop.
+const FORCED_HOOK_WAIT: Duration = Duration::from_secs(3);
 /// How long an AI tool may say nothing before the owner is told ([`AgentConfig::stall_note`]).
 pub const STALL_NOTE: Duration = Duration::from_secs(3 * 60);
 /// How long an AI tool may say nothing, with no tool call or file of its own open, before
@@ -319,7 +322,8 @@ pub struct AgentConfig {
     pub stall_note: Duration,
     /// How long a running step may say nothing, with no tool call or file request open, before
     /// it is stopped as no longer answering ([`STALL_END`]). With one open, only the turn's own
-    /// time limit ends it.
+    /// time limit ends it. An AI tool that never closes a tool call it opened (a `ToolUse` that
+    /// gets no result) keeps one open, so there too only the turn's limit ends the stall.
     pub stall_end: Duration,
 }
 
@@ -388,6 +392,9 @@ struct Active {
     releasing: bool,
     /// The running step's grant of Plenipo's tools, closed by [`AgentRuntime::force_end`].
     grant: Option<String>,
+    /// The running step's conversation mark at launch and what it sent (ADR-044), recorded as
+    /// not delivered by [`AgentRuntime::force_end`] when it ends the step.
+    sent: Option<(u64, Delivery)>,
     /// Set when [`AgentRuntime::force_end`] ended the running step: its own finisher, if it ever
     /// comes, then records and announces nothing.
     forced: Option<Arc<AtomicBool>>,
@@ -1383,23 +1390,32 @@ impl AgentRuntime {
                 .map(|(id, _)| id.clone())
                 .collect()
         };
+        // Each stop's session, by its task: a stop that fails even to finish is still named.
         let mut stopping = tokio::task::JoinSet::new();
+        let mut named = HashMap::new();
         for id in sessions {
             let this = self.clone();
-            stopping.spawn(async move {
-                let stopped = this.cancel(&id, None).await;
-                (id, stopped)
-            });
+            let session = id.clone();
+            let stop = stopping.spawn(async move { this.cancel(&session, None).await });
+            named.insert(stop.id(), id);
         }
         let mut report = StopAllReport::default();
-        while let Some(joined) = stopping.join_next().await {
-            match joined {
-                Ok((_, Ok(_))) => report.stopped += 1,
+        while let Some(joined) = stopping.join_next_with_id().await {
+            let (stop, why) = match joined {
+                Ok((_, Ok(_))) => {
+                    report.stopped += 1;
+                    continue;
+                }
                 Ok((_, Err(RuntimeError::NotReady(why))))
-                    if why.starts_with("No turn is running") => {}
-                Ok((session, Err(e))) => report.not_stopped.push((session, e.to_string())),
-                Err(e) => report.not_stopped.push((String::new(), e.to_string())),
-            }
+                    if why.starts_with("No turn is running") =>
+                {
+                    continue;
+                }
+                Ok((stop, Err(e))) => (stop, e.to_string()),
+                Err(e) => (e.id(), e.to_string()),
+            };
+            let session = named.remove(&stop).unwrap_or_default();
+            report.not_stopped.push((session, why));
         }
         report
     }
@@ -2360,30 +2376,39 @@ impl AgentRuntime {
     /// End a stopped step that has not ended by itself: its AI tool did not answer the stop, its
     /// program was ended, and the step's own finisher still has not come (the owner's report,
     /// 2026-10-05). The turn is recorded as stopped, with one row of diagnostics and never the
-    /// AI tool's words; its tools are closed, its session is let go, and the screens are told.
-    /// The step's finisher, if it ever comes, records and announces nothing more.
+    /// AI tool's words; the hook hears of it, its tools are closed, its session is let go, and
+    /// the screens are told. The step's finisher, if it ever comes, records and announces
+    /// nothing more.
     async fn force_end(&self, session_id: &str, task_id: &str, execution_id: &str) {
         let (grant, step, runtime_id, watch) = {
-            let state = self.lock();
-            let Some(active) = state.active.get(session_id).filter(|a| {
+            let mut state = self.lock();
+            let Some(active) = state.active.get_mut(session_id).filter(|a| {
                 a.task_id.as_deref() == Some(task_id)
                     && a.execution_id.as_deref() == Some(execution_id)
                     && !a.releasing
             }) else {
                 return;
             };
-            // Under the same lock as the finisher's own look (`complete`): one of the two ends
+            // Under the same lock as the finisher's own looks (`complete`): one of the two ends
             // the step, never both.
             match &active.forced {
                 Some(forced) if !forced.swap(true, Ordering::SeqCst) => {}
                 _ => return,
             }
-            (
+            // Only being recorded now: a new turn of the session waits for that (#198) instead
+            // of being refused as busy.
+            active.releasing = true;
+            let ended = (
                 active.grant.clone(),
                 active.step,
                 active.runtime_id.clone().unwrap_or_default(),
                 active.watch.clone(),
-            )
+            );
+            // What it sent may or may not have reached the AI tool: it goes out in full again.
+            if let Some((mark, sent)) = active.sent.take() {
+                Self::step_finished(&mut state, session_id, mark, sent, false, None);
+            }
+            ended
         };
         if let Some(grant) = grant {
             self.close_tools(grant).await;
@@ -2406,6 +2431,29 @@ impl AgentRuntime {
             &format!("Stopped. {label} didn't answer the stop, so Plenipo ended it."),
             diagnostics.clone(),
         );
+        // The hook hears of the end as of any other, before it is recorded: a check-in step is
+        // closed, and what the hook kept for the step is let go. A step that did not complete
+        // always finishes, so what the hook decides is not needed; and it waits a few seconds
+        // at most, since the finisher may be stuck in the same hook. Whether the AI tool kept
+        // the conversation can't be told (`memory_mark: None`).
+        if let Some(hook) = self.hook() {
+            let id = session_id.to_owned();
+            if let Ok(Some(session)) = self.with_store(move |s| s.session(&id)).await {
+                let end = TurnEnd {
+                    session,
+                    task_id: task_id.to_owned(),
+                    step,
+                    execution_id: Some(execution_id.to_owned()),
+                    result: result.clone(),
+                    memory_mark: None,
+                };
+                let _ = tokio::time::timeout(
+                    FORCED_HOOK_WAIT,
+                    tokio::task::spawn_blocking(move || hook.turn_ended(&end)),
+                )
+                .await;
+            }
+        }
         let (sid, tid, eid) = (
             session_id.to_owned(),
             task_id.to_owned(),
@@ -2598,6 +2646,7 @@ impl AgentRuntime {
                 stop_waiting: false,
                 releasing: false,
                 grant: None,
+                sent: None,
                 forced: None,
                 watch: None,
             },
@@ -2963,6 +3012,7 @@ impl AgentRuntime {
                     active.execution_id = Some(execution_id.clone());
                     active.interrupt = interrupt_tx;
                     active.grant.clone_from(&ctx.grant);
+                    active.sent = Some((ctx.mark, ctx.delivery));
                     active.forced = Some(Arc::clone(&ctx.forced));
                     active.watch = Some(Arc::clone(&ctx.watch));
                     active.stop_waiting
@@ -3088,16 +3138,16 @@ impl AgentRuntime {
     }
 
     /// A step that launched at `mark` ended, having sent `sent`: the conversation has it when
-    /// the step `finished`; otherwise what it sent in full is in doubt.
+    /// the step `finished`; otherwise what it sent in full is in doubt. Under the caller's lock,
+    /// where it decides who ends the step (`complete` or [`Self::force_end`]).
     fn step_finished(
-        &self,
+        state: &mut State,
         session_id: &str,
         mark: u64,
         sent: Delivery,
         finished: bool,
         context_used: Option<u64>,
     ) {
-        let mut state = self.lock();
         let Some(c) = state.conversations.get_mut(session_id) else {
             return;
         };
@@ -3749,6 +3799,9 @@ impl TurnContext {
             level: NoticeLevel::Warning,
             text,
         };
+        // Live text still held back goes on first, as before any notice (ADR-216).
+        let filter = self.runtime.filter();
+        self.flush_live(filter.as_ref());
         self.emit(note.clone());
         let (session_id, task_id, execution_id, actor, step) = (
             self.session.id.clone(),
@@ -4000,14 +4053,22 @@ impl TurnContext {
         };
         result.prompt = Some(self.size);
         // Only a finished step counts as delivered: a failed one may or may not have reached
-        // the AI tool, so what it sent in full goes out in full again.
-        runtime.step_finished(
-            &self.session.id,
-            self.mark,
-            self.delivery,
-            result.outcome == TurnOutcome::Completed,
-            self.context_used,
-        );
+        // the AI tool, so what it sent in full goes out in full again. Unless the runtime ended
+        // the step meanwhile (`force_end`), which recorded it as not delivered: looked at under
+        // the same lock, so one of the two records it, never both.
+        {
+            let mut state = runtime.lock();
+            if !self.forced.load(Ordering::SeqCst) {
+                AgentRuntime::step_finished(
+                    &mut state,
+                    &self.session.id,
+                    self.mark,
+                    self.delivery,
+                    result.outcome == TurnOutcome::Completed,
+                    self.context_used,
+                );
+            }
+        }
         if let Some(id) = &self.execution_id {
             let (pid, model, usage) = (
                 result.provider_session_id.clone(),
@@ -4131,6 +4192,7 @@ impl TurnContext {
                         active.execution_id = None;
                         active.done = finished();
                         active.grant = None;
+                        active.sent = None;
                         active.forced = None;
                         active.watch = None;
                     }
@@ -4582,6 +4644,7 @@ mod tests {
             stop_waiting: false,
             releasing: false,
             grant: None,
+            sent: None,
             forced: None,
             watch: None,
         };

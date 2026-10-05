@@ -1277,13 +1277,15 @@ async fn a_kimi_lead_that_hangs_after_a_wait_is_still_stopped() {
 }
 
 /// Holds the first turn's finisher in `turn_ended` until let go: the step's process has ended,
-/// but its own finisher is stuck, the case a stop must still end. At most a minute, so a failing
-/// test never waits on a held thread.
+/// but its own finisher is stuck, the case a stop must still end. Holds the next call too (the
+/// stop's own word of the end), which must not hold up the stop. At most a minute, so a failing
+/// test never waits on a held thread. Keeps each end it hears of: task, step, and outcome.
 #[derive(Default)]
 struct StuckHook {
     stuck: Mutex<bool>,
     changed: std::sync::Condvar,
     calls: AtomicUsize,
+    ends: Mutex<Vec<(String, u32, TurnOutcome)>>,
 }
 
 impl StuckHook {
@@ -1291,11 +1293,19 @@ impl StuckHook {
         *self.stuck.lock().unwrap() = false;
         self.changed.notify_all();
     }
+
+    fn ends(&self) -> Vec<(String, u32, TurnOutcome)> {
+        self.ends.lock().unwrap().clone()
+    }
 }
 
 impl TurnHook for StuckHook {
-    fn turn_ended(&self, _end: &TurnEnd) -> TurnDisposition {
-        if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+    fn turn_ended(&self, end: &TurnEnd) -> TurnDisposition {
+        self.ends
+            .lock()
+            .unwrap()
+            .push((end.task_id.clone(), end.step, end.result.outcome));
+        if self.calls.fetch_add(1, Ordering::SeqCst) < 2 {
             let mut stuck = self.stuck.lock().unwrap();
             *stuck = true;
             let _ = self
@@ -1309,8 +1319,8 @@ impl TurnHook for StuckHook {
 
 /// A stopped step whose own finisher never comes (the owner's report, 2026-10-05: Stop did
 /// nothing): Plenipo ends it within seconds, records it as stopped with its diagnostics and
-/// never the AI tool's words, and lets the session go. The finisher, when it comes at last,
-/// records nothing more.
+/// never the AI tool's words, tells the hook, and lets the session go (a new objective meanwhile
+/// waits for that). The finisher, when it comes at last, records nothing more.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_stopped_step_whose_finisher_is_stuck_is_ended_by_plenipo() {
     let h = harness();
@@ -1324,9 +1334,21 @@ async fn a_stopped_step_whose_finisher_is_stuck_is_ended_by_plenipo() {
     let task = running_task(&h.rt, &id).await;
     writing(&h, &task).await;
     let asked = Instant::now();
-    let stopped = tokio::time::timeout(Duration::from_secs(60), h.rt.cancel_task(&id, &task)).await;
+    let stop = {
+        let (rt, id, task) = (h.rt.clone(), id.clone(), task.clone());
+        tokio::spawn(async move { rt.cancel_task(&id, &task).await })
+    };
+    // While Plenipo records the step it ended (its word to the hook is held too), the next
+    // objective waits for that (#198) instead of being refused as busy.
+    let deadline = Instant::now() + WAIT;
+    while hook.calls.load(Ordering::SeqCst) < 2 {
+        assert!(Instant::now() < deadline, "the stop never told the hook");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    h.rt.resume_session(&id, "next").await.unwrap();
+    let stopped = tokio::time::timeout(Duration::from_secs(60), stop).await;
     let took = asked.elapsed();
-    stopped.expect("the stop returned").unwrap();
+    stopped.expect("the stop returned").unwrap().unwrap();
     assert!(took < Duration::from_secs(25), "the stop took {took:?}");
     let detail = settled(&h.rt, &id, 1).await;
     let result = detail.turns[0].result.clone().expect("a result");
@@ -1346,8 +1368,16 @@ async fn a_stopped_step_whose_finisher_is_stuck_is_ended_by_plenipo() {
         !diagnostics.contains("tick"),
         "no words from the worker: {diagnostics}"
     );
-    // The session is free: the next objective starts while the old finisher is still stuck.
-    h.rt.resume_session(&id, "next").await.unwrap();
+    // The hook heard of the stop as of any end (Liaison closes a check-in step on it), though it
+    // held that call as well.
+    let ends = hook.ends();
+    assert!(
+        ends.len() >= 2,
+        "the finisher's end, then the stop's: {ends:?}"
+    );
+    assert_eq!((ends[0].0.as_str(), ends[0].1), (task.as_str(), 1));
+    assert_eq!(ends[1], (task.clone(), 1, TurnOutcome::Cancelled));
+    // The next objective ran while the old finisher is still stuck.
     let detail = settled(&h.rt, &id, 2).await;
     assert_eq!(outcome(&detail.turns[1]), TurnOutcome::Completed);
     // Let go at last, the old finisher records nothing more.
