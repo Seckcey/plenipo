@@ -16,6 +16,8 @@ import type {
   TurnOutcome,
 } from "@plenipo/types";
 
+import { turnUsage } from "../agents/format";
+import { stepOf } from "../agents/store";
 import { toolKind } from "./words";
 
 export type ToolState = "running" | "done" | "failed";
@@ -58,7 +60,12 @@ export interface ChatTurn {
   /** Why it did not finish, in one line. */
   problem: string | null;
   outcome: TurnOutcome | null;
+  /** Its tokens, added up over its steps (each step reports its own). */
   usage: TokenUsage | null;
+  /** Stopped before a step reported its tokens: it used at least `usage`. */
+  usageAtLeast: boolean;
+  /** What each step reported live, by step, until the turn's record adds them up. */
+  stepUsage: Record<number, TokenUsage>;
   model: string | null;
   /** The newest piece of live activity applied (replays of older ones are ignored). */
   seq: number;
@@ -87,8 +94,32 @@ function newTurn(taskId: string, number: number, at: number): ChatTurn {
     problem: null,
     outcome: null,
     usage: null,
+    usageAtLeast: false,
+    stepUsage: {},
     model: null,
     seq: 0,
+  };
+}
+
+function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    cachedInputTokens: a.cachedInputTokens + b.cachedInputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+  };
+}
+
+/**
+ * A turn's tokens from its record: added up over its steps (the last step's alone for a turn
+ * recorded before steps were). `atLeast` when it was stopped and a step reported none.
+ */
+export function turnTokens(record: AgentTurn): { usage: TokenUsage | null; atLeast: boolean } {
+  const usage = turnUsage(record);
+  const outcome = record.result?.outcome;
+  const stopped = outcome === "cancelled" || outcome === "interrupted";
+  return {
+    usage,
+    atLeast: usage !== null && stopped && record.steps.some((s) => !s.result?.usage),
   };
 }
 
@@ -183,7 +214,7 @@ function lastStreamingText(parts: readonly Part[]): number {
   return -1;
 }
 
-function applyEvent(turn: ChatTurn, event: AgentEvent, at: number): ChatTurn {
+function applyEvent(turn: ChatTurn, event: AgentEvent, at: number, step = 1): ChatTurn {
   let parts = turn.parts;
   switch (event.type) {
     case "sessionStarted":
@@ -315,8 +346,11 @@ function applyEvent(turn: ChatTurn, event: AgentEvent, at: number): ChatTurn {
           },
         ],
       };
-    case "usage":
-      return { ...turn, usage: event.usage };
+    case "usage": {
+      // Each step reports its own: the turn's tokens are theirs added up.
+      const stepUsage = { ...turn.stepUsage, [step]: event.usage };
+      return { ...turn, stepUsage, usage: Object.values(stepUsage).reduce(addUsage) };
+    }
     case "memoryShortened":
       return {
         ...turn,
@@ -354,7 +388,10 @@ export function applyActivity(session: ChatSession, activity: AgentActivity): Ch
   const base = turn ?? newTurn(activity.taskId, session.turns.length + 1, activity.ts);
   // A piece that was applied already (it came in the replay and again live) is skipped.
   if (turn && activity.seq <= turn.seq) return session;
-  const next = { ...applyEvent(base, activity.event, activity.ts), seq: activity.seq };
+  const next = {
+    ...applyEvent(base, activity.event, activity.ts, stepOf(activity.seq)),
+    seq: activity.seq,
+  };
   if (i >= 0) return replaceTurn(session, i, next);
   return { ...session, turns: [...session.turns, next] };
 }
@@ -409,7 +446,8 @@ export function applyTurn(session: ChatSession, record: AgentTurn): ChatSession 
       }
     }
   }
-  const usage = record.result?.usage ?? base.usage;
+  const tokens = turnTokens(record);
+  const usage = tokens.usage ?? base.usage;
   const next: ChatTurn = {
     ...base,
     number: record.number,
@@ -426,6 +464,7 @@ export function applyTurn(session: ChatSession, record: AgentTurn): ChatSession 
         : null,
     outcome: record.result?.outcome ?? null,
     usage,
+    usageAtLeast: tokens.usage ? tokens.atLeast : base.usageAtLeast,
     model: record.result?.model ?? base.model,
   };
   const turns = i >= 0 ? session.turns.slice() : [...session.turns, next];
