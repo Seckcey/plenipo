@@ -1,6 +1,8 @@
 import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Banner, Icon, IconButton, cx } from "@plenipo/ui";
 
+import { ENTER_SENDS, isSendKey } from "../components/enterSends";
+
 /** The longest message (the same limit as an objective). */
 export const MAX_MESSAGE = 20_000;
 
@@ -48,7 +50,7 @@ export function Composer({
   };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends; Shift+Enter is a new line; a word being put together (an IME) is not sent.
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (isSendKey(e)) {
       e.preventDefault();
       send();
     }
@@ -109,7 +111,7 @@ export function Composer({
                 {f}
               </span>
             ))}
-            <span className="visually-hidden">Enter sends. Shift and Enter start a new line.</span>
+            <span className="visually-hidden">{ENTER_SENDS}</span>
           </span>
           {busy && (
             <IconButton

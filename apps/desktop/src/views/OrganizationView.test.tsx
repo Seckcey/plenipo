@@ -179,6 +179,34 @@ describe("Organization view", () => {
     expect(screen.queryByRole("button", { name: "Give objective" })).not.toBeInTheDocument();
   });
 
+  it("gives an objective with Enter from its details; Shift+Enter starts a new line", async () => {
+    show();
+    api.giveObjective.mockResolvedValue({} as never);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Engineering Manager, Idle" }));
+    const details = screen.getByRole("complementary", { name: "Details: Engineering Manager" });
+    const form = within(details).getByRole("form", { name: "Give an objective" });
+    const box = within(form).getByRole("textbox");
+    expect(box).toHaveAccessibleDescription(/Enter sends\. Shift and Enter start a new line\.$/);
+    // Nothing written yet: Enter gives nothing.
+    await user.type(box, "{Enter}");
+    await user.type(box, "Plan the roadmap{Shift>}{Enter}{/Shift}for Q4");
+    // A word still being put together (an IME) is only finished.
+    fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+    expect(api.giveObjective).not.toHaveBeenCalled();
+    await user.keyboard("{Enter}");
+    expect(api.giveObjective).toHaveBeenCalledWith("p-eng", "Plan the roadmap\nfor Q4");
+    expect(await within(form).findByRole("status")).toHaveTextContent("Objective given");
+    // A busy lead: its button cannot be pressed, so Enter gives nothing (and adds no line).
+    await user.click(screen.getByRole("button", { name: "VP, Working" }));
+    const busy = within(screen.getByRole("form", { name: "Give an objective" })).getByRole(
+      "textbox",
+    );
+    await user.type(busy, "More{Enter}");
+    expect(busy).toHaveValue("More");
+    expect(api.giveObjective).toHaveBeenCalledTimes(1);
+  });
+
   it("hires by dragging a role from the palette onto a lead", async () => {
     const org = sampleOrganization();
     show(org);

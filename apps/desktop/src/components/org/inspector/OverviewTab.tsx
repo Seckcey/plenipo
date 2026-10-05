@@ -19,6 +19,7 @@ import { LiveConversation } from "../../../live/LiveConversation";
 import { liveWork } from "../../../live/words";
 import { AskQuestionButton } from "../../sideChat/AskQuestion";
 import { canAsk } from "../../sideChat/canAsk";
+import { ENTER_SENDS, enterSends } from "../../enterSends";
 import { StopButton } from "../../stop/StopWork";
 import { workToStop } from "../../stop/whatToStop";
 import { Glyph } from "../Glyph";
@@ -270,6 +271,7 @@ function ObjectivePanel({ p, actions }: { p: PositionInfo; actions: InspectorAct
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const sendHint = useId();
+  const keysHint = useId();
   // Files can go on an objective of a project's lead (its workers have the project's folder).
   const [files, dropTarget] = useObjectiveFiles(p.coordinatesProjectId !== null);
   if (!p.agent) {
@@ -316,7 +318,7 @@ function ObjectivePanel({ p, actions }: { p: PositionInfo; actions: InspectorAct
         {({ id, hintId }) => (
           <textarea
             id={id}
-            aria-describedby={hintId}
+            aria-describedby={`${hintId} ${keysHint}`}
             value={objective}
             rows={3}
             maxLength={MAX_OBJECTIVE}
@@ -327,9 +329,13 @@ function ObjectivePanel({ p, actions }: { p: PositionInfo; actions: InspectorAct
               setObjective(e.target.value);
               setSent(false);
             }}
+            onKeyDown={enterSends}
           />
         )}
       </Field>
+      <span id={keysHint} className="visually-hidden">
+        {ENTER_SENDS}
+      </span>
       {p.coordinatesProjectId !== null && <ObjectiveFilesList state={files} />}
       {busy && <p className="muted">Busy with its current objective; wait until it finishes.</p>}
       {sent && (

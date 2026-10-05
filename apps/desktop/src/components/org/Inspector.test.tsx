@@ -255,7 +255,13 @@ function options(): { name: string; hint: string }[] {
 function forbiddenWords(): string[] {
   // Tests run in apps/desktop.
   const doc = readFileSync(resolve(process.cwd(), "../../docs/design/vocabulary.md"), "utf8");
-  const table = doc.slice(doc.indexOf("## Say this, not that"), doc.indexOf("## Where technical"));
+  // That table only, up to the next section: the one after it lists the words each system uses
+  // ("Ctrl, Alt, Shift"), which are words to say, not words to avoid.
+  const start = doc.indexOf("## Say this, not that");
+  const end = doc.indexOf("\n## ", start + 1);
+  if (start < 0 || end < 0)
+    throw new Error('vocabulary.md: the table "Say this, not that" was not found');
+  const table = doc.slice(start, end);
   const words = new Set<string>();
   for (const line of table.split("\n")) {
     const cells = line.split("|").map((c) => c.trim());

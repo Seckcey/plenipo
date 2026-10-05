@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import type {
   AgentActivity,
   AgentRuntimeInfo,
@@ -30,6 +30,7 @@ import {
   type LiaisonSessionInfo,
 } from "../agents/store";
 import { useAgents } from "../agents/useAgents";
+import { ENTER_SENDS, enterSends } from "../components/enterSends";
 import { ModelPicker } from "../components/models/ModelPicker";
 import { OUTCOME_TONE, PILL_TONE, TASK_TONE } from "../components/tones";
 import type { Go } from "../components/views";
@@ -86,6 +87,9 @@ export function WorkersView({
   const routing = useRoutingOnce();
   const [handoffs, setHandoffs] = useState(false);
   const [followUp, setFollowUp] = useState("");
+  // Enter gives the objective (Shift+Enter is a new line), as in the Chat.
+  const newKeys = useId();
+  const followUpKeys = useId();
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -212,9 +216,14 @@ export function WorkersView({
             maxLength={MAX_OBJECTIVE}
             rows={3}
             placeholder="What should the worker do?"
+            aria-describedby={newKeys}
             onChange={(e) => setObjective(e.target.value)}
+            onKeyDown={enterSends}
           />
         </label>
+        <span id={newKeys} className="visually-hidden">
+          {ENTER_SENDS}
+        </span>
         <label className="check">
           <input
             type="checkbox"
@@ -401,9 +410,14 @@ export function WorkersView({
                       maxLength={MAX_OBJECTIVE}
                       rows={2}
                       placeholder="Follow-up objective"
+                      aria-describedby={followUpKeys}
                       onChange={(e) => setFollowUp(e.target.value)}
+                      onKeyDown={enterSends}
                     />
                   </label>
+                  <span id={followUpKeys} className="visually-hidden">
+                    {ENTER_SENDS}
+                  </span>
                   <Button
                     type="submit"
                     variant="primary"
