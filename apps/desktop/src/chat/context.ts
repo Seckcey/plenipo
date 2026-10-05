@@ -3,6 +3,12 @@ import { createContext, useContext } from "react";
 import type { ChatSession } from "./model";
 import type { ChatTab, ChatTabs, ChatTarget } from "./tabs";
 
+/** What went wrong in a chat: its heading, and why, in plain words. */
+export interface ChatProblem {
+  heading: string;
+  message: string;
+}
+
 /** The Chat panel's state and what it can do (ADR-200), from `ChatProvider`. */
 export interface ChatApi {
   tabs: ChatTabs;
@@ -37,13 +43,20 @@ export interface ChatApi {
   /** Messages waiting for the agent to finish, oldest first. */
   queued: (key: string) => readonly string[];
   unqueue: (key: string, index: number) => void;
-  /** Stop what the agent is doing now. */
+  /**
+   * Stop what the agent is doing now. When Plenipo says nothing is running, the conversation is
+   * fetched again, so a chat that missed its turn's end stops showing it as running.
+   */
   stop: (key: string) => Promise<void>;
+  /** A stop is on its way: its AI tool is asked to stop, and ended if it does not. */
+  stopping: (key: string) => boolean;
+  /** The agent did not stop when asked, and what to try next; shown while it still works. */
+  stopNote: (key: string) => string | null;
   sending: (key: string) => boolean;
   /** Where the last message went, when it went somewhere else (an on-call worker's lead). */
   note: (key: string) => string | null;
-  /** Why the last message did not go, until it is dismissed or the next one goes. */
-  problem: (key: string) => string | null;
+  /** Why the last message did not go, or the last stop did not work, until it is dismissed. */
+  problem: (key: string) => ChatProblem | null;
   dismissProblem: (key: string) => void;
 }
 

@@ -30,7 +30,9 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loadSession = useCallback(async (sessionId: string) => {
-    dispatch({ type: "sessionLoaded", detail: await getAgentSession(sessionId) });
+    const detail = await getAgentSession(sessionId);
+    dispatch({ type: "sessionLoaded", detail });
+    return detail;
   }, []);
 
   useEffect(() => {
@@ -72,7 +74,9 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const cancel = useCallback(async (sessionId: string) => {
-    dispatch({ type: "sessionLoaded", detail: await cancelAgentTurn(sessionId) });
+    const detail = await cancelAgentTurn(sessionId);
+    dispatch({ type: "sessionLoaded", detail });
+    return detail;
   }, []);
 
   const close = useCallback(async (sessionId: string) => {
