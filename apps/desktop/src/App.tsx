@@ -60,6 +60,7 @@ import { EditorPage } from "./files/EditorPage";
 import { ChatButton } from "./chat/ChatButton";
 import { ChatPanel } from "./chat/ChatPanel";
 import { ChatProvider } from "./chat/ChatProvider";
+import { ChatWindows } from "./chat/ChatWindows";
 import { FilesButton } from "./files/FilesButton";
 import { useFileExplorerDrops } from "./files/useObjectiveFiles";
 import { nameOf, parseFileKey } from "./files/refs";
@@ -542,6 +543,8 @@ function Shell({ core }: { core: CoreState }) {
             )
           }
         />
+        {/* Each chat that has a window of its own (ADR-203). */}
+        <ChatWindows />
       </div>
     </AppShell>
   );

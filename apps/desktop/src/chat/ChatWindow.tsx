@@ -61,11 +61,17 @@ export function ChatWindow({
   tab,
   compact = false,
   onOpenLink,
+  onPopOut,
+  onPutBack,
 }: {
   tab: ChatTab;
   /** Drawn small, beside others. */
   compact?: boolean;
   onOpenLink?: ((url: string) => void) | undefined;
+  /** In the Chat panel: give this chat a window of its own (ADR-203). */
+  onPopOut?: (() => void) | undefined;
+  /** In a window of its own: put it back in the Chat panel. */
+  onPutBack?: (() => void) | undefined;
 }) {
   const chat = useChat();
   const agents = useAgents();
@@ -125,10 +131,26 @@ export function ChatWindow({
           pressed={planShown}
           onClick={() => setPlanChoice(!planShown)}
         />
+        {onPopOut && (
+          <IconButton
+            icon="external"
+            label={`Pop out: ${tab.title}'s chat in its own window`}
+            onClick={onPopOut}
+          />
+        )}
+        {onPutBack && (
+          <IconButton icon="panelClose" label="Put back in the Chat panel" onClick={onPutBack} />
+        )}
       </header>
       <div className="chat-body">
         <div className="chat-main">
-          <Transcript session={conversation} title={tab.title} onOpenLink={onOpenLink} />
+          <Transcript
+            session={conversation}
+            title={tab.title}
+            // A worker whose work comes from its lead: each message is the lead's (ADR-202).
+            askFrom={origin === "handoff" ? "From its lead" : null}
+            onOpenLink={onOpenLink}
+          />
           {chat.note(tab.key) && (
             <p className="chat-note chat-window__note" role="status">
               <Icon name="info" size={14} />

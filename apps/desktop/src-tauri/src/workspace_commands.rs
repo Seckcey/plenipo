@@ -1,9 +1,10 @@
 //! The workspace's commands (Phase 21, ADR-092 and ADR-093): an organization's window asks for a
-//! pop-out, brings one to the front, and forgets their places (Reset layout). Each is an
+//! pop-out (a panel, or one chat in a window of its own, ADR-203), brings one to the front, and
+//! forgets their places (Reset layout). Each is an
 //! organization's window's alone (`capabilities/default.json`); a pop-out has none
 //! (`capabilities/popout.json`).
 
-use plenipo_core::{CommandError, PanelId, WindowPlace};
+use plenipo_core::{CommandError, PopOutTarget, WindowPlace};
 use tauri::{Manager as _, Runtime, State, WebviewWindow};
 
 use crate::workspace_windows::{is_org_window, parse_popout, popouts_of, PopOuts};
@@ -21,17 +22,20 @@ fn org_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<String, CommandEr
     }
 }
 
-/// The page is about to open `panel` in its own window (`place`: where the panel was dropped,
-/// or none for where it was last). Plenipo allows the next `window.open` of this window's page
-/// for that panel only, once, within a few seconds.
+/// The page is about to open `target` (a panel, or a chat's window) in its own window (`place`:
+/// where the panel was dropped, or none for where it was last). Plenipo allows the next
+/// `window.open` of this window's page for that target only, once, within a few seconds.
 #[tauri::command]
 pub fn prepare_pop_out<R: Runtime>(
     window: WebviewWindow<R>,
     popouts: State<'_, PopOuts>,
-    panel: PanelId,
+    target: PopOutTarget,
     place: Option<WindowPlace>,
 ) -> Result<(), CommandError> {
     let parent = org_window(&window)?;
+    if !target.is_valid() {
+        return Err(CommandError::invalid_input("There is no such window."));
+    }
     if let Some(p) = &place {
         if !p.is_sane() {
             return Err(CommandError::invalid_input(
@@ -39,21 +43,21 @@ pub fn prepare_pop_out<R: Runtime>(
             ));
         }
     }
-    popouts.request(&parent, panel, place);
+    popouts.request(&parent, target, place);
     Ok(())
 }
 
-/// Bring a popped-out panel's window to the front (the Terminal button, while the terminal is
-/// popped out). `false` when it is not open.
+/// Bring a popped-out panel's window (or a chat's) to the front (the Terminal button, while the
+/// terminal is popped out). `false` when it is not open.
 #[tauri::command]
 pub fn focus_pop_out<R: Runtime>(
     window: WebviewWindow<R>,
-    panel: PanelId,
+    target: PopOutTarget,
 ) -> Result<bool, CommandError> {
     let parent = org_window(&window)?;
     let Some(popout) = popouts_of(window.app_handle(), &parent)
         .into_iter()
-        .find(|w| parse_popout(w.label()).is_some_and(|(p, _)| p == panel))
+        .find(|w| parse_popout(w.label()).is_some_and(|(t, _)| t == target))
     else {
         return Ok(false);
     };
@@ -79,16 +83,16 @@ pub fn reset_pop_outs<R: Runtime>(
     Ok(())
 }
 
-/// Put back: close this window's pop-out of `panel`. `false` when none was open.
+/// Put back: close this window's pop-out of `target`. `false` when none was open.
 #[tauri::command]
 pub fn close_pop_out<R: Runtime>(
     window: WebviewWindow<R>,
-    panel: PanelId,
+    target: PopOutTarget,
 ) -> Result<bool, CommandError> {
     let parent = org_window(&window)?;
     Ok(crate::workspace_windows::close_popout(
         window.app_handle(),
         &parent,
-        panel,
+        target,
     ))
 }

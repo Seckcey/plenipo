@@ -144,6 +144,11 @@ interface Props {
    * panel). Its button shows on the chosen tile, and on each one at work.
    */
   onChat?: ((node: LayoutNode) => void) | null;
+  /**
+   * The same chat in a window of its own (ADR-203): a double-click on a tile that has a chat
+   * (`null` when chats cannot have windows here). Any other tile zooms in on a double-click.
+   */
+  onChatWindow?: ((node: LayoutNode) => void) | null;
   live?: CanvasLive | null;
   /** The toolbar (it reads the zoom and the trash can's drop state from the canvas). */
   toolbar?: ReactNode;
@@ -259,6 +264,7 @@ export function TopologyCanvas({
   onWatch = null,
   onStop = null,
   onChat = null,
+  onChatWindow = null,
   live: liveView = null,
   toolbar,
   onSelect,
@@ -1019,7 +1025,10 @@ export function TopologyCanvas({
       onDoubleClick={(e) => {
         const id = (e.target as Element).closest<HTMLElement>("[data-node-id]")?.dataset.nodeId;
         const node = id ? live.current.layout.byId.get(id) : undefined;
-        if (node) zoomTo(node);
+        if (!node) return;
+        // An agent with a chat: its chat in a window of its own (the owner's choice, ADR-203).
+        if (onChatWindow && chatTarget(node, ctx)) onChatWindow(node);
+        else zoomTo(node);
       }}
       style={{ "--canvas-inset": `${insetRight}px` } as CSSProperties}
       onKeyDown={onKeyDown}

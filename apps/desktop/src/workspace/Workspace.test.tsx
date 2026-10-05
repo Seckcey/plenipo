@@ -26,6 +26,7 @@ vi.mock("../api/events", () => ({
 
 const api = vi.mocked(commands);
 let notify: (n: PopOutNotice) => void = () => undefined;
+const TERMINAL = { kind: "panel", panel: "terminal" } as const;
 
 /** A stand-in for the window `window.open` gives: its own document, and whether it closed. */
 function fakeWindow() {
@@ -158,7 +159,7 @@ describe("panels in docks and windows (Phase 21, ADR-092)", () => {
     const terminal = document.querySelector(".panel-host--terminal")!;
     await user.click(screen.getByRole("button", { name: "Pop it out" }));
     // Plenipo is asked first, where it was dropped; then the page opens the window.
-    expect(api.preparePopOut).toHaveBeenCalledWith("terminal", {
+    expect(api.preparePopOut).toHaveBeenCalledWith(TERMINAL, {
       x: 1,
       y: 2,
       width: 700,
@@ -189,7 +190,7 @@ describe("panels in docks and windows (Phase 21, ADR-092)", () => {
     render(<Harness />);
     await user.click(screen.getByRole("button", { name: "Pop it out" }));
     await waitFor(() => expect(kept().panels.terminal.popped).toBe(true));
-    act(() => notify({ kind: "closed", panel: "terminal" }));
+    act(() => notify({ kind: "closed", target: TERMINAL }));
     await waitFor(() => expect(kept().panels.terminal.popped).toBe(false));
     expect(
       document.querySelector('section[data-dock="bottom"] .panel-host--terminal'),
@@ -216,7 +217,7 @@ describe("panels in docks and windows (Phase 21, ADR-092)", () => {
     await waitFor(() =>
       expect(again.document.querySelector(".panel-host--terminal")).not.toBeNull(),
     );
-    act(() => notify({ kind: "closed", panel: "terminal" }));
+    act(() => notify({ kind: "closed", target: TERMINAL }));
     await waitFor(() => expect(kept().panels.terminal.popped).toBe(false));
     expect(
       document.querySelector('section[data-dock="bottom"] .panel-host--terminal'),
@@ -226,8 +227,8 @@ describe("panels in docks and windows (Phase 21, ADR-092)", () => {
   it("opens two popped-out panels' windows one at a time after a restart", async () => {
     keptWith({ terminal: true, files: true });
     const steps: string[] = [];
-    api.preparePopOut.mockImplementation((panel) => {
-      steps.push(`ask for ${panel}`);
+    api.preparePopOut.mockImplementation((target) => {
+      steps.push(`ask for ${target.kind === "panel" ? target.panel : target.slot}`);
       return Promise.resolve();
     });
     const wins = [fakeWindow(), fakeWindow()];
@@ -280,7 +281,7 @@ describe("panels in docks and windows (Phase 21, ADR-092)", () => {
     vi.spyOn(window, "open").mockReturnValue(win as unknown as Window);
     render(<Harness />);
     await user.click(screen.getByRole("button", { name: "Pop it out" }));
-    await waitFor(() => expect(api.closePopOut).toHaveBeenCalledWith("terminal"), {
+    await waitFor(() => expect(api.closePopOut).toHaveBeenCalledWith(TERMINAL), {
       timeout: 6000,
     });
     expect(win.close).toHaveBeenCalled();
@@ -317,7 +318,7 @@ describe("panels in docks and windows (Phase 21, ADR-092)", () => {
     vi.spyOn(window, "open").mockReturnValue(win as unknown as Window);
     render(<Harness />);
     await waitFor(() => expect(win.document.querySelector(".panel-host--terminal")).not.toBeNull());
-    expect(api.preparePopOut).toHaveBeenCalledWith("terminal", null);
+    expect(api.preparePopOut).toHaveBeenCalledWith(TERMINAL, null);
   });
 
   it("drags a panel's tab to another dock, and past the window's edge to pop it out there", async () => {
@@ -358,7 +359,7 @@ describe("panels in docks and windows (Phase 21, ADR-092)", () => {
       pointerId: 2,
     });
     await waitFor(() =>
-      expect(api.preparePopOut).toHaveBeenCalledWith("terminal", {
+      expect(api.preparePopOut).toHaveBeenCalledWith(TERMINAL, {
         x: 1740,
         y: 284,
         width: 480,

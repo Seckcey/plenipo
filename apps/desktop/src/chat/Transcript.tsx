@@ -31,10 +31,13 @@ const AT_END = 48;
 export function Transcript({
   session,
   title,
+  askFrom = null,
   onOpenLink,
 }: {
   session: ChatSession | null;
   title: string;
+  /** Who each message is from, when it is not you ("From its lead", ADR-203). */
+  askFrom?: string | null;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -85,7 +88,13 @@ export function Transcript({
           </div>
         ) : (
           turns.map((turn) => (
-            <TurnView key={turn.taskId} turn={turn} title={title} onOpenLink={onOpenLink} />
+            <TurnView
+              key={turn.taskId}
+              turn={turn}
+              title={title}
+              askFrom={askFrom}
+              onOpenLink={onOpenLink}
+            />
           ))
         )}
       </div>
@@ -129,10 +138,12 @@ function Announcer({ turn, title }: { turn: ChatTurn | undefined; title: string 
 const TurnView = memo(function TurnView({
   turn,
   title,
+  askFrom,
   onOpenLink,
 }: {
   turn: ChatTurn;
   title: string;
+  askFrom: string | null;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
   const live = !isOver(turn);
@@ -141,6 +152,7 @@ const TurnView = memo(function TurnView({
     <article className="chat-turn" aria-label={`Message ${turn.number}`}>
       {turn.ask.trim() !== "" && (
         <div className="chat-turn__ask">
+          {askFrom && <span className="chat-turn__from">{askFrom}</span>}
           <p>{turn.ask}</p>
         </div>
       )}

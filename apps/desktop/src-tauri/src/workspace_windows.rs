@@ -1,4 +1,5 @@
-//! An organization's window and the panels it pops out (Phase 21, ADR-092).
+//! An organization's window and the panels it pops out (Phase 21, ADR-092), and the chats it
+//! gives windows of their own (ADR-203).
 //!
 //! A popped-out panel is the same panel, not a copy: the organization's window opens the pop-out
 //! with `window.open` and draws into it itself. Plenipo allows that only right after the page
@@ -11,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use plenipo_core::{PanelId, PopOutNotice, WindowPlace};
+use plenipo_core::{PopOutNotice, PopOutTarget, WindowPlace};
 use serde::{Deserialize, Serialize};
 use tauri::webview::{NewWindowFeatures, NewWindowResponse};
 use tauri::{
@@ -40,37 +41,39 @@ pub fn is_org_window(label: &str) -> bool {
     label == MAIN || label.starts_with(ORG_PREFIX)
 }
 
-/// The label of the window a panel pops out into.
-pub fn popout_label(parent: &str, panel: PanelId) -> String {
-    format!("{POPOUT_PREFIX}{}--{parent}", panel.key())
+/// The label of the window a panel, or a chat, pops out into: `popout-terminal--main`,
+/// `popout-chat_3--main`.
+pub fn popout_label(parent: &str, target: PopOutTarget) -> String {
+    format!("{POPOUT_PREFIX}{}--{parent}", target.key())
 }
 
 /// A pop-out window's own label: its panel and window, and a number of its own, so a new one
 /// never waits for an old one's label to be free (a window closes a moment after it is told).
-fn numbered_label(parent: &str, panel: PanelId, n: u32) -> String {
-    format!("{}--{n}", popout_label(parent, panel))
+fn numbered_label(parent: &str, target: PopOutTarget, n: u32) -> String {
+    format!("{}--{n}", popout_label(parent, target))
 }
 
-/// A pop-out's panel and the organization's window that owns it.
-pub fn parse_popout(label: &str) -> Option<(PanelId, &str)> {
+/// What a pop-out shows (a panel, or a chat) and the organization's window that owns it.
+pub fn parse_popout(label: &str) -> Option<(PopOutTarget, &str)> {
     let rest = label.strip_prefix(POPOUT_PREFIX)?;
     let (key, parent) = rest.split_once("--")?;
-    let panel = PanelId::from_key(key)?;
+    let target = PopOutTarget::from_key(key)?;
     // Its own number, when it has one.
     let parent = match parent.rsplit_once("--") {
         Some((p, n)) if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) => p,
         _ => parent,
     };
-    is_org_window(parent).then_some((panel, parent))
+    is_org_window(parent).then_some((target, parent))
 }
 
-/// Where a pop-out's place is kept: by its panel and window, whatever its number.
+/// Where a pop-out's place is kept: by its panel (or its chat window's number, never a name)
+/// and its organization's window, whatever its own number.
 fn place_key(label: &str) -> Option<String> {
-    parse_popout(label).map(|(panel, parent)| popout_label(parent, panel))
+    parse_popout(label).map(|(target, parent)| popout_label(parent, target))
 }
 
 struct Request {
-    panel: PanelId,
+    target: PopOutTarget,
     place: Option<WindowPlace>,
     at: Instant,
 }
@@ -110,25 +113,25 @@ impl PopOuts {
         }
     }
 
-    /// The page of `parent` is about to open `panel` in its own window (at `place`, where the
+    /// The page of `parent` is about to open `target` in its own window (at `place`, where the
     /// panel was dropped, or where it was last).
-    pub fn request(&self, parent: &str, panel: PanelId, place: Option<WindowPlace>) {
+    pub fn request(&self, parent: &str, target: PopOutTarget, place: Option<WindowPlace>) {
         let place = place.filter(WindowPlace::is_sane);
         lock(&self.requests).insert(
             parent.to_owned(),
             Request {
-                panel,
+                target,
                 place,
                 at: Instant::now(),
             },
         );
     }
 
-    /// The window `parent`'s page opens now: the panel it asked for, if it asked lately. A
-    /// request is used once.
-    fn take(&self, parent: &str) -> Option<(PanelId, Option<WindowPlace>)> {
+    /// The window `parent`'s page opens now: the panel or chat it asked for, if it asked lately.
+    /// A request is used once.
+    fn take(&self, parent: &str) -> Option<(PopOutTarget, Option<WindowPlace>)> {
         let request = lock(&self.requests).remove(parent)?;
-        (request.at.elapsed() <= REQUEST_LIFETIME).then_some((request.panel, request.place))
+        (request.at.elapsed() <= REQUEST_LIFETIME).then_some((request.target, request.place))
     }
 
     /// Where the pop-out was last.
@@ -206,20 +209,20 @@ pub fn on_new_window<R: Runtime>(
     let Some(popouts) = app.try_state::<PopOuts>() else {
         return NewWindowResponse::Deny;
     };
-    let Some((panel, dropped)) = popouts.take(parent) else {
+    let Some((target, dropped)) = popouts.take(parent) else {
         log::info!("refused a new window {parent}'s page did not ask Plenipo for");
         return NewWindowResponse::Deny;
     };
-    // One window per panel: an old one (its page reloaded) goes first.
+    // One window per panel, and per chat window: an old one (its page reloaded) goes first.
     for old in popouts_of(app, parent) {
-        if parse_popout(old.label()).is_some_and(|(p, _)| p == panel) {
+        if parse_popout(old.label()).is_some_and(|(t, _)| t == target) {
             let _ = old.destroy();
         }
     }
     let n = popouts
         .next
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let label = numbered_label(parent, panel, n);
+    let label = numbered_label(parent, target, n);
     let place = dropped
         .or_else(|| popouts.place(&label))
         .or_else(|| beside(app, parent));
@@ -233,7 +236,7 @@ pub fn on_new_window<R: Runtime>(
     // shows (ADR-092 §10).
     .visible(shown_with(app, parent))
     .focused(shown_with(app, parent))
-    .title(format!("Plenipo · {}", panel.title()))
+    .title(format!("Plenipo · {}", target.title()))
     .min_inner_size(SMALLEST.0, SMALLEST.1)
     .inner_size(FIRST_SIZE.0, FIRST_SIZE.1);
     if let Some(place) = place {
@@ -254,7 +257,7 @@ pub fn on_new_window<R: Runtime>(
             NewWindowResponse::Create { window }
         }
         Err(e) => {
-            log::warn!("the {} window could not open: {e}", panel.title());
+            log::warn!("the {} window could not open: {e}", target.title());
             NewWindowResponse::Deny
         }
     }
@@ -325,22 +328,23 @@ pub fn remember_place<R: Runtime>(window: &tauri::Window<R>) {
     }
 }
 
-/// The owner closed a pop-out's window: its organization's window puts the panel back in a dock.
+/// The owner closed a pop-out's window: its organization's window puts the panel back in a dock,
+/// or the chat back in the Chat panel.
 pub fn closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
-    let Some((panel, parent)) = parse_popout(label) else {
+    let Some((target, parent)) = parse_popout(label) else {
         return;
     };
     // An old window the panel already left for a new one: nothing comes back.
     let newer = popouts_of(app, parent)
         .iter()
-        .any(|w| w.label() != label && parse_popout(w.label()).is_some_and(|(p, _)| p == panel));
+        .any(|w| w.label() != label && parse_popout(w.label()).is_some_and(|(t, _)| t == target));
     if newer {
         return;
     }
-    if let Err(e) = app.emit_to(parent, WINDOWS_EVENT, &PopOutNotice::Closed { panel }) {
+    if let Err(e) = app.emit_to(parent, WINDOWS_EVENT, &PopOutNotice::Closed { target }) {
         log::warn!(
-            "could not tell the window its {} panel came back: {e}",
-            panel.key()
+            "could not tell the window its {} pop-out came back: {e}",
+            target.key()
         );
     }
 }
@@ -375,11 +379,12 @@ pub fn close_popouts<R: Runtime>(app: &AppHandle<R>, parent: &str) {
     }
 }
 
-/// Put back: the panel's pop-out window closes (a page closing it itself may leave it behind).
-pub fn close_popout<R: Runtime>(app: &AppHandle<R>, parent: &str, panel: PanelId) -> bool {
+/// Put back: the panel's (or the chat's) pop-out window closes (a page closing it itself may
+/// leave it behind).
+pub fn close_popout<R: Runtime>(app: &AppHandle<R>, parent: &str, target: PopOutTarget) -> bool {
     let mut closed = false;
     for w in popouts_of(app, parent) {
-        if parse_popout(w.label()).is_some_and(|(p, _)| p == panel) {
+        if parse_popout(w.label()).is_some_and(|(t, _)| t == target) {
             closed |= w.destroy().is_ok();
         }
     }
@@ -429,6 +434,11 @@ fn allow_pop_outs<R: Runtime>(_window: &WebviewWindow<R>) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use plenipo_core::PanelId;
+
+    fn panel(panel: PanelId) -> PopOutTarget {
+        PopOutTarget::Panel { panel }
+    }
 
     #[test]
     fn a_pop_out_is_hidden_while_its_organizations_window_is() {
@@ -442,20 +452,39 @@ mod tests {
     #[test]
     fn labels_name_the_panel_and_its_window() {
         assert_eq!(
-            popout_label(MAIN, PanelId::Terminal),
+            popout_label(MAIN, panel(PanelId::Terminal)),
             "popout-terminal--main"
         );
         assert_eq!(
             parse_popout("popout-files--org-ab12"),
-            Some((PanelId::Files, "org-ab12"))
+            Some((panel(PanelId::Files), "org-ab12"))
         );
         assert_eq!(
             parse_popout("popout-terminal--main--12"),
-            Some((PanelId::Terminal, "main"))
+            Some((panel(PanelId::Terminal), "main"))
         );
         assert_eq!(
-            parse_popout(&numbered_label("org-ab12", PanelId::Files, 3)),
-            Some((PanelId::Files, "org-ab12"))
+            parse_popout(&numbered_label("org-ab12", panel(PanelId::Files), 3)),
+            Some((panel(PanelId::Files), "org-ab12"))
+        );
+        // A chat's own window (ADR-203): numbered 1 to 6, and kept by its number, never a name.
+        let chat = PopOutTarget::Chat { slot: 4 };
+        assert_eq!(
+            numbered_label(MAIN, chat, 9),
+            "popout-chat_4--main--9"
+        );
+        assert_eq!(parse_popout("popout-chat_4--main--9"), Some((chat, MAIN)));
+        assert_eq!(
+            place_key("popout-chat_4--org-ab12--2").as_deref(),
+            Some("popout-chat_4--org-ab12")
+        );
+        assert_eq!(parse_popout("popout-chat_7--main--1"), None);
+        assert_eq!(parse_popout("popout-chat_0--main"), None);
+        assert_eq!(parse_popout("popout-chat_--main"), None);
+        // The whole Chat panel popped out is still the panel (ADR-092).
+        assert_eq!(
+            parse_popout("popout-chat--main"),
+            Some((panel(PanelId::Chat), MAIN))
         );
         assert_eq!(parse_popout("popout-terminal--main--x"), None);
         assert_eq!(
@@ -469,22 +498,23 @@ mod tests {
         assert!(!is_org_window("popout-files--main") && !is_org_window("control-indicator"));
         // A pop-out's label can never pass for an organization's window, whose permission file
         // matches `main` and `org-*`.
-        assert!(!popout_label("org-ab12", PanelId::Files).starts_with(ORG_PREFIX));
+        assert!(!popout_label("org-ab12", panel(PanelId::Files)).starts_with(ORG_PREFIX));
+        assert!(!popout_label("org-ab12", chat).starts_with(ORG_PREFIX));
     }
 
     #[test]
     fn a_window_opens_only_right_after_its_page_asked_and_once() {
         let popouts = PopOuts::new(None);
         assert!(popouts.take(MAIN).is_none(), "nothing was asked");
-        popouts.request(MAIN, PanelId::Terminal, None);
+        popouts.request(MAIN, panel(PanelId::Terminal), None);
         assert!(
             popouts.take("org-ab12").is_none(),
             "another window's page did not ask"
         );
-        assert_eq!(popouts.take(MAIN), Some((PanelId::Terminal, None)));
+        assert_eq!(popouts.take(MAIN), Some((panel(PanelId::Terminal), None)));
         assert!(popouts.take(MAIN).is_none(), "a request is used once");
         // A stale request is refused.
-        popouts.request(MAIN, PanelId::Files, None);
+        popouts.request(MAIN, panel(PanelId::Files), None);
         lock(&popouts.requests).get_mut(MAIN).expect("asked").at -= REQUEST_LIFETIME * 2;
         assert!(popouts.take(MAIN).is_none());
     }
@@ -534,7 +564,7 @@ mod tests {
         let popouts = PopOuts::new(None);
         popouts.request(
             MAIN,
-            PanelId::Files,
+            panel(PanelId::Files),
             Some(WindowPlace {
                 x: f64::INFINITY,
                 y: 0.0,
@@ -542,6 +572,6 @@ mod tests {
                 height: 10.0,
             }),
         );
-        assert_eq!(popouts.take(MAIN), Some((PanelId::Files, None)));
+        assert_eq!(popouts.take(MAIN), Some((panel(PanelId::Files), None)));
     }
 }

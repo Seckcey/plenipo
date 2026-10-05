@@ -106,7 +106,14 @@ import {
   type CanvasFilters,
 } from "../org/filters";
 import { OVERSIGHT_LABEL, OVERSIGHT_NOUN, plural } from "../org/format";
-import { ORG_ID, OWNER_ID, WHERE_ROW_GAP, ancestorsOf, layoutOrganization } from "../org/layout";
+import {
+  ORG_ID,
+  OWNER_ID,
+  WHERE_ROW_GAP,
+  ancestorsOf,
+  layoutOrganization,
+  type LayoutNode,
+} from "../org/layout";
 import { handoffMarks, whereLines } from "../org/live";
 import { nodeContext } from "../org/nodes";
 import {
@@ -133,6 +140,7 @@ import { usePlaces } from "../org/usePlaces";
 import { useOwnerProfile } from "../owner/context";
 import { useOpenWatch } from "../terminal/useTerminal";
 import { useChatIfAny } from "../chat/context";
+import type { ChatTarget } from "../chat/tabs";
 
 const SELECTED_KEY = "plenipo.orgSelected";
 const MODE_KEY = "plenipo.orgMode";
@@ -560,6 +568,23 @@ export function OrganizationView({
     () => (snapshot ? positionMap(snapshot) : new Map<string, PositionInfo>()),
     [snapshot],
   );
+
+  /** A tile's chat (ADR-200), opened by `how`: in the Chat panel, or in a window of its own
+   * (ADR-203). */
+  const openChat = (n: LayoutNode, how: (target: ChatTarget) => void) => {
+    if (n.kind === "position") {
+      how({
+        positionId: n.position.id,
+        sessionId: n.position.agent?.sessionId ?? null,
+        title: n.position.title,
+      });
+    } else if (n.kind === "worker" && n.worker.sessionId) {
+      how({
+        sessionId: n.worker.sessionId,
+        title: `${byId.get(n.positionId)?.title ?? "Worker"} (on call)`,
+      });
+    }
+  };
 
   /** Why a line end cannot go to `target`; `null` when it can. */
   const lineRefusal = useCallback(
@@ -1174,24 +1199,8 @@ export function OrganizationView({
               openWatch ? (id: string) => openWatch(id, byId.get(id)?.title ?? "Agent") : null
             }
             onStop={(id: string) => setDialog({ kind: "stop", positionId: id })}
-            onChat={
-              chat
-                ? (n) => {
-                    if (n.kind === "position") {
-                      chat.open({
-                        positionId: n.position.id,
-                        sessionId: n.position.agent?.sessionId ?? null,
-                        title: n.position.title,
-                      });
-                    } else if (n.kind === "worker" && n.worker.sessionId) {
-                      chat.open({
-                        sessionId: n.worker.sessionId,
-                        title: `${byId.get(n.positionId)?.title ?? "Worker"} (on call)`,
-                      });
-                    }
-                  }
-                : null
-            }
+            onChat={chat ? (n) => openChat(n, chat.open) : null}
+            onChatWindow={chat?.canPopOut ? (n) => openChat(n, chat.openWindow) : null}
             live={canvasLive}
             onSelect={setSelected}
             onToggle={toggle}
