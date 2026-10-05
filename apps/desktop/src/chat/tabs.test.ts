@@ -19,11 +19,28 @@ import {
   showTab,
   shownTabs,
   slotOf,
+  tabFor,
   tabInSlot,
   type ChatTabs,
 } from "./tabs";
 
 describe("the open chats (ADR-200)", () => {
+  it("makes a chat for a position or a conversation, and none for nothing", () => {
+    expect(tabFor({ positionId: "p1", title: "  Development Manager " })).toEqual({
+      key: "position:p1",
+      positionId: "p1",
+      sessionId: null,
+      title: "Development Manager",
+    });
+    expect(tabFor({ sessionId: "s9", title: "" })).toEqual({
+      key: "session:s9",
+      positionId: null,
+      sessionId: "s9",
+      title: "Agent",
+    });
+    expect(tabFor({ title: "Nobody" })).toBeNull();
+  });
+
   it("opens a chat in front, and opening it again shows the same one", () => {
     let t = openTab(NO_TABS, { positionId: "p1", title: "Development Manager" });
     t = openTab(t, { positionId: "p2", title: "Supervisor" });
