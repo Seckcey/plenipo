@@ -1040,6 +1040,40 @@ impl TurnParser for AcpTurn {
         self.state.stderr(text);
     }
 
+    fn waiting_on(&self) -> Vec<String> {
+        let mut on = Vec::new();
+        match self.phase {
+            Phase::Idle | Phase::Done => {}
+            Phase::Initializing => {
+                on.push(format!("its answer to `initialize` (request {INITIALIZE})"))
+            }
+            Phase::Opening => {
+                on.push(format!(
+                    "its answer to opening the conversation (request {OPEN})"
+                ));
+            }
+            Phase::Configuring => on.push("its answer to a session setting".into()),
+            Phase::Prompting => on.push(format!(
+                "its answer to the prompt (`session/prompt`, request {PROMPT}){}",
+                if self.message.is_empty() {
+                    ""
+                } else {
+                    ", a message part written"
+                }
+            )),
+        }
+        if self.cancel_asked {
+            on.push("its answer to Plenipo's `session/cancel`".into());
+        }
+        if !self.files.is_empty() {
+            on.push(format!(
+                "Plenipo's answer to {} file request(s) of its own",
+                self.files.len()
+            ));
+        }
+        on
+    }
+
     fn context_used(&self) -> Option<u64> {
         self.context_used
     }
