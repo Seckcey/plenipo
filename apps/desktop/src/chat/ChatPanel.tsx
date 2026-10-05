@@ -6,7 +6,7 @@ import { ChatWindow } from "./ChatWindow";
 import { copyText } from "./clipboard";
 import { useChat } from "./context";
 import { isOver } from "./model";
-import { shownTabs, type ChatTab } from "./tabs";
+import { shownTabs, slotOf, type ChatTab } from "./tabs";
 
 /**
  * The Chat panel (ADR-200): a tab for each agent you talk to or watch, and its chat. Side by side
@@ -78,15 +78,54 @@ export function ChatPanel({ go }: { go: Go }) {
             aria-label={tab.title}
             id={`chat-panel-${tab.key}`}
           >
-            <ChatWindow
-              tab={tab}
-              compact={sideBySide && shown.length > 1}
-              // A link an agent wrote never opens by itself: choosing it copies its address.
-              onOpenLink={(url) => void copyText(url)}
-            />
+            {slotOf(chat.tabs, tab.key) !== null ? (
+              <ChatAway tab={tab} />
+            ) : (
+              <ChatWindow
+                tab={tab}
+                compact={sideBySide && shown.length > 1}
+                // A link an agent wrote never opens by itself: choosing it copies its address.
+                onOpenLink={(url) => void copyText(url)}
+                onPopOut={chat.canPopOut ? () => chat.popOut(tab.key) : undefined}
+              />
+            )}
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** A chat that is in a window of its own (ADR-203): where it is, and a way back. */
+function ChatAway({ tab }: { tab: ChatTab }) {
+  const chat = useChat();
+  return (
+    <div className="chat-panel__away">
+      <EmptyState
+        icon="external"
+        title={`${tab.title}'s chat is in its own window`}
+        action={
+          <span className="chat-panel__away-actions">
+            <button
+              type="button"
+              className="ui-button ui-button--secondary ui-button--sm"
+              onClick={() => chat.focusWindow(tab.key)}
+            >
+              Show its window
+            </button>
+            <button
+              type="button"
+              className="ui-button ui-button--quiet ui-button--sm"
+              onClick={() => chat.putBack(tab.key)}
+            >
+              Put back here
+            </button>
+          </span>
+        }
+      >
+        You talk to it and watch it there. It comes back here when you put it back or close its
+        window.
+      </EmptyState>
     </div>
   );
 }

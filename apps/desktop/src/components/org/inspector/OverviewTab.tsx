@@ -14,6 +14,7 @@ import { useObjectiveFiles } from "../../../files/useObjectiveFiles";
 import { EFFORT_LABEL } from "../../../routing/format";
 import { useOpenWatch } from "../../../terminal/useTerminal";
 import { useChatIfAny } from "../../../chat/context";
+import { positionChatTarget } from "../../../chat/positionTarget";
 import { PILL_TONE } from "../../tones";
 import { LiveConversation } from "../../../live/LiveConversation";
 import { liveWork } from "../../../live/words";
@@ -90,10 +91,10 @@ export function OverviewTab({
       : null;
   const chat = useChatIfAny();
   // An on-call position's messages go through its lead (ADR-202).
-  const chatWith =
-    chat && (canTakeObjective(p) || (p.active && p.staffing === "onDemand" && p.reportsTo !== null))
-      ? () => chat.open({ positionId: p.id, sessionId: p.agent?.sessionId ?? null, title: p.title })
-      : null;
+  const chatTarget = positionChatTarget(p);
+  const chatWith = chat && chatTarget ? () => chat.open(chatTarget) : null;
+  // Its chat in a window of its own (ADR-203).
+  const chatAlone = chat?.canPopOut && chatTarget ? () => chat.openWindow(chatTarget) : null;
 
   return (
     <>
@@ -229,6 +230,15 @@ export function OverviewTab({
               ariaLabel={`Chat with ${p.title}`}
               hint="Talk to its agent and watch it work, live, in the Chat panel."
               onClick={chatWith}
+            />
+          )}
+          {chatAlone && (
+            <Option
+              label="Pop out chat"
+              icon="external"
+              ariaLabel={`Pop out ${p.title}'s chat`}
+              hint="The same chat in a window of its own, beside your work. Up to six at once."
+              onClick={chatAlone}
             />
           )}
           {watch && (

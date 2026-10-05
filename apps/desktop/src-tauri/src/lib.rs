@@ -6276,7 +6276,8 @@ mod ipc_boundary_tests {
     /// Arguments that fit every Phase 21 command (each takes the ones it names).
     fn phase_21_args() -> serde_json::Value {
         serde_json::json!({
-            "panel": "terminal", "place": null, "root": "project:nope", "path": "README.md",
+            "target": { "kind": "panel", "panel": "terminal" }, "place": null,
+            "root": "project:nope", "path": "README.md",
             "text": "x", "bom": false, "lineEnding": "lf", "base": null, "taskId": "nope",
         })
     }
@@ -6886,7 +6887,9 @@ mod ipc_boundary_tests {
     #[test]
     fn a_popped_out_panel_can_call_nothing_itself() {
         let app = app();
-        let popout = window(&app, "popout-files--main");
+        let panel = window(&app, "popout-files--main");
+        // A chat's own window (ADR-203) is a pop-out too.
+        let chat = window(&app, "popout-chat_2--main--5");
         // Its organization's window draws it and makes every call: the pop-out's own permission
         // file lists no command, Plenipo's or Tauri's.
         for cmd in [
@@ -6908,12 +6911,12 @@ mod ipc_boundary_tests {
             "plugin:event|listen",
             "plugin:window|create",
             "plugin:webview|create_webview_window",
+            "prepare_pop_out",
+            "focus_pop_out",
         ] {
-            refused(
-                cmd,
-                invoke_json(&popout, cmd, serde_json::json!({})),
-                "a pop-out",
-            );
+            for (popout, what) in [(&panel, "a pop-out"), (&chat, "a chat's own window")] {
+                refused(cmd, invoke_json(popout, cmd, serde_json::json!({})), what);
+            }
         }
         // A label that only looks like an organization's window gets nothing either.
         let look_alike = window(&app, "mainly");
@@ -6958,14 +6961,26 @@ mod ipc_boundary_tests {
             ),
             (
                 "prepare_pop_out",
-                serde_json::json!({ "panel": "details", "place": null }),
+                serde_json::json!({ "target": { "kind": "panel", "panel": "details" },
+                    "place": null }),
                 "unknown variant",
             ),
             (
                 "prepare_pop_out",
-                serde_json::json!({ "panel": "files",
+                serde_json::json!({ "target": { "kind": "panel", "panel": "files" },
                     "place": { "x": 0.0, "y": 0.0, "width": 0.0, "height": 10.0 } }),
                 "not a place on the screen",
+            ),
+            // A chat's own window is one of six (ADR-203).
+            (
+                "prepare_pop_out",
+                serde_json::json!({ "target": { "kind": "chat", "slot": 7 }, "place": null }),
+                "no such window",
+            ),
+            (
+                "prepare_pop_out",
+                serde_json::json!({ "panel": "files", "place": null }),
+                "missing required key target",
             ),
         ] {
             let err = invoke_json(&main, cmd, args).expect_err(cmd);

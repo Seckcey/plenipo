@@ -32,12 +32,17 @@ import {
 } from "./model";
 import {
   closeTab,
-  isChatTabs,
+  keyOf,
+  MAX_CHAT_WINDOWS,
   NO_TABS,
   openTab,
+  popOutTab,
   positionSession,
+  putBackTab,
+  readChatTabs,
   setSession,
   showTab,
+  slotOf,
   TABS_KEY,
   type ChatTab,
   type ChatTabs,
@@ -49,7 +54,7 @@ function readTabs(): ChatTabs {
   try {
     const raw = localStorage.getItem(storedKey(TABS_KEY));
     const value: unknown = raw === null ? null : JSON.parse(raw);
-    return isChatTabs(value) ? value : NO_TABS;
+    return readChatTabs(value);
   } catch {
     return NO_TABS;
   }
@@ -322,8 +327,71 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
   }, [stale, take]);
 
+  // Each chat with a window of its own (ADR-203) has its window open: after a restart too, and
+  // one that cannot open goes back to the panel. A chat put back, or closed, has its window
+  // closed. The workspace opens the windows one at a time.
+  const opening = useRef(new Set<number>());
+  const chatWindows = useMemo(
+    () => (ws?.popUps ?? []).flatMap((u) => (u.target.kind === "chat" ? [u.target.slot] : [])),
+    [ws?.popUps],
+  );
+  const openChatWindow = ws?.openChatWindow;
+  const closeChatWindow = ws?.closeChatWindow;
+  useEffect(() => {
+    if (!openChatWindow || !closeChatWindow) return;
+    for (const { key, slot } of tabs.popped) {
+      if (chatWindows.includes(slot) || opening.current.has(slot)) continue;
+      const tab = tabs.tabs.find((t) => t.key === key);
+      if (!tab) continue;
+      opening.current.add(slot);
+      void openChatWindow(slot, tab.title).then((ok) => {
+        opening.current.delete(slot);
+        if (!ok) setTabs((t) => (slotOf(t, key) === slot ? putBackTab(t, key) : t));
+      });
+    }
+    for (const slot of chatWindows) {
+      if (!tabs.popped.some((p) => p.slot === slot)) closeChatWindow(slot);
+    }
+  }, [tabs, chatWindows, openChatWindow, closeChatWindow, setTabs]);
+
+  // The owner closed a chat's window (or Reset layout closed them all): back to the panel.
+  const onChatWindowClosed = ws?.onChatWindowClosed;
+  const focusChatWindow = ws?.focusChatWindow;
+  useEffect(
+    () =>
+      onChatWindowClosed?.((slot) =>
+        setTabs((t) => {
+          if (slot === null) return t.popped.length === 0 ? t : { ...t, popped: [] };
+          const key = t.popped.find((p) => p.slot === slot)?.key;
+          return key ? putBackTab(t, key) : t;
+        }),
+      ),
+    [onChatWindowClosed, setTabs],
+  );
+
   const api = useMemo<ChatApi>(() => {
     const tabOf = (key: string) => tabs.tabs.find((t) => t.key === key);
+    /** Give the chat `key` of `state` a window of its own, or say why it stays in the panel. */
+    const popOutIn = (state: ChatTabs, key: string) => {
+      const slot = slotOf(state, key);
+      if (slot !== null) {
+        setTabs(() => state);
+        focusChatWindow?.(slot);
+        return;
+      }
+      const next = popOutTab(state, key);
+      if (next) {
+        setTabs(() => next);
+        return;
+      }
+      // All six windows are taken: it opens in the panel instead.
+      setTabs(() => showTab(state, key));
+      setNotes((n) => ({
+        ...n,
+        [key]: `${MAX_CHAT_WINDOWS} chats have windows of their own already, so this one opened here. Put one of them back to give this one its own window.`,
+      }));
+      show?.("chat");
+    };
     return {
       tabs,
       open: (target) => {
@@ -341,6 +409,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       },
       show: (key) => setTabs((t) => showTab(t, key)),
       setSideBySide: (on) => setTabs((t) => (t.sideBySide === on ? t : { ...t, sideBySide: on })),
+      canPopOut: focusChatWindow !== undefined,
+      popOut: (key) => popOutIn(tabsRef.current, key),
+      openWindow: (target) => {
+        // Nothing to open (no position, no conversation): no other chat pops out instead.
+        if (keyOf(target) === null) return;
+        const opened = openTab(tabsRef.current, target);
+        if (opened.active) popOutIn(opened, opened.active);
+      },
+      putBack: (key) => {
+        setTabs((t) => putBackTab(t, key));
+        show?.("chat");
+      },
+      focusWindow: (key) => {
+        const slot = slotOf(tabsRef.current, key);
+        if (slot !== null) focusChatWindow?.(slot);
+      },
+      windowSlot: (key) => slotOf(tabs, key),
       sessionOf: (tab) => sessionOfTab(tab, agentState),
       conversation: (tab) => {
         const id = sessionOfTab(tab, agentState);
@@ -395,6 +480,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setTabs,
     setQueues,
     show,
+    focusChatWindow,
     sessionOfTab,
     busyNow,
     deliver,

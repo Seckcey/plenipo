@@ -22,7 +22,7 @@ pub use upkeep::{
     UpdateStatus, WindowRecovery,
 };
 pub use words::{System, SystemWords, Words, WORDS};
-pub use workspace::{PanelId, PopOutNotice, WindowPlace};
+pub use workspace::{PanelId, PopOutNotice, PopOutTarget, WindowPlace};
 
 /// Human-facing product name.
 pub const PRODUCT_NAME: &str = "Plenipo";

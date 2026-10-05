@@ -127,7 +127,7 @@ import type {
   TerminalPlace,
   TerminalSettings,
   TerminalShell,
-  PanelId,
+  PopOutTarget,
   WindowPlace,
   ChangingFile,
   FileRoots,
@@ -1349,22 +1349,27 @@ export function setAddOnTools(
 // ---- The workspace (Phase 21, ADR-092) ------------------------------------------------------
 
 /**
- * Tell Plenipo this window's page is about to open `panel` in its own window (`place`: where the
- * panel was dropped; none for where it was last). Plenipo allows the next new window of this
- * page for that panel only, once.
+ * Tell Plenipo this window's page is about to open `target` (a panel, or one chat, ADR-203) in its
+ * own window (`place`: where the panel was dropped; none for where it was last; `title`: a chat
+ * window's agent, for its title bar). Plenipo allows the next new window of this page for that
+ * target only, once.
  */
-export function preparePopOut(panel: PanelId, place: WindowPlace | null): Promise<void> {
-  return call<void>("prepare_pop_out", { panel, place });
+export function preparePopOut(
+  target: PopOutTarget,
+  place: WindowPlace | null,
+  title?: string,
+): Promise<void> {
+  return call<void>("prepare_pop_out", { target, place, title: title ?? null });
 }
 
-/** Bring a popped-out panel's window to the front. `false` when it is not open. */
-export function focusPopOut(panel: PanelId): Promise<boolean> {
-  return call<boolean>("focus_pop_out", { panel });
+/** Bring a popped-out panel's (or chat's) window to the front. `false` when it is not open. */
+export function focusPopOut(target: PopOutTarget): Promise<boolean> {
+  return call<boolean>("focus_pop_out", { target });
 }
 
-/** Put back: close this window's pop-out of `panel`. `false` when none was open. */
-export function closePopOut(panel: PanelId): Promise<boolean> {
-  return call<boolean>("close_pop_out", { panel });
+/** Put back: close this window's pop-out of `target`. `false` when none was open. */
+export function closePopOut(target: PopOutTarget): Promise<boolean> {
+  return call<boolean>("close_pop_out", { target });
 }
 
 /** Reset layout: close this window's pop-outs and forget where they were. */

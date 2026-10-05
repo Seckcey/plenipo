@@ -287,6 +287,21 @@ describe("the live conversation on screen (Phase 25, item 3.1)", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Open Alex's conversation in Chat" }));
     expect(open).toHaveBeenCalledWith({ sessionId: "s-1", title: "Alex" });
+    // No windows of their own here: no Pop out.
+    expect(screen.queryByRole("button", { name: "Pop out Alex's conversation" })).toBeNull();
+  });
+
+  it("pops the same conversation out into a window of its own (ADR-203)", async () => {
+    const openWindow = vi.fn();
+    const chat = { open: vi.fn(), openWindow, canPopOut: true } as unknown as ChatApi;
+    render(
+      <ChatContext.Provider value={chat}>
+        <LiveConversation taskId="t-1" sessionId="s-1" startedAt={null} running who="Alex" />
+      </ChatContext.Provider>,
+      { wrapper: provide({ "t-1": [] }) },
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Pop out Alex's conversation" }));
+    expect(openWindow).toHaveBeenCalledWith({ sessionId: "s-1", title: "Alex" });
   });
 
   it("puts what a working tile is doing now in its one line", () => {

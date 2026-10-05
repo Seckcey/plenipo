@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../api/commands";
 import * as events from "../api/events";
+import { ChatContext, type ChatApi } from "../chat/context";
 import { TOOLBAR_ROOM, forInset, initialCamera, uncovered, worldToScreen } from "../org/camera";
 import { layoutOrganization } from "../org/layout";
 import { emptyOrganization, sampleOrganization } from "../test/orgFixtures";
@@ -177,6 +178,24 @@ describe("Organization view", () => {
     await user.click(screen.getByRole("button", { name: "Marketing Manager, Vacant" }));
     expect(screen.getByText(/is vacant\. Hire an agent/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Give objective" })).not.toBeInTheDocument();
+  });
+
+  it("pops out an agent's chat on a double-click; a tile with no chat zooms in (ADR-203)", async () => {
+    const chat = { open: vi.fn(), openWindow: vi.fn(), canPopOut: true } as unknown as ChatApi;
+    api.getOrganization.mockResolvedValue(sampleOrganization());
+    render(
+      <ChatContext.Provider value={chat}>
+        <OrganizationView onOpenSession={openSession} onOpenTask={openTask} />
+      </ChatContext.Provider>,
+    );
+    fireEvent.doubleClick(await screen.findByRole("button", { name: "Engineering Manager, Idle" }));
+    expect(chat.openWindow).toHaveBeenCalledWith(
+      expect.objectContaining({ positionId: "p-eng", title: "Engineering Manager" }),
+    );
+    // A vacant position has no chat: a double-click only zooms in.
+    fireEvent.doubleClick(screen.getByRole("button", { name: "Marketing Manager, Vacant" }));
+    expect(chat.openWindow).toHaveBeenCalledTimes(1);
+    expect(chat.open).not.toHaveBeenCalled();
   });
 
   it("gives an objective with Enter from its details; Shift+Enter starts a new line", async () => {

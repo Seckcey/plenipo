@@ -20,6 +20,8 @@ import {
 } from "@plenipo/ui";
 
 import { AskQuestionButton } from "../components/sideChat/AskQuestion";
+import { useChatIfAny } from "../chat/context";
+import { positionChatTarget } from "../chat/positionTarget";
 import { LiveConversation } from "../live/LiveConversation";
 import { liveWork } from "../live/words";
 import { StopButton } from "../components/stop/StopWork";
@@ -113,6 +115,7 @@ export function WorkerPage({
   const org = organization.snapshot;
   const p = org?.positions.find((x) => x.id === id) ?? null;
   const openWatch = useOpenWatch();
+  const chat = useChatIfAny();
   const work = useLive<WorkView>(p ? id : null, (k) => getWork(k), changesWork, 800);
   const permissions = useLive<PermissionsSnapshot>(
     p ? "permissions" : null,
@@ -168,6 +171,8 @@ export function WorkerPage({
   const turns = [...(session.value?.turns ?? [])].sort((a, b) => b.number - a.number).slice(0, 6);
   const route = p.route;
   const live = liveWork(p);
+  // Its chat in a window of its own (ADR-203).
+  const chatTarget = chat?.canPopOut ? positionChatTarget(p) : null;
 
   return (
     <div className="page">
@@ -209,6 +214,11 @@ export function WorkerPage({
             >
               Show on the map
             </Button>
+            {chat && chatTarget && (
+              <Button size="sm" icon="external" onClick={() => chat.openWindow(chatTarget)}>
+                Pop out chat
+              </Button>
+            )}
             {/* A side chat while it works (Phase 25, item 3.5). */}
             <AskQuestionButton p={p} onAsked={onOpenSession} />
             {/* Phase 25, item 3.3. */}

@@ -5536,6 +5536,27 @@ body.popout {
   min-height: 360px;
 }
 
+/* A chat in a window of its own (ADR-203): the panel says where it is. */
+.chat-panel__away {
+  flex: 1;
+  padding: var(--ui-space-5);
+  overflow: auto;
+}
+
+.chat-panel__away-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2);
+}
+
+/* A chat's own window (ADR-203): the chat fills it. */
+.chat-own-window {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  background: var(--ui-bg);
+}
+
 .chat {
   position: relative;
   display: flex;
@@ -5683,6 +5704,14 @@ body.popout {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* Who a message is from when it is not you: a worker's lead (ADR-203). */
+.chat-turn__from {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
 }
 
 .chat-turn__answer {

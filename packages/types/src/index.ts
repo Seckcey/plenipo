@@ -359,6 +359,7 @@ export type { ToolMark } from "./generated/ToolMark";
 // Phase 21 (ADR-092): the workspace's panels and pop-out windows.
 export type { PanelId } from "./generated/PanelId";
 export type { PopOutNotice } from "./generated/PopOutNotice";
+export type { PopOutTarget } from "./generated/PopOutTarget";
 export type { WindowPlace } from "./generated/WindowPlace";
 // Phase 21 (ADR-093): the owner's files.
 export type { ChangingFile } from "./generated/ChangingFile";

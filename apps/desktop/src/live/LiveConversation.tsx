@@ -140,6 +140,18 @@ export function LiveConversation({
               Open in Chat
             </Button>
           )}
+          {/* The same conversation in a window of its own (ADR-203). */}
+          {chat?.canPopOut && sessionId && (
+            <Button
+              size="sm"
+              variant="quiet"
+              icon="external"
+              aria-label={`Pop out ${who}'s conversation`}
+              onClick={() => chat.openWindow({ sessionId, title: who })}
+            >
+              Pop out
+            </Button>
+          )}
         </div>
       )}
       {shown.length === 0 ? (

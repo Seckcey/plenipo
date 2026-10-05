@@ -1,7 +1,22 @@
 import { createContext, useContext } from "react";
-import type { WindowPlace } from "@plenipo/types";
+import type { PopOutTarget, WindowPlace } from "@plenipo/types";
 
 import type { DockSide, Layout, PanelId } from "./layout";
+
+/** A panel's pop-out. */
+export function panelTarget(panel: PanelId): PopOutTarget {
+  return { kind: "panel", panel };
+}
+
+/** One chat's own window (ADR-203), `slot` 1 to 6. */
+export function chatTarget(slot: number): PopOutTarget {
+  return { kind: "chat", slot };
+}
+
+/** A pop-out's name among the window's pop-outs. */
+export function targetKey(target: PopOutTarget): string {
+  return target.kind === "panel" ? `panel:${target.panel}` : `chat:${target.slot}`;
+}
 
 /** A panel's tab being dragged (by the pointer), and where it would go if let go now. */
 export interface PanelDrag {
@@ -12,9 +27,9 @@ export interface PanelDrag {
   outside: boolean;
 }
 
-/** One panel's pop-out window, and where in it the panel and its title bar go. */
+/** One pop-out window (a panel's, or a chat's), and where in it its parts and title bar go. */
 export interface PopUp {
-  panel: PanelId;
+  target: PopOutTarget;
   win: Window;
   header: HTMLElement;
   body: HTMLElement;
@@ -55,8 +70,23 @@ export interface WorkspaceApi {
   dockAt: (clientX: number, clientY: number) => DockSide | null;
   /** The element each panel is drawn into (moved between docks and windows as it is). */
   containerOf: (panel: PanelId) => HTMLElement;
-  /** The pop-out windows open now. */
+  /** The pop-out windows open now (panels' and chats'). */
   popUps: readonly PopUp[];
+
+  /**
+   * Open the window of one chat (ADR-203): window `slot` (1 to 6), titled with its agent. `false`
+   * if it could not open. The chat draws itself into the window's body.
+   */
+  openChatWindow: (slot: number, title: string) => Promise<boolean>;
+  /** Close a chat's window on purpose (the chat goes back to the Chat panel). */
+  closeChatWindow: (slot: number) => void;
+  /** Bring a chat's window to the front. */
+  focusChatWindow: (slot: number) => void;
+  /**
+   * Hear when a chat's window closes without the chat asking: the owner closed it (`slot`), or
+   * Reset layout closed every one (`null`). Returns a function that stops listening.
+   */
+  onChatWindowClosed: (listener: (slot: number | null) => void) => () => void;
 }
 
 export const WorkspaceContext = createContext<WorkspaceApi | null>(null);

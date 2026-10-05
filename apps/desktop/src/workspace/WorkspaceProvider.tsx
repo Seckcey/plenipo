@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { WindowPlace } from "@plenipo/types";
+import type { PopOutTarget, WindowPlace } from "@plenipo/types";
 import { storedKey, useElementSize } from "@plenipo/ui";
 
 import {
@@ -19,6 +19,9 @@ import {
 } from "../api/commands";
 import { subscribePopOuts } from "../api/events";
 import {
+  chatTarget,
+  panelTarget,
+  targetKey,
   WorkspaceAreaContext,
   WorkspaceContext,
   type PanelDrag,
@@ -66,7 +69,9 @@ function shortcut(e: KeyboardEvent): boolean {
  * docks' sizes, and the pop-out windows. Each panel is drawn once, into its own element, and
  * that element is moved to wherever the panel is — its dock, its pop-out window, or (while not
  * shown) a hidden place — so a panel is always the same one: its terminals keep running and
- * keep what they showed.
+ * keep what they showed. A chat can have a window of its own too (ADR-203): the Chat keeps which
+ * chats do, and draws each into its window; the windows open here, one at a time, with the
+ * panels'.
  */
 export function WorkspaceProvider({
   children,
@@ -131,17 +136,24 @@ export function WorkspaceProvider({
     setSlotCount((n) => n + 1);
   }, []);
 
-  // The pop-out windows.
-  const popUpsRef = useRef(new Map<L.PanelId, PopUp>());
+  // The pop-out windows, by what they show (`targetKey`).
+  const popUpsRef = useRef(new Map<string, PopUp>());
   const [popUps, setPopUps] = useState<PopUp[]>([]);
   const syncPopUps = () => setPopUps([...popUpsRef.current.values()]);
   /** Pop-out windows open one at a time: each takes the window Plenipo was told to expect. */
   const opening = useRef<Promise<unknown>>(Promise.resolve());
+  /** Who hears that a chat's window closed without the chat asking (ADR-203). */
+  const chatListeners = useRef(new Set<(slot: number | null) => void>());
+  const tellChats = (slot: number | null) => {
+    for (const listener of [...chatListeners.current]) listener(slot);
+  };
 
   /** The window each panel is drawn in: its pop-out's while it is popped out, else this one. */
   const hosts = useMemo(() => {
     const shownIn = (panel: L.PanelId): Window =>
-      (layout.panels[panel].popped && popUps.find((u) => u.panel === panel)?.win) || window;
+      (layout.panels[panel].popped &&
+        popUps.find((u) => u.target.kind === "panel" && u.target.panel === panel)?.win) ||
+      window;
     return { terminal: shownIn("terminal"), files: shownIn("files"), chat: shownIn("chat") };
   }, [layout, popUps]);
 
@@ -151,7 +163,7 @@ export function WorkspaceProvider({
     for (const panel of L.PANELS) {
       const el = containerOf(panel);
       const place = layout.panels[panel];
-      const popUp = popUpsRef.current.get(panel);
+      const popUp = popUpsRef.current.get(targetKey(panelTarget(panel)));
       const slot = slots.current.get(place.dock);
       let target: HTMLElement = parking;
       if (place.popped && popUp) target = popUp.body;
@@ -167,31 +179,40 @@ export function WorkspaceProvider({
     }
   }, [layout, slotCount, popUps, containerOf, parking]);
 
-  /** A pop-out window is gone: its panel's element comes home, and the panel goes back to its
-   * dock. A window Plenipo closed on purpose is already forgotten, so its notice changes
-   * nothing. */
+  /** A pop-out window is gone: a panel's element comes home and the panel goes back to its
+   * dock; a chat goes back to the Chat panel. A window Plenipo closed on purpose is already
+   * forgotten, so its notice changes nothing. */
   const onClosed = useCallback(
-    (panel: L.PanelId) => {
-      const popUp = popUpsRef.current.get(panel);
+    (target: PopOutTarget) => {
+      const key = targetKey(target);
+      const popUp = popUpsRef.current.get(key);
       if (!popUp) return;
-      popUpsRef.current.delete(panel);
+      popUpsRef.current.delete(key);
       popUp.stop();
-      parking.appendChild(containerOf(panel));
       syncPopUps();
+      if (target.kind === "chat") {
+        tellChats(target.slot);
+        return;
+      }
+      const panel = target.panel;
+      parking.appendChild(containerOf(panel));
       setLayout((l) => (l.panels[panel].popped ? L.putBack(l, panel) : l));
     },
     [containerOf, parking, setLayout],
   );
 
-  /** Open a panel's window and move the panel into it. `false` if it could not open. */
+  /** Open a pop-out's window (titled `title`). `false` if it could not open. */
   const openWindowNow = useCallback(
-    async (panel: L.PanelId, place?: WindowPlace): Promise<boolean> => {
-      if (popUpsRef.current.has(panel)) {
-        void focusPopOut(panel).catch(() => undefined);
+    async (target: PopOutTarget, title: string, place?: WindowPlace): Promise<boolean> => {
+      const key = targetKey(target);
+      if (popUpsRef.current.has(key)) {
+        void focusPopOut(target).catch(() => undefined);
         return true;
       }
       try {
-        await preparePopOut(panel, place ?? null);
+        // A chat's window is named for its agent in its title bar (Plenipo sets it).
+        if (target.kind === "chat") await preparePopOut(target, place ?? null, title);
+        else await preparePopOut(target, place ?? null);
       } catch (reason) {
         setProblem(toCommandError(reason).message);
         return false;
@@ -206,11 +227,11 @@ export function WorkspaceProvider({
           // Already gone.
         }
         // Its page closed; Plenipo closes the window too, so none is left behind empty.
-        if (open) void closePopOut(panel).catch(() => undefined);
-        setProblem(`Plenipo could not open a window for ${L.PANEL_TITLES[panel]}.`);
+        if (open) void closePopOut(target).catch(() => undefined);
+        setProblem(`Plenipo could not open a window for ${title}.`);
         return false;
       }
-      const { root, stop: undress } = dressWindow(doc, `Plenipo · ${L.PANEL_TITLES[panel]}`);
+      const { root, stop: undress } = dressWindow(doc, `Plenipo · ${title}`);
       // Plenipo's own keys work in a pop-out too: Ctrl+` and Ctrl+Shift+E reach the page.
       const forward = (e: KeyboardEvent) => {
         if (!shortcut(e)) return;
@@ -236,12 +257,14 @@ export function WorkspaceProvider({
       header.className = "popout__header";
       const body = doc.createElement("div");
       body.className = "popout__body";
-      root.append(header, body);
-      const popUp: PopUp = { panel, win, header, body, stop };
+      // A chat's window is the chat alone: its own header says whose it is and puts it back.
+      if (target.kind === "chat") root.append(body);
+      else root.append(header, body);
+      const popUp: PopUp = { target, win, header, body, stop };
       win.addEventListener("pagehide", () => {
-        if (popUpsRef.current.get(panel) === popUp) onClosed(panel);
+        if (popUpsRef.current.get(key) === popUp) onClosed(target);
       });
-      popUpsRef.current.set(panel, popUp);
+      popUpsRef.current.set(key, popUp);
       syncPopUps();
       setProblem(null);
       return true;
@@ -249,8 +272,8 @@ export function WorkspaceProvider({
     [onClosed],
   );
   const openWindow = useCallback(
-    (panel: L.PanelId, place?: WindowPlace): Promise<boolean> => {
-      const run = opening.current.then(() => openWindowNow(panel, place));
+    (target: PopOutTarget, title: string, place?: WindowPlace): Promise<boolean> => {
+      const run = opening.current.then(() => openWindowNow(target, title, place));
       opening.current = run.catch(() => undefined);
       return run;
     },
@@ -259,20 +282,21 @@ export function WorkspaceProvider({
 
   const popOut = useCallback(
     (panel: L.PanelId, place?: WindowPlace) => {
-      void openWindow(panel, place).then((ok) => {
+      void openWindow(panelTarget(panel), L.PANEL_TITLES[panel], place).then((ok) => {
         if (ok) setLayout((l) => L.popOut(l, panel));
       });
     },
     [openWindow, setLayout],
   );
 
-  /** Close a panel's window on purpose (the panel stays where the layout puts it next). */
+  /** Close a pop-out's window on purpose (a panel stays where the layout puts it next). */
   const closeWindow = useCallback(
-    (panel: L.PanelId) => {
-      const popUp = popUpsRef.current.get(panel);
+    (target: PopOutTarget) => {
+      const key = targetKey(target);
+      const popUp = popUpsRef.current.get(key);
       if (!popUp) return;
-      popUpsRef.current.delete(panel);
-      parking.appendChild(containerOf(panel));
+      popUpsRef.current.delete(key);
+      if (target.kind === "panel") parking.appendChild(containerOf(target.panel));
       popUp.stop();
       try {
         popUp.win.close();
@@ -280,7 +304,7 @@ export function WorkspaceProvider({
         // Already gone.
       }
       // Plenipo closes the window too: a window its page closed may stay behind unseen.
-      void closePopOut(panel).catch(() => undefined);
+      void closePopOut(target).catch(() => undefined);
       syncPopUps();
     },
     [containerOf, parking],
@@ -288,7 +312,7 @@ export function WorkspaceProvider({
 
   const putBack = useCallback(
     (panel: L.PanelId, dock?: L.DockSide) => {
-      closeWindow(panel);
+      closeWindow(panelTarget(panel));
       setLayout((l) => L.putBack(l, panel, dock));
     },
     [closeWindow, setLayout],
@@ -299,7 +323,7 @@ export function WorkspaceProvider({
     let stop: (() => void) | null = null;
     let live = true;
     subscribePopOuts((notice) => {
-      if (notice.kind === "closed") onClosed(notice.panel);
+      if (notice.kind === "closed") onClosed(notice.target);
     })
       .then((s) => {
         if (live) stop = s;
@@ -313,13 +337,13 @@ export function WorkspaceProvider({
   }, [onClosed]);
 
   // After a restart (or a reload), the panels that were popped out open in their windows
-  // again; one that cannot goes back to its dock.
+  // again; one that cannot goes back to its dock. (The Chat opens its chats' windows itself.)
   const restored = useRef(false);
   useEffect(() => {
     if (restored.current) return;
     restored.current = true;
     for (const panel of L.poppedPanels(layoutRef.current)) {
-      void openWindow(panel).then((ok) => {
+      void openWindow(panelTarget(panel), L.PANEL_TITLES[panel]).then((ok) => {
         if (!ok) setLayout((l) => L.putBack(l, panel));
       });
     }
@@ -328,10 +352,28 @@ export function WorkspaceProvider({
   // Leaving (the page closes): the pop-outs close with it.
   useEffect(
     () => () => {
-      for (const panel of [...popUpsRef.current.keys()]) closeWindow(panel);
+      for (const popUp of [...popUpsRef.current.values()]) closeWindow(popUp.target);
     },
     [closeWindow],
   );
+
+  const openChatWindow = useCallback(
+    (slot: number, title: string) => openWindow(chatTarget(slot), title),
+    [openWindow],
+  );
+  const closeChatWindow = useCallback(
+    (slot: number) => closeWindow(chatTarget(slot)),
+    [closeWindow],
+  );
+  const focusChatWindow = useCallback((slot: number) => {
+    void focusPopOut(chatTarget(slot)).catch(() => undefined);
+  }, []);
+  const onChatWindowClosed = useCallback((listener: (slot: number | null) => void) => {
+    chatListeners.current.add(listener);
+    return () => {
+      chatListeners.current.delete(listener);
+    };
+  }, []);
 
   const maxSize = useCallback((dock: L.DockSide) => L.dockMax(layout, dock, room), [layout, room]);
   const sizes = useMemo(
@@ -364,30 +406,32 @@ export function WorkspaceProvider({
     shown: (panel) => L.panelShown(layout, panel),
     show: (panel) => {
       if (layoutRef.current.panels[panel].popped) {
-        void focusPopOut(panel).catch(() => undefined);
+        void focusPopOut(panelTarget(panel)).catch(() => undefined);
         return;
       }
       setLayout((l) => L.show(l, panel));
     },
     toggle: (panel) => {
       if (layoutRef.current.panels[panel].popped) {
-        void focusPopOut(panel).catch(() => undefined);
+        void focusPopOut(panelTarget(panel)).catch(() => undefined);
         return;
       }
       setLayout((l) => L.toggle(l, panel));
     },
     hideDock: (dock) => setLayout((l) => L.hideDock(l, dock)),
     moveTo: (panel, dock, before) => {
-      closeWindow(panel);
+      closeWindow(panelTarget(panel));
       setLayout((l) => L.moveTo(l, panel, dock, before));
     },
     popOut,
     putBack,
     reset: () => {
-      for (const panel of [...popUpsRef.current.keys()]) closeWindow(panel);
+      for (const popUp of [...popUpsRef.current.values()]) closeWindow(popUp.target);
       void resetPopOuts().catch(() => undefined);
       setProblem(null);
       setLayout(() => L.defaultLayout());
+      // Every chat's window closed with the rest: the chats are back in the Chat panel.
+      tellChats(null);
     },
     popOutProblem: problem,
     windowOf: (panel) => hosts[panel],
@@ -398,6 +442,11 @@ export function WorkspaceProvider({
     dockAt,
     containerOf,
     popUps,
+
+    openChatWindow,
+    closeChatWindow,
+    focusChatWindow,
+    onChatWindowClosed,
   };
 
   return (

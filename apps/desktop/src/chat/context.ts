@@ -11,6 +11,21 @@ export interface ChatApi {
   close: (key: string) => void;
   show: (key: string) => void;
   setSideBySide: (on: boolean) => void;
+  /** Chats can have windows of their own here (ADR-203); a page drawn on its own has none. */
+  canPopOut: boolean;
+  /**
+   * Give an open chat a window of its own (up to six at once); one that has one comes to the
+   * front. When all six are taken, it shows in the panel and says why.
+   */
+  popOut: (key: string) => void;
+  /** Open a chat, as `open` does, in a window of its own instead of the panel. */
+  openWindow: (target: ChatTarget) => void;
+  /** Put a chat back in the Chat panel (its window closes). */
+  putBack: (key: string) => void;
+  /** Bring a chat's own window to the front. */
+  focusWindow: (key: string) => void;
+  /** The window a chat is in (1 to 6), or `null` while it is in the panel. */
+  windowSlot: (key: string) => number | null;
   /** The conversation a chat shows (its ID): the tab's, or its position's agent's. */
   sessionOf: (tab: ChatTab) => string | null;
   /** The conversation a chat shows, as far as Plenipo has it; `null` before the first message. */

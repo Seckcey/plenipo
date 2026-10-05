@@ -338,15 +338,18 @@ export function PanelPortals({ render }: { render: (panel: PanelId) => React.Rea
           `panel-${p}`,
         ),
       )}
-      {ws.popUps.map((u) =>
-        createPortal(
+      {ws.popUps.map((u) => {
+        // A chat's own window (ADR-203) has no panel bar: the chat's header is its bar.
+        const t = u.target;
+        if (t.kind !== "panel") return null;
+        return createPortal(
           <PanelWindowContext.Provider value={u.win}>
-            <PopOutHeader panel={u.panel} />
+            <PopOutHeader panel={t.panel} />
           </PanelWindowContext.Provider>,
           u.header,
-          `popout-${u.panel}`,
-        ),
-      )}
+          `popout-${t.panel}`,
+        );
+      })}
     </>
   );
 }

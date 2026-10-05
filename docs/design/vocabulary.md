@@ -416,6 +416,7 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Claude Code is out until 3:00 PM / Wait / Use a reset / Pick it up now         | rate limited, quota exhausted, 429, redeem credit, retry                                   |
 | Chat (a live conversation with an agent, ADR-200)                              | session view, transcript pane, agent console                                               |
 | Side by side (up to four chats at once)                                        | split view, multi-pane, tiling                                                             |
+| Pop out chat / Put back (a chat in a window of its own, up to six)             | chat popup, detached session, session window                                               |
 | What it is doing now, with a timer ("Saving a file · 12 s")                    | thinking…, loading, spinner text, status: busy                                             |
 | Thought for 6 s (Claude's thinking, one line you can open)                     | reasoning tokens, chain of thought, extended thinking                                      |
 | Claude's servers are busy. Trying again in 4 s (try 2 of 10).                  | API retry, 529 overloaded, exponential backoff                                             |
