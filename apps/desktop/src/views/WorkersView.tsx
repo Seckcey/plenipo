@@ -113,7 +113,7 @@ export function WorkersView({
     if (selectedSessionId) loadSession(selectedSessionId).catch(() => undefined);
   }, [selectedSessionId, loadSession]);
 
-  async function run(key: string, action: () => Promise<void>) {
+  async function run(key: string, action: () => Promise<unknown>) {
     setPending(key);
     setError(null);
     try {
