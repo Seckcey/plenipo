@@ -156,6 +156,7 @@ export function ChatWindow({
             title={tab.title}
             // A worker whose work comes from its lead: each message is the lead's (ADR-202).
             askFrom={origin === "handoff" ? "From its lead" : null}
+            tool={runtime?.label ?? null}
             onOpenLink={onOpenLink}
           />
           {chat.note(tab.key) && (
