@@ -6,6 +6,7 @@
 //! complete and ordered. See ADR-006.
 
 mod activity;
+pub mod cost;
 pub mod backups;
 pub mod community;
 pub mod dto;
@@ -37,6 +38,7 @@ use std::time::{Duration, Instant};
 use rusqlite::{Connection, ErrorCode};
 
 pub use activity::{MAX_ACTIVITY_BUCKETS, MAX_ACTIVITY_RANGE_MS, MAX_ACTIVITY_SCOPES};
+pub use cost::{CostPricedBy, TaskCost, TaskCostPart, TaskTreeCost, TREE_MAX};
 pub use backups::{BackupKind, LedgerBackup, LedgerBackups, RestoreOutcome};
 pub use dto::*;
 pub use error::{LedgerError, Result};
