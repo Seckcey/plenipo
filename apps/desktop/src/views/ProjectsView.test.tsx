@@ -21,6 +21,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     giveObjective: vi.fn(),
     removeWorkspace: vi.fn(),
     setUpDevelopment: vi.fn(),
+    updateProject: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -227,6 +228,41 @@ describe("Projects", () => {
     expect(api.getProjectWork.mock.calls.length).toBeGreaterThan(calls);
     const objectives = screen.getByRole("list", { name: "Objectives" });
     expect(await within(objectives).findByText("Done")).toBeInTheDocument();
+  });
+
+  it("edits the project shown, with the same form as on the map", async () => {
+    const after = sampleOrganization();
+    after.projects = after.projects.map((p) =>
+      p.id === "pr-web" ? { ...p, name: "Website Rebuild" } : p,
+    );
+    afterChange(api.updateProject, after, api.getOrganization);
+    show();
+    await screen.findByRole("heading", { name: "Website Relaunch" });
+    await user().click(screen.getByRole("button", { name: "Edit project" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit Website Relaunch" });
+    const name = within(dialog).getByRole("textbox", { name: "Name" });
+    await user().clear(name);
+    await user().type(name, "Website Rebuild");
+    await user().click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(api.updateProject).toHaveBeenCalledWith(
+      "pr-web",
+      expect.objectContaining({ name: "Website Rebuild" }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await screen.findByRole("heading", { name: "Website Rebuild" })).toBeInTheDocument();
+  });
+
+  it("says why a project's changes were not saved, and keeps the form open", async () => {
+    api.updateProject.mockRejectedValue(
+      new commands.PlenipoCommandError("invalidInput", "That folder does not exist."),
+    );
+    show();
+    await screen.findByRole("heading", { name: "Website Relaunch" });
+    await user().click(screen.getByRole("button", { name: "Edit project" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit Website Relaunch" });
+    await user().click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await within(dialog).findByText("That folder does not exist.")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Edit Website Relaunch" })).toBeInTheDocument();
   });
 
   it("sets up a Development project from nothing", async () => {

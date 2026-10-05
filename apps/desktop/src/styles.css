@@ -1199,6 +1199,13 @@ body.popout {
   margin-top: 0;
 }
 
+.detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .output {
   height: 360px;
   margin-top: 10px;

@@ -16,6 +16,7 @@ import {
 } from "@plenipo/ui";
 
 import { getProjectRecord, getScopeEvents, getTaskTree } from "../api/commands";
+import { EditProjectButton } from "../components/org/EditProject";
 import type { Go } from "../components/views";
 import { POSITION_STATUS } from "../org/cards";
 import { STATUS_LABEL, ago, runtimeLabel } from "../org/format";
@@ -150,9 +151,12 @@ export function ProjectPage({
         onBack={onBack}
         actions={
           project.active ? (
-            <Button size="sm" variant="primary" onClick={() => go({ view: "projects", id })}>
-              Give an objective
-            </Button>
+            <>
+              <EditProjectButton snapshot={org} project={project} onSaved={organization.apply} />
+              <Button size="sm" variant="primary" onClick={() => go({ view: "projects", id })}>
+                Give an objective
+              </Button>
+            </>
           ) : undefined
         }
       />
