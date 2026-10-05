@@ -188,6 +188,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const [queues, setQueuesState] = useState<Record<string, string[]>>({});
   const queuesRef = useRef(queues);
+  /** The chat each waiting message was written in, so it goes even after nothing shows it. */
+  const queuedTabs = useRef<Record<string, ChatTab>>({});
   const setQueues = useCallback(
     (change: (q: Record<string, string[]>) => Record<string, string[]>) => {
       const next = change(queuesRef.current);
@@ -354,9 +356,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   /** Send each chat's oldest waiting message whose agent is free now. */
   const flush = useCallback(() => {
-    for (const tab of openChats(tabsRef.current, shownRef.current)) {
-      const waiting = queuesRef.current[tab.key];
-      if (!waiting || waiting.length === 0) continue;
+    // Every chat with a message waiting, even one nothing shows any more (a chat seen only on the
+    // Workers page): what you sent goes when its agent is free, wherever you are.
+    for (const [key, waiting] of Object.entries(queuesRef.current)) {
+      if (waiting.length === 0) continue;
+      const tab =
+        openChats(tabsRef.current, shownRef.current).find((t) => t.key === key) ??
+        queuedTabs.current[key];
+      if (!tab) continue;
       if (sendingRef.current[tab.key] || busyNow(tab)) continue;
       const [first, ...rest] = waiting;
       if (first === undefined) continue;
@@ -536,6 +543,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       },
       close: (key) => {
         setTabs((t) => closeTab(t, key));
+        delete queuedTabs.current[key];
         setQueues((q) => {
           if (!(key in q)) return q;
           const rest = { ...q };
@@ -585,6 +593,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (!tab || message === "") return;
         const waiting = (queuesRef.current[key]?.length ?? 0) > 0;
         if (waiting || sendingRef.current[key] || busyNow(tab)) {
+          queuedTabs.current[key] = tab;
           setQueues((q) => ({ ...q, [key]: [...(q[key] ?? []), message] }));
           return;
         }
