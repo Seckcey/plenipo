@@ -92,6 +92,8 @@ function Opener({ target }: { target: ChatTarget }) {
 
 /** Where the chat sends you (a task's page, from Details). */
 const go = vi.fn();
+/** Where Raw output takes you: the run, on the AI tools page. */
+const showExecution = vi.fn();
 
 async function openChat(target: ChatTarget = { positionId: "p1", title: "Development Manager" }) {
   const user = userEvent.setup();
@@ -99,7 +101,7 @@ async function openChat(target: ChatTarget = { positionId: "p1", title: "Develop
     <AgentsProvider>
       <ChatProvider>
         <Opener target={target} />
-        <ChatPanel go={go} />
+        <ChatPanel go={go} onShowExecution={showExecution} />
       </ChatProvider>
     </AgentsProvider>,
   );
@@ -276,7 +278,7 @@ describe("a chat with an agent (ADR-200)", () => {
     expect(within(log).queryByRole("button", { name: /tokens/ })).not.toBeInTheDocument();
   });
 
-  it("says what Plenipo itself sent with a task, beside its tokens, and opens its page (ADR-044)", async () => {
+  it("says what Plenipo itself sent with a task, beside its tokens, and opens its page and raw output (ADR-044)", async () => {
     vi.mocked(commands.giveObjective).mockResolvedValue(
       detail([turn("t1", { objective: "Write a plan", startedAt: started })]),
     );
@@ -306,6 +308,9 @@ describe("a chat with an agent (ADR-200)", () => {
     // Details: the task's own page, its whole record.
     await user.click(within(log).getByRole("button", { name: "Details" }));
     expect(go).toHaveBeenCalledWith({ view: "task", id: "t1" });
+    // Raw output: its run, as the AI tool wrote it (the AI tools page).
+    await user.click(within(log).getByRole("button", { name: "Raw output" }));
+    expect(showExecution).toHaveBeenCalledWith("e1");
   });
 
   it("keeps the live words that came while its history was being fetched", async () => {

@@ -72,6 +72,7 @@ export function ChatWindow({
   onPutBack,
   onOpenConversation,
   onOpenTask,
+  onShowExecution,
 }: {
   tab: ChatTab;
   /** Drawn small, beside others. */
@@ -88,6 +89,8 @@ export function ChatWindow({
   onOpenConversation?: ((sessionId: string, title: string) => void) | undefined;
   /** Open a task's own page, from Details under its answer. */
   onOpenTask?: ((taskId: string) => void) | undefined;
+  /** Show a run's raw output (the AI tools page), from Raw output under its answer. */
+  onShowExecution?: ((executionId: string) => void) | undefined;
 }) {
   const chat = useChat();
   const agents = useAgents();
@@ -197,6 +200,7 @@ export function ChatWindow({
             tool={runtime?.label ?? null}
             liaison={liaison}
             onOpenTask={onOpenTask}
+            onShowExecution={onShowExecution}
             onOpenLink={onOpenLink}
           />
           {chat.note(tab.key) && (

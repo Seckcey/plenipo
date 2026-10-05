@@ -13,7 +13,14 @@ import { shownTabs, slotOf, type ChatTab } from "./tabs";
  * shows up to four at once, each streaming as it works. The panel sits in a dock or pops out into
  * its own window, like Terminal and Files.
  */
-export function ChatPanel({ go }: { go: Go }) {
+export function ChatPanel({
+  go,
+  onShowExecution,
+}: {
+  go: Go;
+  /** Show a run's raw output (the AI tools page). */
+  onShowExecution?: ((executionId: string) => void) | undefined;
+}) {
   const chat = useChat();
   const { tabs, active, sideBySide } = chat.tabs;
   const strip = useRef<HTMLDivElement>(null);
@@ -88,6 +95,7 @@ export function ChatPanel({ go }: { go: Go }) {
                 onOpenLink={(url) => void copyText(url)}
                 onPopOut={chat.canPopOut ? () => chat.popOut(tab.key) : undefined}
                 onOpenTask={(id) => go({ view: "task", id })}
+                onShowExecution={onShowExecution}
               />
             )}
           </div>

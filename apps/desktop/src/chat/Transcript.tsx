@@ -39,6 +39,7 @@ export function Transcript({
   tool = null,
   liaison = null,
   onOpenTask,
+  onShowExecution,
   onOpenLink,
 }: {
   session: ChatSession | null;
@@ -51,6 +52,8 @@ export function Transcript({
   liaison?: ChatLiaison | null;
   /** Open a task's own page (its record), from Details under its answer. */
   onOpenTask?: ((taskId: string) => void) | undefined;
+  /** Show a run's raw output (the AI tools page), from Raw output under its answer. */
+  onShowExecution?: ((executionId: string) => void) | undefined;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
   const revision = useLiaisonRevision();
@@ -112,6 +115,7 @@ export function Transcript({
               tool={tool}
               liaison={liaison}
               onOpenTask={onOpenTask}
+              onShowExecution={onShowExecution}
               revision={revision}
               onOpenLink={onOpenLink}
             />
@@ -184,6 +188,7 @@ const TurnView = memo(function TurnView({
   tool,
   liaison,
   onOpenTask,
+  onShowExecution,
   revision,
   onOpenLink,
 }: {
@@ -194,6 +199,7 @@ const TurnView = memo(function TurnView({
   tool: string | null;
   liaison: ChatLiaison | null;
   onOpenTask?: ((taskId: string) => void) | undefined;
+  onShowExecution?: ((executionId: string) => void) | undefined;
   revision: number;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
@@ -281,6 +287,11 @@ const TurnView = memo(function TurnView({
             turn={turn}
             tool={tool}
             onOpenTask={onOpenTask ? () => onOpenTask(turn.taskId) : undefined}
+            onShowRaw={
+              onShowExecution && turn.executionId
+                ? () => turn.executionId && onShowExecution(turn.executionId)
+                : undefined
+            }
           />
         )}
       </div>
@@ -485,10 +496,12 @@ function TurnFoot({
   turn,
   tool,
   onOpenTask,
+  onShowRaw,
 }: {
   turn: ChatTurn;
   tool: string | null;
   onOpenTask?: (() => void) | undefined;
+  onShowRaw?: (() => void) | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const parts: string[] = [];
@@ -501,7 +514,7 @@ function TurnFoot({
   if (!counted && turn.state === "done" && tool) parts.push(`${tool} did not report tokens`);
   // With no tokens to open, its own text's size shows on the line itself.
   if (!counted && turn.ownText) parts.push(turn.ownText);
-  if (parts.length === 0 && !counted && !onOpenTask) return null;
+  if (parts.length === 0 && !counted && !onOpenTask && !onShowRaw) return null;
   return (
     <>
       <p className="chat-turn__foot">
@@ -524,6 +537,14 @@ function TurnFoot({
             {(parts.length > 0 || counted) && " · "}
             <button type="button" className="chat-turn__tokens" onClick={onOpenTask}>
               Details
+            </button>
+          </>
+        )}
+        {onShowRaw && (
+          <>
+            {(parts.length > 0 || counted || onOpenTask) && " · "}
+            <button type="button" className="chat-turn__tokens" onClick={onShowRaw}>
+              Raw output
             </button>
           </>
         )}
