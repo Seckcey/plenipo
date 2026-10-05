@@ -627,6 +627,102 @@ impl WorkspaceState {
     }
 }
 
+/// One of the organization's own folders on this PC (ADR-205): the organization folder, or one
+/// Plenipo keeps inside it for a department, a project, or a position.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Folder {
+    pub id: String,
+    pub kind: FolderKind,
+    /// The department, project, or position it belongs to; `None` for the organization folder
+    /// and the organization's own Scratch pads folder.
+    pub ref_id: Option<String>,
+    /// Where it is, as recorded when it was made. It stays there when a name changes.
+    pub path: String,
+    /// Made by Plenipo, or a plain folder the owner already had at that place.
+    pub made_by_plenipo: bool,
+    pub created_at: u64,
+}
+
+/// What one of the organization's folders is for (ADR-205).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum FolderKind {
+    /// The organization folder itself.
+    Organization,
+    /// A department's folder: its projects, its Files, and its Scratch pads.
+    Department,
+    /// A department's finished documents.
+    DepartmentFiles,
+    /// A project's folder: its Files, its Scratch pads, and its code.
+    Project,
+    /// A project's finished documents.
+    ProjectFiles,
+    /// The folder that holds the scratch pads of a department's, a project's, or the
+    /// organization's own agents.
+    ScratchPads,
+    /// One position's scratch pad: its agent's notes and drafts.
+    ScratchPad,
+}
+
+impl FolderKind {
+    pub const ALL: [Self; 7] = [
+        Self::Organization,
+        Self::Department,
+        Self::DepartmentFiles,
+        Self::Project,
+        Self::ProjectFiles,
+        Self::ScratchPads,
+        Self::ScratchPad,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Organization => "organization",
+            Self::Department => "department",
+            Self::DepartmentFiles => "department_files",
+            Self::Project => "project",
+            Self::ProjectFiles => "project_files",
+            Self::ScratchPads => "scratch_pads",
+            Self::ScratchPad => "scratch_pad",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.as_str() == s)
+    }
+
+    /// Whether a folder of this kind belongs to something (a department, project, or position).
+    /// The organization folder never does; a Scratch pads folder does unless it is the
+    /// organization's own.
+    pub fn belongs_to_something(self) -> Option<bool> {
+        match self {
+            Self::Organization => Some(false),
+            Self::ScratchPads => None,
+            _ => Some(true),
+        }
+    }
+}
+
+/// A folder to record (ADR-205).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewFolder {
+    pub kind: FolderKind,
+    pub ref_id: Option<String>,
+    pub path: String,
+}
+
+/// How a folder came to be recorded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FolderOrigin {
+    /// Plenipo made it (`folder.made`).
+    Made,
+    /// A plain folder the owner already had at that place (`folder.adopted`).
+    Adopted,
+}
+
 /// What is on a working copy's branch: its commits since it was made and the files changed,
 /// committed or not.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
