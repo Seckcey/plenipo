@@ -71,6 +71,7 @@ export function ChatWindow({
   onPopOut,
   onPutBack,
   onOpenConversation,
+  onOpenTask,
 }: {
   tab: ChatTab;
   /** Drawn small, beside others. */
@@ -85,6 +86,8 @@ export function ChatWindow({
    * as the Workers page does; without it, it opens in the Chat panel.
    */
   onOpenConversation?: ((sessionId: string, title: string) => void) | undefined;
+  /** Open a task's own page, from Details under its answer. */
+  onOpenTask?: ((taskId: string) => void) | undefined;
 }) {
   const chat = useChat();
   const agents = useAgents();
@@ -193,6 +196,7 @@ export function ChatWindow({
             askFrom={origin === "handoff" ? "From its lead" : null}
             tool={runtime?.label ?? null}
             liaison={liaison}
+            onOpenTask={onOpenTask}
             onOpenLink={onOpenLink}
           />
           {chat.note(tab.key) && (

@@ -38,6 +38,7 @@ export function Transcript({
   askFrom = null,
   tool = null,
   liaison = null,
+  onOpenTask,
   onOpenLink,
 }: {
   session: ChatSession | null;
@@ -48,6 +49,8 @@ export function Transcript({
   tool?: string | null;
   /** It works with other agents through Liaison: their requests and replies show here (B5). */
   liaison?: ChatLiaison | null;
+  /** Open a task's own page (its record), from Details under its answer. */
+  onOpenTask?: ((taskId: string) => void) | undefined;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
   const revision = useLiaisonRevision();
@@ -108,6 +111,7 @@ export function Transcript({
               askFrom={askFrom}
               tool={tool}
               liaison={liaison}
+              onOpenTask={onOpenTask}
               revision={revision}
               onOpenLink={onOpenLink}
             />
@@ -179,6 +183,7 @@ const TurnView = memo(function TurnView({
   askFrom,
   tool,
   liaison,
+  onOpenTask,
   revision,
   onOpenLink,
 }: {
@@ -188,6 +193,7 @@ const TurnView = memo(function TurnView({
   askFrom: string | null;
   tool: string | null;
   liaison: ChatLiaison | null;
+  onOpenTask?: ((taskId: string) => void) | undefined;
   revision: number;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
@@ -270,7 +276,13 @@ const TurnView = memo(function TurnView({
         {received?.reply && liaison && !live && (
           <ReplyBack view={received} worker={title} liaison={liaison} />
         )}
-        {isOver(turn) && <TurnFoot turn={turn} tool={tool} />}
+        {isOver(turn) && (
+          <TurnFoot
+            turn={turn}
+            tool={tool}
+            onOpenTask={onOpenTask ? () => onOpenTask(turn.taskId) : undefined}
+          />
+        )}
       </div>
     </article>
   );
@@ -466,9 +478,18 @@ function FilesCard({
 /**
  * Under a finished answer: how long it took, its model, and its tokens (pieces of words) over all
  * its steps, which open to show how many it read, reused, and wrote (I2). A turn stopped before a
- * step reported says "at least"; an AI tool that reports none says so.
+ * step reported says "at least"; an AI tool that reports none says so. Beside the tokens, what
+ * Plenipo itself sent with the task, by size (ADR-044). **Details** opens the task's own page.
  */
-function TurnFoot({ turn, tool }: { turn: ChatTurn; tool: string | null }) {
+function TurnFoot({
+  turn,
+  tool,
+  onOpenTask,
+}: {
+  turn: ChatTurn;
+  tool: string | null;
+  onOpenTask?: (() => void) | undefined;
+}) {
   const [open, setOpen] = useState(false);
   const parts: string[] = [];
   if (turn.endedAt !== null) parts.push(`${elapsed(turn.endedAt - turn.startedAt)}`);
@@ -478,7 +499,9 @@ function TurnFoot({ turn, tool }: { turn: ChatTurn; tool: string | null }) {
   const counted =
     usage && total > 0 ? `${turn.usageAtLeast ? "at least " : ""}${tokens(total)} tokens` : null;
   if (!counted && turn.state === "done" && tool) parts.push(`${tool} did not report tokens`);
-  if (parts.length === 0 && !counted) return null;
+  // With no tokens to open, its own text's size shows on the line itself.
+  if (!counted && turn.ownText) parts.push(turn.ownText);
+  if (parts.length === 0 && !counted && !onOpenTask) return null;
   return (
     <>
       <p className="chat-turn__foot">
@@ -496,12 +519,21 @@ function TurnFoot({ turn, tool }: { turn: ChatTurn; tool: string | null }) {
             </button>
           </>
         )}
+        {onOpenTask && (
+          <>
+            {(parts.length > 0 || counted) && " · "}
+            <button type="button" className="chat-turn__tokens" onClick={onOpenTask}>
+              Details
+            </button>
+          </>
+        )}
       </p>
       {open && usage && (
         <p className="chat-turn__usage">
           {tokens(usage.inputTokens)} read
           {usage.cachedInputTokens > 0 && ` (${tokens(usage.cachedInputTokens)} reused)`} ·{" "}
           {tokens(usage.outputTokens)} written
+          {turn.ownText && ` · ${turn.ownText}`}
         </p>
       )}
     </>

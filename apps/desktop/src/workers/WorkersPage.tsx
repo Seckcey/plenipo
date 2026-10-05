@@ -73,6 +73,7 @@ export function WorkersPage({
   onSelectSession,
   onOpenRuntimes,
   onOpenPosition,
+  onOpenPage,
 }: {
   /** What is selected: `position:<id>`, `start`, or a conversation's ID (see `readSelection`). */
   selectedSessionId: string | null;
@@ -264,6 +265,7 @@ export function WorkersPage({
                 onPopOut={chat.canPopOut ? () => chat.openWindow(target) : undefined}
                 // The other side of an exchange opens here, beside the tree.
                 onOpenConversation={(id) => onSelectSession(id)}
+                onOpenTask={onOpenPage ? (id) => onOpenPage({ view: "task", id }) : undefined}
               />
             </>
           ) : position ? (

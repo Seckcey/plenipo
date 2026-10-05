@@ -90,13 +90,16 @@ function Opener({ target }: { target: ChatTarget }) {
   );
 }
 
+/** Where the chat sends you (a task's page, from Details). */
+const go = vi.fn();
+
 async function openChat(target: ChatTarget = { positionId: "p1", title: "Development Manager" }) {
   const user = userEvent.setup();
   render(
     <AgentsProvider>
       <ChatProvider>
         <Opener target={target} />
-        <ChatPanel go={() => undefined} />
+        <ChatPanel go={go} />
       </ChatProvider>
     </AgentsProvider>,
   );
@@ -271,6 +274,59 @@ describe("a chat with an agent (ADR-200)", () => {
       await within(log).findByText(/Claude Code did not report tokens/, {}, SLOW),
     ).toBeInTheDocument();
     expect(within(log).queryByRole("button", { name: /tokens/ })).not.toBeInTheDocument();
+  });
+
+  it("says what Plenipo itself sent with a task, beside its tokens, and opens its page (ADR-044)", async () => {
+    vi.mocked(commands.giveObjective).mockResolvedValue(
+      detail([turn("t1", { objective: "Write a plan", startedAt: started })]),
+    );
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "Write a plan{Enter}");
+    const log = await screen.findByRole("log", {}, SLOW);
+    // What Plenipo sent with the task, by size only.
+    const prompt = {
+      bytes: 900,
+      ownBytes: 410,
+      brief: "reminder",
+      why: "routine",
+      fullOwnBytes: 6600,
+      note: "reminder",
+    } as const;
+    emit({
+      kind: "turn",
+      ...done("t1", "Planned."),
+      result: { ...done("t1", "Planned.").result!, prompt },
+    });
+    await user.click(await within(log).findByRole("button", { name: "1,200 tokens" }, SLOW));
+    expect(
+      within(log).getByText(
+        "900 read · 300 written · Plenipo's own text: 0.4 KB (a short reminder)",
+      ),
+    ).toBeInTheDocument();
+    // Details: the task's own page, its whole record.
+    await user.click(within(log).getByRole("button", { name: "Details" }));
+    expect(go).toHaveBeenCalledWith({ view: "task", id: "t1" });
+  });
+
+  it("keeps the live words that came while its history was being fetched", async () => {
+    let answer: (d: AgentSessionDetail) => void = () => undefined;
+    vi.mocked(commands.getAgentSession).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    await openChat({ sessionId: "s1", title: "Development Manager" });
+    // Its next answer starts streaming before the history is in.
+    emit({ kind: "turn", ...turn("t2", { number: 2, objective: "Go on", startedAt: started }) });
+    emit({ kind: "activity", ...activity("t2", 1, { type: "textDelta", text: "Going on." }) });
+    await act(async () => {
+      answer(detail([done("t1", "Here is the plan.")]));
+      await Promise.resolve();
+    });
+    const log = await screen.findByRole("log", {}, SLOW);
+    expect(await within(log).findByText("Here is the plan.", {}, SLOW)).toBeInTheDocument();
+    expect(within(log).getByText("Going on.")).toBeInTheDocument();
   });
 
   it("holds a message sent while the agent works, and sends it when it finishes", async () => {

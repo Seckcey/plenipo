@@ -87,6 +87,7 @@ export function ChatPanel({ go }: { go: Go }) {
                 // A link an agent wrote never opens by itself: choosing it copies its address.
                 onOpenLink={(url) => void copyText(url)}
                 onPopOut={chat.canPopOut ? () => chat.popOut(tab.key) : undefined}
+                onOpenTask={(id) => go({ view: "task", id })}
               />
             )}
           </div>

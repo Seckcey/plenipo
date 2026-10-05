@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { turn } from "../test/agentFixtures";
-import {
-  describePrompt,
-  describeUsage,
-  turnPromptSizes,
-  turnUsage,
-  type PromptSize,
-} from "./format";
+import { describePrompt, turnPromptSizes, turnUsage, type PromptSize } from "./format";
 
 const size = (patch: Partial<PromptSize> = {}): PromptSize => ({
   bytes: 900,
@@ -101,7 +95,11 @@ describe("Plenipo's own text with a task (ADR-044)", () => {
       ],
       result: used(50, 5),
     });
-    expect(describeUsage(turnUsage(replied)!)).toBe("150 in · 15 out");
+    expect(turnUsage(replied)).toEqual({
+      inputTokens: 150,
+      cachedInputTokens: 0,
+      outputTokens: 15,
+    });
     // An older task: the result's own.
     expect(turnUsage(turn("t1", { result: used(7, 3) }))).toEqual({
       inputTokens: 7,
