@@ -469,10 +469,7 @@ mod tests {
         );
         // A chat's own window (ADR-203): numbered 1 to 6, and kept by its number, never a name.
         let chat = PopOutTarget::Chat { slot: 4 };
-        assert_eq!(
-            numbered_label(MAIN, chat, 9),
-            "popout-chat_4--main--9"
-        );
+        assert_eq!(numbered_label(MAIN, chat, 9), "popout-chat_4--main--9");
         assert_eq!(parse_popout("popout-chat_4--main--9"), Some((chat, MAIN)));
         assert_eq!(
             place_key("popout-chat_4--org-ab12--2").as_deref(),
