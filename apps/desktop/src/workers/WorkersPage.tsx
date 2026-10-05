@@ -13,16 +13,46 @@ import type { ChatTarget } from "../chat/tabs";
 import { useShownChat } from "../chat/useShownChat";
 import { PILL_TONE, TASK_TONE } from "../components/tones";
 import type { Go } from "../components/views";
-import { STATUS_LABEL } from "../org/format";
+import { STATUS_LABEL, plural } from "../org/format";
 import { useOrganization } from "../org/useOrganization";
 import { formatTime } from "../runtime/format";
 import { StartConversation } from "./StartConversation";
+import { talksOf, type Talks } from "./talks";
 import { buildTree, pathTo, readSelection, START } from "./tree";
 import { WorkersTree } from "./WorkersTree";
 
 const CLOSED_KEY = "plenipo.workers.closed";
 const isKeys = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((x) => typeof x === "string");
+
+/** Who it works with (B5): who asked it for work, and whom it asked, each one a way to them. */
+function TalksWith({
+  talks,
+  titleOf,
+  onSelect,
+}: {
+  talks: Talks;
+  titleOf: (positionId: string) => string;
+  onSelect: (positionId: string) => void;
+}) {
+  if (talks.askedBy.length === 0 && talks.asked.length === 0) return null;
+  const list = (items: Talks["asked"]) =>
+    items.map((t, i) => (
+      <span key={t.positionId}>
+        {i > 0 && ", "}
+        <button type="button" className="link" onClick={() => onSelect(t.positionId)}>
+          {titleOf(t.positionId)}
+        </button>{" "}
+        ({plural(t.tasks, "task")})
+      </span>
+    ));
+  return (
+    <div className="workers__bar workers__talks" aria-label="Talks with">
+      {talks.askedBy.length > 0 && <span>Asked by {list(talks.askedBy)}</span>}
+      {talks.asked.length > 0 && <span>Asked {list(talks.asked)}</span>}
+    </div>
+  );
+}
 
 function SessionState({ session }: { session: AgentSession }) {
   if (isRunning(session)) return <StatusPill status={TASK_TONE.running} label="Working" />;
@@ -219,10 +249,21 @@ export function WorkersPage({
                   )}
                 </div>
               )}
+              {positionId && snapshot && (
+                <TalksWith
+                  talks={talksOf(agents.state.sessions, positionId)}
+                  titleOf={(id) =>
+                    snapshot.positions.find((p) => p.id === id)?.title ?? "someone who left"
+                  }
+                  onSelect={(id) => onSelectSession(`position:${id}`)}
+                />
+              )}
               <ChatWindow
                 tab={tab}
                 onOpenLink={(url) => void copyText(url)}
                 onPopOut={chat.canPopOut ? () => chat.openWindow(target) : undefined}
+                // The other side of an exchange opens here, beside the tree.
+                onOpenConversation={(id) => onSelectSession(id)}
               />
             </>
           ) : position ? (

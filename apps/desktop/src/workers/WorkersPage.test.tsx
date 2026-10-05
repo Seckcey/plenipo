@@ -207,7 +207,9 @@ describe("the Workers page (I4)", () => {
     expect(within(tasks).queryByText(/Migrate the blog/)).not.toBeInTheDocument();
     fireEvent.click(within(tasks).getByRole("button", { name: "Build the new pricing page" }));
     const log = await screen.findByRole("log", { name: "Conversation with Senior Developer" });
-    expect(within(log).getByText("Build the new pricing page")).toBeInTheDocument();
+    expect(
+      await within(log).findByText("Build the new pricing page", {}, SLOW),
+    ).toBeInTheDocument();
     expect(await screen.findByText(/takes its work from its lead/, {}, SLOW)).toBeInTheDocument();
     expect(screen.getByLabelText("Message to Senior Developer")).toBeDisabled();
   });
@@ -258,6 +260,21 @@ describe("the Workers page (I4)", () => {
     expect(
       await screen.findByRole("log", { name: "Conversation with Say hi" }, SLOW),
     ).toBeVisible();
+  });
+
+  it("says who a worker works with, and goes to them (B5)", async () => {
+    const tree = await draw();
+    fireEvent.click(tree.getByRole("button", { name: /^Website Supervisor/ }));
+    const talks = await screen.findByLabelText("Talks with", {}, SLOW);
+    expect(talks).toHaveTextContent("Asked Senior Developer (1 task)");
+    fireEvent.click(within(talks).getByRole("button", { name: "Senior Developer" }));
+    expect(tree.getByRole("button", { name: /^Senior Developer/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(await screen.findByLabelText("Talks with", {}, SLOW)).toHaveTextContent(
+      "Asked by Website Supervisor (1 task)",
+    );
   });
 
   it("says a vacant position has no chat", async () => {
