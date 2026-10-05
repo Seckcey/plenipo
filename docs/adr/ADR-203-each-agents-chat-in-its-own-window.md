@@ -101,8 +101,8 @@ chat after a restart (the second part, below).
 10. When the runtime no longer holds a recent turn's live pieces (after a restart, or for a turn
     older than its 50-turn memory), `get_agent_session` fills them in from the turn's own
     Ledger rows: its messages, tool calls, tool results and notes. These are already capped
-    and redacted as stored. Nothing new is stored. Built in its own pull request, after this
-    one.
+    and redacted as stored. Nothing new is stored. It looks at the last ten turns, and fills in
+    only finished ones: a turn still running streams its own pieces, numbered the same way.
 
 ### Unchanged
 
@@ -135,6 +135,11 @@ chat after a restart (the second part, below).
 
 ## As built
 
+Built in two pull requests, both merged on 2026-10-05: #206 (chats in windows of their own) and
+#207 (the earlier steps after a restart).
+
+### A chat in a window of its own (#206)
+
 - **Core** (`crates/core/src/workspace.rs`): `PopOutTarget` (`key`, `from_key`, `is_valid`,
   `title`, `CHAT_WINDOWS = 6`); `PopOutNotice::Closed { target }`; tests for keys, slots and the
   wire format.
@@ -157,5 +162,44 @@ chat after a restart (the second part, below).
   - styles under "Chat" in `styles.css`.
 - **Tests:** `chat/tabs.test.ts`, `chat/ChatWindows.test.tsx` (a window with the live chat and its
   message box, Put back, the window closed, Reset layout, a restart, six at most, From its lead),
-  `workspace/Workspace.test.tsx`, and the ways in (`OverviewTab.test.tsx`, `pages.test.tsx`,
-  `live.test.tsx`, `OrganizationView.test.tsx`); `workspace.e2e.mjs` in the real app.
+  `workspace/Workspace.test.tsx`, `workspace/popout.test.ts` (a pop-out's page takes Plenipo's
+  styles and never a script), and the ways in (`OverviewTab.test.tsx`, `pages.test.tsx`,
+  `live.test.tsx`, `OrganizationView.test.tsx`); the window title's cleaning
+  (`workspace_windows.rs`); `workspace.e2e.mjs` in the real app.
+
+### The earlier steps after a restart (#207)
+
+- **Runtime** (`crates/runtime/src/agent/`):
+  - `SessionStore::kept_activity` (none by default) and `KeptActivity`;
+  - `AgentRuntime::session` fills in the last `RECALLED_TURNS` (10) turns that are finished and
+    whose live pieces it no longer holds. It numbers their pieces by step, as live ones are.
+  - The in-memory store keeps each piece's step and time.
+- **Ledger store** (`crates/liaison/src/store.rs`): `kept_activity` reads the task's own `agent.*`
+  rows back as the events they were. It keeps only rows whose kind matches their event, at the
+  step whose execution recorded them.
+- **Page** (`apps/desktop/src/`):
+  - `chat/model.ts`: a conversation is rebuilt with each turn's record first, without its end,
+    then its pieces, then the record again, so the answer is said once.
+  - A finished turn's answer that is not on screen is added after what is. It is not added
+    when it ends with the last words there (joined from several messages); spacing is ignored.
+  - `agents/store.ts`: a finished turn's snapshot is the whole of its activity on the page.
+- **Fixed on the way:** opening the chat of an agent that had just finished showed its answer
+  twice.
+- **Tests:** `a_finished_turn_no_longer_held_shows_what_was_kept` (runtime),
+  `a_turns_kept_activity_reads_back_by_step` (Ledger store), `chat/model.test.ts` (said once, an
+  answer whose last message was not kept, an answer joined from messages), and
+  `agents/store.test.ts` (a finished turn's snapshot is the whole of it).
+
+## Follow-ups
+
+- **Read back the open chats more gently.** When the list of chats with windows (`popped`) kept on
+  this computer is damaged, `readChatTabs` drops every open chat. It could drop only the bad
+  entries.
+- **Who asked each message.** A turn would need to say who asked it (`AgentTurn.requested_by`),
+  so a chat could say "You", the lead's title, or Plenipo's check-in. Today only handed-off
+  conversations say "From its lead".
+- **A stricter "joined answer" test.** An answer is not added again when it ends with the last
+  words on screen. A short last message ("Done.") at the end of a different answer would hide
+  that answer. Checking that the answer is made of the messages on screen would be safer.
+- **Ten finished turns.** `RECALLED_TURNS` counts the last ten turns, finished or not, and fills
+  in the finished ones among them. Fewer than ten come back when some of those are unfinished.
