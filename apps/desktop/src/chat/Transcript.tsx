@@ -1,8 +1,11 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { WorkFolder } from "@plenipo/types";
+import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { HandoffView, WorkFolder } from "@plenipo/types";
 import { Button, Icon, cx } from "@plenipo/ui";
 
+import { useLiaisonRevision, useTaskHandoffs } from "../agents/useTaskHandoffs";
 import { getWorkFolder, openWorkFolder, toCommandError } from "../api/commands";
+import { AskedBy, RepliesBack, ReplyBack, RequestCard, type ChatLiaison } from "./Exchanges";
+import { matchRequests, splitHandoffs } from "./handoffBlocks";
 import { tokens } from "../routing/format";
 import { useNow } from "../runtime/useNow";
 import { Markdown } from "./Markdown";
@@ -34,6 +37,7 @@ export function Transcript({
   title,
   askFrom = null,
   tool = null,
+  liaison = null,
   onOpenLink,
 }: {
   session: ChatSession | null;
@@ -42,8 +46,11 @@ export function Transcript({
   askFrom?: string | null;
   /** Its AI tool, by name: said when it reports no tokens. */
   tool?: string | null;
+  /** It works with other agents through Liaison: their requests and replies show here (B5). */
+  liaison?: ChatLiaison | null;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
+  const revision = useLiaisonRevision();
   const box = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const [away, setAway] = useState(false);
@@ -98,6 +105,8 @@ export function Transcript({
               title={title}
               askFrom={askFrom}
               tool={tool}
+              liaison={liaison}
+              revision={revision}
               onOpenLink={onOpenLink}
             />
           ))
@@ -139,34 +148,112 @@ function Announcer({ turn, title }: { turn: ChatTurn | undefined; title: string 
   );
 }
 
+/**
+ * Where each step after the first begins, and the replies that came back into it: each reply goes
+ * to the first step that began after it was written (Plenipo passes replies on in the next step).
+ */
+function stepMarks(
+  turn: ChatTurn,
+  sent: readonly HandoffView[],
+): Map<number, { step: number; replies: HandoffView[] }> {
+  const marks = new Map<number, { step: number; replies: HandoffView[] }>();
+  for (const start of turn.stepStarts) {
+    marks.set(start.firstPart, { step: start.step, replies: [] });
+  }
+  for (const view of sent) {
+    const reply = view.reply;
+    if (!reply || reply.state !== "delivered") continue;
+    const start = turn.stepStarts.find((s) => s.at >= reply.createdAt);
+    if (start) marks.get(start.firstPart)?.replies.push(view);
+  }
+  return marks;
+}
+
 /** One message and its answer. Drawn again only when it changes. */
 const TurnView = memo(function TurnView({
   turn,
   title,
   askFrom,
   tool,
+  liaison,
+  revision,
   onOpenLink,
 }: {
   turn: ChatTurn;
   title: string;
   askFrom: string | null;
   tool: string | null;
+  liaison: ChatLiaison | null;
+  revision: number;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
   const live = !isOver(turn);
   const files = isOver(turn) ? filesOf(turn) : [];
+  // What it asked of its team, and who asked it (B5): Liaison's record of this task.
+  const handoffs = useTaskHandoffs(liaison ? turn.taskId : null, turn.taskId, revision, !live);
+  const received = liaison ? (handoffs?.received ?? null) : null;
+  const sent = handoffs?.sent ?? [];
+  const pieces = turn.parts.map((p) => (p.kind === "text" ? splitHandoffs(p.text) : null));
+  const asked = pieces.flatMap((ps) => (ps ?? []).filter((p) => p.kind === "handoff"));
+  const views = matchRequests(asked, sent);
+  const marks = stepMarks(turn, sent);
+  let request = 0;
   return (
-    <article className="chat-turn" aria-label={`Message ${turn.number}`}>
+    <article
+      className="chat-turn"
+      aria-label={`Message ${turn.number}`}
+      // How it stands, for the real-app tests (the screen says it in words).
+      data-state={turn.state}
+      data-outcome={turn.outcome ?? undefined}
+    >
       {turn.ask.trim() !== "" && (
         <div className="chat-turn__ask">
-          {askFrom && <span className="chat-turn__from">{askFrom}</span>}
+          {received && liaison ? (
+            <AskedBy view={received} worker={title} liaison={liaison} />
+          ) : (
+            askFrom && <span className="chat-turn__from">{askFrom}</span>
+          )}
           <p>{turn.ask}</p>
         </div>
       )}
       <div className="chat-turn__answer">
-        {turn.parts.map((part) => (
-          <PartView key={part.id} part={part} live={live} onOpenLink={onOpenLink} />
-        ))}
+        {turn.stepStarts.length > 0 && <p className="chat-step">Step 1</p>}
+        {turn.parts.map((part, i) => {
+          const mark = marks.get(i);
+          const own = pieces[i];
+          return (
+            <Fragment key={part.id}>
+              {mark && (
+                <>
+                  <p className="chat-step">
+                    Step {mark.step} ·{" "}
+                    {sent.length > 0 ? "continued with handoff replies" : "continued"}
+                  </p>
+                  <RepliesBack views={mark.replies} />
+                </>
+              )}
+              {own && liaison && own.some((p) => p.kind === "handoff") ? (
+                own.map((piece, j) =>
+                  piece.kind === "text" ? (
+                    <div key={j} className="chat-words">
+                      <Markdown text={piece.text} onOpenLink={onOpenLink} />
+                    </div>
+                  ) : (
+                    <RequestCard
+                      key={j}
+                      to={piece.to}
+                      objective={piece.objective}
+                      view={views[request++] ?? null}
+                      liaison={liaison}
+                    />
+                  ),
+                )
+              ) : (
+                <PartView part={part} live={live} onOpenLink={onOpenLink} />
+              )}
+            </Fragment>
+          );
+        })}
         {live && <LiveRow turn={turn} />}
         {files.length > 0 && <FilesCard taskId={turn.taskId} files={files} title={title} />}
         {turn.problem && (
@@ -175,6 +262,9 @@ const TurnView = memo(function TurnView({
             {turn.state === "stopped" ? "Stopped. " : ""}
             {turn.problem}
           </p>
+        )}
+        {received?.reply && liaison && !live && (
+          <ReplyBack view={received} worker={title} liaison={liaison} />
         )}
         {isOver(turn) && <TurnFoot turn={turn} tool={tool} />}
       </div>
