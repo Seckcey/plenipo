@@ -284,6 +284,44 @@ describe("a chat with an agent (ADR-200)", () => {
     expect(screen.getByLabelText("Message to Developer (on call)")).toBeDisabled();
   });
 
+  it("shows what an on-call worker did last, after its conversation was closed (B5)", async () => {
+    // A new conversation for each task it was handed, closed once its answer was written.
+    const handed = (id: string) =>
+      session(id, {
+        state: "closed",
+        metadata: {
+          liaison: { origin: "handoff", parentSessionId: "s-lead" },
+          workforce: { positionId: "p-dev" },
+        },
+      });
+    vi.mocked(commands.getAgentOverview).mockResolvedValue({
+      runtimes: [runtime("claude-code")],
+      // Newest first: its last task's conversation, then an older one.
+      sessions: [handed("s-new"), handed("s-old")],
+      notices: [],
+    });
+    vi.mocked(commands.getAgentSession).mockImplementation((id) =>
+      Promise.resolve({
+        session: handed(id),
+        turns: [
+          {
+            ...done(`t-${id}`, id === "s-new" ? "Built the contact page." : "Fixed the header."),
+            sessionId: id,
+            objective: id === "s-new" ? "Build the contact page" : "Fix the header",
+          },
+        ],
+        activity: [],
+      }),
+    );
+    await openChat({ positionId: "p-dev", title: "Senior Developer" });
+    expect(await screen.findByText("Build the contact page", {}, SLOW)).toBeInTheDocument();
+    expect(screen.getByText("Built the contact page.")).toBeInTheDocument();
+    expect(screen.queryByText("Fix the header")).not.toBeInTheDocument();
+    // Watched, not messaged: its work comes from its lead.
+    expect(await screen.findByText(/takes its work from its lead/, {}, SLOW)).toBeInTheDocument();
+    expect(screen.getByLabelText("Message to Senior Developer")).toBeDisabled();
+  });
+
   it("sends an on-call worker's message through its lead, and opens the lead's chat", async () => {
     vi.mocked(commands.giveObjective).mockResolvedValue({
       session: session("s5", {
