@@ -174,6 +174,7 @@ architecture must be recorded here.
 | [213](ADR-213-build-and-test-commands-ask-first.md)                  | Build and test commands ask first under Careful: off the starting approved list; Light unchanged (amends 034)          | Accepted |
 | [214][adr-214]                                                       | Files are checked at the moment of use, and scripts follow the command lists                                           | Accepted |
 | [215](ADR-215-an-approved-click-sends-only-where-the-card-said.md)   | An approved click sends only where the card said: the form's target, and nothing slid under the pointer                | Accepted |
+| [216](ADR-216-live-text-is-redacted-as-whole-words.md)               | Live text is redacted as whole words (live text hold-back; two small gaps follow in v1.25.1)                           | Proposed |
 | [250](ADR-250-watch-shows-changes-made-by-commands.md)               | Watch shows changes made by commands too: files noted before and compared after (amends 055)                           | Accepted |
 | [251](ADR-251-side-chats.md)                                         | Side chats with a manager or supervisor: answer only, briefed on what the agent knows                                  | Accepted |
 | [252](ADR-252-prompt-caching-for-anthropic-models.md)                | Prompt caching for Anthropic models on your key and through OpenRouter (amends 085 §3.5)                               | Accepted |
