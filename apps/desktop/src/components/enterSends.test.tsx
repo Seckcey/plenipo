@@ -1,0 +1,103 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { enterSends } from "./enterSends";
+
+afterEach(cleanup);
+
+/** A box where you write to an agent, in a form with its own send button. */
+function Box({ onSend, canSend = true }: { onSend: (text: string) => void; canSend?: boolean }) {
+  const [text, setText] = useState("");
+  return (
+    <form
+      aria-label="Write"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSend(text);
+      }}
+    >
+      <textarea
+        aria-label="Words"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={enterSends}
+      />
+      <button type="button">Attach</button>
+      <button type="submit" disabled={!canSend}>
+        Send
+      </button>
+    </form>
+  );
+}
+
+describe("Enter sends (as in the Chat)", () => {
+  it("sends with Enter, through the form's own send button, and adds no new line", async () => {
+    const onSend = vi.fn();
+    const user = userEvent.setup();
+    render(<Box onSend={onSend} />);
+    const box = screen.getByRole("textbox", { name: "Words" });
+    await user.type(box, "Hello{Enter}");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("Hello");
+    expect(box).toHaveValue("Hello");
+  });
+
+  it("starts a new line with Shift+Enter, and sends nothing", async () => {
+    const onSend = vi.fn();
+    const user = userEvent.setup();
+    render(<Box onSend={onSend} />);
+    const box = screen.getByRole("textbox", { name: "Words" });
+    await user.type(box, "One{Shift>}{Enter}{/Shift}two");
+    expect(box).toHaveValue("One\ntwo");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("only finishes the word while one is being put together (an IME)", () => {
+    const onSend = vi.fn();
+    render(<Box onSend={onSend} />);
+    const box = screen.getByRole("textbox", { name: "Words" });
+    // `false`: the key press was cancelled; `true`: the IME keeps it.
+    expect(fireEvent.keyDown(box, { key: "Enter", isComposing: true })).toBe(true);
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("only finishes the word on a Mac or Linux too, where Enter comes just after it (key code 229)", () => {
+    const onSend = vi.fn();
+    render(<Box onSend={onSend} />);
+    const box = screen.getByRole("textbox", { name: "Words" });
+    expect(fireEvent.keyDown(box, { key: "Enter", keyCode: 229, isComposing: false })).toBe(true);
+    expect(onSend).not.toHaveBeenCalled();
+    // An ordinary Enter still sends.
+    expect(fireEvent.keyDown(box, { key: "Enter", keyCode: 13 })).toBe(false);
+    expect(onSend).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Enter as a new line in a box with no form, or no send button", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <textarea aria-label="Alone" onKeyDown={enterSends} />
+        <form aria-label="No send button">
+          <textarea aria-label="In a form" onKeyDown={enterSends} />
+          <button type="button">Attach</button>
+        </form>
+      </>,
+    );
+    for (const name of ["Alone", "In a form"]) {
+      const box = screen.getByRole("textbox", { name });
+      await user.type(box, "One{Enter}two");
+      expect(box).toHaveValue("One\ntwo");
+    }
+  });
+
+  it("sends nothing while the send button cannot be pressed, and adds no new line", async () => {
+    const onSend = vi.fn();
+    const user = userEvent.setup();
+    render(<Box onSend={onSend} canSend={false} />);
+    const box = screen.getByRole("textbox", { name: "Words" });
+    await user.type(box, "Busy{Enter}");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(box).toHaveValue("Busy");
+  });
+});

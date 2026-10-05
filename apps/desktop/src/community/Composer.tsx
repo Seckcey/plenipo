@@ -10,6 +10,7 @@ import {
 } from "react";
 import { Button } from "@plenipo/ui";
 
+import { isSendKey } from "../components/enterSends";
 import { ATTACH_EVENT, DROP_ATTRIBUTE } from "../files/refs";
 import {
   MAX_MESSAGE_CHARS,
@@ -105,8 +106,8 @@ export function Composer({
   };
   const keys = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter sends; Shift+Enter is a new line. A key that picks a letter in another language
-    // (composing) is not a send.
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    // (composing, on Windows, a Mac, or Linux) is not a send.
+    if (isSendKey(e)) {
       e.preventDefault();
       send();
     }

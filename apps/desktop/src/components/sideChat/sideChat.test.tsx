@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AgentSessionDetail } from "@plenipo/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -38,6 +38,29 @@ describe("side chats (Phase 25, item 3.5)", () => {
     await waitFor(() => expect(onAsked).toHaveBeenCalledWith("side-1"));
     expect(api.askSideQuestion).toHaveBeenCalledWith("sup", "How far along are you?");
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("asks with Enter; Shift+Enter starts a new line", async () => {
+    api.askSideQuestion.mockResolvedValue({
+      session: { id: "side-2" },
+    } as unknown as AgentSessionDetail);
+    const onAsked = vi.fn();
+    const user = userEvent.setup();
+    const sup = position("sup", "Website Supervisor", "r-coord", null);
+    render(<AskQuestionButton p={sup} onAsked={onAsked} />);
+    await user.click(screen.getByRole("button", { name: "Ask a question" }));
+    const box = within(screen.getByRole("dialog")).getByLabelText(/Your question/);
+    expect(box).toHaveAccessibleDescription("Enter sends. Shift and Enter start a new line.");
+    // Nothing to ask yet: Enter does nothing, and adds no line.
+    await user.type(box, "{Enter}");
+    expect(box).toHaveValue("");
+    await user.type(box, "How far{Shift>}{Enter}{/Shift}along?");
+    // A word still being put together (an IME) is only finished.
+    fireEvent.keyDown(box, { key: "Enter", isComposing: true });
+    expect(api.askSideQuestion).not.toHaveBeenCalled();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(onAsked).toHaveBeenCalledWith("side-2"));
+    expect(api.askSideQuestion).toHaveBeenCalledWith("sup", "How far\nalong?");
   });
 
   it("says why it could not ask, and has no button for an on-call position", async () => {

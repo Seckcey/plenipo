@@ -469,6 +469,9 @@ describe("Writing", () => {
     await user.type(box(), "x");
     fireEvent.keyDown(box(), { key: "Enter", isComposing: true });
     expect(api.sendCommunityMessage).not.toHaveBeenCalled();
+    // On a Mac or Linux, the Enter that finishes the letter comes just after it (key code 229).
+    fireEvent.keyDown(box(), { key: "Enter", keyCode: 229, isComposing: false });
+    expect(api.sendCommunityMessage).not.toHaveBeenCalled();
   });
 
   it("counts characters, and says what Enter does", async () => {
