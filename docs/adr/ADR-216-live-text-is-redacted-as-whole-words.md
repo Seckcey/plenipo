@@ -1,7 +1,7 @@
 # ADR-216: Live text is redacted as whole words
 
-- **Status:** Proposed (the Development Coordinator and the independent security reviewer settled
-  the design on 2026-10-04; the owner accepts it at review)
+- **Status:** Accepted (2026-10-05, by the owner). Proposed on 2026-10-04; the Development
+  Coordinator and the independent security reviewer settled the design that day. Shipped in v1.25.0.
 - **Date:** 2026-10-04
 - **Phase:** none (security hardening: a gap found on 2026-10-04 while checking how the text an
   agent streams is hidden, after [ADR-214](ADR-214-files-at-the-moment-of-use-and-scripts-follow-the-lists.md);
