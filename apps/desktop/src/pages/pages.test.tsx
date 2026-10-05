@@ -49,6 +49,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     getPermissions: vi.fn(),
     getAgentSession: vi.fn(),
     hirePosition: vi.fn(),
+    updateProject: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -421,6 +422,38 @@ describe("A project's page", () => {
     expect(within(decisions).getByText("Approved: Run npm publish")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Give an objective" }));
     expect(go).toHaveBeenLastCalledWith({ view: "projects", id: "pr-web" });
+  });
+
+  it("edits the project from its page", async () => {
+    const after = sampleOrganization();
+    after.projects = after.projects.map((p) =>
+      p.id === "pr-web" ? { ...p, description: "The new website, page by page." } : p,
+    );
+    afterChange(api.updateProject, after, api.getOrganization);
+    render(<ProjectPage id="pr-web" go={go} />);
+    await screen.findByRole("heading", { level: 1, name: "Website Relaunch" });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Edit project" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit Website Relaunch" });
+    const description = within(dialog).getByRole("textbox", { name: /^Description/ });
+    await user.clear(description);
+    await user.type(description, "The new website, page by page.");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(api.updateProject).toHaveBeenCalledWith(
+      "pr-web",
+      expect.objectContaining({ description: "The new website, page by page." }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await screen.findByText("The new website, page by page.")).toBeInTheDocument();
+  });
+
+  it("offers no Edit for an archived project", async () => {
+    const org = sampleOrganization();
+    org.projects = org.projects.map((p) => (p.id === "pr-web" ? { ...p, active: false } : p));
+    api.getOrganization.mockResolvedValue(org);
+    render(<ProjectPage id="pr-web" go={go} />);
+    await screen.findByRole("heading", { level: 1, name: "Website Relaunch" });
+    expect(screen.queryByRole("button", { name: "Edit project" })).not.toBeInTheDocument();
   });
 });
 

@@ -66,6 +66,18 @@ export function tabInSlot(state: ChatTabs, slot: number): ChatTab | null {
   return state.tabs.find((t) => t.key === key) ?? null;
 }
 
+/** The chat for `target` (`null` when it names neither a position nor a conversation). */
+export function tabFor(target: ChatTarget): ChatTab | null {
+  const key = keyOf(target);
+  if (key === null) return null;
+  return {
+    key,
+    positionId: target.positionId ?? null,
+    sessionId: target.sessionId ?? null,
+    title: target.title.trim() || "Agent",
+  };
+}
+
 /** Open a chat (or show it, when it is open already), in front. */
 export function openTab(state: ChatTabs, target: ChatTarget): ChatTabs {
   const key = keyOf(target);
