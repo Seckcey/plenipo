@@ -6,6 +6,7 @@ import type {
   Severity,
 } from "@plenipo/types";
 import { Button, StatusPill, type Status } from "@plenipo/ui";
+import { TaskCostSummary } from "../spending/TaskCostSummary";
 
 import { WORKER_STATE_LABEL, ago, plural } from "../org/format";
 import { PILL_TONE, TASK_TONE } from "./tones";
@@ -90,12 +91,15 @@ export function ObjectiveResult({
   onOpenTask,
   onOpenApprovals,
   openLabel = "Open in Activity",
+  showCost = true,
 }: {
   report: ObjectiveReport;
   onOpenTask?: (taskId: string) => void;
   onOpenApprovals?: () => void;
   /** The words of the link that opens the objective's own task; `null` leaves it out (its page). */
   openLabel?: string | null;
+  /** Its tokens and cost in one line (I2); off where the page shows them in full. */
+  showCost?: boolean;
 }) {
   const tests = report.checks.filter((c) => c.test);
   const passed = tests.filter((c) => c.ok).length;
@@ -114,6 +118,7 @@ export function ObjectiveResult({
             {report.projectName ? ` · ${report.projectName}` : ""} · {ago(report.createdAt)}
             {report.completedAt !== null ? ` · finished ${ago(report.completedAt)}` : ""}
           </p>
+          {showCost && <TaskCostSummary taskId={report.rootTaskId} compact />}
         </div>
         <div className="result__task-side">
           <StatusPill status={TASK_TONE[report.state]} label={WORKER_STATE_LABEL[report.state]} />

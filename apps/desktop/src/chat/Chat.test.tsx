@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { AgentSessionDetail, AgentTurn, AgentUpdate } from "@plenipo/types";
+import type { AgentSessionDetail, AgentTurn, AgentUpdate, TaskCost } from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentsProvider } from "../agents/AgentsProvider";
@@ -27,6 +27,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     openWorkFolder: vi.fn(),
     getTaskHandoffs: vi.fn(),
     getChainOrders: vi.fn(),
+    getTaskCost: vi.fn(),
   };
 });
 
@@ -276,6 +277,70 @@ describe("a chat with an agent (ADR-200)", () => {
       await within(log).findByText(/Claude Code did not report tokens/, {}, SLOW),
     ).toBeInTheDocument();
     expect(within(log).queryByRole("button", { name: /tokens/ })).not.toBeInTheDocument();
+  });
+
+  it("says what an answer cost on a paid key, and asks no cost on a subscription (I2)", async () => {
+    const paid = {
+      ...runtime("claude-code"),
+      auth: { state: "paidKey", method: "Key saved in Plenipo", detail: null },
+    } as const;
+    vi.mocked(commands.getAgentOverview).mockResolvedValue({
+      runtimes: [paid],
+      sessions: [],
+      notices: [],
+    });
+    const cost: TaskCost = {
+      taskId: "t1",
+      read: 900,
+      reused: 0,
+      written: 300,
+      runs: 1,
+      counted: 1,
+      atLeast: false,
+      spentMicros: 40_000,
+      setAsideMicros: 0,
+      notPriced: 0,
+      notPricedMicros: 0,
+      pricedBy: "priceList",
+      running: false,
+    };
+    vi.mocked(commands.getTaskCost).mockResolvedValue(cost);
+    vi.mocked(commands.giveObjective).mockResolvedValue(
+      detail([turn("t1", { objective: "Write a plan", startedAt: started })]),
+    );
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "Write a plan{Enter}");
+    const log = await screen.findByRole("log", {}, SLOW);
+    emit({ kind: "session", ...session("s1", { metadata: MEMBER }) });
+    // While it runs there is nothing to say yet.
+    expect(commands.getTaskCost).not.toHaveBeenCalled();
+
+    emit({ kind: "turn", ...done("t1", "Planned.") });
+    expect(await within(log).findByText(/· \$0\.04/, {}, SLOW)).toBeInTheDocument();
+    expect(commands.getTaskCost).toHaveBeenCalledWith("t1");
+    // Opened, it says how the money was worked out.
+    await user.click(within(log).getByRole("button", { name: "1,200 tokens" }));
+    expect(
+      within(log).getByText(
+        /900 read · 300 written · spent \$0\.04, priced from Plenipo's price list/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a subscription's answers in tokens only, without asking what they cost (I2)", async () => {
+    vi.mocked(commands.giveObjective).mockResolvedValue(
+      detail([turn("t1", { objective: "Write a plan", startedAt: started })]),
+    );
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "Write a plan{Enter}");
+    const log = await screen.findByRole("log", {}, SLOW);
+    emit({ kind: "session", ...session("s1", { metadata: MEMBER }) });
+    emit({ kind: "turn", ...done("t1", "Planned.") });
+    expect(
+      await within(log).findByRole("button", { name: "1,200 tokens" }, SLOW),
+    ).toBeInTheDocument();
+    expect(within(log).queryByText(/\$/)).not.toBeInTheDocument();
+    expect(commands.getTaskCost).not.toHaveBeenCalled();
   });
 
   it("says what Plenipo itself sent with a task, beside its tokens, and opens its page and raw output (ADR-044)", async () => {

@@ -18,6 +18,7 @@ import { StopButton } from "../components/stop/StopWork";
 import { isStoppable } from "../components/stop/whatToStop";
 import { getTaskEvents, getTaskRecord, getTaskTimeline, getTaskTree } from "../api/commands";
 import { ObjectiveResult } from "../components/ObjectiveResult";
+import { TaskCostSummary } from "../spending/TaskCostSummary";
 import type { Go } from "../components/views";
 import { sourceLabel, toolName } from "../ledger/format";
 import { useOrganization } from "../org/useOrganization";
@@ -289,11 +290,16 @@ export function TaskPage({
               <ObjectiveResult
                 report={report}
                 openLabel={null}
+                showCost={false}
                 onOpenTask={(taskId) => go({ view: "task", id: taskId })}
                 onOpenApprovals={() => go({ view: "approvals", id: null })}
               />
             </div>
           )}
+        </Panel>
+
+        <Panel id="task-cost" title="Tokens and cost">
+          <TaskCostSummary taskId={task.id} />
         </Panel>
 
         <Panel id="task-record" title="Screenshots and pull requests">

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Icon, IconButton, StatusDot, cx, type Status } from "@plenipo/ui";
 
 import { useAgents } from "../agents/useAgents";
+import { runsOnPaidKey } from "../agents/format";
 import { liaisonInfo } from "../agents/store";
 import type { ChatLiaison } from "./Exchanges";
 import { sessionOfSource } from "./handoffBlocks";
@@ -198,6 +199,7 @@ export function ChatWindow({
             // A worker whose work comes from its lead: each message is the lead's (ADR-202).
             askFrom={origin === "handoff" ? "From its lead" : null}
             tool={runtime?.label ?? null}
+            paid={runsOnPaidKey(runtime)}
             liaison={liaison}
             onOpenTask={onOpenTask}
             onShowExecution={onShowExecution}

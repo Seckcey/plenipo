@@ -99,6 +99,14 @@ export const AUTH_LABEL: Record<AuthState, string> = {
   paidKey: "Key saved (paid per use)",
 };
 
+/**
+ * It runs on a paid key, so each request costs money and is recorded as spending (ADR-085). A
+ * subscription's tools cost nothing per task: the chat shows their tokens only (I2).
+ */
+export function runsOnPaidKey(r: AgentRuntimeInfo | undefined): boolean {
+  return r?.auth.state === "paidKey";
+}
+
 export function runtimeStatus(r: AgentRuntimeInfo): {
   text: string;
   tone: "ok" | "warn" | "bad" | "muted";

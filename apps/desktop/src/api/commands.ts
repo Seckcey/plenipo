@@ -44,6 +44,8 @@ import type {
   PaymentMethod,
   CapCovers,
   SpendingPage,
+  TaskCost,
+  TaskTreeCost,
   Access,
   AccountKind,
   AppInput,
@@ -1218,6 +1220,16 @@ export function removePaidKey(runtimeId: string): Promise<AiToolsPage> {
 /** This month's spending, each cap, and the month's latest paid tasks. */
 export function getSpending(): Promise<SpendingPage> {
   return call<SpendingPage>("get_spending");
+}
+
+/** What one task cost: its tokens over its runs, and its money on paid keys (I2). */
+export function getTaskCost(taskId: string): Promise<TaskCost> {
+  return call<TaskCost>("get_task_cost", { taskId });
+}
+
+/** What a task and every task handed out beneath it cost, each one and in all (I2). */
+export function getTaskTreeCost(taskId: string): Promise<TaskTreeCost> {
+  return call<TaskTreeCost>("get_task_tree_cost", { taskId });
 }
 
 /** Set (or change) the monthly cap for the business, a department, or one position. */
