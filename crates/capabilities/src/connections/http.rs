@@ -24,6 +24,8 @@ pub(crate) fn api_hosts(service: Service) -> &'static [&'static str] {
         Service::Hubspot => &["api.hubapi.com"],
         Service::Stripe => &["api.stripe.com"],
         Service::Wordpress => &[],
+        // Never github.com's sign-in addresses (ADR-204, the reviewer's G2).
+        Service::Github => &["api.github.com"],
     }
 }
 
@@ -311,6 +313,15 @@ impl Http {
                 }
             })?;
             let status = response.status();
+            // GitHub's connection follows no redirect at all (ADR-204, the reviewer's G2): any
+            // other page GitHub names is refused, and recorded like any refusal.
+            if status.is_redirection() && service == Service::Github {
+                let why =
+                    "GitHub sent Plenipo to another page, which the GitHub connection never follows";
+                self.guard
+                    .record_refused_request(Purpose::Connection(service), &address, why);
+                return Err(HttpError::Refused(format!("{why}.")));
+            }
             // A change is never followed to another page (as a GET, it would read as done): the
             // service may or may not have acted.
             if status.is_redirection() && first && method != reqwest::Method::GET {

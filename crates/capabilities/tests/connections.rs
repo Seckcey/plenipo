@@ -307,6 +307,8 @@ async fn harness_on(supervisor_tool: &str) -> H {
         // checked by the unit tests and the end-to-end tests).
         slack_ports: Some(vec![0]),
         stand_in: Some(ms.base()),
+        github_client_id: Some(support::github::CLIENT_ID.into()),
+        github_app_slug: Some(support::github::APP_SLUG.into()),
     };
     let broker = Broker::new(guard.clone(), sup.clone(), store.clone(), broker_config);
     broker.start().await.unwrap();

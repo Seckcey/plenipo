@@ -103,6 +103,8 @@ pub struct World {
     pub hubspot: super::hubspot::Hubspot,
     pub stripe: super::stripe::Stripe,
     pub wordpress: super::wordpress::Site,
+    /// The stand-in GitHub (Phase 25, ADR-204).
+    pub github: super::github::Github,
     next: u64,
 }
 
@@ -253,6 +255,7 @@ impl World {
             hubspot: super::hubspot::Hubspot::seeded(),
             stripe: super::stripe::Stripe::seeded(),
             wordpress: super::wordpress::Site::seeded(),
+            github: super::github::Github::seeded(),
             ..World::default()
         };
         w.chat_messages.insert(
@@ -576,6 +579,7 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
                 "stripeChanges": w.stripe.changes, "stripeHeld": w.stripe.held,
                 "stripeVersions": w.stripe.versions,
                 "siteDone": w.wordpress.done,
+                "githubTokenOnGithubCom": w.github.token_on_github_com,
                 "sitePasswordsRevoked": w.wordpress.users.iter().filter(|u| u.revoked).count(),
                 "messages": w.messages.iter().map(|m| json!({ "id": m["id"], "folder": m["_folder"], "subject": m["subject"] })).collect::<Vec<_>>(),
             })),
@@ -605,6 +609,9 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
                 if let Some(t) = v["slackTeam"].as_str() {
                     w.slack.team = t.to_owned();
                 }
+                if v["github"].is_object() {
+                    w.github.knobs(&v["github"]);
+                }
                 ok(json!({}))
             }
             _ => error("404 Not Found", "NotFound"),
@@ -626,6 +633,10 @@ fn route(req: &Req, world: &Arc<Mutex<World>>) -> Resp {
     // A site that moved: it sends every request on to the stand-in site (another host).
     if let Some(rest) = path.strip_prefix("old.example.com/") {
         return redirect(&format!("https://{}/{rest}", super::wordpress::HOST));
+    }
+    // GitHub's stand-in (Phase 25, ADR-204).
+    if path.starts_with("github.com/") || path.starts_with("api.github.com/") {
+        return super::github::route(req, path, &mut w);
     }
     // Slack's and Google's stand-ins (part 20B).
     if let Some(rest) = path.strip_prefix("slack.com/") {

@@ -12,6 +12,7 @@
 //! - **Guard decides** every worker call before it runs (the broker asks it; see
 //!   `broker/connecting.rs`).
 
+pub mod github;
 pub mod google;
 pub(crate) mod http;
 pub mod hubspot;
@@ -42,6 +43,12 @@ use self::http::{Body, Http, HttpError, Reply};
 use self::signin::{Callback, Listener, Pkce};
 use crate::tools::ToolDef;
 use crate::vault::{self, SecretStore};
+
+/// A GitHub short code is waiting for the owner in some organization's window (ADR-204: one at a
+/// time on this PC).
+pub fn github_code_waiting() -> bool {
+    github::WAITING.load(std::sync::atomic::Ordering::SeqCst)
+}
 
 /// The Vault ID of a connection's long-lived sign-in.
 pub fn vault_id(connection_id: &str) -> String {
@@ -94,6 +101,11 @@ pub struct ConnectionsConfig {
     pub slack_ports: Option<Vec<u16>>,
     /// `http://127.0.0.1:<port>` in copies built for the tests; never in a release.
     pub stand_in: Option<String>,
+    /// 8 West's GitHub App's client ID (ADR-204). Public, not a secret.
+    pub github_client_id: Option<String>,
+    /// 8 West's GitHub App's short name, for the page where the owner chooses the accounts
+    /// Plenipo may list. Public.
+    pub github_app_slug: Option<String>,
 }
 
 /// Opens a sign-in address in the owner's own browser.
@@ -200,6 +212,8 @@ pub fn tools_of(service: Service) -> &'static [Tool] {
         Service::Hubspot => &hubspot::TOOLS,
         Service::Stripe => &stripe::TOOLS,
         Service::Wordpress => &wordpress::TOOLS,
+        // The owner's alone: no worker ever gets a GitHub connection tool (ADR-204).
+        Service::Github => &[],
     }
 }
 
@@ -223,6 +237,9 @@ pub fn tool_prefix(service: Service) -> &'static str {
         Service::Hubspot => "hubspot_",
         Service::Stripe => "stripe_",
         Service::Wordpress => "wp_",
+        // Never a tool's (it has none), and never "github_", which Plenipo's own GitHub tools
+        // use (ADR-016 §6).
+        Service::Github => "github_connection_",
     }
 }
 
@@ -347,6 +364,7 @@ fn part_words(service: Service, part: Part) -> (&'static str, &'static str) {
         Service::Hubspot => hubspot::part_words(part),
         Service::Stripe => stripe::part_words(part),
         Service::Wordpress => wordpress::part_words(part),
+        Service::Github => ("", ""),
     }
 }
 
@@ -358,6 +376,15 @@ fn permission_words(service: Service, name: &str) -> String {
         Service::Hubspot => hubspot::permission_words(name).into(),
         Service::Stripe => stripe::permission_words(name).into(),
         Service::Wordpress => wordpress::permission_words(name),
+        Service::Github => {
+            if name == github::GRANTED {
+                "Read your repositories' names, descriptions, branch and tag names, and who \
+             collaborates; never code"
+                    .into()
+            } else {
+                name.into()
+            }
+        }
     }
 }
 
@@ -456,6 +483,31 @@ pub struct ConnectionCard {
     pub key_needs: Vec<String>,
     /// For the website: a WooCommerce key is kept.
     pub store_key_kept: bool,
+    /// The owner's alone (GitHub, ADR-204): no parts, no **Who may use it**, no send list.
+    pub owner_only: bool,
+    /// A short code waiting for the owner to type it on the service's own page (GitHub).
+    #[ts(optional)]
+    pub code: Option<SignInCode>,
+    /// GitHub: the page where the owner chooses the accounts Plenipo may list.
+    #[ts(optional)]
+    pub install_page: Option<String>,
+}
+
+/// A short code the owner types on the service's own page (GitHub's sign-in, ADR-204). Shown
+/// only on the main window's card, never in a notice, the record, a log, or on a phone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SignInCode {
+    /// `WDJB-MJHT`.
+    pub code: String,
+    /// The page to type it on: always GitHub's own, `https://github.com/login/device`.
+    pub page: String,
+    /// "Only type a code Plenipo just showed you here.", word for word.
+    pub words: String,
+    /// When it runs out (milliseconds since 1970).
+    #[ts(type = "number")]
+    pub expires_at: u64,
 }
 
 /// A part on a connection's card.
@@ -546,6 +598,10 @@ struct State {
     /// Keys the owner typed into a card this session, kept or not (memory only): hidden in any
     /// text, so a key refused by its service is never written anywhere either.
     typed: Vec<String>,
+    /// Connection ID → the short code waiting for the owner (GitHub).
+    codes: HashMap<String, SignInCode>,
+    /// GitHub's list of repositories, for ten minutes (this organization's only, ADR-094).
+    repositories: Option<(Instant, github::GithubRepositories)>,
 }
 
 /// What the sign-ins are doing, read before the saved connections (see [`Connections::page`]).
@@ -553,6 +609,7 @@ struct SignIns {
     waiting: HashSet<String>,
     admin: HashMap<String, String>,
     problem: HashMap<String, String>,
+    codes: HashMap<String, SignInCode>,
 }
 
 impl State {
@@ -686,8 +743,25 @@ impl Connections {
                 .map(str::trim)
                 .filter(|id| plenipo_guard::connections::is_slack_client_id(id))
                 .map(str::to_owned),
+            Service::Github => self
+                .config
+                .github_client_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|id| github::is_client_id(id))
+                .map(str::to_owned),
             _ => None,
         }
+    }
+
+    /// The page where the owner chooses the accounts Plenipo may list (GitHub).
+    pub fn github_install_page(&self) -> Option<String> {
+        self.config
+            .github_app_slug
+            .as_deref()
+            .map(str::trim)
+            .filter(|slug| github::is_app_slug(slug))
+            .map(github::install_page)
     }
 
     /// The app a connection signs in with: the owner's own, or 8 West's. A Google app counts
@@ -918,6 +992,9 @@ impl Connections {
                 conn.label()
             )
         })?;
+        if service.signs_in_with_a_code() {
+            return self.start_code_sign_in(&conn, app_id).await;
+        }
         let secret = match service {
             Service::Google => Some(self.app_secret(id)?),
             _ => None,
@@ -1099,6 +1176,422 @@ impl Connections {
             }
         });
         Ok(())
+    }
+
+    // ---- GitHub: a short code, and the list (ADR-204) -------------------------------------------
+
+    /// Post a form to one of GitHub's sign-in addresses and read its JSON answer (GitHub answers
+    /// 200 with an `error` while it waits or when it refuses).
+    async fn github_form(&self, url: &str, form: Vec<(String, String)>) -> Result<Value, String> {
+        let reply = self
+            .http
+            .send(
+                Service::Github,
+                reqwest::Method::POST,
+                url,
+                None,
+                &github::ACCEPT_JSON,
+                Body::Form(form),
+                MAX_TOKEN_ANSWER,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        if !reply.ok() {
+            return Err(format!("GitHub answered {}.", reply.status));
+        }
+        Ok(reply.json())
+    }
+
+    /// GitHub's sign-in with a short code (the device flow, ADR-204): ask GitHub for a code, show
+    /// it on this card only, open GitHub's own code page in the owner's browser, and wait in the
+    /// background for the owner to type it there. One at a time on this PC; pressing Sign in again
+    /// while a code waits shows the same code. Nothing secret is needed or kept on the way.
+    async fn start_code_sign_in(
+        self: &Arc<Self>,
+        conn: &Connection,
+        app_id: String,
+    ) -> Result<(), String> {
+        let id = conn.id.clone();
+        if lock(&self.state).codes.contains_key(&id) {
+            return Ok(());
+        }
+        // Another organization's window may have a code waiting: one at a time on this PC.
+        if github::WAITING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Another GitHub sign-in is waiting in another organization's window. Finish or \
+                 cancel it first."
+                    .into(),
+            );
+        }
+        let release = || github::WAITING.store(false, std::sync::atomic::Ordering::SeqCst);
+        let asked = self
+            .github_form(
+                github::DEVICE_CODE,
+                vec![("client_id".to_owned(), app_id.clone())],
+            )
+            .await
+            .and_then(|answer| github::read_code(&answer));
+        let code = match asked {
+            Ok(code) => code,
+            Err(why) => {
+                release();
+                return Err(why);
+            }
+        };
+        // The page the owner types it on: GitHub's own, checked by Guard like any sign-in page.
+        let page = self.http.address(github::DEVICE_PAGE);
+        if let Err(e) = self.http.check(Service::Github, &page) {
+            release();
+            return Err(e.to_string());
+        }
+        let (cancel, cancelled) = oneshot::channel();
+        let expires = Instant::now() + Duration::from_secs(code.expires_in);
+        let turn = {
+            let mut s = lock(&self.state);
+            let turn = s.next(&id);
+            s.waiting.insert(id.clone(), (turn, cancel));
+            s.problem.remove(&id);
+            s.codes.insert(
+                id.clone(),
+                SignInCode {
+                    code: code.user_code.clone(),
+                    page: github::DEVICE_PAGE.into(),
+                    words: github::ONLY_THIS_CODE.into(),
+                    expires_at: plenipo_ledger::now_ms() + code.expires_in * 1000,
+                },
+            );
+            turn
+        };
+        let opener = self
+            .opener
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        let this = Arc::clone(self);
+        tokio::spawn(async move {
+            // Opening the page is a help: the code works when the owner opens it themselves.
+            let _ = opener.open(page).await;
+            let outcome = this
+                .wait_for_code(&id, turn, &app_id, &code, expires, cancelled)
+                .await;
+            {
+                let mut s = lock(&this.state);
+                if s.waiting.get(&id).is_some_and(|(t, _)| *t == turn) {
+                    s.waiting.remove(&id);
+                }
+                if s.turn(&id) == turn {
+                    s.codes.remove(&id);
+                    if let Err(why) = &outcome {
+                        s.problem.insert(id.clone(), why.clone());
+                    }
+                }
+            }
+            github::WAITING.store(false, std::sync::atomic::Ordering::SeqCst);
+            let (event_type, reason) = match &outcome {
+                Ok(Signed::In) => return,
+                Ok(Signed::Stopped) => ("connection.sign_in_stopped", None),
+                Err(why) => ("connection.sign_in_failed", Some(why.clone())),
+            };
+            let mut payload = json!({ "connectionId": id, "service": name_of(&id) });
+            if let Some(reason) = reason {
+                payload["reason"] = reason.into();
+            }
+            let _ = this
+                .guard()
+                .ledger()
+                .append_event(plenipo_ledger::NewEvent {
+                    source: "plenipo".into(),
+                    event_type: event_type.into(),
+                    payload,
+                    ..plenipo_ledger::NewEvent::default()
+                });
+        });
+        Ok(())
+    }
+
+    /// Ask GitHub, at its pace, until the owner has typed the code, it runs out, the owner says no,
+    /// or a Cancel, Disconnect, or newer sign-in comes.
+    async fn wait_for_code(
+        &self,
+        id: &str,
+        turn: u64,
+        app_id: &str,
+        code: &github::Code,
+        expires: Instant,
+        mut cancelled: oneshot::Receiver<()>,
+    ) -> Result<Signed, String> {
+        let mut interval = Duration::from_secs(code.interval);
+        loop {
+            tokio::select! {
+                _ = &mut cancelled => return Ok(Signed::Stopped),
+                () = tokio::time::sleep(interval) => {}
+            }
+            if lock(&self.state).turn(id) != turn {
+                return Ok(Signed::Stopped);
+            }
+            if Instant::now() >= expires {
+                return Err(github::refusal_words("expired_token"));
+            }
+            let answer = self
+                .github_form(
+                    github::TOKEN,
+                    vec![
+                        ("client_id".to_owned(), app_id.to_owned()),
+                        ("device_code".to_owned(), code.device_code.clone()),
+                        ("grant_type".to_owned(), github::DEVICE_GRANT.to_owned()),
+                    ],
+                )
+                .await?;
+            match github::read_poll(&answer) {
+                github::Poll::Pending => {}
+                github::Poll::SlowDown => interval += Duration::from_secs(5),
+                github::Poll::Ended(why) => return Err(why),
+                github::Poll::Done {
+                    access,
+                    refresh,
+                    expires_in,
+                } => {
+                    return self
+                        .finish_code_sign_in(id, turn, &access, refresh.as_deref(), expires_in)
+                        .await
+                }
+            }
+        }
+    }
+
+    /// The owner typed the code: who signed in, kept — unless a Cancel, Disconnect, or newer
+    /// sign-in came meanwhile, or the card is for another GitHub account.
+    async fn finish_code_sign_in(
+        &self,
+        id: &str,
+        turn: u64,
+        access: &str,
+        refresh: Option<&str>,
+        expires_in: Option<u64>,
+    ) -> Result<Signed, String> {
+        let me = self
+            .http
+            .send(
+                Service::Github,
+                reqwest::Method::GET,
+                &format!("{}/user", github::API),
+                Some(access),
+                &github::API_HEADERS,
+                Body::None,
+                MAX_TOKEN_ANSWER,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        if !me.ok() {
+            return Err(format!("GitHub didn't say who signed in ({}).", me.status));
+        }
+        let user = me.json();
+        let login = user["login"]
+            .as_str()
+            .filter(|l| github::plain_name(l))
+            .ok_or("GitHub didn't say who signed in.")?;
+        let account = Account {
+            name: user["name"]
+                .as_str()
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or(login)
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(100)
+                .collect(),
+            address: login.to_owned(),
+            organization: None,
+            tenant: user["id"].as_u64().map(|n| n.to_string()),
+        };
+        {
+            let _one = lock(&self.commit);
+            if lock(&self.state).turn(id) != turn {
+                return Ok(Signed::Stopped);
+            }
+            self.account_fits(id, Service::Github, login, login)?;
+            let long_lived = refresh.unwrap_or(access);
+            let previous = vault::read(self.store.as_ref(), &vault_id(id))
+                .ok()
+                .flatten();
+            self.keep(id, long_lived, previous.as_deref())?;
+            let lasts = expires_in.map_or(LASTING, Duration::from_secs);
+            {
+                let mut s = lock(&self.state);
+                s.tokens
+                    .insert(id.to_owned(), (access.to_owned(), Instant::now() + lasts));
+                s.repositories = None;
+            }
+            if let Err(e) = self.guard().connection_connected(
+                id,
+                Some(AccountKind::Work),
+                account,
+                &[github::GRANTED.to_owned()],
+            ) {
+                let _ = vault::erase(self.store.as_ref(), &vault_id(id));
+                lock(&self.state).tokens.remove(id);
+                return Err(e.to_string());
+            }
+        }
+        self.changed();
+        Ok(Signed::In)
+    }
+
+    /// One read of GitHub's web interface for the GitHub connection (renewed once on a 401).
+    async fn github_get(&self, id: &str, url: &str) -> Result<Value, String> {
+        let reply = self
+            .api_call(
+                id,
+                Service::Github,
+                reqwest::Method::GET,
+                url,
+                &github::API_HEADERS,
+                Body::None,
+                MAX_ANSWER,
+            )
+            .await?;
+        match reply.status {
+            200 => Ok(reply.json()),
+            401 | 403 => Err("GitHub didn't allow this. Sign in with GitHub again.".into()),
+            404 => Err("GitHub found nothing there.".into()),
+            s => Err(format!("GitHub answered {s}.")),
+        }
+    }
+
+    /// The owner's GitHub repositories (ADR-204): only while the owner asks (opening the picker
+    /// or the card, or Refresh), kept ten minutes for this organization, never recorded or given
+    /// to a worker. Each account Plenipo's app was added to is listed; one whose permissions show
+    /// more than **Metadata: read** is refused (the reviewer's G4). `fresh`: ask GitHub again.
+    pub async fn github_repositories(
+        &self,
+        fresh: bool,
+    ) -> Result<github::GithubRepositories, String> {
+        let id = Service::Github.id();
+        if !fresh {
+            if let Some((at, list)) = &lock(&self.state).repositories {
+                if at.elapsed() < Duration::from_secs(10 * 60) {
+                    return Ok(list.clone());
+                }
+            }
+        }
+        let conn = self.guard().connection(id).map_err(|e| e.to_string())?;
+        if conn.state != ConnectionState::Connected {
+            return Err("GitHub isn't connected. Settings → Connections → GitHub.".into());
+        }
+        let mut accounts = Vec::new();
+        let mut installations = Vec::new();
+        for page in 1..=10 {
+            let answer = self
+                .github_get(
+                    id,
+                    &format!(
+                        "{}/user/installations?per_page=100&page={page}",
+                        github::API
+                    ),
+                )
+                .await?;
+            let items = answer["installations"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            for item in &items {
+                if let Some((n, account)) = github::read_installation(item) {
+                    if accounts.len() < github::MAX_ACCOUNTS {
+                        if account.refused.is_none() {
+                            installations.push((n, account.login.clone()));
+                        }
+                        accounts.push(account);
+                    }
+                }
+            }
+            if items.len() < 100 {
+                break;
+            }
+        }
+        let mut repositories: Vec<github::GithubRepository> = Vec::new();
+        let mut more = false;
+        'accounts: for (n, _) in &installations {
+            for page in 1..=10 {
+                let answer = self
+                    .github_get(
+                        id,
+                        &format!(
+                            "{}/user/installations/{n}/repositories?per_page=100&page={page}",
+                            github::API
+                        ),
+                    )
+                    .await?;
+                let items = answer["repositories"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                for item in &items {
+                    if let Some(r) = github::read_repository(item) {
+                        if repositories.len() >= github::MAX_REPOSITORIES {
+                            more = true;
+                            break 'accounts;
+                        }
+                        if !repositories
+                            .iter()
+                            .any(|x| x.owner == r.owner && x.name == r.name)
+                        {
+                            repositories.push(r);
+                        }
+                    }
+                }
+                if items.len() < 100 {
+                    break;
+                }
+            }
+        }
+        let me = conn
+            .account
+            .as_ref()
+            .map(|a| a.address.to_lowercase())
+            .unwrap_or_default();
+        accounts.sort_by_key(|a| (a.login.to_lowercase() != me, a.login.to_lowercase()));
+        repositories.sort_by_key(|r| {
+            (
+                r.owner.to_lowercase() != me,
+                r.owner.to_lowercase(),
+                r.name.to_lowercase(),
+            )
+        });
+        let list = github::GithubRepositories {
+            accounts,
+            repositories,
+            more,
+            install_page: self.github_install_page(),
+        };
+        lock(&self.state).repositories = Some((Instant::now(), list.clone()));
+        Ok(list)
+    }
+
+    /// Open one of GitHub's own pages in the owner's browser (ADR-204): the code page, the page to
+    /// choose the accounts Plenipo may list, or the page to remove Plenipo. Fixed addresses only,
+    /// each checked by Guard.
+    pub async fn open_github_page(&self, page: &str) -> Result<(), String> {
+        let address = match page {
+            "device" => github::DEVICE_PAGE.to_owned(),
+            "install" => self
+                .github_install_page()
+                .ok_or("This copy of Plenipo has no GitHub app name to open that page with.")?,
+            "authorizations" => github::AUTHORIZATIONS_PAGE.to_owned(),
+            "installations" => github::INSTALLATIONS_PAGE.to_owned(),
+            _ => return Err("That isn't one of GitHub's pages Plenipo opens.".into()),
+        };
+        let reachable = self.http.address(&address);
+        self.http
+            .check(Service::Github, &reachable)
+            .map_err(|e| e.to_string())?;
+        let opener = self
+            .opener
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        opener
+            .open(reachable)
+            .await
+            .map_err(|why| format!("Plenipo could not open your browser ({why})."))
     }
 
     /// Trade the code for the sign-in, and keep it — unless a Cancel, Disconnect, or newer
@@ -1471,6 +1964,7 @@ impl Connections {
     /// its sign-in is not kept).
     pub fn cancel(&self, id: &str) -> bool {
         let mut s = lock(&self.state);
+        s.codes.remove(id);
         match s.waiting.remove(id) {
             Some((_, tx)) => {
                 s.next(id);
@@ -1509,6 +2003,10 @@ impl Connections {
                     .map(|(t, _)| t);
                 s.admin.remove(id);
                 s.problem.remove(id);
+                s.codes.remove(id);
+                if conn.as_ref().is_some_and(|c| c.service == Service::Github) {
+                    s.repositories = None;
+                }
             }
             marked = self
                 .guard()
@@ -1528,6 +2026,18 @@ impl Connections {
                 });
         }
         self.changed();
+        // GitHub lets an app cancel a sign-in only with the app's secret, which Plenipo never
+        // has (ADR-204): the card says where to finish at GitHub.
+        if conn.as_ref().is_some_and(|c| c.service == Service::Github) {
+            lock(&self.state).problem.insert(
+                id.to_owned(),
+                "Plenipo removed the sign-in from this computer. To remove Plenipo from GitHub \
+                 too: GitHub, then Settings, then Applications (Authorized GitHub Apps and \
+                 Installed GitHub Apps)."
+                    .into(),
+            );
+            return marked.and(erased);
+        }
         if let (Some(conn), Some(kept)) = (conn, kept) {
             let cancelled = tokio::time::timeout(
                 CANCEL_WAIT,
@@ -1757,6 +2267,22 @@ impl Connections {
                     ],
                 )
             }
+            Service::Github if !github::renews(&refresh) => {
+                // An app with expiring sign-ins switched off: the sign-in is the access token.
+                lock(&self.state)
+                    .tokens
+                    .insert(id.to_owned(), (refresh.clone(), Instant::now() + LASTING));
+                return Ok(refresh);
+            }
+            // Renewed with no secret: a short code's sign-in never needs one (ADR-204).
+            Service::Github => (
+                github::TOKEN.to_owned(),
+                vec![
+                    ("client_id".to_owned(), app_id),
+                    ("grant_type".to_owned(), "refresh_token".to_owned()),
+                    ("refresh_token".to_owned(), refresh.clone()),
+                ],
+            ),
             Service::Slack => {
                 if slack::lasting(&refresh) {
                     // A workspace app without token rotation: the sign-in is the access token.
@@ -1784,6 +2310,11 @@ impl Connections {
                 ],
             ),
         };
+        let headers: &[(&'static str, &str)] = if conn.service == Service::Github {
+            &github::ACCEPT_JSON
+        } else {
+            &[]
+        };
         let reply = self
             .http
             .send(
@@ -1791,7 +2322,7 @@ impl Connections {
                 reqwest::Method::POST,
                 &url,
                 None,
-                &[],
+                headers,
                 Body::Form(form),
                 MAX_TOKEN_ANSWER,
             )
@@ -1799,6 +2330,8 @@ impl Connections {
             .map_err(|e| format!("{name}: {e}"))?;
         let mut answer = reply.json();
         let ok = match conn.service {
+            // GitHub answers 200 with an `error` when it refuses.
+            Service::Github => reply.ok() && answer["error"].is_null(),
             Service::Slack => {
                 let ok = reply.ok() && answer["ok"].as_bool() == Some(true);
                 if ok {
@@ -1863,6 +2396,7 @@ impl Connections {
                 slack::sign_in_gone(error)
                     || matches!(error, "invalid_refresh_token" | "invalid_client_id")
             }
+            Service::Github => github::sign_in_gone(error),
             _ => matches!(
                 error,
                 "invalid_grant" | "invalid_client" | "unauthorized_client"
@@ -1992,6 +2526,7 @@ impl Connections {
                 waiting: s.waiting.keys().cloned().collect(),
                 admin: s.admin.clone(),
                 problem: s.problem.clone(),
+                codes: s.codes.clone(),
             }
         };
         let config = self.guard().config().map_err(|e| e.to_string())?;
@@ -2105,7 +2640,14 @@ impl Connections {
         let store_key_kept = service == Service::Wordpress
             && c.state != ConnectionState::NotConnected
             && c.granted.iter().any(|g| g == "woocommerce:key");
+        let code = seen.codes.get(&c.id).cloned();
+        let install_page = (service == Service::Github)
+            .then(|| self.github_install_page())
+            .flatten();
         ConnectionCard {
+            owner_only: service.owner_only(),
+            code,
+            install_page,
             uses_key: service.uses_key(),
             key_needs: key_permissions(&c),
             store_key_kept,
