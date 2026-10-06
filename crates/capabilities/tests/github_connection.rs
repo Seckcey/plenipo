@@ -341,6 +341,39 @@ async fn slowing_down_still_signs_in_and_a_cancelled_code_keeps_nothing() {
     h.record_has_no_token();
 }
 
+/// The reviewer's N2 on #227: GitHub busy for a moment while the owner types the code doesn't
+/// end the sign-in; busy every time, a few times in a row, does, in plain words.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_moment_without_github_doesnt_end_the_sign_in() {
+    let _turn = ONE_AT_A_TIME.lock().await;
+    let h = harness().await;
+    {
+        let mut w = h.ms.world();
+        w.github.pending_polls = 0;
+        w.github.fail_polls = 2;
+    }
+    h.sign_in().await;
+    assert_eq!(h.requests("POST /github.com/login/oauth/access_token"), 3);
+
+    let h = harness().await;
+    h.ms.world().github.fail_polls = 1000;
+    h.conns.start_sign_in(ID, AccountKind::Work).await.unwrap();
+    h.until("the card's reason", |h| h.card().problem.is_some())
+        .await;
+    let why = h.card().problem.unwrap();
+    assert!(why.contains("GitHub answered 503"), "{why}");
+    assert_eq!(
+        h.requests("POST /github.com/login/oauth/access_token"),
+        github_missed_polls()
+    );
+    assert_eq!(h.state(), ConnectionState::NotConnected);
+    assert!(h.vault().is_none() && h.card().code.is_none());
+}
+
+fn github_missed_polls() -> usize {
+    plenipo_capabilities::connections::github::MAX_MISSED_POLLS as usize
+}
+
 /// The reviewer's G4: one GitHub sign-in at a time on this PC, whichever organization's window
 /// starts it; Cancel ends it and frees the next.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

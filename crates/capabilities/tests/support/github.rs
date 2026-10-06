@@ -40,6 +40,8 @@ pub struct Github {
     pub no_expiry: bool,
     /// The app shows more permissions on Client Co than it asks for.
     pub extra_permissions: bool,
+    /// GitHub is busy (503) for this many more asks about a short code.
+    pub fail_polls: u32,
     /// Repositories in the owner's own account, and in the organization.
     pub own_repositories: u32,
     pub org_repositories: u32,
@@ -93,6 +95,9 @@ impl Github {
         }
         if let Some(n) = v["pendingPolls"].as_u64() {
             self.pending_polls = n as u32;
+        }
+        if let Some(n) = v["failPolls"].as_u64() {
+            self.fail_polls = n as u32;
         }
         if let Some(n) = v["ownRepositories"].as_u64() {
             self.own_repositories = n as u32;
@@ -186,6 +191,14 @@ pub fn route(req: &Req, path: &str, w: &mut World) -> Resp {
                 }
                 match field("grant_type").as_str() {
                     "urn:ietf:params:oauth:grant-type:device_code" => {
+                        if g.fail_polls > 0 {
+                            g.fail_polls -= 1;
+                            return Resp {
+                                status: "503 Service Unavailable",
+                                headers: vec![],
+                                body: Vec::new(),
+                            };
+                        }
                         let device = field("device_code");
                         let Some(asked) = g.codes.get_mut(&device) else {
                             return ok(json!({ "error": "incorrect_device_code" }));

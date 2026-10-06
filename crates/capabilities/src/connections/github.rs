@@ -69,6 +69,42 @@ pub fn install_page(slug: &str) -> String {
     format!("https://github.com/apps/{slug}/installations/new")
 }
 
+/// Why a sign-in request got no usable answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FormError {
+    /// The network, or GitHub busy (5xx, 429): worth asking again.
+    Again(String),
+    /// Refused, or an answer that will not change: the sign-in ends.
+    Stop(String),
+}
+
+impl std::fmt::Display for FormError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Again(why) | Self::Stop(why) => f.write_str(why),
+        }
+    }
+}
+
+/// Asks in a row that get no answer before a waiting code's sign-in ends (the reviewer's N2 on
+/// #227): a moment without the network doesn't end it.
+pub const MAX_MISSED_POLLS: u32 = 5;
+
+/// Whether the GitHub connection may send this request (ADR-204, the reviewer's S1 on #227): it
+/// only reads GitHub's web interface (`GET` on `api.github.com`) and asks for and trades a short
+/// code (`POST` to GitHub's two sign-in addresses). Guard's gate has checked the host and path;
+/// this checks the method with them. The pages Plenipo opens in the browser are never sent here.
+pub fn request_allowed(method: &reqwest::Method, host: &str, path: &str) -> bool {
+    match host {
+        "api.github.com" => method == reqwest::Method::GET,
+        "github.com" => {
+            method == reqwest::Method::POST
+                && matches!(path, "/login/device/code" | "/login/oauth/access_token")
+        }
+        _ => false,
+    }
+}
+
 /// A sign-in that renews: GitHub's refresh tokens start `ghr_`. One that doesn't is a sign-in
 /// that doesn't expire (an app with expiring sign-ins switched off), kept and used as it is.
 pub fn renews(long_lived: &str) -> bool {
@@ -320,6 +356,43 @@ pub fn read_installation(v: &Value) -> Option<(u64, GithubAccount)> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The reviewer's S1 on #227: reading only by GET, and the sign-in only by POST to its two
+    /// addresses.
+    #[test]
+    fn each_request_has_its_own_method() {
+        use reqwest::Method;
+        assert!(request_allowed(&Method::GET, "api.github.com", "/user"));
+        assert!(request_allowed(
+            &Method::POST,
+            "github.com",
+            "/login/device/code"
+        ));
+        assert!(request_allowed(
+            &Method::POST,
+            "github.com",
+            "/login/oauth/access_token"
+        ));
+        for (method, host, path) in [
+            (Method::POST, "api.github.com", "/user"),
+            (Method::PUT, "api.github.com", "/user/installations"),
+            (
+                Method::DELETE,
+                "api.github.com",
+                "/user/installations/1/repositories",
+            ),
+            (Method::GET, "github.com", "/login/oauth/access_token"),
+            (Method::GET, "github.com", "/login/device/code"),
+            (Method::POST, "github.com", "/login/device"),
+            (Method::POST, "github.com", "/settings/installations"),
+            (Method::GET, "uploads.github.com", "/user"),
+        ] {
+            assert!(
+                !request_allowed(&method, host, path),
+                "{method} {host}{path}"
+            );
+        }
+    }
 
     #[test]
     fn client_ids_and_app_names_are_github_s_own_kinds() {

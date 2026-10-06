@@ -5587,6 +5587,8 @@ mod ipc_boundary_tests {
         let main = window(&app, "main");
         let other = window(&app, "untrusted");
         let sign = window(&app, crate::indicator::LABEL);
+        // A pop-out is drawn by the main window's page, but has no commands of its own.
+        let popout = window(&app, "popout-terminal--main--1");
         for (cmd, args) in [
             (
                 "list_github_repositories",
@@ -5601,6 +5603,7 @@ mod ipc_boundary_tests {
             for (from, answer) in [
                 ("another window", invoke_json(&other, cmd, args.clone())),
                 ("the sign", invoke_json(&sign, cmd, args.clone())),
+                ("a pop-out", invoke_json(&popout, cmd, args.clone())),
                 (
                     "a web page",
                     invoke_with(&main, cmd, args.clone(), "https://example.com"),

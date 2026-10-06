@@ -1182,7 +1182,11 @@ impl Connections {
 
     /// Post a form to one of GitHub's sign-in addresses and read its JSON answer (GitHub answers
     /// 200 with an `error` while it waits or when it refuses).
-    async fn github_form(&self, url: &str, form: Vec<(String, String)>) -> Result<Value, String> {
+    async fn github_form(
+        &self,
+        url: &str,
+        form: Vec<(String, String)>,
+    ) -> Result<Value, github::FormError> {
         let reply = self
             .http
             .send(
@@ -1195,9 +1199,20 @@ impl Connections {
                 MAX_TOKEN_ANSWER,
             )
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| match e {
+                // The network, or no whole answer: worth asking again.
+                HttpError::Network(why) | HttpError::NoAnswer(why) => {
+                    github::FormError::Again(format!("{why}."))
+                }
+                refused => github::FormError::Stop(refused.to_string()),
+            })?;
         if !reply.ok() {
-            return Err(format!("GitHub answered {}.", reply.status));
+            let why = format!("GitHub answered {}.", reply.status);
+            return Err(if reply.status == 429 || reply.status >= 500 {
+                github::FormError::Again(why)
+            } else {
+                github::FormError::Stop(why)
+            });
         }
         Ok(reply.json())
     }
@@ -1230,6 +1245,7 @@ impl Connections {
                 vec![("client_id".to_owned(), app_id.clone())],
             )
             .await
+            .map_err(|e| e.to_string())
             .and_then(|answer| github::read_code(&answer));
         let code = match asked {
             Ok(code) => code,
@@ -1310,7 +1326,9 @@ impl Connections {
     }
 
     /// Ask GitHub, at its pace, until the owner has typed the code, it runs out, the owner says no,
-    /// or a Cancel, Disconnect, or newer sign-in comes.
+    /// or a Cancel, Disconnect, or newer sign-in comes. A moment without the network, or GitHub
+    /// busy, is asked about again, a few times in a row, while the code lasts (the reviewer's N2
+    /// on #227); a refusal ends it at once.
     async fn wait_for_code(
         &self,
         id: &str,
@@ -1321,6 +1339,7 @@ impl Connections {
         mut cancelled: oneshot::Receiver<()>,
     ) -> Result<Signed, String> {
         let mut interval = Duration::from_secs(code.interval);
+        let mut missed = 0;
         loop {
             tokio::select! {
                 _ = &mut cancelled => return Ok(Signed::Stopped),
@@ -1332,7 +1351,7 @@ impl Connections {
             if Instant::now() >= expires {
                 return Err(github::refusal_words("expired_token"));
             }
-            let answer = self
+            let asked = self
                 .github_form(
                     github::TOKEN,
                     vec![
@@ -1341,7 +1360,21 @@ impl Connections {
                         ("grant_type".to_owned(), github::DEVICE_GRANT.to_owned()),
                     ],
                 )
-                .await?;
+                .await;
+            let answer = match asked {
+                Ok(answer) => {
+                    missed = 0;
+                    answer
+                }
+                Err(github::FormError::Again(why)) => {
+                    missed += 1;
+                    if missed >= github::MAX_MISSED_POLLS {
+                        return Err(why);
+                    }
+                    continue;
+                }
+                Err(github::FormError::Stop(why)) => return Err(why),
+            };
             match github::read_poll(&answer) {
                 github::Poll::Pending => {}
                 github::Poll::SlowDown => interval += Duration::from_secs(5),
