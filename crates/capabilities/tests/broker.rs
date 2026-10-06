@@ -2798,6 +2798,86 @@ async fn work_with_no_project_stays_in_the_organizations_own_folder() {
     assert!(found.path.contains("Acme (2)"), "{found:?}");
 }
 
+/// One writer at a time reaches an agent's own folder too (ADR-093, ADR-205): while a worker's
+/// step may change files there, the owner reads along in the organization folder, and saving
+/// waits until it is done.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_agents_own_folder_is_read_only_for_the_owner_while_it_works_there() {
+    let h = harness_light().await;
+    let root = h.dir.path().join("Acme");
+    plenipo_capabilities::org_folder::create(&h.ledger, &root, "Acme", "owner").unwrap();
+    std::fs::create_dir_all(root.join("Development Manager")).unwrap();
+    std::fs::write(root.join("Development Manager").join("notes.md"), "plan\n").unwrap();
+    let manager = h
+        .workforce
+        .snapshot()
+        .unwrap()
+        .positions
+        .into_iter()
+        .find(|p| p.title == "Development Manager")
+        .unwrap()
+        .id;
+    let work = tool(
+        "write_file",
+        serde_json::json!({ "path": "later.md", "content": "x" }),
+    );
+    let detail = h
+        .workforce
+        .give_objective(&manager, &format!("[delay:8000] [tools-list] {work}"), None)
+        .await
+        .unwrap();
+    let task = detail.turns.last().unwrap().task_id.clone();
+    let org = "org:folder";
+    let notes = "Development Manager/notes.md";
+    let deadline = Instant::now() + WAIT;
+    let view = loop {
+        let view = h.broker.read_file(org, notes).unwrap();
+        if view.read_only.is_some() {
+            break view;
+        }
+        assert!(Instant::now() < deadline, "the writer never showed");
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    };
+    assert!(
+        matches!(
+            &view.read_only,
+            Some(plenipo_capabilities::ReadOnlyWhy::Writer { writer })
+                if writer.worker == "Development Manager"
+        ),
+        "{view:?}"
+    );
+    let refused = h
+        .broker
+        .save_file(
+            org,
+            notes,
+            "the owner's\n",
+            false,
+            plenipo_capabilities::LineEnding::Lf,
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(
+        refused.contains("Development Manager is writing"),
+        "{refused}"
+    );
+    // Done: the owner saves.
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    assert!(h.broker.read_file(org, notes).unwrap().read_only.is_none());
+    assert!(h
+        .broker
+        .save_file(
+            org,
+            notes,
+            "the owner's\n",
+            false,
+            plenipo_capabilities::LineEnding::Lf,
+            None,
+        )
+        .is_ok());
+}
+
 /// The reviewer's N2 on #221: an agent's own folder in the organization folder that is a
 /// junction or link leads somewhere else, so it is never a step's folder: nothing is written
 /// through it.

@@ -3,4 +3,4 @@
 /**
  * What kind of place a file view's top folder is.
  */
-export type FileRootKind = "projectFolder" | "workingCopy";
+export type FileRootKind = "projectFolder" | "workingCopy" | "organizationFolder";

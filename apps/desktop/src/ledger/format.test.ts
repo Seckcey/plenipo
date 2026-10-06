@@ -852,3 +852,31 @@ describe("describeEvent (the chain of command, ADR-202)", () => {
     );
   });
 });
+
+describe("describeEvent (the organization folder, ADR-205)", () => {
+  it("says a save in the organization folder happened there, and one in a project there", () => {
+    expect(
+      describeEvent(
+        event("file.saved", {
+          place: "organizationFolder",
+          path: "Development/Files/plan.md",
+          added: 2,
+          removed: 0,
+        }),
+      ),
+    ).toBe(
+      "You saved Development/Files/plan.md in the organization folder · 2 lines added, 0 removed",
+    );
+    expect(
+      describeEvent(
+        event("file.saved", {
+          place: "projectFolder",
+          project: "Website",
+          path: "README.md",
+          added: 1,
+          removed: 1,
+        }),
+      ),
+    ).toBe("You saved README.md in Website · 1 line added, 1 removed");
+  });
+});

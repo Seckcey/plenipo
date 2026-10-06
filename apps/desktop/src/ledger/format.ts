@@ -161,7 +161,12 @@ function describeFileEvent(type: string, p: Record<string, unknown>): string | n
           : "";
       const added = typeof p.added === "number" ? p.added : 0;
       const removed = typeof p.removed === "number" ? p.removed : 0;
-      return `You saved ${str(p.path) ?? "a file"} in ${str(p.project) ?? "a project"}${where} · ${added} line${added === 1 ? "" : "s"} added, ${removed} removed`;
+      // The organization folder (ADR-205) belongs to no project.
+      const place =
+        p.place === "organizationFolder"
+          ? "the organization folder"
+          : (str(p.project) ?? "a project");
+      return `You saved ${str(p.path) ?? "a file"} in ${place}${where} · ${added} line${added === 1 ? "" : "s"} added, ${removed} removed`;
     }
     case "objective.files_attached": {
       const files = Array.isArray(p.files) ? p.files : [];
