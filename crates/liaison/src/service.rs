@@ -20,9 +20,9 @@ use plenipo_ledger::{
 };
 use plenipo_licensing::{Admission, Blocked, Entitlements};
 use plenipo_runtime::agent::{
-    text_hash, unavailable_outcome, AgentRuntime, AgentSessionDetail, Effort, InstallState,
-    SessionStart, StepNote, TurnDisposition, TurnEnd, TurnHook, TurnInput, TurnOutcome, TurnRef,
-    TurnResult, TurnTask, WorkDoneBy, OWNER,
+    text_hash, unavailable_outcome, AgentRuntime, AgentSessionDetail, BriefInput, Effort,
+    InstallState, SessionStart, StepNote, TurnDisposition, TurnEnd, TurnHook, TurnInput,
+    TurnOutcome, TurnRef, TurnResult, TurnTask, WorkDoneBy, OWNER,
 };
 use plenipo_runtime::RuntimeError;
 use serde_json::{json, Value};
@@ -289,6 +289,41 @@ struct Audience {
     identity: Option<String>,
     who: Option<String>,
     destinations: Vec<Destination>,
+}
+
+/// What the owner's words to a member need, given straight to its conversation (ADR-208,
+/// talking to an agent is direct): its instructions under Plenipo's name, then the words; and
+/// the records that let its own hand-offs, if it makes any, go through Liaison.
+#[derive(Debug, Clone)]
+pub struct DirectTurn {
+    pub brief: BriefInput,
+    /// The task's record: the member's, and the workflow its hand-offs would form.
+    pub task_metadata: Value,
+    /// For a conversation that starts with these words: a member's, whose hand-offs Liaison
+    /// reads.
+    pub session_metadata: Value,
+}
+
+/// A place for a worker the owner starts (Free runs three at a time, ADR-113), given back when
+/// it is dropped: by then a worker that started is counted on the job.
+pub struct OwnerPlace {
+    liaison: Liaison,
+    admission: Option<Admission>,
+}
+
+impl Drop for OwnerPlace {
+    fn drop(&mut self) {
+        if let Some(admission) = self.admission.take() {
+            self.liaison.entitlements().release(admission);
+        }
+    }
+}
+
+/// Whether `metadata` is the conversation of the member `workforce` names.
+pub fn members_conversation(metadata: &Value, workforce: &Value) -> bool {
+    session_info(metadata).origin.as_deref() == Some("member")
+        && workforce["agentId"].as_str().is_some()
+        && metadata["workforce"]["agentId"] == workforce["agentId"]
 }
 
 /// A request Liaison accepted, with what the child needs.
@@ -647,6 +682,48 @@ impl Liaison {
     }
 
     // ---- Members of the organization (Workforce, Phase 5) ------------------------------
+
+    /// A place on the job for a worker the owner starts, or, in plain words, why it waits
+    /// (Free, ADR-113). Given back when dropped, once the start has returned.
+    pub fn owner_place(&self) -> std::result::Result<OwnerPlace, RuntimeError> {
+        Ok(OwnerPlace {
+            admission: Some(self.admit_owners()?),
+            liaison: self.clone(),
+        })
+    }
+
+    /// The owner's words for a member, which Workforce gives straight to its conversation
+    /// (ADR-208, talking to an agent is direct): its instructions name its team and how to hand
+    /// work on, under Plenipo's name. Liaison comes in only if it hands work on.
+    pub async fn direct_turn(
+        &self,
+        objective: &str,
+        workforce: Value,
+    ) -> std::result::Result<DirectTurn, RuntimeError> {
+        if workforce["agentId"].as_str().is_none() || workforce["positionId"].as_str().is_none() {
+            return Err(RuntimeError::InvalidInput(
+                "a member's workforce record names its agent and position".into(),
+            ));
+        }
+        let audience = self.audience_async(workforce.clone()).await;
+        let brief = context::direct_brief(
+            objective,
+            audience.identity.as_deref(),
+            audience.who.as_deref(),
+            &audience.destinations,
+            self.limits(),
+        );
+        let mut task_metadata = root_metadata();
+        task_metadata["workforce"] = workforce.clone();
+        Ok(DirectTurn {
+            brief: brief.into_input(),
+            task_metadata,
+            session_metadata: json!({
+                "liaison": { "enabled": true, "origin": "member", "protocol": PROTOCOL },
+                "workforce": workforce,
+            }),
+        })
+    }
 
     /// Start the session of an organization member (a persistent agent) with the owner's
     /// objective. `workforce` is its record (`positionId`, `agentId`, …), stored with the
