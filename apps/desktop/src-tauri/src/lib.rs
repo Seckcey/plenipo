@@ -7041,11 +7041,13 @@ mod ipc_boundary_tests {
         let main = window(&app, "main");
         let other = window(&app, "untrusted");
         let sign = window(&app, crate::indicator::LABEL);
+        let popout = window(&app, "popout-terminal--main--1");
         let args = serde_json::json!({ "taskId": "t-1" });
         for cmd in COST {
             for (answer, from) in [
                 (invoke_json(&other, cmd, args.clone()), "another window"),
                 (invoke_json(&sign, cmd, args.clone()), "the sign"),
+                (invoke_json(&popout, cmd, args.clone()), "a pop-out"),
                 (
                     invoke_with(&main, cmd, args.clone(), "https://example.com"),
                     "a web page",

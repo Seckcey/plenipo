@@ -257,8 +257,11 @@ fn cost_of(c: &Connection, task_id: &str) -> Result<TaskCost> {
 /// The task and those handed out beneath it, depth-first in the order they began; at most
 /// `TREE_MAX`, and whether there were more.
 fn tree(c: &Connection, root: &str) -> Result<(Vec<String>, bool)> {
-    let mut children =
-        c.prepare("SELECT id FROM tasks WHERE parent_task_id = ?1 ORDER BY created_at, id")?;
+    // A task's children past `TREE_MAX + 1` can never be reached before the cap: none are read.
+    let mut children = c.prepare(
+        "SELECT id FROM tasks WHERE parent_task_id = ?1 ORDER BY created_at, id LIMIT ?2",
+    )?;
+    let limit = i64::try_from(TREE_MAX + 1).unwrap_or(i64::MAX);
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     let mut stack = vec![root.to_owned()];
@@ -270,7 +273,7 @@ fn tree(c: &Connection, root: &str) -> Result<(Vec<String>, bool)> {
             return Ok((out, true));
         }
         let kids = children
-            .query_map([&id], |r| r.get::<_, String>(0))?
+            .query_map(rusqlite::params![id, limit], |r| r.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         out.push(id);
         stack.extend(kids.into_iter().rev());
@@ -466,12 +469,26 @@ mod tests {
     fn a_tree_past_its_limit_says_there_is_more() {
         let l = ledger();
         task(&l, "root", None, 0, json!({}));
-        for i in 0..TREE_MAX {
+        // Exactly TREE_MAX tasks: all of them, and no more.
+        for i in 0..TREE_MAX - 1 {
+            let id = format!("c{i:03}");
+            task(&l, &id, Some("root"), 1 + i as i64, json!({}));
+        }
+        let tree = l.task_tree_cost("root").unwrap();
+        assert_eq!(tree.parts.len(), TREE_MAX);
+        assert!(!tree.more);
+        // More children than the cap reads: the first ones, in order, and `more`.
+        for i in TREE_MAX - 1..TREE_MAX + 5 {
             let id = format!("c{i:03}");
             task(&l, &id, Some("root"), 1 + i as i64, json!({}));
         }
         let tree = l.task_tree_cost("root").unwrap();
         assert_eq!(tree.parts.len(), TREE_MAX);
         assert!(tree.more);
+        assert_eq!(tree.parts[0].task_id, "root");
+        assert_eq!(
+            tree.parts[TREE_MAX - 1].task_id,
+            format!("c{:03}", TREE_MAX - 2)
+        );
     }
 }
