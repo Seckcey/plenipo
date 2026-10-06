@@ -40,6 +40,7 @@ import {
   openTab,
   popOutTab,
   positionSession,
+  positionThread,
   putBackTab,
   readChatTabs,
   setSession,
@@ -103,6 +104,21 @@ function saysNothingRuns(message: string): boolean {
 /** What a chat says when its agent goes on working after Stop. */
 function notStoppedYet(title: string): string {
   return `${title} has not stopped yet. Try Stop all, the red button on the map.`;
+}
+
+/** The conversation a chat shows now: its own, or its position's agent's. */
+function currentOf(tab: ChatTab, state: AgentState): string | null {
+  return tab.sessionId ?? (tab.positionId ? positionSession(state, tab.positionId) : null);
+}
+
+/**
+ * The conversations a chat shows, oldest first: a position's whole thread (each task an on-call
+ * worker was handed is a conversation of its own, B5), or the one conversation.
+ */
+function threadOf(tab: ChatTab, state: AgentState): string[] {
+  const ids = tab.positionId ? positionThread(state, tab.positionId) : [];
+  const current = currentOf(tab, state);
+  return current && !ids.includes(current) ? [...ids, current] : ids;
 }
 
 /** Every open chat: the panel's tabs, then those shown only elsewhere (the Workers page). */
@@ -172,6 +188,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const [queues, setQueuesState] = useState<Record<string, string[]>>({});
   const queuesRef = useRef(queues);
+  /** The chat each waiting message was written in, so it goes even after nothing shows it. */
+  const queuedTabs = useRef<Record<string, ChatTab>>({});
   const setQueues = useCallback(
     (change: (q: Record<string, string[]>) => Record<string, string[]>) => {
       const next = change(queuesRef.current);
@@ -338,9 +356,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   /** Send each chat's oldest waiting message whose agent is free now. */
   const flush = useCallback(() => {
-    for (const tab of openChats(tabsRef.current, shownRef.current)) {
-      const waiting = queuesRef.current[tab.key];
-      if (!waiting || waiting.length === 0) continue;
+    // Every chat with a message waiting, even one nothing shows any more (a chat seen only on the
+    // Workers page): what you sent goes when its agent is free, wherever you are.
+    for (const [key, waiting] of Object.entries(queuesRef.current)) {
+      if (waiting.length === 0) continue;
+      const tab =
+        openChats(tabsRef.current, shownRef.current).find((t) => t.key === key) ??
+        queuedTabs.current[key];
+      if (!tab) continue;
       if (sendingRef.current[tab.key] || busyNow(tab)) continue;
       const [first, ...rest] = waiting;
       if (first === undefined) continue;
@@ -355,15 +378,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // The conversations the open chats show (in the panel, or elsewhere) are fetched once, then
   // kept live.
   const wanted = useMemo(
-    () =>
-      openChats(tabs, shown)
-        .map(
-          (tab) =>
-            tab.sessionId ?? (tab.positionId ? positionSession(agentState, tab.positionId) : null),
-        )
-        .filter((id): id is string => id !== null),
+    () => [...new Set(openChats(tabs, shown).flatMap((tab) => threadOf(tab, agentState)))],
     [tabs, shown, agentState],
   );
+  // A chat of several conversations shows them as one, oldest first (the same turns, kept).
+  const threads = useMemo(() => {
+    const all: Record<string, ChatSession> = {};
+    for (const tab of openChats(tabs, shown)) {
+      const ids = threadOf(tab, agentState);
+      const current = currentOf(tab, agentState);
+      if (ids.length < 2 || !current) continue;
+      all[tab.key] = {
+        sessionId: current,
+        turns: ids.flatMap((id) => conversations[id]?.turns ?? []),
+      };
+    }
+    return all;
+  }, [tabs, shown, agentState, conversations]);
   useEffect(() => {
     for (const id of wanted) if (!conversationsRef.current[id]) load(id);
   }, [wanted, load]);
@@ -512,6 +543,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       },
       close: (key) => {
         setTabs((t) => closeTab(t, key));
+        delete queuedTabs.current[key];
         setQueues((q) => {
           if (!(key in q)) return q;
           const rest = { ...q };
@@ -542,6 +574,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       tab: (key) => tabOf(key) ?? null,
       sessionOf: (tab) => sessionOfTab(tab, agentState),
       conversation: (tab) => {
+        const thread = threads[tab.key];
+        if (thread) return thread;
         const id = sessionOfTab(tab, agentState);
         return id ? (conversations[id] ?? null) : null;
       },
@@ -559,6 +593,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (!tab || message === "") return;
         const waiting = (queuesRef.current[key]?.length ?? 0) > 0;
         if (waiting || sendingRef.current[key] || busyNow(tab)) {
+          queuedTabs.current[key] = tab;
           setQueues((q) => ({ ...q, [key]: [...(q[key] ?? []), message] }));
           return;
         }
@@ -625,6 +660,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     tabs,
     shown,
     conversations,
+    threads,
     agentState,
     queues,
     sendingKeys,

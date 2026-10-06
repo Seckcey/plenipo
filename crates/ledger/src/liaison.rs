@@ -888,11 +888,13 @@ impl Ledger {
     }
 
     /// Resume a waiting task with its pending replies: they become `delivered`
-    /// (`liaison.replies_delivered`) and the task moves from `blocked` to `running`.
+    /// (`liaison.replies_delivered`, with the step that receives them) and the task moves from
+    /// `blocked` to `running`.
     pub fn resume_with_replies(
         &self,
         task_id: &str,
         reply_ids: &[String],
+        step: Option<u32>,
         reason: &str,
         actor: &str,
     ) -> Result<Task> {
@@ -915,7 +917,11 @@ impl Ledger {
                         task_id,
                         actor,
                         "liaison.replies_delivered",
-                        json!({ "messageIds": reply_ids, "correlationId": correlation }),
+                        json!({
+                            "messageIds": reply_ids,
+                            "correlationId": correlation,
+                            "step": step,
+                        }),
                     ),
                 )?);
             }
@@ -1742,9 +1748,22 @@ mod tests {
 
         assert_eq!(l.liaison_ready_deliveries().unwrap(), [parent.id.as_str()]);
         let resumed = l
-            .resume_with_replies(&parent.id, &["r-1".into()], "1 reply delivered", "liaison")
+            .resume_with_replies(
+                &parent.id,
+                &["r-1".into()],
+                Some(2),
+                "1 reply delivered",
+                "liaison",
+            )
             .unwrap();
         assert_eq!(resumed.state, TaskState::Running);
+        // With the step that receives them (Phase 25, B5).
+        let delivered = l
+            .last_task_event(&parent.id, "liaison.replies_delivered")
+            .unwrap()
+            .unwrap();
+        assert_eq!(delivered.payload["messageIds"], json!(["r-1"]));
+        assert_eq!(delivered.payload["step"], 2);
         assert_eq!(
             l.liaison_message("r-1").unwrap().unwrap().state,
             MessageState::Delivered
@@ -1754,7 +1773,7 @@ mod tests {
         l.transition_task(&parent.id, TaskState::Blocked, "liaison", None)
             .unwrap();
         assert!(l
-            .resume_with_replies(&parent.id, &["r-1".into()], "again", "liaison")
+            .resume_with_replies(&parent.id, &["r-1".into()], Some(3), "again", "liaison")
             .is_err());
 
         assert_eq!(
