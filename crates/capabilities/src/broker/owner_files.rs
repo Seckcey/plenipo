@@ -360,6 +360,15 @@ enum RootRef<'a> {
 /// The organization folder's name as a file view's top folder.
 pub(crate) const ORG_ROOT: &str = "org:folder";
 
+/// A file a worker is changing now, as Watch has it.
+struct Changed {
+    /// Its top folder (`copy:…`, `project:…`); none for work with no project.
+    root: Option<String>,
+    path: String,
+    worker: String,
+    position_id: Option<String>,
+}
+
 fn parse_root(root: &str) -> Result<RootRef<'_>> {
     let bad = || BrokerError::Invalid("That is not a folder Plenipo knows.".into());
     let (kind, id) = root.split_once(':').ok_or_else(bad)?;
@@ -1199,21 +1208,37 @@ impl Broker {
             .filter(|g| !g.revoked)
             .map(|g| g.session_id.clone())
             .collect();
-        let mut out: Vec<ChangingFile> = self
+        let changes: Vec<Changed> = self
             .watch()
             .changing(&sessions)
             .into_iter()
+            .map(|c| Changed {
+                root: c.root,
+                path: c.path,
+                worker: c.worker,
+                position_id: c.position_id,
+            })
+            .collect();
+        self.marked(&changes)
+    }
+
+    /// The file view's marks for files being changed: each in its top folder, and again where
+    /// the organization folder shows it.
+    fn marked(&self, changes: &[Changed]) -> Vec<ChangingFile> {
+        let mut out: Vec<ChangingFile> = changes
+            .iter()
             .filter_map(|c| {
                 Some(ChangingFile {
-                    root: c.root?,
-                    path: c.path,
-                    worker: c.worker,
-                    position_id: c.position_id,
+                    root: c.root.clone()?,
+                    path: c.path.clone(),
+                    worker: c.worker.clone(),
+                    position_id: c.position_id.clone(),
                 })
             })
             .collect();
-        // A file in a project folder inside the organization folder (ADR-205) is marked where
-        // the organization folder shows it too.
+        // A file in a folder inside the organization folder (ADR-205) is marked where the
+        // organization folder shows it too: a project folder there, a project's Files folder
+        // (its folder when it has none of its own), and a worker's scratch pad.
         let org = self
             .ledger()
             .organization_folder()
@@ -1221,26 +1246,40 @@ impl Broker {
             .flatten()
             .and_then(|f| dunce::canonicalize(f.path).ok());
         if let Some(org) = org {
+            let recorded = |kind: FolderKind, id: &str| {
+                self.ledger()
+                    .folder(kind, Some(id))
+                    .ok()
+                    .flatten()
+                    .map(|f| PathBuf::from(f.path))
+            };
             let mut inside: std::collections::HashMap<String, Option<String>> =
                 std::collections::HashMap::new();
-            let mut more = Vec::new();
-            for c in &out {
-                let prefix = inside.entry(c.root.clone()).or_insert_with(|| {
-                    let known = self.known_root(&c.root).ok()?;
-                    if known.kind != FileRootKind::ProjectFolder {
-                        return None;
-                    }
-                    let real = dunce::canonicalize(&known.folder).ok()?;
-                    let rel = real.strip_prefix(&org).ok()?;
-                    Some(
-                        rel.components()
-                            .map(|p| p.as_os_str().to_string_lossy().into_owned())
-                            .collect::<Vec<_>>()
-                            .join("/"),
-                    )
+            for c in changes {
+                // Each change's folder: its top folder, or, for work with no project, its
+                // worker's scratch pad.
+                let key = match (&c.root, &c.position_id) {
+                    (Some(root), _) => root.clone(),
+                    (None, Some(position)) => format!("pad:{position}"),
+                    (None, None) => continue,
+                };
+                let prefix = inside.entry(key).or_insert_with(|| {
+                    let folder = match (&c.root, &c.position_id) {
+                        (Some(root), _) => match self.known_root(root) {
+                            Ok(known) if known.kind == FileRootKind::ProjectFolder => known.folder,
+                            Ok(_) => return None,
+                            Err(_) => {
+                                recorded(FolderKind::ProjectFiles, root.strip_prefix("project:")?)?
+                            }
+                        },
+                        (None, Some(position)) => recorded(FolderKind::ScratchPad, position)?,
+                        (None, None) => return None,
+                    };
+                    let real = dunce::canonicalize(&folder).ok()?;
+                    plenipo_guard::places::relative_parts(&real, &org).map(|parts| parts.join("/"))
                 });
                 if let Some(prefix) = prefix {
-                    more.push(ChangingFile {
+                    out.push(ChangingFile {
                         root: ORG_ROOT.into(),
                         path: if prefix.is_empty() {
                             c.path.clone()
@@ -1252,7 +1291,6 @@ impl Broker {
                     });
                 }
             }
-            out.extend(more);
         }
         out
     }
@@ -1774,6 +1812,55 @@ mod tests {
         let kept = crate::org_folder::keep(&p.ledger, &[]);
         assert!(kept.problems.is_empty(), "{kept:?}");
         root
+    }
+
+    /// ADR-205 §2.4: a file a worker is changing in its scratch pad, or in the Files folder of a
+    /// project with no folder of its own, is marked where the organization folder shows it.
+    #[tokio::test]
+    async fn changes_in_a_scratch_pad_and_a_files_folder_are_marked_in_the_organization_folder() {
+        let p = project();
+        with_organization_folder(&p);
+        let notes = p
+            .ledger
+            .create_project("Notes", None, None, None, "test")
+            .unwrap();
+        let kept = crate::org_folder::keep(&p.ledger, &[]);
+        assert!(kept.problems.is_empty(), "{kept:?}");
+        let manager = p
+            .ledger
+            .org_records()
+            .unwrap()
+            .positions
+            .into_iter()
+            .find(|x| x.title == "Development Manager")
+            .unwrap()
+            .id;
+        let change = |root: Option<String>, position: Option<&str>, path: &str| Changed {
+            root,
+            path: path.into(),
+            worker: "Someone".into(),
+            position_id: position.map(str::to_owned),
+        };
+        let marks = p.broker.marked(&[
+            change(None, Some(&manager), "notes.md"),
+            change(Some(format!("project:{}", notes.id)), None, "draft.md"),
+            // A working copy Plenipo doesn't know, and work with no folder at all: no mark there.
+            change(Some("copy:gone".into()), Some(&manager), "x.md"),
+            change(None, None, "y.md"),
+        ]);
+        let in_org: Vec<&str> = marks
+            .iter()
+            .filter(|m| m.root == ORG_ROOT)
+            .map(|m| m.path.as_str())
+            .collect();
+        assert_eq!(
+            in_org,
+            vec![
+                "Development/Scratch pads/Development Manager/notes.md",
+                "Notes/Files/draft.md"
+            ],
+            "{marks:?}"
+        );
     }
 
     #[tokio::test]

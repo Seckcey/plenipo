@@ -41,6 +41,7 @@ import {
   useSubmit,
 } from "./dialogHelpers";
 import { Modal } from "./Modal";
+import { ProjectFolderField } from "./ProjectFolderField";
 import { RuntimeOptions } from "./RuntimeOptions";
 import { reusableWorkers } from "./teamReuse";
 import { runtimeChoiceLabel, subscriptionInstead } from "./runtimeChoices";
@@ -838,17 +839,10 @@ function ProjectSettingsFields({
           onChange={(e) => onChange({ repositoryUrl: e.target.value })}
         />
       </Field>
-      <Field
-        label="Project folder (optional)"
-        hint="Its workers' file, program, and git tools work only inside this folder. Without one, they work in Plenipo's own folder inside Documents."
-      >
-        <input
-          value={value.localPath}
-          maxLength={1000}
-          placeholder="D:\projects\website"
-          onChange={(e) => onChange({ localPath: e.target.value })}
-        />
-      </Field>
+      <ProjectFolderField
+        value={value.localPath}
+        onChange={(localPath) => onChange({ localPath })}
+      />
       <label className="choice">
         <input
           type="checkbox"

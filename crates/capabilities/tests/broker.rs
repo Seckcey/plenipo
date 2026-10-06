@@ -2754,23 +2754,40 @@ async fn plenipo_starts_light_an_agent_saves_a_file_and_runs_a_program() {
     assert!(Path::new(&found.path).join("clear-temp.ps1").is_file());
 }
 
-/// An organization with an organization folder (ADR-205) keeps work that belongs to no project
-/// inside it, never in a folder worked out from its name: another organization of the same name
-/// may have that one.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn work_with_no_project_stays_in_the_organizations_own_folder() {
-    let h = harness_light().await;
-    let root = h.dir.path().join("Acme (2)");
-    plenipo_capabilities::org_folder::create(&h.ledger, &root, "Acme", "owner").unwrap();
-    let manager = h
-        .workforce
+/// The position's scratch pad in the organization folder, as Plenipo recorded it (ADR-205), made
+/// by one pass of keeping the folder.
+fn scratch_pad_of(h: &H, position_id: &str) -> PathBuf {
+    let kept = plenipo_capabilities::org_folder::keep(&h.ledger, &[]);
+    assert!(kept.problems.is_empty(), "{kept:?}");
+    PathBuf::from(
+        h.ledger
+            .folder(plenipo_ledger::FolderKind::ScratchPad, Some(position_id))
+            .unwrap()
+            .expect("the scratch pad is recorded")
+            .path,
+    )
+}
+
+fn manager_of(h: &H) -> String {
+    h.workforce
         .snapshot()
         .unwrap()
         .positions
         .into_iter()
         .find(|p| p.title == "Development Manager")
         .unwrap()
-        .id;
+        .id
+}
+
+/// An organization with an organization folder keeps work that belongs to no project in the
+/// worker's scratch pad there (ADR-205 §2.4), as recorded: never in a folder worked out from a
+/// name, which another organization of the same name may have.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn work_with_no_project_lands_in_its_scratch_pad() {
+    let h = harness_light().await;
+    let root = h.dir.path().join("Acme (2)");
+    plenipo_capabilities::org_folder::create(&h.ledger, &root, "Acme", "owner").unwrap();
+    let manager = manager_of(&h);
     let work = tool(
         "write_file",
         serde_json::json!({ "path": "notes.md", "content": "plan" }),
@@ -2782,10 +2799,21 @@ async fn work_with_no_project_stays_in_the_organizations_own_folder() {
         .unwrap();
     let task = detail.turns.last().unwrap().task_id.clone();
     assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    // The broker made and recorded the scratch pad itself when the step opened.
+    let pad = PathBuf::from(
+        h.ledger
+            .folder(plenipo_ledger::FolderKind::ScratchPad, Some(&manager))
+            .unwrap()
+            .expect("the scratch pad is recorded")
+            .path,
+    );
+    assert!(pad.starts_with(&root), "{pad:?}");
+    assert!(pad.ends_with(Path::new("Scratch pads").join("Development Manager")));
     assert_eq!(
-        std::fs::read_to_string(root.join("Development Manager").join("notes.md")).unwrap(),
+        std::fs::read_to_string(pad.join("notes.md")).unwrap(),
         "plan"
     );
+    assert!(!root.join("Development Manager").exists());
     assert!(!h
         .dir
         .path()
@@ -2795,7 +2823,85 @@ async fn work_with_no_project_stays_in_the_organizations_own_folder() {
         .exists());
     let found = h.broker.work_folder(&task).unwrap().unwrap();
     // (Its path may be written the long way or in Windows' short names.)
-    assert!(found.path.contains("Acme (2)"), "{found:?}");
+    assert!(found.path.contains("Scratch pads"), "{found:?}");
+    let opened = h.events(&task, "guard.grant_opened");
+    assert!(opened[0]["note"].is_null(), "{opened:?}");
+}
+
+/// ADR-205 §2.4: a project with no folder of its own works in its Files folder in the
+/// organization folder, where the owner looks for finished work.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_project_without_a_folder_works_in_its_files_folder() {
+    let h = harness_light().await;
+    let root = h.dir.path().join("Acme");
+    plenipo_capabilities::org_folder::create(&h.ledger, &root, "Acme", "owner").unwrap();
+    let snapshot = h.workforce.snapshot().unwrap();
+    let p = snapshot
+        .projects
+        .iter()
+        .find(|p| p.name == "Website")
+        .unwrap();
+    h.workforce
+        .update_project(
+            &p.id,
+            &ProjectInput {
+                name: p.name.clone(),
+                description: p.description.clone(),
+                repository_url: None,
+                local_path: None,
+                allowed_runtimes: p.allowed_runtimes.clone(),
+                capability_profile: None,
+                branch_per_objective: None,
+                department_id: None,
+                coordinator: None,
+            },
+        )
+        .unwrap();
+    // A worker on the project's team writes there; its Supervisor, a lead, reads there and
+    // hands changes on (ADR-016), as in any project folder.
+    let work = tool(
+        "write_file",
+        serde_json::json!({ "path": "plan.md", "content": "# Plan" }),
+    );
+    let objective = h
+        .objective(&handoff(
+            "Backend Developer",
+            &format!("[tools-list] {work}"),
+        ))
+        .await;
+    let task = h.child(&objective).await.id;
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    h.finished(&objective).await;
+    let lead = h.events(&objective, "guard.grant_opened");
+    assert!(
+        lead.iter()
+            .all(|g| g["permissions"].get("filesystem.write").is_none()),
+        "{lead:#?}"
+    );
+    let files = PathBuf::from(
+        h.ledger
+            .folder(plenipo_ledger::FolderKind::ProjectFiles, Some(&p.id))
+            .unwrap()
+            .expect("the project's Files folder is recorded")
+            .path,
+    );
+    assert!(
+        files.starts_with(&root) && files.ends_with("Files"),
+        "{files:?}"
+    );
+    let opened = h.events(&task, "guard.grant_opened");
+    assert_eq!(
+        std::fs::read_to_string(files.join("plan.md"))
+            .unwrap_or_else(|e| panic!("{e}; the steps opened: {opened:#?}")),
+        "# Plan"
+    );
+    assert!(h.events(&task, "guard.grant_skipped").is_empty());
+    assert!(!h.dir.path().join("files").join("Organization").exists());
+    let found = h.broker.work_folder(&task).unwrap().unwrap();
+    assert_eq!(found.project.as_deref(), Some("Website"));
+    assert!(!found.plenipo_files);
+    // Files folders are never a working copy's repository.
+    assert!(h.ledger.project_workspaces(&p.id, 10).unwrap().is_empty());
 }
 
 /// One writer at a time reaches an agent's own folder too (ADR-093, ADR-205): while a worker's
@@ -2806,17 +2912,17 @@ async fn an_agents_own_folder_is_read_only_for_the_owner_while_it_works_there() 
     let h = harness_light().await;
     let root = h.dir.path().join("Acme");
     plenipo_capabilities::org_folder::create(&h.ledger, &root, "Acme", "owner").unwrap();
-    std::fs::create_dir_all(root.join("Development Manager")).unwrap();
-    std::fs::write(root.join("Development Manager").join("notes.md"), "plan\n").unwrap();
-    let manager = h
-        .workforce
-        .snapshot()
+    let manager = manager_of(&h);
+    let pad = scratch_pad_of(&h, &manager);
+    std::fs::write(pad.join("notes.md"), "plan\n").unwrap();
+    let notes = pad
+        .join("notes.md")
+        .strip_prefix(&root)
         .unwrap()
-        .positions
-        .into_iter()
-        .find(|p| p.title == "Development Manager")
-        .unwrap()
-        .id;
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/");
     let work = tool(
         "write_file",
         serde_json::json!({ "path": "later.md", "content": "x" }),
@@ -2828,7 +2934,7 @@ async fn an_agents_own_folder_is_read_only_for_the_owner_while_it_works_there() 
         .unwrap();
     let task = detail.turns.last().unwrap().task_id.clone();
     let org = "org:folder";
-    let notes = "Development Manager/notes.md";
+    let notes = notes.as_str();
     let deadline = Instant::now() + WAIT;
     let view = loop {
         let view = h.broker.read_file(org, notes).unwrap();
@@ -2878,29 +2984,22 @@ async fn an_agents_own_folder_is_read_only_for_the_owner_while_it_works_there() 
         .is_ok());
 }
 
-/// The reviewer's N2 on #221: an agent's own folder in the organization folder that is a
-/// junction or link leads somewhere else, so it is never a step's folder: nothing is written
-/// through it.
+/// The reviewer's N2 on #221, kept for scratch pads: one that became a junction or link leads
+/// somewhere else, so it is never a step's folder: nothing is written through it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_agents_own_folder_that_is_a_junction_is_not_used() {
     let h = harness_light().await;
     let root = h.dir.path().join("Acme (2)");
     plenipo_capabilities::org_folder::create(&h.ledger, &root, "Acme", "owner").unwrap();
+    let manager = manager_of(&h);
+    let pad = scratch_pad_of(&h, &manager);
+    std::fs::remove_dir(&pad).unwrap();
     let elsewhere = h.dir.path().join("elsewhere");
     std::fs::create_dir_all(&elsewhere).unwrap();
-    if !link_out(&elsewhere, &root.join("Development Manager")) {
+    if !link_out(&elsewhere, &pad) {
         eprintln!("this computer does not allow a junction or link here; skipped");
         return;
     }
-    let manager = h
-        .workforce
-        .snapshot()
-        .unwrap()
-        .positions
-        .into_iter()
-        .find(|p| p.title == "Development Manager")
-        .unwrap()
-        .id;
     let work = tool(
         "write_file",
         serde_json::json!({ "path": "notes.md", "content": "plan" }),
@@ -2917,6 +3016,94 @@ async fn an_agents_own_folder_that_is_a_junction_is_not_used() {
         "nothing was written through the junction"
     );
     assert!(h.broker.work_folder(&task).unwrap().is_none());
+    // The reviewer's N1 on #230: the worker and the record say why, in plain words.
+    let why = folder_reason(&h, &task);
+    assert!(
+        why.contains("your scratch pad can't be used") && why.contains("shortcut"),
+        "{why}"
+    );
+}
+
+/// What the record says about a step's folder: its note when it opened, or why it got no tools.
+fn folder_reason(h: &H, task: &str) -> String {
+    h.events(task, "guard.grant_opened")
+        .iter()
+        .filter_map(|g| g["note"].as_str().map(str::to_owned))
+        .chain(
+            h.events(task, "guard.grant_skipped")
+                .iter()
+                .filter_map(|g| g["reason"].as_str().map(str::to_owned)),
+        )
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// The reviewer's N1 on #230: a project whose Files folder became a junction gets no folder, and
+/// its worker and the record say why, in plain words, instead of "no folder".
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_files_folder_that_is_a_junction_is_not_used_and_says_why() {
+    let h = harness_light().await;
+    let root = h.dir.path().join("Acme");
+    plenipo_capabilities::org_folder::create(&h.ledger, &root, "Acme", "owner").unwrap();
+    let snapshot = h.workforce.snapshot().unwrap();
+    let p = snapshot
+        .projects
+        .iter()
+        .find(|p| p.name == "Website")
+        .unwrap();
+    h.workforce
+        .update_project(
+            &p.id,
+            &ProjectInput {
+                name: p.name.clone(),
+                description: p.description.clone(),
+                repository_url: None,
+                local_path: None,
+                allowed_runtimes: p.allowed_runtimes.clone(),
+                capability_profile: None,
+                branch_per_objective: None,
+                department_id: None,
+                coordinator: None,
+            },
+        )
+        .unwrap();
+    let kept = plenipo_capabilities::org_folder::keep(&h.ledger, &[]);
+    assert!(kept.problems.is_empty(), "{kept:?}");
+    let files = PathBuf::from(
+        h.ledger
+            .folder(plenipo_ledger::FolderKind::ProjectFiles, Some(&p.id))
+            .unwrap()
+            .unwrap()
+            .path,
+    );
+    std::fs::remove_dir(&files).unwrap();
+    let elsewhere = h.dir.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    if !link_out(&elsewhere, &files) {
+        eprintln!("this computer does not allow a junction or link here; skipped");
+        return;
+    }
+    let work = tool(
+        "write_file",
+        serde_json::json!({ "path": "plan.md", "content": "# Plan" }),
+    );
+    let objective = h
+        .objective(&handoff(
+            "Backend Developer",
+            &format!("[tools-list] {work}"),
+        ))
+        .await;
+    let task = h.child(&objective).await.id;
+    h.finished(&task).await;
+    h.finished(&objective).await;
+    assert!(std::fs::read_dir(&elsewhere).unwrap().next().is_none());
+    let why = folder_reason(&h, &task);
+    assert!(
+        why.contains("the Website project's Files folder can't be used")
+            && why.contains("shortcut"),
+        "{why}"
+    );
+    assert!(!why.contains("has no folder"), "{why}");
 }
 
 /// In its team's project folder, a lead reads, plans, and hands each change on (ADR-016, kept by
