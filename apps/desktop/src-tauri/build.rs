@@ -92,6 +92,9 @@ const COMMANDS: &[&str] = &[
     "get_spending",
     "set_spending_cap",
     "remove_spending_cap",
+    // I2: what a task cost (tokens, and money on paid keys).
+    "get_task_cost",
+    "get_task_tree_cost",
     // Phase 20: Settings → Connections (signing in happens in the owner's own browser).
     "get_connections",
     "connect_connection",

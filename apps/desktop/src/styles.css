@@ -1798,55 +1798,6 @@ body.popout {
   overflow-wrap: anywhere;
 }
 
-.turns {
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.turn {
-  margin-bottom: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--ui-border);
-  border-radius: 10px;
-}
-
-.turn[data-running="true"] {
-  border-color: var(--ui-accent);
-}
-
-.turn__header {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
-  align-items: start;
-}
-
-.turn__number {
-  color: var(--ui-text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.turn__objective {
-  font-weight: 600;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.turn__activity {
-  margin-top: 8px;
-}
-
-.turn__activity summary {
-  color: var(--ui-text-secondary);
-  cursor: pointer;
-  font-size: var(--ui-font-sm);
-}
-
-.turn__result {
-  margin-top: 8px;
-}
-
 .turn__text {
   padding: 8px 10px;
   border-radius: 8px;
@@ -1932,10 +1883,6 @@ body.popout {
   display: block;
   color: var(--ui-text-secondary);
   font-size: var(--ui-font-xs);
-}
-
-.turn[data-waiting="true"] {
-  border-color: var(--ui-warn);
 }
 
 .steps {

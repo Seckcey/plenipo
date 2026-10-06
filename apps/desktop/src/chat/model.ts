@@ -16,7 +16,7 @@ import type {
   TurnOutcome,
 } from "@plenipo/types";
 
-import { turnUsage } from "../agents/format";
+import { describePrompt, turnPromptSizes, turnUsage } from "../agents/format";
 import { stepOf } from "../agents/store";
 import { toolKind } from "./words";
 
@@ -64,6 +64,13 @@ export interface ChatTurn {
   usage: TokenUsage | null;
   /** Stopped before a step reported its tokens: it used at least `usage`. */
   usageAtLeast: boolean;
+  /**
+   * What Plenipo itself sent with the task, by size only, shown beside its tokens (ADR-044):
+   * "Plenipo's own text: 0.4 KB (a short reminder)". From the turn's record; `null` without one.
+   */
+  ownText: string | null;
+  /** Its newest run of its AI tool, whose raw output Plenipo keeps (the AI tools page). */
+  executionId: string | null;
   /** What each step reported live, by step, until the turn's record adds them up. */
   stepUsage: Record<number, TokenUsage>;
   /**
@@ -100,6 +107,8 @@ function newTurn(taskId: string, number: number, at: number): ChatTurn {
     outcome: null,
     usage: null,
     usageAtLeast: false,
+    ownText: null,
+    executionId: null,
     stepUsage: {},
     stepStarts: [],
     model: null,
@@ -482,6 +491,9 @@ export function applyTurn(session: ChatSession, record: AgentTurn): ChatSession 
     outcome: record.result?.outcome ?? null,
     usage,
     usageAtLeast: tokens.usage ? tokens.atLeast : base.usageAtLeast,
+    ownText: describePrompt(turnPromptSizes(record)) ?? base.ownText,
+    executionId:
+      record.steps[record.steps.length - 1]?.executionId ?? record.executionId ?? base.executionId,
     model: record.result?.model ?? base.model,
   };
   const turns = i >= 0 ? session.turns.slice() : [...session.turns, next];

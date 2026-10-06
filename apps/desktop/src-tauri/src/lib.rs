@@ -16,6 +16,7 @@ pub mod community_messages;
 pub mod community_rewards;
 pub mod community_safety;
 pub mod connections_commands;
+pub mod cost_commands;
 pub mod diagnostics;
 pub mod files_commands;
 pub mod folder_commands;
@@ -641,6 +642,8 @@ pub fn configure<R: Runtime>(
             spending_commands::get_spending,
             spending_commands::set_spending_cap,
             spending_commands::remove_spending_cap,
+            cost_commands::get_task_cost,
+            cost_commands::get_task_tree_cost,
             ai_tools_commands::get_ai_tools,
             ai_tools_commands::check_ai_tool,
             ai_tools_commands::check_ai_tool_versions,
@@ -7181,6 +7184,82 @@ mod ipc_boundary_tests {
             err.to_string().contains("not a folder Plenipo knows"),
             "{err}"
         );
+    }
+
+    // ---- I2: what a task cost ----
+
+    const COST: [&str; 2] = ["get_task_cost", "get_task_tree_cost"];
+
+    #[test]
+    fn a_tasks_cost_is_the_main_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        let popout = window(&app, "popout-terminal--main--1");
+        let args = serde_json::json!({ "taskId": "t-1" });
+        for cmd in COST {
+            for (answer, from) in [
+                (invoke_json(&other, cmd, args.clone()), "another window"),
+                (invoke_json(&sign, cmd, args.clone()), "the sign"),
+                (invoke_json(&popout, cmd, args.clone()), "a pop-out"),
+                (
+                    invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                    "a web page",
+                ),
+            ] {
+                let err = answer.expect_err(from);
+                assert!(
+                    err.to_string().contains("not allowed"),
+                    "{cmd} from {from}: {err}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_tasks_cost_reads_its_ledger_and_refuses_what_it_does_not_know() {
+        let app = app();
+        let main = window(&app, "main");
+        for cmd in COST {
+            let err = invoke_json(&main, cmd, serde_json::json!({ "taskId": "../x" }))
+                .expect_err("a bad ID");
+            assert!(err.to_string().contains("invalid task id"), "{cmd}: {err}");
+            let unknown = "00000000-0000-4000-8000-000000000000";
+            let err = invoke_json(&main, cmd, serde_json::json!({ "taskId": unknown }))
+                .expect_err("an unknown task");
+            assert!(err.to_string().contains("not found"), "{cmd}: {err}");
+        }
+        let ledger = app.state::<std::sync::Arc<plenipo_ledger::Ledger>>();
+        let new = |objective: &str, parent: Option<String>| {
+            ledger
+                .create_task(
+                    plenipo_ledger::NewTask {
+                        requested_by: "owner".into(),
+                        objective: objective.into(),
+                        parent_task_id: parent,
+                        ..Default::default()
+                    },
+                    "owner",
+                )
+                .unwrap()
+        };
+        let lead = new("Ship the parser", None);
+        let worker = new("Review the parser", Some(lead.id.clone()));
+        let cost: plenipo_ledger::TaskCost = body(invoke_json(
+            &main,
+            "get_task_cost",
+            serde_json::json!({ "taskId": lead.id }),
+        ));
+        assert_eq!((cost.runs, cost.read, cost.spent_micros), (0, 0, 0));
+        let tree: plenipo_ledger::TaskTreeCost = body(invoke_json(
+            &main,
+            "get_task_tree_cost",
+            serde_json::json!({ "taskId": lead.id }),
+        ));
+        let ids: Vec<_> = tree.parts.iter().map(|p| p.task_id.clone()).collect();
+        assert_eq!(ids, [lead.id.clone(), worker.id]);
+        assert!(!tree.more);
     }
 
     // ---- Phase 16 Wave 3: spending caps (ADR-085) ----

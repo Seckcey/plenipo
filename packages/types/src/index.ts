@@ -409,6 +409,11 @@ export type { SpendingCap } from "./generated/SpendingCap";
 export type { SpendingPage } from "./generated/SpendingPage";
 export type { SpendingRecord } from "./generated/SpendingRecord";
 export type { SpendingState } from "./generated/SpendingState";
+// What a task cost: its tokens, and its money on paid keys (I2).
+export type { CostPricedBy } from "./generated/CostPricedBy";
+export type { TaskCost } from "./generated/TaskCost";
+export type { TaskCostPart } from "./generated/TaskCostPart";
+export type { TaskTreeCost } from "./generated/TaskTreeCost";
 // Free and Pro, and the license key (Phase 11A, ADR-100 to ADR-118).
 export type { Blocked } from "./generated/Blocked";
 export type { Edition } from "./generated/Edition";

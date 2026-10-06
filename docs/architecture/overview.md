@@ -149,6 +149,8 @@ Current commands:
 | `close_agent_session`    | `sessionId`                                     | `AgentSession`       | No further turns                                                                                |
 | `get_task_handoffs`      | `taskId`                                        | `TaskHandoffs`       | The handoff that created a task and those it made, with replies                                 |
 | `get_task_tree`          | `taskId`                                        | `TaskTree`           | The task's whole delegation tree, depth-first from its root                                     |
+| `get_task_cost`          | `taskId`                                        | `TaskCost`           | A task's tokens over its runs and, on paid keys, its money and how it was priced (I2)           |
+| `get_task_tree_cost`     | `taskId`                                        | `TaskTreeCost`       | The same for a task and every task beneath it, one part per position; the first 200 (I2)        |
 | `get_liaison_overview`   | —                                               | `LiaisonOverview`    | Protocol, limits, destinations, open handoffs, notices                                          |
 
 Workforce commands (Phase 5). Every change returns the organization as it is afterwards

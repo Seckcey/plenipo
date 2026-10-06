@@ -219,6 +219,8 @@
     "allow-get-spending",
     "allow-set-spending-cap",
     "allow-remove-spending-cap",
+    "allow-get-task-cost",
+    "allow-get-task-tree-cost",
     "allow-save-paid-key",
     "allow-remove-paid-key",
     "allow-get-license",

@@ -73,6 +73,8 @@ export function WorkersPage({
   onSelectSession,
   onOpenRuntimes,
   onOpenPosition,
+  onOpenPage,
+  onShowExecution,
 }: {
   /** What is selected: `position:<id>`, `start`, or a conversation's ID (see `readSelection`). */
   selectedSessionId: string | null;
@@ -81,8 +83,10 @@ export function WorkersPage({
   onOpenRuntimes: (runtimeId?: string) => void;
   /** Shows a position on the Organization page. */
   onOpenPosition?: ((positionId: string) => void) | undefined;
-  /** Opens a page (kept for the app's links into this page). */
+  /** Opens a page: a task's own page, from Details under an answer. */
   onOpenPage?: Go | undefined;
+  /** Shows a run's raw output (the AI tools page), from Raw output under an answer. */
+  onShowExecution?: ((executionId: string) => void) | undefined;
 }) {
   const { snapshot, status, error } = useOrganization();
   const agents = useAgents();
@@ -264,6 +268,8 @@ export function WorkersPage({
                 onPopOut={chat.canPopOut ? () => chat.openWindow(target) : undefined}
                 // The other side of an exchange opens here, beside the tree.
                 onOpenConversation={(id) => onSelectSession(id)}
+                onOpenTask={onOpenPage ? (id) => onOpenPage({ view: "task", id }) : undefined}
+                onShowExecution={onShowExecution}
               />
             </>
           ) : position ? (

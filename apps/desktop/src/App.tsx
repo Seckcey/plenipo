@@ -293,6 +293,11 @@ function Shell({ core }: { core: CoreState }) {
     setSelectedSession(id);
     writeSession(SELECTED_SESSION_KEY, id);
   };
+  /** A run's raw output, on the AI tools page (Raw output under an answer in a chat). */
+  const showExecution = (id: string) => {
+    select(id);
+    navigate("runtimes");
+  };
   const openSession = (id: string) => go({ view: "workers", id });
   const openTask = (id: string) => go({ view: "activity", id });
   const openPosition = (id: string) => go({ view: "organization", id });
@@ -484,6 +489,7 @@ function Shell({ core }: { core: CoreState }) {
               onOpenRuntimes={(id) => go({ view: "runtimes", id: id ?? null })}
               onOpenPosition={openPosition}
               onOpenPage={go}
+              onShowExecution={showExecution}
             />
           )}
           {view === "approvals" && (
@@ -534,7 +540,7 @@ function Shell({ core }: { core: CoreState }) {
             ) : panel === "files" ? (
               <FilesPanel go={go} />
             ) : (
-              <ChatPanel go={go} />
+              <ChatPanel go={go} onShowExecution={showExecution} />
             )
           }
         />
