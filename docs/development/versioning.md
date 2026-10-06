@@ -85,6 +85,7 @@ After the MVP:
 | Phase 25 — Fixes, a simpler Plenipo; safer Guard (ADR-190–199, 213, 214, 250–259)    | `1.25.0` |
 | Each agent's chat in a window of its own (ADR-203)                                   | `1.26.0` |
 | The organization folder, the Workers tree, direct chat, Stop fixes (ADR-205, 208)    | `1.27.0` |
+| The GitHub connection and its repository list (ADR-204), work in its place (ADR-205) | `1.28.0` |
 
 ## Releasing
 
