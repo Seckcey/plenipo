@@ -159,7 +159,9 @@ impl Ledger {
 
 fn exists(c: &Connection, task_id: &str) -> Result<()> {
     let found: Option<String> = c
-        .query_row("SELECT id FROM tasks WHERE id = ?1", [task_id], |r| r.get(0))
+        .query_row("SELECT id FROM tasks WHERE id = ?1", [task_id], |r| {
+            r.get(0)
+        })
         .optional()?;
     found
         .map(|_| ())
@@ -308,7 +310,7 @@ mod tests {
         Ledger::open_in_memory().unwrap()
     }
 
-    fn task(l: &Ledger, id: &str, parent: Option<&str>, at: u64, metadata: Value) {
+    fn task(l: &Ledger, id: &str, parent: Option<&str>, at: i64, metadata: Value) {
         l.conn()
             .execute(
                 "INSERT INTO tasks (id, parent_task_id, requested_by, objective, state, metadata,
@@ -320,7 +322,7 @@ mod tests {
     }
 
     /// A run of an AI tool (`usage`: its report, or null), or a local program's (`None`).
-    fn run(l: &Ledger, id: &str, task: &str, state: &str, usage: Option<Value>, at: u64) {
+    fn run(l: &Ledger, id: &str, task: &str, state: &str, usage: Option<Value>, at: i64) {
         let meta = match usage {
             Some(usage) => json!({ "providerSessionId": "p", "usage": usage }),
             None => Value::Null,
@@ -338,8 +340,15 @@ mod tests {
         json!({ "inputTokens": read, "cachedInputTokens": reused, "outputTokens": written })
     }
 
-    fn paid(l: &Ledger, id: &str, task: &str, state: &str, set_aside: u64, spent: Option<(u64, &str)>) {
-        let settled = (state != "setAside").then_some(5_u64);
+    fn paid(
+        l: &Ledger,
+        id: &str,
+        task: &str,
+        state: &str,
+        set_aside: i64,
+        spent: Option<(i64, &str)>,
+    ) {
+        let settled = (state != "setAside").then_some(5_i64);
         l.conn()
             .execute(
                 "INSERT INTO spending (id, task_id, runtime, model, month, state, set_aside_micros,
@@ -412,7 +421,13 @@ mod tests {
             )
             .unwrap();
         task(&l, "lead", None, 1, json!({}));
-        task(&l, "a", Some("lead"), 2, json!({ "workforce": { "positionId": "p-dev" } }));
+        task(
+            &l,
+            "a",
+            Some("lead"),
+            2,
+            json!({ "workforce": { "positionId": "p-dev" } }),
+        );
         task(&l, "a1", Some("a"), 3, json!({}));
         task(&l, "b", Some("lead"), 4, json!({}));
         run(&l, "e1", "lead", "succeeded", Some(used(100, 0, 10)), 1);
@@ -425,17 +440,26 @@ mod tests {
         // Depth-first, in the order they began.
         let order: Vec<_> = tree.parts.iter().map(|p| p.task_id.as_str()).collect();
         assert_eq!(order, ["lead", "a", "a1", "b"]);
-        assert_eq!(tree.parts[1].position_title.as_deref(), Some("Senior Developer"));
+        assert_eq!(
+            tree.parts[1].position_title.as_deref(),
+            Some("Senior Developer")
+        );
         assert_eq!(tree.parts[0].position_title, None);
         assert_eq!(tree.parts[0].runtime.as_deref(), Some("codex"));
-        assert_eq!((tree.total.read, tree.total.reused, tree.total.written), (1_000, 50, 100));
+        assert_eq!(
+            (tree.total.read, tree.total.reused, tree.total.written),
+            (1_000, 50, 100)
+        );
         assert_eq!(tree.total.spent_micros, 700);
         assert_eq!(tree.total.priced_by, Some(CostPricedBy::Service));
         assert!(!tree.more);
         // A task alone is its own runs only.
         assert_eq!(l.task_cost("lead").unwrap().read, 100);
         assert!(matches!(l.task_cost("nope"), Err(LedgerError::NotFound(_))));
-        assert!(matches!(l.task_tree_cost("nope"), Err(LedgerError::NotFound(_))));
+        assert!(matches!(
+            l.task_tree_cost("nope"),
+            Err(LedgerError::NotFound(_))
+        ));
     }
 
     #[test]
@@ -444,7 +468,7 @@ mod tests {
         task(&l, "root", None, 0, json!({}));
         for i in 0..TREE_MAX {
             let id = format!("c{i:03}");
-            task(&l, &id, Some("root"), 1 + i as u64, json!({}));
+            task(&l, &id, Some("root"), 1 + i as i64, json!({}));
         }
         let tree = l.task_tree_cost("root").unwrap();
         assert_eq!(tree.parts.len(), TREE_MAX);
