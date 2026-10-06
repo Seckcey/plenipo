@@ -5344,6 +5344,22 @@ body.popout {
   gap: var(--ui-space-2);
 }
 
+/* Where a project's files go (ADR-205 §2.4): the folder box with Choose… beside it. */
+.project-folder__line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ui-space-2);
+}
+
+.project-folder__line .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.project-folder__line .ui-button {
+  margin-top: var(--ui-space-5);
+}
+
 .organizations-setting__list {
   display: grid;
   gap: var(--ui-space-2);

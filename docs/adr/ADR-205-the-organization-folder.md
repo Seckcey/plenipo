@@ -298,3 +298,47 @@ What was there (read at `306af756`, v1.26.0):
 - **N3, for later:** the file view looks up where each recorded folder really is each time it
   lists. If Files feels slow on a large organization folder, keep that and refresh it on the
   `folder.*` events.
+
+### Part 3 (B3): work goes in its place (2026-10-05)
+
+- **Code:** `crates/capabilities/src/broker.rs` (`organization_place`, `project_files_folder`,
+  `own_folder`, `try_open`, and the tools note), `broker/owner_files.rs` (`marked`),
+  `plenipo_guard::places::relative_parts`; the app passes the system's own folders
+  (`BrokerConfig.trusted_places`); on screen, `components/org/ProjectFolderField.tsx` in New
+  project, Edit project, and Set up a Development project.
+- **§2.4, which folder each step gets,** with an organization folder:
+  - **Work that belongs to no project** (a lead's own work too) is done in the worker's **scratch
+    pad**, as recorded. Not recorded yet, or missing: one pass of keeping the folder makes it, at
+    its place, before the step opens. Never through a junction, a link, or a folder Plenipo may not
+    look into (then the step has no folder, and its note says so). A step that is no position's
+    gets no scratch pad.
+  - **A project with no folder of its own** works in its **Files** folder: that is its project
+    folder. Its workers write there; its leads read there and hand changes on (ADR-016), as in any
+    project folder. Before this, a lead wrote in Plenipo's folder for such a project; now its own
+    notes belong in its scratch pad on work that is no project's. A Files folder is never a working
+    copy's repository, even inside a git repository.
+  - Code work is unchanged: the objective's working copy.
+  - An organization without an organization folder works as before (ADR-201).
+- **The tools note says where files go:** "Your scratch pad is …: … Keep your notes and drafts
+  there, and save the files you make for the owner there."; "The project folder is …, the Website
+  project's Files folder in the organization folder. Finished work for the project goes here, where
+  the owner looks for it."; and on a working copy, "Your work is the project's code: put documents
+  where the project keeps them (for example docs/)."
+- **Files marks** a file a worker is changing in its scratch pad, or in a project's Files folder,
+  where the organization folder shows it (the gap left by part 2).
+- **The project dialog, "Where its files go":** **Make a folder in the organization folder** (the
+  default for a new project: it works in its Files folder) or **Use a folder I already have**,
+  written or picked with **Choose…** (the system's folder chooser; a place Guard refuses is said in
+  plain words and not taken). An organization without an organization folder shows the folder box
+  as before. **No folder**, the design's third choice, is left out: every project in an
+  organization folder gets its Files folder anyway, so it would mean the same as the first.
+- **Grok, checked:** Plenipo runs Grok with none of its own tools (its profile allows only the two
+  that reach Plenipo's tool server, and names each of its own as disallowed), and refuses every
+  other tool request (`crates/runtime/src/agent/grok.rs`). So, like every AI tool here, it changes
+  files in the organization folder only through Plenipo's checked tools.
+- **Checked:** the broker's `work_with_no_project_lands_in_its_scratch_pad`,
+  `a_project_without_a_folder_works_in_its_files_folder`,
+  `an_agents_own_folder_is_read_only_for_the_owner_while_it_works_there`, and
+  `an_agents_own_folder_that_is_a_junction_is_not_used`; `the_note_says_where_files_go`;
+  `changes_in_a_scratch_pad_and_a_files_folder_are_marked_in_the_organization_folder`; Guard's
+  `the_names_below_a_place`; and `ProjectFolderField.test.tsx`.
