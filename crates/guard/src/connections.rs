@@ -44,17 +44,21 @@ pub enum Service {
     Hubspot,
     Stripe,
     Wordpress,
+    /// A read-only list of the owner's GitHub repositories, for project setup (ADR-204). The
+    /// owner's alone: no parts, no worker tools, nobody on its list.
+    Github,
 }
 
 impl Service {
     /// In the order Settings shows them (the plan's order).
-    pub const ALL: [Service; 6] = [
+    pub const ALL: [Service; 7] = [
         Self::Microsoft365,
         Self::Slack,
         Self::Google,
         Self::Hubspot,
         Self::Stripe,
         Self::Wordpress,
+        Self::Github,
     ];
 
     /// Its ID, which is also the ID of its first connection: `microsoft365`.
@@ -66,6 +70,7 @@ impl Service {
             Self::Hubspot => "hubspot",
             Self::Stripe => "stripe",
             Self::Wordpress => "wordpress",
+            Self::Github => "github",
         }
     }
 
@@ -82,7 +87,21 @@ impl Service {
             Self::Hubspot => "HubSpot",
             Self::Stripe => "Stripe",
             Self::Wordpress => "WordPress and WooCommerce",
+            Self::Github => "GitHub",
         }
+    }
+
+    /// The owner's alone (ADR-204): GitHub lists the owner's repositories for project setup. It
+    /// has no parts, no worker ever gets a tool of it, and its **Who may use it** and **Send
+    /// without asking to** lists stay empty. It is free, like GitHub's tools (ADR-068).
+    pub fn owner_only(self) -> bool {
+        self == Self::Github
+    }
+
+    /// Signed in with a short code the owner types on the service's own page (the device flow,
+    /// ADR-204), not a sign-in page that comes back to this computer.
+    pub fn signs_in_with_a_code(self) -> bool {
+        self == Self::Github
     }
 
     /// Built into this copy of Plenipo (Phase 20: Microsoft 365 in part 20A, Slack and Google in
@@ -120,6 +139,7 @@ impl Service {
             Self::Hubspot => &[Part::Contacts, Part::Companies, Part::Deals],
             Self::Stripe => &[Part::Payments, Part::Customers, Part::Invoices],
             Self::Wordpress => &[Part::Posts, Part::Store],
+            Self::Github => &[],
         }
     }
 
@@ -1113,7 +1133,8 @@ fn decide(request: &ConnectionRequest<'_>) -> Result<(), String> {
     }
     match request.action {
         ConnectionAction::Connect => {
-            if request.signing_in {
+            // A short code waiting is shown again (GitHub, ADR-204): never a second one.
+            if request.signing_in && !service.signs_in_with_a_code() {
                 return Err(format!(
                     "A sign-in to {name} is already waiting in your browser. Finish it, or press \
                      Cancel first."
@@ -1124,7 +1145,8 @@ fn decide(request: &ConnectionRequest<'_>) -> Result<(), String> {
                     "This copy of Plenipo has no app ID for {name} yet, so it cannot sign in."
                 ));
             }
-            if !request.parts_on {
+            // A service with no parts (GitHub) asks for nothing to choose.
+            if !request.parts_on && !service.parts().is_empty() {
                 return Err(format!(
                     "Turn on at least one part of {name} first, so Plenipo knows what to ask for."
                 ));
@@ -1459,6 +1481,37 @@ mod tests {
         assert!(is_guid("12345678-abcd-4ef0-9abc-0123456789ab"));
         assert!(!is_guid("12345678-abcd-4ef0-9abc-0123456789a"));
         assert!(!is_guid("not-a-guid"));
+    }
+
+    /// ADR-204: GitHub connects with no parts to choose, and pressing Connect while its short code
+    /// waits shows the same code instead of refusing; it still needs 8 West's app.
+    #[test]
+    fn github_connects_with_no_parts_and_shows_a_waiting_code_again() {
+        let github = |signing_in, has_app| ConnectionRequest {
+            connection_id: "github",
+            action: ConnectionAction::Connect,
+            signing_in,
+            has_app,
+            parts_on: false,
+        };
+        assert_eq!(decide(&github(false, true)), Ok(()));
+        assert_eq!(decide(&github(true, true)), Ok(()));
+        assert!(decide(&github(false, false)).is_err());
+        // Every other service still asks for a part, and refuses a second sign-in.
+        let slack = ConnectionRequest {
+            connection_id: "slack",
+            action: ConnectionAction::Connect,
+            signing_in: false,
+            has_app: true,
+            parts_on: false,
+        };
+        assert!(decide(&slack).is_err());
+        let slack_waiting = ConnectionRequest {
+            signing_in: true,
+            parts_on: true,
+            ..slack
+        };
+        assert!(decide(&slack_waiting).is_err());
     }
 
     #[test]

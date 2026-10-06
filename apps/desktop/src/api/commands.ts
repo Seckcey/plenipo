@@ -52,6 +52,7 @@ import type {
   AddOnChange,
   AddOnInput,
   ConnectionsPage,
+  GithubRepositories,
   KeyInput,
   ToolMark,
   OwnApp,
@@ -1329,6 +1330,22 @@ export function removeConnection(connectionId: string): Promise<ConnectionsPage>
  */
 export function saveConnectionKey(connectionId: string, key: KeyInput): Promise<ConnectionsPage> {
   return call<ConnectionsPage>("save_connection_key", { connectionId, key });
+}
+
+/**
+ * The GitHub accounts and organizations Plenipo was added to, and their repositories' names
+ * (ADR-204). Kept for ten minutes in this organization alone; `fresh` asks GitHub again.
+ */
+export function listGithubRepositories(fresh: boolean): Promise<GithubRepositories> {
+  return call<GithubRepositories>("list_github_repositories", { fresh });
+}
+
+/** GitHub's own pages Plenipo opens in your browser (ADR-204), by name. */
+export type GithubPage = "device" | "install" | "authorizations" | "installations";
+
+/** Open one of GitHub's own pages in your browser. */
+export function openGithubPage(page: GithubPage): Promise<void> {
+  return call<void>("open_github_page", { page });
 }
 
 /** Add a program that offers tools (ADR-066): off, with no tool marked and nobody allowed. */

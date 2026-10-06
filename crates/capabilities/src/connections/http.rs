@@ -24,6 +24,8 @@ pub(crate) fn api_hosts(service: Service) -> &'static [&'static str] {
         Service::Hubspot => &["api.hubapi.com"],
         Service::Stripe => &["api.stripe.com"],
         Service::Wordpress => &[],
+        // Never github.com's sign-in addresses (ADR-204, the reviewer's G2).
+        Service::Github => &["api.github.com"],
     }
 }
 
@@ -173,6 +175,22 @@ impl Http {
             .and_then(|u| u.host_str().map(str::to_owned))
     }
 
+    /// The real path an address (maybe the stand-in's) is for, without its query: `/user`.
+    pub fn real_path(&self, address: &str) -> String {
+        if let Some(rest) = self
+            .stand_in
+            .as_deref()
+            .and_then(|base| address.strip_prefix(base))
+        {
+            let rest = rest.trim_start_matches('/');
+            let path = &rest[rest.find('/').unwrap_or(rest.len())..];
+            return path[..path.find(['?', '#']).unwrap_or(path.len())].to_owned();
+        }
+        reqwest::Url::parse(address)
+            .map(|u| u.path().to_owned())
+            .unwrap_or_default()
+    }
+
     /// Check an address with Guard's gate for `service` (a refusal is recorded by Guard).
     pub fn check(&self, service: Service, address: &str) -> Result<(), HttpError> {
         self.guard
@@ -270,6 +288,16 @@ impl Http {
         for _ in 0..=MAX_REDIRECTS {
             self.check(service, &address)?;
             let host = self.real_host(&address).unwrap_or_default();
+            // GitHub's connection sends only its few requests, each by its own method (ADR-204,
+            // the reviewer's S1 on #227): Guard's gate checks the address, this the method too.
+            if service == Service::Github
+                && !super::github::request_allowed(&method, &host, &self.real_path(&address))
+            {
+                let why = "The GitHub connection doesn't send that kind of request there";
+                self.guard
+                    .record_refused_request(Purpose::Connection(service), &address, why);
+                return Err(HttpError::Refused(format!("{why}.")));
+            }
             let mut request = self.client.request(method.clone(), &address);
             // Only for the service's own API host (the website: only its saved host).
             if let Some(auth) = auth.filter(|_| self.api_host(service, &host)) {
@@ -311,6 +339,15 @@ impl Http {
                 }
             })?;
             let status = response.status();
+            // GitHub's connection follows no redirect at all (ADR-204, the reviewer's G2): any
+            // other page GitHub names is refused, and recorded like any refusal.
+            if status.is_redirection() && service == Service::Github {
+                let why =
+                    "GitHub sent Plenipo to another page, which the GitHub connection never follows";
+                self.guard
+                    .record_refused_request(Purpose::Connection(service), &address, why);
+                return Err(HttpError::Refused(format!("{why}.")));
+            }
             // A change is never followed to another page (as a GET, it would read as done): the
             // service may or may not have acted.
             if status.is_redirection() && first && method != reqwest::Method::GET {
@@ -373,5 +410,74 @@ impl Http {
             "{} sent Plenipo round in circles",
             service.label()
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    /// The reviewer's S1 on #227: Guard's gate lets these addresses through, but GitHub's
+    /// connection sends each request only by its own method; any other is refused before it
+    /// leaves this computer, and recorded.
+    #[tokio::test]
+    async fn github_requests_go_only_by_their_own_method() {
+        let ledger = Arc::new(plenipo_ledger::Ledger::open_in_memory().unwrap());
+        let http = Http::new(Guard::new(ledger.clone()), None);
+        for (method, url) in [
+            (reqwest::Method::POST, "https://api.github.com/user"),
+            (
+                reqwest::Method::GET,
+                "https://github.com/login/oauth/access_token",
+            ),
+            (
+                reqwest::Method::DELETE,
+                "https://api.github.com/user/installations",
+            ),
+            (reqwest::Method::POST, "https://github.com/login/device"),
+        ] {
+            let err = http
+                .send(
+                    Service::Github,
+                    method.clone(),
+                    url,
+                    Some("ghu_test"),
+                    &[],
+                    Body::None,
+                    1_000,
+                )
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(&err, HttpError::Refused(why) if why.contains("doesn't send that kind")),
+                "{method} {url}: {err:?}"
+            );
+        }
+        let refused = ledger
+            .recent_events(50)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.event_type == "guard.request_refused")
+            .count();
+        assert_eq!(refused, 4);
+    }
+
+    #[test]
+    fn the_real_path_leaves_out_the_host_and_the_query() {
+        let ledger = Arc::new(plenipo_ledger::Ledger::open_in_memory().unwrap());
+        let http = Http::new(
+            Guard::new(ledger.clone()),
+            Some("http://127.0.0.1:8767".into()),
+        );
+        assert_eq!(
+            http.real_path("http://127.0.0.1:8767/api.github.com/user/installations?page=2"),
+            "/user/installations"
+        );
+        let real = Http::new(Guard::new(ledger), None);
+        assert_eq!(
+            real.real_path("https://github.com/login/device/code?x=1"),
+            "/login/device/code"
+        );
     }
 }

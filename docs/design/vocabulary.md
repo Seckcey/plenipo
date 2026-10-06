@@ -295,6 +295,11 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | WooCommerce key (optional) / Consumer key / Consumer secret                    | REST API key, ck/cs pair                                                                   |
 | everyone who visits the site (who publishing reaches)                          | public audience, anonymous users                                                           |
 | WooCommerce asks the payment company to send the money back                    | api_refund, gateway refund                                                                 |
+| Sign in with GitHub / Type this code on GitHub's page / Copy the code          | OAuth device flow, user code, device code, verification URI                                |
+| Choose on GitHub / Add an account or organization (GitHub)                     | install the GitHub App, installation, repository selection                                 |
+| names, descriptions, branch and tag names, and who collaborates; never code    | Metadata permission, metadata:read, repo scope                                             |
+| Yours alone (GitHub: no worker uses it) / Look again                           | owner-only connection, no ACL / refresh, re-fetch, invalidate cache                        |
+| Remove Plenipo at GitHub / Authorized GitHub Apps / Installed GitHub Apps      | revoke the token, uninstall the app (GitHub's own page names are quoted)                   |
 | Add-on tools / Add a program / Look at its tools                               | MCP servers, custom MCP, tools/list                                                        |
 | Switch on / Switch off (an add-on)                                             | enable / disable server                                                                    |
 | Off / Reading / Changing (an add-on's tool)                                    | tool annotations, readOnlyHint, destructiveHint                                            |

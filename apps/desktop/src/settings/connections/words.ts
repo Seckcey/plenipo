@@ -5,6 +5,7 @@ import type {
   Connection,
   ConnectionCard,
   ConnectionState,
+  GithubRepositories,
   PartLevel,
   Service,
   ServiceCard,
@@ -77,6 +78,8 @@ export function noAppWords(service: Service): string | null {
       return "This copy of Plenipo has no Microsoft app ID yet, so it cannot sign in. Your organization can use its own app ID under Advanced below.";
     case "slack":
       return "This copy of Plenipo has no Slack app yet, so it cannot sign in with 8 West's. Your workspace can use its own Slack app under Advanced below.";
+    case "github":
+      return "This copy of Plenipo has no GitHub app yet, so it cannot sign in. An update brings it.";
     default:
       // Google's own app is asked for on its card.
       return null;
@@ -146,6 +149,30 @@ export function keyedDisconnectWords(service: Service, title: string, vault: str
 /** Slack's limit on 8 West's app while it is outside Slack's Marketplace (ADR-070 §3). */
 export const SLACK_SLOW =
   "With 8 West's Slack app, Slack lets Plenipo read one channel or thread a minute, 15 messages at a time. Your workspace's own Slack app (Advanced) reads at Slack's normal speed.";
+
+/** What GitHub lets Plenipo see (ADR-204, word for word on the card). */
+export const GITHUB_SEES =
+  "names, descriptions, branch and tag names, and who collaborates; never code";
+
+/** "Frankie G (frankieg)", or just "frankieg" when GitHub has no other name. */
+export function githubAccountLine(account: Account): string {
+  const login = account.address;
+  return account.name && account.name !== login ? `${account.name} (${login})` : login;
+}
+
+/** GitHub's card while it is closed: who it is connected as, that it is yours alone, and free. */
+export function githubCardSummary(card: ConnectionCard): string {
+  const c = card.connection;
+  const who = c.state === "connected" && c.account ? githubAccountLine(c.account) : null;
+  return [who, "Yours alone", "Free"].filter((x): x is string => !!x).join(" · ");
+}
+
+/** "1 repository", "48 repositories", "More than 1000 repositories". */
+export function repositoryCount(list: GithubRepositories): string {
+  const n = list.repositories.length;
+  if (list.more) return `More than ${n} repositories`;
+  return n === 1 ? "1 repository" : `${n} repositories`;
+}
 
 /** "Mail, Calendar, and Teams". */
 export function andList(items: readonly string[]): string {

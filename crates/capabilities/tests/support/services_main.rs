@@ -10,6 +10,8 @@
 //! until it is stopped. Tests read and change it over HTTP: `GET /_control/world`,
 //! `POST /_control/knobs`.
 
+#[path = "github.rs"]
+mod github;
 #[path = "google.rs"]
 mod google;
 #[path = "hubspot.rs"]
