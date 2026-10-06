@@ -3,7 +3,7 @@
 // conversation outside the organization, read each turn (its folds opened, so its thinking, its
 // steps, and its tokens can be read), write to it, and stop it.
 
-import { clickButton, nav, textOf, waitForText, waitUntil } from "./app.mjs";
+import { clickButton, nav, screenshot, textOf, waitForText, waitUntil } from "./app.mjs";
 
 /** The chat shown on the Workers page. */
 export const CHAT = ".workers__chat";
@@ -15,9 +15,44 @@ export const START_FORM = 'form[aria-label="Start a conversation"]';
 /** A conversation's title as the chat shows it (markers like "[slow]" left out). */
 export const titleOf = (objective) => objective.replace(/\s*\[.*$/, "");
 
-/** Wait until the chat shown is the one titled `title`. */
-export const waitForChat = (browser, title) =>
-  waitForText(browser, `${CHAT} .chat-head__title`, titleOf(title));
+/**
+ * Wait until the chat shown is the one titled `title`. When it is not, the error says what the
+ * page shows instead, with a screenshot: whether the chat's place is there and what it holds (its
+ * words, its title, the title's size), the tree and the conversations listed (the one selected,
+ * with its state words), and the window's title, address, and size. So "the chat never opened"
+ * reads apart from "it opened with another title".
+ */
+export async function waitForChat(browser, title) {
+  try {
+    await waitForText(browser, `${CHAT} .chat-head__title`, titleOf(title));
+  } catch (error) {
+    const shown = await browser.execute((selector) => {
+      const words = (el, max) =>
+        el ? (el.textContent ?? "").replace(/\s+/g, " ").slice(0, max) : null;
+      const chat = document.querySelector(selector);
+      const head = chat?.querySelector(".chat-head__title");
+      const box = head?.getBoundingClientRect();
+      return {
+        chatExists: chat !== null,
+        chat: words(chat, 300),
+        startForm: chat?.querySelector('form[aria-label="Start a conversation"]') !== null,
+        title: head ? head.textContent : null,
+        titleSize: box ? `${Math.round(box.width)}x${Math.round(box.height)}` : null,
+        tree: words(document.querySelector('nav[aria-label="Your organization"]'), 300),
+        others: words(document.querySelector('[aria-label="Other conversations"]'), 300),
+        selected: words(document.querySelector('.workers [aria-current="true"]'), 200),
+        documentTitle: document.title,
+        address: window.location.hash,
+        window: `${window.innerWidth}x${window.innerHeight}`,
+      };
+    }, CHAT);
+    await screenshot(
+      browser,
+      `chat-not-shown-${titleOf(title).replace(/\W+/g, "-").toLowerCase()}`,
+    );
+    throw new Error(`${error.message}; shown instead: ${JSON.stringify(shown)}`, { cause: error });
+  }
+}
 
 /**
  * Open every fold in the chat shown (thinking, a run of tool steps, a turn's tokens, a reply), so
