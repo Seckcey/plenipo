@@ -1049,16 +1049,19 @@ impl Broker {
 
     /// The organization folder's folder of `kind` for `ref_id` (ADR-205): where it is recorded,
     /// made by one pass of keeping the organization folder when it isn't recorded yet or has gone
-    /// missing (again at its recorded place, never elsewhere). `None` when the organization has no
-    /// organization folder, or the folder can't be had: never one with a junction or link on the
-    /// way, or a folder Plenipo may not look into (the reviewer's O2 and O6 on the design).
+    /// missing (again at its recorded place, never elsewhere). `Ok(None)` when the organization
+    /// has no organization folder. `Err` with the reason in plain words when the folder can't be
+    /// had: never one with a junction or link on the way, or a folder Plenipo may not look into
+    /// (the reviewer's O2 and O6 on the design).
     fn organization_place(
         &self,
         kind: plenipo_ledger::FolderKind,
         ref_id: &str,
-    ) -> Option<PathBuf> {
+    ) -> std::result::Result<Option<PathBuf>, String> {
         let l = self.ledger();
-        l.organization_folder().ok().flatten()?;
+        if l.organization_folder().ok().flatten().is_none() {
+            return Ok(None);
+        }
         let recorded = || {
             l.folder(kind, Some(ref_id))
                 .ok()
@@ -1069,22 +1072,39 @@ impl Broker {
         let path = match recorded() {
             Some(p) if p.is_dir() => p,
             _ => {
-                for problem in crate::org_folder::keep(l, trusted).problems {
+                let problems = crate::org_folder::keep(l, trusted).problems;
+                for problem in &problems {
                     log::warn!("organization folder: {problem}");
                 }
-                recorded().filter(|p| p.is_dir())?
+                match recorded() {
+                    Some(p) if p.is_dir() => p,
+                    // Why, in the keeper's own words: the one about this folder, or the first.
+                    found => {
+                        let shown = found.map(|p| p.display().to_string());
+                        return Err(shown
+                            .as_ref()
+                            .and_then(|s| problems.iter().find(|w| w.contains(s.as_str())))
+                            .or_else(|| problems.first())
+                            .cloned()
+                            .unwrap_or_else(|| "Plenipo couldn't make it".into()));
+                    }
+                }
             }
         };
-        plenipo_guard::places::on_the_way(&path, trusted)
-            .is_none()
-            .then_some(path)
+        match plenipo_guard::places::on_the_way(&path, trusted) {
+            Some(way) => Err(way.words()),
+            None => Ok(Some(path)),
+        }
     }
 
     /// A project's **Files** folder in the organization folder (ADR-205 §2.4): the folder its
     /// workers work in when the project has no folder of its own.
-    fn project_files_folder(&self, project_id: &str) -> Option<String> {
+    fn project_files_folder(
+        &self,
+        project_id: &str,
+    ) -> std::result::Result<Option<String>, String> {
         self.organization_place(plenipo_ledger::FolderKind::ProjectFiles, project_id)
-            .map(|p| p.display().to_string())
+            .map(|p| p.map(|p| p.display().to_string()))
     }
 
     /// The folder for work that belongs to no project (ADR-201, ADR-205 §2.4). With an
@@ -1092,22 +1112,35 @@ impl Broker {
     /// folder worked out from a name, which another organization of the same name may have.
     /// Without one, it is `<files>/<organization>/<name>` as before, where the name is the
     /// project's, or the position's when there is no project, made here when it is not there
-    /// yet. `None` when Plenipo has no such place or cannot make it.
-    fn own_folder(&self, scope: &Scope, position_id: Option<&str>) -> Option<OwnFolder> {
-        let l = self.ledger();
-        if l.organization_folder().ok().flatten().is_some() {
+    /// yet. `Ok(None)` when Plenipo has no such place or cannot make it in Documents; `Err` with
+    /// the reason in plain words when the scratch pad can't be used.
+    fn own_folder(
+        &self,
+        scope: &Scope,
+        position_id: Option<&str>,
+    ) -> std::result::Result<Option<OwnFolder>, String> {
+        if self.ledger().organization_folder().ok().flatten().is_some() {
             return match position_id {
                 Some(id) if scope.project.is_none() => self
                     .organization_place(plenipo_ledger::FolderKind::ScratchPad, id)
-                    .map(|p| OwnFolder {
-                        path: p.display().to_string(),
-                        scratch_pad: true,
+                    .map(|p| {
+                        p.map(|p| OwnFolder {
+                            path: p.display().to_string(),
+                            scratch_pad: true,
+                        })
                     }),
                 // A project's work is in its folder, or its Files folder; a step that is no
                 // position's has no scratch pad.
-                _ => None,
+                _ => Ok(None),
             };
         }
+        Ok(self.documents_folder(scope, position_id))
+    }
+
+    /// ADR-201's folder for work that belongs to no project, for an organization without an
+    /// organization folder: `<files>/<organization>/<project or position>`.
+    fn documents_folder(&self, scope: &Scope, position_id: Option<&str>) -> Option<OwnFolder> {
+        let l = self.ledger();
         let organization = l
             .setting("organization")
             .ok()
@@ -1173,8 +1206,22 @@ impl Broker {
             t.capability.needs_folder()
                 && levels.get(&t.capability).copied().unwrap_or_default() != Level::Blocked
         });
+        // Why the folder a step would work in can't be used, in plain words (the reviewer's N1
+        // on #230): told to the worker and in the record, instead of "no folder".
+        let mut unusable: Option<String> = None;
         let files_folder = match scope.project.as_ref() {
-            Some(p) if p.folder.is_none() && may_use_folder => self.project_files_folder(&p.id),
+            Some(p) if p.folder.is_none() && may_use_folder => {
+                match self.project_files_folder(&p.id) {
+                    Ok(folder) => folder,
+                    Err(why) => {
+                        unusable = Some(format!(
+                            "the {} project's Files folder can't be used: {why}",
+                            p.name
+                        ));
+                        None
+                    }
+                }
+            }
             _ => None,
         };
         if let (Some(p), Some(f)) = (scope.project.as_mut(), files_folder.as_ref()) {
@@ -1210,7 +1257,15 @@ impl Broker {
         // Work with no project folder is done in a folder the owner can find: its scratch pad in
         // the organization folder (ADR-205), or Plenipo's own folder in Documents (ADR-201).
         let own_path = match project_folder {
-            None if uses_folder => self.own_folder(&scope, workforce["positionId"].as_str()),
+            None if uses_folder => {
+                match self.own_folder(&scope, workforce["positionId"].as_str()) {
+                    Ok(own) => own,
+                    Err(why) => {
+                        unusable = Some(format!("your scratch pad can't be used: {why}"));
+                        None
+                    }
+                }
+            }
             _ => None,
         };
         let own = own_path.is_some();
@@ -1224,10 +1279,10 @@ impl Broker {
             None if !uses_folder => (None, None),
             None => (
                 None,
-                Some(match &scope.project {
+                Some(unusable.unwrap_or_else(|| match &scope.project {
                     Some(p) => format!("the {} project has no folder", p.name),
                     None => "this work belongs to no project, so there is no folder".into(),
-                }),
+                })),
             ),
         };
         // An objective works in its own working copy of the project's repository (Phase 8).
