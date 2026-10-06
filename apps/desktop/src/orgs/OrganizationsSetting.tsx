@@ -18,6 +18,7 @@ import { Modal } from "../components/org/Modal";
 import { useLicense } from "../license/useLicense";
 import { useOrganization } from "../org/useOrganization";
 import { NewOrganizationDialog } from "./NewOrganizationDialog";
+import { OrgFolderSetting } from "./OrgFolder";
 import { TemplatesSetting } from "./TemplatesSetting";
 import { useOrganizations } from "./useOrganizations";
 
@@ -97,6 +98,8 @@ export function OrganizationsSetting() {
           </Button>
           <FormError error={rename.error} />
         </form>
+
+        <OrgFolderSetting />
 
         <TemplatesSetting onFree={onFree} onSaved={apply} />
       </div>

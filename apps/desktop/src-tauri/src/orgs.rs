@@ -134,6 +134,8 @@ pub struct OrgStack {
     pub workforce: Workforce,
     pub notices: Arc<crate::notices::Notices>,
     pub watchers: WatchSubscribers,
+    /// Keeps its organization folder's shape as its org chart changes (ADR-205).
+    pub folders: Arc<plenipo_capabilities::org_folder::FolderKeeper>,
     /// Set when its work stops for good (archived, deleted, Quit): its daily backup ends.
     pub stopped: Arc<std::sync::atomic::AtomicBool>,
 }

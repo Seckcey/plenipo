@@ -11,6 +11,7 @@ pub mod community;
 pub mod dto;
 pub mod error;
 mod events;
+pub mod folders;
 mod guard;
 mod lessons;
 mod liaison;

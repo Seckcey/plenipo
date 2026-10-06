@@ -24,6 +24,7 @@ mod error;
 pub mod outbound;
 pub mod paid;
 pub mod paths;
+pub mod places;
 pub mod redact;
 pub mod registry;
 pub mod remote;

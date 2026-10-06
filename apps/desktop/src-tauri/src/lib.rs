@@ -18,6 +18,7 @@ pub mod community_safety;
 pub mod connections_commands;
 pub mod diagnostics;
 pub mod files_commands;
+pub mod folder_commands;
 pub mod guard_host;
 pub mod indicator;
 pub mod ledger_host;
@@ -765,6 +766,10 @@ pub fn configure<R: Runtime>(
             files_commands::show_in_folder,
             files_commands::get_work_folder,
             files_commands::open_work_folder,
+            folder_commands::suggest_org_folder,
+            folder_commands::choose_folder,
+            folder_commands::get_org_folder,
+            folder_commands::open_org_folder,
             files_commands::get_changing_files,
             workspace_commands::close_pop_out,
             org_commands::get_organizations,
@@ -6319,6 +6324,156 @@ mod ipc_boundary_tests {
                 assert!(err["kind"].is_string(), "{cmd} from the main window: {err}");
             }
         }
+    }
+
+    // ---- The organization folder (Phase 25, ADR-205) -------------------------------------------
+
+    const ORG_FOLDER: [&str; 4] = [
+        "suggest_org_folder",
+        "choose_folder",
+        "get_org_folder",
+        "open_org_folder",
+    ];
+
+    /// The organization folder's commands are an organization's window's alone: a pop-out,
+    /// another window, the sign, and a web page reach none of them. From the main window they
+    /// answer, and the folder chooser never opens in a test.
+    #[test]
+    fn the_organization_folder_commands_are_an_organization_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let popout = window(&app, "popout-terminal--main--1");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        let args = serde_json::json!({ "name": "Acme Co", "folder": null });
+        for cmd in ORG_FOLDER {
+            refused(cmd, invoke_json(&popout, cmd, args.clone()), "a pop-out");
+            refused(
+                cmd,
+                invoke_json(&other, cmd, args.clone()),
+                "another window",
+            );
+            refused(cmd, invoke_json(&sign, cmd, args.clone()), "the sign");
+            refused(
+                cmd,
+                invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                "a web page",
+            );
+        }
+        // The first organization has no folder yet (offered later), so there is none to open.
+        let none: plenipo_core::OrgFolderInfo = body(invoke(&main, "get_org_folder"));
+        assert_eq!(none.path, None);
+        let err = invoke(&main, "open_org_folder").expect_err("no folder to open");
+        assert!(
+            err["message"]
+                .as_str()
+                .unwrap()
+                .contains("no organization folder"),
+            "{err}"
+        );
+        let err = invoke(&main, "choose_folder").expect_err("no chooser in a test");
+        assert!(err["kind"].is_string(), "{err}");
+        // A suggestion: the usual place, named after the organization.
+        let suggested: plenipo_core::OrgFolderInfo =
+            body(invoke_json(&main, "suggest_org_folder", args));
+        let path = suggested.path.unwrap();
+        assert!(path.contains("Acme Co"), "{path}");
+        assert_eq!(suggested.problem, None);
+        // A place that can't be one says why, in plain words.
+        let bad: plenipo_core::OrgFolderInfo = body(invoke_json(
+            &main,
+            "suggest_org_folder",
+            serde_json::json!({ "name": "Acme Co", "folder": "relative\\folder" }),
+        ));
+        assert!(bad.problem.unwrap().contains("isn't a full path"));
+    }
+
+    /// A new organization gets its organization folder, with its Read me, and its template's
+    /// departments get theirs; a place that can't be one is refused before anything is made.
+    #[test]
+    fn a_new_organization_gets_its_organization_folder() {
+        let app = app();
+        let main = window(&app, "main");
+        let made: plenipo_core::OrgSummary = body(invoke_json(
+            &main,
+            "create_organization",
+            serde_json::json!({
+                "name": "Folder Test Co", "start": { "kind": "template", "template": "small-business" },
+            }),
+        ));
+        let label = orgs::window_label(&made.id);
+        app.state::<Arc<orgs::Orgs>>().bind(&label, &made.id);
+        let client = window(&app, &label);
+        let info: plenipo_core::OrgFolderInfo = body(invoke(&client, "get_org_folder"));
+        assert!(info.exists, "{info:?}");
+        let root = std::path::PathBuf::from(info.path.unwrap());
+        assert!(root.join("Read me.md").is_file());
+        assert!(std::fs::read_to_string(root.join("Read me.md"))
+            .unwrap()
+            .contains("8 West Ventures, LLC"));
+        let stack = app
+            .state::<Arc<orgs::Orgs>>()
+            .stack(&made.id)
+            .expect("the new organization is open");
+        let departments = stack.ledger.org_records().unwrap().departments;
+        assert!(!departments.is_empty());
+        for d in &departments {
+            let folder = stack
+                .ledger
+                .folder(plenipo_ledger::FolderKind::Department, Some(&d.id))
+                .unwrap()
+                .unwrap_or_else(|| panic!("{} has its folder", d.name));
+            assert!(std::path::Path::new(&folder.path).join("Files").is_dir());
+        }
+        // The first window's organization has none, and never sees the new one's.
+        let first: plenipo_core::OrgFolderInfo = body(invoke(&main, "get_org_folder"));
+        assert_eq!(first.path, None);
+
+        // Refused before anything is made: a path that isn't full.
+        let before = app.state::<Arc<orgs::Orgs>>().entries().len();
+        let err = invoke_json(
+            &main,
+            "create_organization",
+            serde_json::json!({
+                "name": "Nowhere Co", "start": { "kind": "scratch" }, "folder": "relative",
+            }),
+        )
+        .expect_err("a relative folder is refused");
+        assert!(
+            err["message"].as_str().unwrap().contains("full path"),
+            "{err}"
+        );
+        assert_eq!(app.state::<Arc<orgs::Orgs>>().entries().len(), before);
+        // A chosen folder with things in it holds the organization's folder, named after it,
+        // and what was there is left alone.
+        let full = tempfile::tempdir().unwrap();
+        std::fs::write(full.path().join("mine.txt"), "the owner's").unwrap();
+        let made_inside: plenipo_core::OrgSummary = body(invoke_json(
+            &main,
+            "create_organization",
+            serde_json::json!({
+                "name": "Inside Co", "start": { "kind": "scratch" },
+                "folder": full.path().display().to_string(),
+            }),
+        ));
+        let inside = app
+            .state::<Arc<orgs::Orgs>>()
+            .stack(&made_inside.id)
+            .unwrap()
+            .ledger
+            .organization_folder()
+            .unwrap()
+            .unwrap();
+        let inside = std::path::PathBuf::from(&inside.path);
+        assert_eq!(inside.file_name().unwrap(), "Inside Co");
+        assert_eq!(
+            std::fs::canonicalize(inside.parent().unwrap()).unwrap(),
+            std::fs::canonicalize(full.path()).unwrap()
+        );
+        assert_eq!(
+            std::fs::read_to_string(full.path().join("mine.txt")).unwrap(),
+            "the owner's"
+        );
     }
 
     // ---- More than one organization (Phase 21, ADR-094) -------------------------------------

@@ -5303,6 +5303,47 @@ body.popout {
   margin-bottom: 0;
 }
 
+/* The organization folder (Phase 25, ADR-205): where it is, and the keep-on-this-computer alert. */
+.org-folder {
+  display: grid;
+  gap: var(--ui-space-2);
+}
+
+.org-folder h3 {
+  margin: 0;
+}
+
+.org-folder p {
+  margin: 0;
+}
+
+.org-folder__where {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ui-space-2);
+}
+
+.org-folder__path {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.org-folder__alert {
+  display: grid;
+  gap: var(--ui-space-2);
+}
+
+.org-folder__alert p {
+  margin: 0;
+}
+
+.org-folder__alert-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2);
+}
+
 .organizations-setting__list {
   display: grid;
   gap: var(--ui-space-2);

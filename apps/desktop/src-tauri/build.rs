@@ -210,6 +210,11 @@ const COMMANDS: &[&str] = &[
     "show_in_folder",
     "get_work_folder",
     "open_work_folder",
+    // Phase 25: the organization folder (ADR-205).
+    "suggest_org_folder",
+    "choose_folder",
+    "get_org_folder",
+    "open_org_folder",
     "get_changing_files",
     "close_pop_out",
     "get_organizations",

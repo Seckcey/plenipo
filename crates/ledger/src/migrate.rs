@@ -110,6 +110,12 @@ pub const MIGRATIONS: &[Migration] = &[
         up: include_str!("../migrations/0013_community.up.sql"),
         down: include_str!("../migrations/0013_community.down.sql"),
     },
+    Migration {
+        version: 14,
+        name: "folders",
+        up: include_str!("../migrations/0014_folders.up.sql"),
+        down: include_str!("../migrations/0014_folders.down.sql"),
+    },
 ];
 
 /// Highest version in `migrations` (0 if none).
