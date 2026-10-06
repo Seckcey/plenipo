@@ -1,6 +1,6 @@
 # ADR-204: A read-only GitHub connection to pick repositories
 
-- **Status:** Proposed (2026-10-05). The owner's request (I1, 2026-10-05): "When selecting a github
+- **Status:** Accepted (2026-10-06, the owner: "i accept all decisions as recommended"). Proposed 2026-10-05. The owner's request (I1, 2026-10-05): "When selecting a github
   repo on project setup, there needs to be a list of all the github repos for the users account.
   We may have to setup some kind of connection to github that we configure in settings >>
   connections." The owner approved the design's four recommendations the same day, and the
