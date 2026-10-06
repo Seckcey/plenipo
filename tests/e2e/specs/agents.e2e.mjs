@@ -110,6 +110,27 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     await waitForTurn(browser, 1, (t) => t.text.includes("bash -lc ls"), "Codex's command");
   });
 
+  it("shows a task's tokens on its page, and no money on a subscription (I2)", async () => {
+    const { browser } = app;
+    await openConversation(browser, "List the workspace");
+    // Details under its answer opens the task's own page.
+    const details = await browser.$(
+      `//div[contains(concat(" ", normalize-space(@class), " "), " workers__chat ")]` +
+        `//*[@role="log"]//button[normalize-space()="Details"]`,
+    );
+    await details.waitForClickable({ timeout: 10_000 });
+    await details.click();
+    const panel = 'div.task-cost[aria-label="Tokens and cost"]';
+    await waitForText(browser, panel, "Used");
+    const text = await textOf(browser, panel);
+    // Codex reported 20 read (8 of them reused) and 9 written: 29 tokens.
+    assert.match(text, /Used 29 tokens/);
+    assert.match(text, /20 read \(8 reused\) · 9 written/);
+    // A subscription's tools cost nothing per task: its tokens only, never money (the owner's rule).
+    assert.doesNotMatch(text, /\$|paid key|priced/);
+    await screenshot(browser, "task-cost-subscription");
+  });
+
   it("A2+A3+A4: launches a Claude Code task with streamed text and a normalized result", async () => {
     const { browser } = app;
     await startConversation(browser, "Claude Code", "Say hello");
