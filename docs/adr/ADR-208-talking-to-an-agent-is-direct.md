@@ -1,0 +1,115 @@
+# ADR-208: Talking to an agent is direct — your words go straight to it, not through the Liaison
+
+- **Status:** Proposed. The direction is the owner's own, 2026-10-05 (Phase 25, I5): "Talking
+  directly to an agent in its chat must not go through the Liaison. The Liaison is only for agents
+  from different labs working together." His answers to the design (D1, D1b, D2 below) are the
+  same day's.
+- **Date:** 2026-10-05
+- **Phase:** 25 (I5)
+- **Amends:** [ADR-202 (the chain of command)](ADR-202-the-chain-of-command.md), point 4 (an
+  on-call position's order goes through its lead), and
+  [ADR-008 (hand-offs and their replies)](ADR-008-liaison.md), whose Liaison no longer carries
+  the owner's own words.
+- **Made by:** 8 West Ventures, LLC, for Plenipo.
+
+> **On screen** (ADR-010, plain words and rank names): nothing says "Liaison" in an agent's chat.
+> Its hand-offs to its team are "hand-offs", and the chain of command keeps its words (ADR-202).
+> This record keeps the code's words.
+
+## In short
+
+When you type in an agent's chat, your words go **straight to that agent**:
+
+1. **Nothing in between.** Plenipo gives your words to the agent's own conversation. The Liaison
+   (the part of Plenipo that passes work between agents) is not in the way, and the agent's
+   instructions name Plenipo, not the Liaison.
+2. **An on-call worker too.** Typing in an on-call worker's chat talks to that worker, not to
+   its lead. That conversation stays open for your follow-ups, like a full-time member's, until
+   you end it.
+3. **The Liaison stays for every hand-off between agents**, from any lab: a Claude agent handing
+   work to another Claude agent goes through it, as does a Codex agent handing work to a Claude
+   agent. That is what lets you see that work, stop it, and read it afterwards.
+
+Accepting this record means keeping this as built.
+
+## Context
+
+What Plenipo did at v1.26.0, when you wrote in an agent's chat:
+
+- **To a full-time agent** (a Supervisor, a Manager, a full-time Developer): Workforce asked the
+  Liaison to start the turn (`resume_member_session`, `start_member_session`). The Liaison put
+  its own instructions first ("[Plenipo Liaison — instructions] … you may ask another AI worker
+  for help through Plenipo Liaison …"), tagged the task as a Liaison workflow, and read every
+  answer for hand-offs. No Liaison message was made for your words, but the agent was told it
+  worked through the Liaison, and could say so.
+- **To an on-call worker** (a Developer who works when its lead hands it work): your words never
+  reached it. By ADR-202 point 4 they went to its lead's conversation, with a line asking the lead
+  to hand them on; the lead handed them to a newly staffed worker through the Liaison, and the
+  screen said "Sent to Cloudline Supervisor, who hands it to Senior Developer and reports back".
+  The worker's own chat showed the lead's request, and you could not write in it.
+
+The owner's report (2026-10-05, B5): the Senior Developer did the work and sent it back to its
+supervisor, and opening the Senior Developer's chat did not show that conversation. Talking to an
+agent should be talking to that agent.
+
+## Decision
+
+1. **The owner's words go straight to the agent's conversation.** Workforce gives them to the
+   runtime itself (`runtime.resume_session_with`, `start_session_with`), as a task the owner asked
+   for. The Liaison only supplies, through a thin helper:
+   - the worker's place on the job (Free runs three at a time, ADR-113), given back once the
+     turn has started (`Liaison::owner_place`);
+   - its instructions (`Liaison::direct_turn`): who it is, its team, and how to hand work on,
+     under **"[Plenipo — instructions]"**, the same words as the Liaison's first message except
+     its name. The same instructions give the same number (ADR-044), so a conversation that has
+     them gets the short reminder;
+   - the records that let its hand-offs, if it makes any, form a workflow: the task's tag
+     (correlation and depth), and a member's conversation that the Liaison reads for hand-offs.
+     These are records only; no message is made for the owner's words.
+2. **An on-call worker's chat talks to that worker** (D1). The first message staffs a worker the
+   way a hand-off does (the same routing and hire), with the owner as the one who asked; no lead
+   in between and no Liaison request. ADR-202's records stay: the skipped leads are told, and the
+   result goes back up (points 1–3, `chain.order`, `chain.report`). Only point 4's routing changes.
+3. **That conversation stays open** for follow-ups, like a full-time member's, until the owner
+   ends it (D1b). A lead's own hand-offs to that position still staff separate workers.
+4. **The Liaison carries every hand-off between agents, from any lab** (D2): requests, starting
+   the worker, its permissions, depth limits, replies and delivering them, check-ins, sending an
+   answer back to check, stopping team work, and its records. Its turn hook reads the answers of
+   the owner's turns only for hand-offs.
+
+## Your choices (recommended first)
+
+- **One hand-off path for every lab** (D2, chosen). _Or:_ teams from the same lab skip the
+  Liaison and use their AI tool's own helpers (Claude Code's subagents, say); Plenipo could then
+  not see, stop, limit, or record that work, and B5 could not show it.
+- **An on-call worker's chat stays open** (D1b, chosen). _Or:_ each message staffs a new worker,
+  which leaves when it finishes, as for a hand-off.
+- **The task's workflow tag is written when the owner's turn starts**, as a record that the agent
+  never sees. _Or:_ write it with the first hand-off. Several of the Liaison's checks look tasks up
+  by that tag (what a request may reference, the tree of a workflow), so writing it later would
+  change all of them for no visible gain.
+
+## Consequences
+
+- Your words reach the agent you are talking to, and its instructions no longer name the Liaison.
+  Conversations that started before keep the instructions they were given until their next full
+  set.
+- Messages that come from the Liaison into the same conversation keep its name: the replies to
+  the agent's hand-offs, a check-in on its team, and an answer sent back to check. They are the
+  Liaison's own, between agents (D2).
+- An on-call worker's chat costs a worker while it is open; the owner ends it when done.
+- No new screen words: the Liaison's name appears nowhere in a chat.
+
+## Built in pieces
+
+1. **The direct brief and `give_objective`'s path** (this record's first pull request):
+   `context::direct_brief` and `DIRECT_HEADER` (`crates/liaison/src/context.rs`);
+   `Liaison::owner_place`, `Liaison::direct_turn`, and `members_conversation`
+   (`crates/liaison/src/service.rs`); `Workforce::give_objective` gives the owner's words to the
+   runtime itself (`crates/workforce/src/service.rs`). The fake AI tool reads the new header as
+   the Liaison's, and keeps each message's first line (`headers.log`) for the tests. Tests:
+   `the_owners_words_to_a_member_name_plenipo_not_the_liaison` (`context.rs`) and
+   `the_owners_words_go_straight_to_the_agent` (`crates/workforce/tests/workforce.rs`).
+2. **An on-call worker's direct chat** (D1, D1b), and the chat's words for it.
+3. **Retiring** `Liaison::resume_member_session` and `start_member_session`, which only tests
+   use after piece 1.
