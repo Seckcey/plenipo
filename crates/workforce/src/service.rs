@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use plenipo_ledger::workforce::Providers;
 use plenipo_ledger::{
-    Deleted, Ledger, LoanUntil, NewPosition, OversightKind, PositionPatch, ProjectSettings,
-    RoleType, RuntimeSessionState, SaveAgent, SavedAgent, SpecialtyFields, Task, TaskState,
-    TilePlace,
+    Deleted, Ledger, LoanUntil, NewPosition, NewTask, OversightKind, PositionPatch,
+    ProjectSettings, RoleType, RuntimeSessionState, SaveAgent, SavedAgent, SpecialtyFields, Task,
+    TaskState, TilePlace,
 };
 use plenipo_liaison::Liaison;
 use plenipo_licensing::{Entitlements, Limit};
@@ -19,6 +19,7 @@ use plenipo_runtime::agent::{
     AgentRuntime, AgentRuntimeInfo, AgentSessionDetail, InstallState, SessionStart, TurnInput,
     TurnTask,
 };
+use plenipo_runtime::RuntimeError;
 use serde_json::{json, Value};
 
 use crate::conversation::{self, ConversationPlan};
@@ -2010,12 +2011,9 @@ impl Workforce {
         } = tokio::task::spawn_blocking(move || this.plan_objective(&id, project.as_deref()))
             .await
             .map_err(|e| WorkforceError::Internal(e.to_string()))??;
-        // What the agent is asked: the owner's words; for an on-call position's lead, to hand
-        // them on (ADR-202); the project; and the news from its team it has not heard.
+        // What the agent is asked: the owner's words, the project, and the news from its team it
+        // has not heard.
         let mut notes = Vec::new();
-        if order.taker.id != order.doer.id {
-            notes.push(crate::chain::through_words(&order.doer));
-        }
         notes.extend(project_note);
         if let Some((note, _)) = &news {
             notes.push(note.clone());
@@ -2032,24 +2030,82 @@ impl Workforce {
         let liaison = &self.inner.liaison;
         if plan.existing {
             let open = runtime.session(&plan.session_id).await?;
-            if !plenipo_liaison::members_conversation(&open.session.metadata, &plan.workforce) {
+            let metadata = &open.session.metadata;
+            let ours = if plan.worker.is_some() {
+                metadata["directChat"] == true
+                    && metadata["workforce"]["positionId"] == plan.workforce["positionId"]
+            } else {
+                plenipo_liaison::members_conversation(metadata, &plan.workforce)
+            };
+            if !ours {
                 return Err(invalid(
                     "that conversation does not belong to this position's agent",
                 ));
             }
+            // An on-call worker's message gets its own task and worker: while the conversation
+            // is busy, nothing is recorded, and the chat sends the message when it is free.
+            if plan.worker.is_some() {
+                if open.session.active_task_id.is_some() {
+                    return Err(RuntimeError::SessionBusy(
+                        "A turn is already running in this session. Wait for it or cancel it."
+                            .into(),
+                    )
+                    .into());
+                }
+                if open.session.waiting_task_id.is_some() {
+                    return Err(RuntimeError::SessionBusy(
+                        "This session's turn is waiting to continue (for example for handoff \
+                         replies). Cancel the turn to stop waiting."
+                            .into(),
+                    )
+                    .into());
+                }
+            }
         }
         let place = liaison.owner_place()?;
-        let turn = liaison
+        let mut turn = liaison
             .direct_turn(&objective, plan.workforce.clone())
             .await?;
+        // An on-call position (ADR-208): the task and the worker staffed for it are recorded
+        // together first, and the turn runs that task in the position's open conversation.
+        let staffed = match plan.worker.clone() {
+            Some(worker) => {
+                let mut metadata = turn.task_metadata.clone();
+                metadata["sessionId"] = json!(plan.session_id);
+                metadata["runtimeId"] = json!(plan.runtime_id);
+                let new = NewTask {
+                    requested_by: OWNER.into(),
+                    assigned_to: Some(plan.runtime_id.clone()),
+                    project_id: plan.project_id.clone(),
+                    objective: objective.clone(),
+                    metadata,
+                    ..NewTask::default()
+                };
+                let this = self.clone();
+                let task = tokio::task::spawn_blocking(move || {
+                    this.ledger()
+                        .create_owner_task_with_worker(new, &worker, OWNER)
+                })
+                .await
+                .map_err(|e| WorkforceError::Internal(e.to_string()))??;
+                turn.session_metadata["directChat"] = json!(true);
+                Some(task.id)
+            }
+            None => None,
+        };
         let input = TurnInput {
             objective: objective.clone(),
             prompt: None,
             brief: Some(turn.brief),
-            task: TurnTask::New {
-                requested_by: OWNER.into(),
-                metadata: turn.task_metadata,
-                project_id: plan.project_id,
+            task: match &staffed {
+                Some(task_id) => TurnTask::Existing {
+                    task_id: task_id.clone(),
+                },
+                None => TurnTask::New {
+                    requested_by: OWNER.into(),
+                    metadata: turn.task_metadata,
+                    project_id: plan.project_id,
+                },
             },
         };
         let started = if plan.existing {
@@ -2070,6 +2126,27 @@ impl Workforce {
                 .await
         };
         drop(place);
+        // A task recorded for a turn that did not start is cancelled, and its worker leaves.
+        // Only one still queued: a turn that began and then failed (Plenipo closing mid-turn,
+        // say) is the runtime's to record.
+        if let (Err(e), Some(task_id)) = (&started, &staffed) {
+            let (this, task_id, why) = (self.clone(), task_id.clone(), e.to_string());
+            let _ = tokio::task::spawn_blocking(move || {
+                let l = this.ledger();
+                match l.task(&task_id)? {
+                    Some(t) if t.state == TaskState::Queued => l
+                        .transition_task(
+                            &task_id,
+                            TaskState::Cancelled,
+                            OWNER,
+                            Some(&format!("not started: {why}")),
+                        )
+                        .map(|_| ()),
+                    _ => Ok(()),
+                }
+            })
+            .await;
+        }
         let detail = started?;
         // The chain of command's records, once the turn has started (ADR-202).
         let this = self.clone();
@@ -2193,29 +2270,15 @@ impl Workforce {
                 "position {position_id}"
             )))
         })?;
-        // An on-call position takes its work from its lead (ADR-202): the owner's order goes to
-        // the lead's conversation, which hands it on. One with no lead is refused below.
-        let position = match view.lead_of(&doer.id) {
-            Some(lead)
-                if doer.state == plenipo_ledger::PositionState::Active
-                    && !view.persistent(doer)
-                    && lead.id != doer.id =>
-            {
-                lead
-            }
-            _ => doer,
-        };
+        // The owner talks to the agent itself (ADR-208): a full-time position in its member's
+        // conversation, an on-call one in its own direct chat, with a worker for each message.
+        let position = doer;
         let planner = self.inner.router.planner()?;
-        let mut plan = conversation::plan(l, &planner, &view, position).map_err(|e| {
-            if position.id == doer.id {
-                e
-            } else {
-                invalid(format!(
-                    "{} takes its work through {}: {e}",
-                    doer.title, position.title
-                ))
-            }
-        })?;
+        let mut plan = if view.persistent(position) {
+            conversation::plan(l, &planner, &view, position)?
+        } else {
+            conversation::direct_plan(l, &planner, &view, position)?
+        };
         let mut note = None;
         if let Some(project_id) = project_id {
             let project = records

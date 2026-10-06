@@ -90,7 +90,7 @@ export function OverviewTab({
       ? () => openWatch(p.id, p.title)
       : null;
   const chat = useChatIfAny();
-  // An on-call position's messages go through its lead (ADR-202).
+  // An on-call position is talked to directly too, in a chat of its own (ADR-208).
   const chatTarget = positionChatTarget(p);
   const chatWith = chat && chatTarget ? () => chat.open(chatTarget) : null;
   // Its chat in a window of its own (ADR-203).

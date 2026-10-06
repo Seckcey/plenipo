@@ -318,16 +318,6 @@ pub(crate) fn record_told(ledger: &Ledger, position_id: &str, up_to: u64) -> Res
     Ok(())
 }
 
-/// What a lead is asked when the owner's order is for an on-call position on its team: hand it
-/// on as it is, and report back.
-pub(crate) fn through_words(doer: &Position) -> String {
-    format!(
-        "(The owner asks this of your {t}, through you, as the chain of command goes: hand it to \
-         role:{t} as it is, add only what it needs to know, and report its result back.)",
-        t = doer.title
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
