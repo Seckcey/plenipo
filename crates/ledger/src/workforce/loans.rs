@@ -137,6 +137,26 @@ pub(crate) fn join_loan(
             position.title
         )));
     }
+    // The owner's own words to it (ADR-208): no job its team handed it, so they never tie the
+    // loan to an objective (nor end it with theirs), and they wait while it is going home or
+    // lent for another objective.
+    let task = crate::tasks::require(tx, task_id)?;
+    if task.requested_by == "owner" && task.parent_task_id.is_none() {
+        if loan.going_home {
+            return Err(invalid(format!(
+                "{} is going home after its current task; write to it again once it is back",
+                position.title
+            )));
+        }
+        return match loan.objective_task_id.as_deref() {
+            Some(_) if loan.until == LoanUntil::Objective => Err(invalid(format!(
+                "{} is lent to {helps}'s team for another objective; it comes back when that one \
+                 is done",
+                position.title
+            ))),
+            _ => Ok(()),
+        };
+    }
     // Going home: the directory refuses new work for it; a job that was placed just before
     // Send home is kept (refusing here would drop every hand-off of the requester's turn), and
     // the loan ends when its last task ends.
@@ -800,6 +820,61 @@ mod tests {
             OWNER,
         ))
         .contains("codex"));
+    }
+
+    /// The owner talks to a lent on-call worker directly (ADR-208): its team never handed it
+    /// those words, so they never tie the loan to an objective nor end it, and they wait while
+    /// it is lent for another objective or going home.
+    #[test]
+    fn the_owners_direct_words_never_tie_or_end_a_loan() {
+        let direct = |w: &World| -> crate::Result<String> {
+            let agent_id = uuid::Uuid::new_v4().to_string();
+            let task = w.l.create_owner_task_with_worker(
+                NewTask {
+                    requested_by: OWNER.into(),
+                    objective: "Check the login".into(),
+                    project_id: Some(w.shop.clone()),
+                    metadata: json!({ "workforce": {
+                        "positionId": w.auditor, "agentId": agent_id, "leadId": w.shop_lead,
+                    } }),
+                    ..NewTask::default()
+                },
+                &NewWorker {
+                    agent_id,
+                    position_id: w.auditor.clone(),
+                    role_id: w.auditor_role.clone(),
+                    runtime_id: "claude-code".into(),
+                    runtime_provider: Some("anthropic".into()),
+                    model: None,
+                    project_id: Some(w.shop.clone()),
+                    routing: Value::Null,
+                },
+                OWNER,
+            )?;
+            Ok(task.id)
+        };
+        let w = world();
+        w.l.lend_position(&w.auditor, &w.shop_lead, LoanUntil::Objective, OWNER)
+            .unwrap();
+        let first = direct(&w).unwrap();
+        assert_eq!(loan(&w.l, &w.auditor).objective_task_id, None);
+        finish(&w.l, &first);
+        assert!(loan(&w.l, &w.auditor).active, "still lent after the answer");
+        assert!(!types(&w.l).contains(&"org.agent_joined_objective".to_owned()));
+        // Once the team's objective has it, the owner's words wait for that one.
+        let shop = objective(&w.l, &w.shop_lead, &w.shop);
+        let handed = job(&w, &shop, &w.shop_lead, &w.shop).unwrap();
+        assert!(err(direct(&w)).contains("for another objective"));
+        finish(&w.l, &handed);
+
+        // Going home after its current task: the owner's words wait too.
+        let w = world();
+        w.l.lend_position(&w.auditor, &w.shop_lead, LoanUntil::Returned, OWNER)
+            .unwrap();
+        let shop = objective(&w.l, &w.shop_lead, &w.shop);
+        let _running = job(&w, &shop, &w.shop_lead, &w.shop).unwrap();
+        assert!(w.l.send_home(&w.auditor, OWNER).unwrap().going_home);
+        assert!(err(direct(&w)).contains("going home"));
     }
 
     #[test]

@@ -1446,7 +1446,7 @@ interface Handle {
 /** The selected agent's line ends (ADR-053 §7): buttons to drag, or to choose where they go. */
 /**
  * Who a tile's Chat button reaches (ADR-200): a full-time agent you can talk to; an on-call
- * position, whose messages go through its lead (ADR-202); or an on-call worker you can watch.
+ * position, which you talk to directly too (ADR-208); or an on-call worker you can watch.
  * `null` for a tile with no chat.
  */
 function chatTarget(
@@ -1455,7 +1455,7 @@ function chatTarget(
 ): { title: string; watch: boolean; working: boolean } | null {
   if (n.kind === "position") {
     const p = n.position;
-    const onCall = p.active && p.staffing === "onDemand" && p.reportsTo !== null;
+    const onCall = p.active && p.staffing === "onDemand";
     if (!canTakeObjective(p) && !onCall) return null;
     return {
       title: p.title,

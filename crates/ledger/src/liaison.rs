@@ -541,6 +541,41 @@ impl Ledger {
         result
     }
 
+    /// A session starts a task recorded for it, not handed over, as its turn `turn` (an on-call
+    /// worker's task from the owner, ADR-208): the task becomes `running`, numbered as the turn.
+    pub fn begin_task_turn(
+        &self,
+        task_id: &str,
+        session_id: &str,
+        turn: u32,
+        actor: &str,
+    ) -> Result<Task> {
+        let result = self.write(|tx, out| {
+            let task = tasks::require(tx, task_id)?;
+            if task.metadata.get("sessionId").and_then(Value::as_str) != Some(session_id) {
+                return Err(LedgerError::InvalidInput(format!(
+                    "task {task_id} is not assigned to session {session_id}"
+                )));
+            }
+            if task.metadata.get("turn").and_then(Value::as_u64) != Some(u64::from(turn)) {
+                tx.execute(
+                    "UPDATE tasks SET metadata = json_set(metadata, '$.turn', ?2) WHERE id = ?1",
+                    params![task_id, turn],
+                )?;
+            }
+            tasks::transition(
+                tx,
+                out,
+                task_id,
+                TaskState::Running,
+                actor,
+                Some("turn started"),
+            )
+        });
+        self.record_rejection(task_id, actor, Some("turn started"), &result);
+        result
+    }
+
     /// A worker session starts the child task of an accepted request as its turn `turn`: the
     /// request becomes `dispatched` and the child `running`, with `liaison.dispatched` on the
     /// child.

@@ -3,6 +3,7 @@ import { Icon, IconButton, StatusDot, cx, type Status } from "@plenipo/ui";
 
 import { useAgents } from "../agents/useAgents";
 import { liaisonInfo } from "../agents/store";
+import { toCommandError } from "../api/commands";
 import type { ChatLiaison } from "./Exchanges";
 import { sessionOfSource } from "./handoffBlocks";
 import { useNow } from "../runtime/useNow";
@@ -132,10 +133,23 @@ export function ChatWindow({
         ...(session.effort ? [`${EFFORT_LABEL[session.effort]} effort`] : []),
       ]
     : [];
-  const disabledReason =
-    origin === "handoff"
-      ? `${tab.title} takes its work from its lead, so you can watch it here but not message it. To change what it does, message its lead.`
-      : null;
+  // A task its lead handed it, shown as one conversation: watched, not added to. A position's
+  // own chat always takes your words, an on-call one's too (ADR-208).
+  const watchOnly = origin === "handoff" && (tab.positionId === null || tab.sessionId !== null);
+  const disabledReason = watchOnly
+    ? `${tab.title} takes its work from its lead, so you can watch it here but not message it. To change what it does, message its lead.`
+    : null;
+  // An on-call position's direct chat stays open until you end it (ADR-208).
+  const endable = session?.metadata["directChat"] === true && session.state === "open";
+  const [endProblem, setEndProblem] = useState<string | null>(null);
+  async function endChat(id: string) {
+    setEndProblem(null);
+    try {
+      await agents.close(id);
+    } catch (reason) {
+      setEndProblem(toCommandError(reason).message);
+    }
+  }
   const textOnly = runtime !== undefined && !runtime.usesTools;
 
   return (
@@ -163,6 +177,14 @@ export function ChatWindow({
           pressed={planShown}
           onClick={() => setPlanChoice(!planShown)}
         />
+        {endable && session && (
+          <IconButton
+            icon="close"
+            label={`End this chat with ${tab.title}: your next message starts a new one`}
+            disabled={busy}
+            onClick={() => void endChat(session.id)}
+          />
+        )}
         {onPopOut && (
           <IconButton
             icon="external"
@@ -195,6 +217,12 @@ export function ChatWindow({
             <p className="chat-note chat-window__note" role="status">
               <Icon name="alert" size={14} />
               {stopNote}
+            </p>
+          )}
+          {endProblem && (
+            <p className="chat-note chat-window__note" role="status">
+              <Icon name="alert" size={14} />
+              {endProblem}
             </p>
           )}
           {textOnly && (
