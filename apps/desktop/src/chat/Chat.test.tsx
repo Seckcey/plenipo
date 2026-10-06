@@ -316,7 +316,7 @@ describe("a chat with an agent (ADR-200)", () => {
     await user.type(box, "Never mind{Enter}");
     await user.click(screen.getByRole("button", { name: "Do not send this" }));
     expect(screen.queryByRole("list", { name: "Waiting to send" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+    await user.click(await screen.findByRole("button", { name: "Stop Development Manager" }, SLOW));
     expect(commands.cancelAgentTurn).toHaveBeenCalledWith("s1");
     emit({ kind: "turn", ...done("t1", "") });
     expect(commands.giveObjective).toHaveBeenCalledTimes(1);
@@ -336,7 +336,7 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat();
     await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
     await screen.findByRole("log", {}, SLOW);
-    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+    await user.click(await screen.findByRole("button", { name: "Stop Development Manager" }, SLOW));
 
     // Plenipo asks its AI tool to stop, and ends it if it does not: that takes a moment.
     const stopping = screen.getByRole("button", { name: "Stopping Development Manager…" });
@@ -378,7 +378,7 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat();
     await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
     await screen.findByRole("log", {}, SLOW);
-    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+    await user.click(await screen.findByRole("button", { name: "Stop Development Manager" }, SLOW));
 
     expect(await screen.findByText(/Stopped\. It was no longer running\./, {}, SLOW)).toBeVisible();
     expect(commands.getAgentSession).toHaveBeenCalledWith("s1");
@@ -402,7 +402,7 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat();
     await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
     await screen.findByRole("log", {}, SLOW);
-    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+    await user.click(await screen.findByRole("button", { name: "Stop Development Manager" }, SLOW));
 
     await waitFor(() => expect(commands.getAgentSession).toHaveBeenCalledWith("s1"), SLOW);
     await waitFor(() =>
@@ -431,7 +431,7 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat();
     await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
     await screen.findByRole("log", {}, SLOW);
-    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+    await user.click(await screen.findByRole("button", { name: "Stop Development Manager" }, SLOW));
 
     expect(await screen.findByText(/Stopped\. It was no longer running\./, {}, SLOW)).toBeVisible();
     expect(screen.getAllByText(/It was no longer running/)).toHaveLength(1);
@@ -452,7 +452,7 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat();
     await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
     await screen.findByRole("log", {}, SLOW);
-    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+    await user.click(await screen.findByRole("button", { name: "Stop Development Manager" }, SLOW));
 
     const alert = await screen.findByRole("alert", {}, SLOW);
     expect(alert).toHaveTextContent("Could not stop Development Manager");
