@@ -216,6 +216,42 @@ Decided now, built after this part:
 Not in this part: **Your workers' GitHub sign-in** line on the card (the design's optional line,
 `gh auth status`), the picker, and the copy.
 
+#### The independent review's fixes (#227, 2026-10-05)
+
+- **S1, by method too:** Guard's gate checks the address; the GitHub connection also checks the
+  method before anything leaves (`github::request_allowed`): only `GET` on `api.github.com`, and
+  only `POST` to `github.com`'s two sign-in addresses. Anything else is refused and recorded as
+  `guard.request_refused`.
+- **N2, a moment without the network:** while a code waits, no answer, GitHub busy (5xx), or "too
+  many requests" is asked about again, up to five times in a row while the code lasts; a refusal
+  still ends the sign-in at once.
+
+### Part 2 (A2): the picker on project setup (2026-10-05)
+
+- **The repository box** on New project, Edit project, and Set up a Development project
+  (`components/org/RepositoryPicker.tsx`, its words in `repositoryWords.ts`): with GitHub
+  connected, it searches the repositories `list_github_repositories` gives (asked when the dialog
+  opens, kept ten minutes), grouped by account in GitHub's order (your own first), each with
+  **Private** when it is, its description, and "updated 3 days ago". Typing narrows the list by
+  name, account, or description (a pasted `https://github.com/owner/name` finds it too); arrow
+  keys and Enter pick, a click picks, Escape closes. At most 50 show at once; typing narrows the
+  rest. The list ends with **Not here? Add an account or organization on GitHub** (GitHub's page)
+  and **Look again** (asks GitHub again).
+- **Picking fills** `https://github.com/<owner>/<name>`, built from the checked owner and name,
+  never GitHub's text.
+- **Any address still works,** typed or pasted, on any host (GitLab, a company server): the box is
+  the same field, with the same label ("Repository URL (optional)") and the same check when the
+  project is saved.
+- **Not connected:** the plain box, with the line "Connect GitHub in Settings → Connections to pick
+  from your repositories. You can always paste an address." The design's link to the card is
+  left out: the project dialogs have no way to change the page (none of their callers passes
+  one), and leaving the dialog would lose what was typed.
+- **GitHub refusing** (signed out, a refused renewal): the box still works, with GitHub's reason in
+  plain words and **Look again**.
+- No new command: the picker uses A1's `list_github_repositories` and `open_github_page`.
+- **Checked:** `RepositoryPicker.test.tsx` (not connected, the groups and marks, the keyboard and
+  a click, Escape, the GitHub page, Look again, a refusal, the accessibility check, and the words).
+
 ## Consequences
 
 - The owner signs in to GitHub once per organization, with no secret anywhere.

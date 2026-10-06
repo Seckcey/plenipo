@@ -300,6 +300,8 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | names, descriptions, branch and tag names, and who collaborates; never code    | Metadata permission, metadata:read, repo scope                                             |
 | Yours alone (GitHub: no worker uses it) / Look again                           | owner-only connection, no ACL / refresh, re-fetch, invalidate cache                        |
 | Remove Plenipo at GitHub / Authorized GitHub Apps / Installed GitHub Apps      | revoke the token, uninstall the app (GitHub's own page names are quoted)                   |
+| Search your GitHub repositories, or paste an address (the repository box)      | repo picker, autocomplete, combobox, typeahead                                             |
+| Not here? Add an account or organization on GitHub                             | install the app on another org, grant repository access                                    |
 | Add-on tools / Add a program / Look at its tools                               | MCP servers, custom MCP, tools/list                                                        |
 | Switch on / Switch off (an add-on)                                             | enable / disable server                                                                    |
 | Off / Reading / Changing (an add-on's tool)                                    | tool annotations, readOnlyHint, destructiveHint                                            |

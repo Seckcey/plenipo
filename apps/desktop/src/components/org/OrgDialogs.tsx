@@ -42,6 +42,7 @@ import {
 } from "./dialogHelpers";
 import { Modal } from "./Modal";
 import { ProjectFolderField } from "./ProjectFolderField";
+import { RepositoryPicker } from "./RepositoryPicker";
 import { RuntimeOptions } from "./RuntimeOptions";
 import { reusableWorkers } from "./teamReuse";
 import { runtimeChoiceLabel, subscriptionInstead } from "./runtimeChoices";
@@ -831,14 +832,10 @@ function ProjectSettingsFields({
           </label>
         ))}
       </fieldset>
-      <Field label="Repository URL (optional)">
-        <input
-          value={value.repositoryUrl}
-          maxLength={2000}
-          placeholder="https://github.com/…"
-          onChange={(e) => onChange({ repositoryUrl: e.target.value })}
-        />
-      </Field>
+      <RepositoryPicker
+        value={value.repositoryUrl}
+        onChange={(repositoryUrl) => onChange({ repositoryUrl })}
+      />
       <ProjectFolderField
         value={value.localPath}
         onChange={(localPath) => onChange({ localPath })}
