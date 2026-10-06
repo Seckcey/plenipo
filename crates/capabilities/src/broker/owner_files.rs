@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use plenipo_guard::paths::{blocked_by, Resolved, Workspace as Folder};
+use plenipo_guard::places::{same_place, within};
 use plenipo_guard::{Capability, Level};
 use plenipo_ledger::{FolderKind, Project, WorkspaceState};
 use serde_json::json;
@@ -275,6 +276,23 @@ fn web_page(name: &str) -> bool {
 
 /// A file that runs when opened: a program or a script by the end of its name, or, on a Mac and
 /// Linux, any file marked as a program, which runs there whatever its name (Phase 23).
+/// What the file view shows of one entry (the reviewer's S1 on #224): a file kept only online is
+/// described from the folder listing alone (`listed`), because following it to what it leads to
+/// opens it, and opening one marked to download when opened (`RECALL_ON_OPEN`) downloads it. A
+/// cloud file is the file itself, never a link, so nothing is lost. Anything else is followed
+/// (`follow`), so a link shows what it leads to.
+fn shown_metadata<M>(
+    listed: Option<M>,
+    online_only: bool,
+    follow: impl FnOnce() -> Option<M>,
+) -> Option<M> {
+    if online_only {
+        listed
+    } else {
+        follow()
+    }
+}
+
 pub fn runs_at(path: &Path, name: &str) -> bool {
     runs(name) || marked_to_run(path)
 }
@@ -382,16 +400,6 @@ fn place_label(kind: FolderKind, title: Option<&str>) -> String {
             Some(t) => format!("{t}'s scratch pad"),
             None => "Scratch pad".into(),
         },
-    }
-}
-
-/// The same place, letter case aside where the system ignores it.
-fn same_place(a: &Path, b: &Path) -> bool {
-    if cfg!(any(windows, target_os = "macos")) {
-        a.to_string_lossy()
-            .eq_ignore_ascii_case(&b.to_string_lossy())
-    } else {
-        a == b
     }
 }
 
@@ -577,8 +585,7 @@ impl Broker {
             if let Some(path) = p.local_path.clone() {
                 let id = format!("project:{}", p.id);
                 let inside = org_real.as_ref().is_some_and(|org| {
-                    dunce::canonicalize(&path)
-                        .is_ok_and(|real| real.ancestors().any(|a| same_place(a, org)))
+                    dunce::canonicalize(&path).is_ok_and(|real| within(&real, org))
                 });
                 roots.push(FileRoot {
                     writer: writers.get(&id).cloned(),
@@ -646,6 +653,20 @@ impl Broker {
                 ))
             })
             .collect()
+    }
+
+    /// Every folder the organization has recorded (ADR-205): where each really is when it is
+    /// there, and where it was recorded when it is missing.
+    fn recorded_folder_paths(&self) -> Vec<PathBuf> {
+        self.ledger()
+            .folders()
+            .map(|folders| {
+                folders
+                    .into_iter()
+                    .map(|f| dunce::canonicalize(&f.path).unwrap_or_else(|_| PathBuf::from(f.path)))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// The organization's name, as its Ledger keeps it.
@@ -717,7 +738,9 @@ impl Broker {
             .find(|g| {
                 g.workspace
                     .as_ref()
-                    .is_some_and(|w| abs.ancestors().any(|a| same_place(a, w.root())))
+                    // Part by part (the reviewer's N1 on #224): a long path's `\\?\` form or
+                    // another letter case can't miss its writer.
+                    .is_some_and(|w| within(abs, w.root()))
             })
             .map(writer_of)
     }
@@ -851,13 +874,14 @@ impl Broker {
             } else {
                 format!("{}/{name}", resolved.rel)
             };
+            // Read from the listing itself first: looking never downloads a file kept only online.
+            let listed = entry.metadata().ok();
+            let online_only = listed
+                .as_ref()
+                .is_some_and(plenipo_guard::places::online_only);
             // A link is shown as what it leads to (a broken one as a file).
-            let meta = std::fs::metadata(entry.path()).ok();
+            let meta = shown_metadata(listed, online_only, || std::fs::metadata(entry.path()).ok());
             let folder = meta.as_ref().is_some_and(std::fs::Metadata::is_dir);
-            // Read from the listing itself: looking never downloads a file kept only online.
-            let online_only = entry
-                .metadata()
-                .is_ok_and(|m| plenipo_guard::places::online_only(&m));
             let place = folder
                 .then(|| {
                     let at = entry.path();
@@ -1020,6 +1044,18 @@ impl Broker {
         }
         let known = self.known_root(root)?;
         let (_, resolved) = self.resolve_owner(&known, path)?;
+        // Never a file where one of the organization's folders belongs, even while that folder
+        // is missing: Plenipo makes it again there (the reviewer's N2 on #224).
+        if self
+            .recorded_folder_paths()
+            .iter()
+            .any(|f| same_place(f, &resolved.abs))
+        {
+            return Err(BrokerError::Invalid(format!(
+                "{} is where one of the organization's folders belongs. Choose another name.",
+                resolved.rel
+            )));
+        }
         // Held while checking for a writer and writing: a worker's step takes it to open, so a
         // step never starts in the middle of this save (ADR-093 §13).
         let _no_step_opens = lock(&self.inner.making);
@@ -1237,6 +1273,36 @@ fn words_size(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The reviewer's S1 on #224: a file kept only online, even one OneDrive downloads when it
+    /// is opened (`RECALL_ON_OPEN`), is listed from the folder listing's own marks and never
+    /// opened; anything else is followed, so a link shows what it leads to.
+    #[test]
+    fn a_file_kept_only_online_is_never_opened_to_list_it() {
+        let opened = std::cell::Cell::new(false);
+        let follow = || {
+            opened.set(true);
+            Some("what the link leads to")
+        };
+        assert_eq!(
+            shown_metadata(Some("the listing's"), true, follow),
+            Some("the listing's")
+        );
+        assert!(!opened.get(), "a file kept only online was opened");
+        assert_eq!(
+            shown_metadata(Some("the listing's"), false, follow),
+            Some("what the link leads to")
+        );
+        assert!(opened.get());
+        // OneDrive's two "download when used" marks, and Windows' offline mark.
+        for mark in [0x0040_0000, 0x0004_0000, 0x0000_1000] {
+            assert!(
+                plenipo_guard::places::online_only_attributes(mark),
+                "{mark:#x}"
+            );
+        }
+        assert!(!plenipo_guard::places::online_only_attributes(0x10));
+    }
 
     #[test]
     fn programs_and_scripts_are_known_by_their_names() {
@@ -1803,6 +1869,32 @@ mod tests {
         for bad in ["org:other", "org:", "org:folder/x"] {
             assert!(p.broker.list_folder(bad, "").is_err(), "{bad}");
         }
+    }
+
+    /// The reviewer's N2 on #224: the owner can't save a file where one of the organization's
+    /// folders belongs, even while that folder is missing (Plenipo makes it again there).
+    #[tokio::test]
+    async fn a_file_is_never_saved_where_an_organization_folder_belongs() {
+        let p = project();
+        let root = with_organization_folder(&p);
+        let files = root.join("Development").join("Files");
+        std::fs::remove_dir_all(&files).unwrap();
+        let save = |path: &str| {
+            p.broker
+                .save_file(ORG_ROOT, path, "mine\n", false, LineEnding::Lf, None)
+        };
+        let why = save("Development/Files").unwrap_err().to_string();
+        assert!(
+            why.contains("where one of the organization's folders belongs"),
+            "{why}"
+        );
+        // Another letter case is the same place where the system ignores it.
+        if cfg!(any(windows, target_os = "macos")) {
+            assert!(save("development/FILES").is_err());
+        }
+        assert!(!files.exists());
+        // A file of its own name beside it is fine.
+        assert!(save("Development/Files.md").is_ok());
     }
 
     /// The reviewer's O2 for the owner's own view: an organization folder that became a junction

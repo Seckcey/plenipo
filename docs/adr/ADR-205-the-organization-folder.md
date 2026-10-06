@@ -284,3 +284,17 @@ What was there (read at `306af756`, v1.26.0):
   - Guard's `files_kept_only_online_are_known_by_their_marks`
   - `Files.test.tsx` (opened first, marks, online only, Working copies, Elsewhere on this PC, the
     alert, the empty state) and `format.test.ts`
+
+#### The independent review's fixes (#224, 2026-10-05)
+
+- **S1, never opened to be listed:** a file kept only online is described from the folder
+  listing's own marks alone. Following it as a link would open it, and OneDrive downloads a file
+  marked to download when opened (`RECALL_ON_OPEN`). A cloud file is never a link, so nothing is
+  lost. Opening it in Plenipo still downloads it, as the page says.
+- **N1:** the one-writer check and the marks compare paths part by part, with Guard's
+  `same_place` and `within` (the same as #221's S2), so a long path can't miss its writer.
+- **N2:** the owner can't save a file where one of the organization's folders belongs, even while
+  that folder is missing.
+- **N3, for later:** the file view looks up where each recorded folder really is each time it
+  lists. If Files feels slow on a large organization folder, keep that and refresh it on the
+  `folder.*` events.
