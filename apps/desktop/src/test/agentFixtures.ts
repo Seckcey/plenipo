@@ -66,6 +66,7 @@ export const turn = (taskId: string, patch: Partial<AgentTurn> = {}): AgentTurn 
   sessionId: "s1",
   number: 1,
   objective: "Say hello",
+  requestedBy: { kind: "owner" },
   executionId: "e1",
   running: true,
   waiting: false,

@@ -763,6 +763,7 @@ impl AgentRuntime {
                         result: None,
                         started_at: Some(active.step_started_at),
                         ended_at: None,
+                        started_by: None,
                     }),
                 }
             }
@@ -4623,6 +4624,7 @@ mod tests {
             session_id: "s".into(),
             number: 1,
             objective: "o".into(),
+            requested_by: crate::agent::dto::RequestedBy::owner(),
             execution_id: None,
             running: false,
             waiting: false,
