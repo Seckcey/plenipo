@@ -84,6 +84,7 @@ After the MVP:
 | A live chat with each agent (ADR-200–202), and security fixes (ADR-211, 212)         | `1.24.0` |
 | Phase 25 — Fixes, a simpler Plenipo; safer Guard (ADR-190–199, 213, 214, 250–259)    | `1.25.0` |
 | Each agent's chat in a window of its own (ADR-203)                                   | `1.26.0` |
+| The organization folder, the Workers tree, direct chat, Stop fixes (ADR-205, 208)    | `1.27.0` |
 
 ## Releasing
 
