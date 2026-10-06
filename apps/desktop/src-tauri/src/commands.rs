@@ -1821,9 +1821,21 @@ pub async fn stop_control_everywhere<R: Runtime>(
             s.broker.stopped_all(&stopped, OWNER).await?;
         }
     }
-    // The AI work: held first, so nothing a stopped task leaves starts, then stopped.
-    for (agents, ledger) in work_everywhere(app, &stacks) {
-        stop_all_work(&agents, &ledger).await;
+    // The AI work: held in every organization first, so nothing a stopped task leaves starts
+    // anywhere, then every organization's work is stopped at the same time: one slow to stop
+    // never holds up the rest (the owner's report, 2026-10-05).
+    let work = work_everywhere(app, &stacks);
+    for (agents, _) in &work {
+        agents.hold_all_work();
+    }
+    let stopping: Vec<_> = work
+        .into_iter()
+        .map(|(agents, ledger)| {
+            tauri::async_runtime::spawn(async move { stop_all_work(&agents, &ledger).await })
+        })
+        .collect();
+    for organization in stopping {
+        let _ = organization.await;
     }
     Ok(broker.control_status())
 }
@@ -1849,19 +1861,31 @@ fn work_everywhere<R: Runtime>(
 }
 
 /// One organization's part of Stop all work: hold its work, stop each task running or waiting
-/// now, and record it. Returns how many tasks stopped.
+/// now, and record it, with any turn that could not be stopped and why. Returns how many tasks
+/// stopped.
 pub async fn stop_all_work(agents: &AgentRuntime, ledger: &Ledger) -> usize {
     agents.hold_all_work();
-    let stopped = agents.stop_all_turns().await;
+    let report = agents.stop_all_turns_report().await;
+    let not_stopped: Vec<_> = report
+        .not_stopped
+        .iter()
+        .map(|(session, why)| serde_json::json!({ "sessionId": session, "why": why }))
+        .collect();
+    if !not_stopped.is_empty() {
+        log::warn!(
+            "Stop all work could not stop {} turn(s): {not_stopped:?}",
+            not_stopped.len()
+        );
+    }
     if let Err(e) = ledger.append_event(plenipo_ledger::NewEvent {
         source: OWNER.into(),
         event_type: "work.stopped_all".into(),
-        payload: serde_json::json!({ "stopped": stopped }),
+        payload: serde_json::json!({ "stopped": report.stopped, "notStopped": not_stopped }),
         ..plenipo_ledger::NewEvent::default()
     }) {
         log::warn!("could not record Stop all work: {e}");
     }
-    stopped
+    report.stopped
 }
 
 /// One organization's part of Allow again: the work it held starts, and it is recorded.
