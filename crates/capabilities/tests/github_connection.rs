@@ -302,6 +302,45 @@ async fn a_refused_or_expired_code_keeps_nothing() {
     h.sign_in().await;
 }
 
+/// GitHub asks Plenipo to ask more slowly: it waits longer, and still signs in. A code cancelled
+/// while it waits keeps nothing, and GitHub is asked about it no more.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn slowing_down_still_signs_in_and_a_cancelled_code_keeps_nothing() {
+    let _turn = ONE_AT_A_TIME.lock().await;
+    let h = harness().await;
+    {
+        let mut w = h.ms.world();
+        w.github.slow_down_once = true;
+        w.github.pending_polls = 0;
+    }
+    let started = Instant::now();
+    h.sign_in().await;
+    // Asked once at GitHub's pace (1 second), told to slow down, then 5 seconds more.
+    assert!(
+        started.elapsed() >= Duration::from_secs(6),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(h.requests("POST /github.com/login/oauth/access_token"), 2);
+
+    let h = harness().await;
+    h.ms.world().github.pending_polls = 1000;
+    h.conns.start_sign_in(ID, AccountKind::Work).await.unwrap();
+    assert!(h.card().code.is_some());
+    assert!(h.conns.cancel(ID));
+    h.until("the code to go", |h| h.card().code.is_none()).await;
+    let asked = h.requests("POST /github.com/login/oauth/access_token");
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    assert_eq!(
+        h.requests("POST /github.com/login/oauth/access_token"),
+        asked
+    );
+    assert_eq!(h.state(), ConnectionState::NotConnected);
+    assert!(h.vault().is_none());
+    assert!(!plenipo_capabilities::connections::github_code_waiting());
+    h.record_has_no_token();
+}
+
 /// The reviewer's G4: one GitHub sign-in at a time on this PC, whichever organization's window
 /// starts it; Cancel ends it and frees the next.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

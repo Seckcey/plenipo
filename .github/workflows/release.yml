@@ -142,6 +142,8 @@ jobs:
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
           PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
           PLENIPO_SLACK_CLIENT_ID: ${{ vars.PLENIPO_SLACK_CLIENT_ID }}
+          PLENIPO_GITHUB_CLIENT_ID: ${{ vars.PLENIPO_GITHUB_CLIENT_ID }}
+          PLENIPO_GITHUB_APP_SLUG: ${{ vars.PLENIPO_GITHUB_APP_SLUG }}
           PLENIPO_RELAY_LIVE: ${{ vars.PLENIPO_RELAY_LIVE }}
           PLENIPO_CONNECTIONS_STAND_IN: ""
           PLENIPO_AI_TOOL_RELEASES: ""
@@ -210,6 +212,8 @@ jobs:
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
           PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
           PLENIPO_SLACK_CLIENT_ID: ${{ vars.PLENIPO_SLACK_CLIENT_ID }}
+          PLENIPO_GITHUB_CLIENT_ID: ${{ vars.PLENIPO_GITHUB_CLIENT_ID }}
+          PLENIPO_GITHUB_APP_SLUG: ${{ vars.PLENIPO_GITHUB_APP_SLUG }}
           PLENIPO_RELAY_LIVE: ${{ vars.PLENIPO_RELAY_LIVE }}
           # Never a test stand-in in a release (an empty value is ignored).
           PLENIPO_CONNECTIONS_STAND_IN: ""
@@ -319,17 +323,26 @@ jobs:
           PLENIPO_SERVER_SIGNING_PUBLIC_KEY: ${{ vars.PLENIPO_SERVER_SIGNING_PUBLIC_KEY }}
           PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
           PLENIPO_SLACK_CLIENT_ID: ${{ vars.PLENIPO_SLACK_CLIENT_ID }}
+          PLENIPO_GITHUB_CLIENT_ID: ${{ vars.PLENIPO_GITHUB_CLIENT_ID }}
+          PLENIPO_GITHUB_APP_SLUG: ${{ vars.PLENIPO_GITHUB_APP_SLUG }}
         run: |
           # A release never signs in with the end-to-end tests' stand-in app IDs (Phase 20),
           # compared as the build reads them: without spaces, the Microsoft one in small letters.
           microsoft_id="$(printf %s "$PLENIPO_MICROSOFT_APP_ID" | tr -d '[:space:]' | tr 'A-F' 'a-f')"
           slack_id="$(printf %s "$PLENIPO_SLACK_CLIENT_ID" | tr -d '[:space:]')"
+          github_id="$(printf %s "$PLENIPO_GITHUB_CLIENT_ID" | tr -d '[:space:]')"
+          github_slug="$(printf %s "$PLENIPO_GITHUB_APP_SLUG" | tr -d '[:space:]')"
           if [ "$microsoft_id" = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0" ]; then
             echo "::error::Repository variable PLENIPO_MICROSOFT_APP_ID is the tests' stand-in ID; set 8 West's app ID (docs/phases/phase-20-microsoft-app-registration.md)"
             exit 1
           fi
           if [ "$slack_id" = "1111111111.2222222222" ]; then
             echo "::error::Repository variable PLENIPO_SLACK_CLIENT_ID is the tests' stand-in ID; set 8 West's Slack app's client ID (docs/phases/phase-20-slack-and-google-apps.md)"
+            exit 1
+          fi
+          # Phase 25 (ADR-204): nor with the tests' stand-in GitHub App.
+          if [ "$github_id" = "Iv1.0123456789abcdef" ] || [ "$github_slug" = "plenipo-test-app" ]; then
+            echo "::error::Repository variable PLENIPO_GITHUB_CLIENT_ID or PLENIPO_GITHUB_APP_SLUG is the tests' stand-in; set 8 West's GitHub App's (docs/phases/phase-25-github-app.md)"
             exit 1
           fi
           for name in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
@@ -385,11 +398,14 @@ jobs:
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           # The updater key's public half, built into Plenipo (ADR-038).
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
-          # 8 West's Microsoft app ID (ADR-065 §6) and Slack app's client ID (ADR-070 §3): public,
-          # not secrets. Until the owner adds a variable, Plenipo says it has no app for that
-          # service yet (an organization or workspace can use its own).
+          # 8 West's Microsoft app ID (ADR-065 §6), Slack app's client ID (ADR-070 §3), and GitHub
+          # App's client ID and short name (ADR-204): public, not secrets. Until the owner adds a
+          # variable, Plenipo says it has no app for that service yet (an organization or
+          # workspace can use its own; GitHub has no other).
           PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
           PLENIPO_SLACK_CLIENT_ID: ${{ vars.PLENIPO_SLACK_CLIENT_ID }}
+          PLENIPO_GITHUB_CLIENT_ID: ${{ vars.PLENIPO_GITHUB_CLIENT_ID }}
+          PLENIPO_GITHUB_APP_SLUG: ${{ vars.PLENIPO_GITHUB_APP_SLUG }}
           # Phase 14 (ADR-140 §4): phone access reaches 8 West's relay only once the owner sets
           # the repository variable PLENIPO_RELAY_LIVE to "true" (the relay change is live).
           # Until then the switch says "Coming soon".
@@ -426,6 +442,8 @@ jobs:
           PLENIPO_UPDATER_PUBLIC_KEY: ${{ vars.PLENIPO_UPDATER_PUBLIC_KEY }}
           PLENIPO_MICROSOFT_APP_ID: ${{ vars.PLENIPO_MICROSOFT_APP_ID }}
           PLENIPO_SLACK_CLIENT_ID: ${{ vars.PLENIPO_SLACK_CLIENT_ID }}
+          PLENIPO_GITHUB_CLIENT_ID: ${{ vars.PLENIPO_GITHUB_CLIENT_ID }}
+          PLENIPO_GITHUB_APP_SLUG: ${{ vars.PLENIPO_GITHUB_APP_SLUG }}
           PLENIPO_RELAY_LIVE: ${{ vars.PLENIPO_RELAY_LIVE }}
           PLENIPO_CONNECTIONS_STAND_IN: ""
           PLENIPO_AI_TOOL_RELEASES: ""

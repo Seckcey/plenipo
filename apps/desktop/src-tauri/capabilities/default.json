@@ -98,6 +98,8 @@
     "allow-add-connection",
     "allow-remove-connection",
     "allow-save-connection-key",
+    "allow-list-github-repositories",
+    "allow-open-github-page",
     "allow-add-add-on",
     "allow-change-add-on",
     "allow-remove-add-on",

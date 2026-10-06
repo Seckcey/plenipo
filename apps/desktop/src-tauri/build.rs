@@ -107,6 +107,10 @@ const COMMANDS: &[&str] = &[
     "remove_connection",
     // Phase 20 part 20C: keys typed into a card (HubSpot, Stripe, the website), and add-on tools.
     "save_connection_key",
+    // Phase 25 (ADR-204): the read-only GitHub connection's list of repositories, and GitHub's
+    // own pages.
+    "list_github_repositories",
+    "open_github_page",
     "add_add_on",
     "change_add_on",
     "remove_add_on",
@@ -285,6 +289,9 @@ fn main() {
     println!("cargo:rerun-if-env-changed=PLENIPO_MICROSOFT_APP_ID");
     // 8 West's Slack app's client ID (public, not a secret; ADR-070 §3).
     println!("cargo:rerun-if-env-changed=PLENIPO_SLACK_CLIENT_ID");
+    // 8 West's read-only GitHub App's client ID and short name (public; ADR-204).
+    println!("cargo:rerun-if-env-changed=PLENIPO_GITHUB_CLIENT_ID");
+    println!("cargo:rerun-if-env-changed=PLENIPO_GITHUB_APP_SLUG");
     println!("cargo:rerun-if-env-changed=PLENIPO_CONNECTIONS_STAND_IN");
     // The stand-in for 8 West's license check in copies built for the tests (Phase 11A).
     println!("cargo:rerun-if-env-changed=PLENIPO_LICENSE_STAND_IN");

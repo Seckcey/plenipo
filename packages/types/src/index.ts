@@ -356,6 +356,11 @@ export type { AddOnChange } from "./generated/AddOnChange";
 export type { AddOnInput } from "./generated/AddOnInput";
 export type { AddOnTool } from "./generated/AddOnTool";
 export type { ToolMark } from "./generated/ToolMark";
+// Phase 25 (ADR-204): the read-only GitHub connection's short code and list of repositories.
+export type { SignInCode } from "./generated/SignInCode";
+export type { GithubAccount } from "./generated/GithubAccount";
+export type { GithubRepository } from "./generated/GithubRepository";
+export type { GithubRepositories } from "./generated/GithubRepositories";
 // Phase 21 (ADR-092): the workspace's panels and pop-out windows.
 export type { PanelId } from "./generated/PanelId";
 export type { PopOutNotice } from "./generated/PopOutNotice";

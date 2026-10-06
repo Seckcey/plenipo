@@ -13,6 +13,7 @@
 
 use std::collections::BTreeMap;
 
+use plenipo_capabilities::connections::github::GithubRepositories;
 use plenipo_capabilities::connections::keyed::{KeyInput, MAX_KEY};
 use plenipo_capabilities::connections::{AppInput, ConnectionsPage, MAX_APP_SECRET};
 use plenipo_capabilities::Broker;
@@ -248,6 +249,39 @@ pub async fn save_connection_key(
         .map_err(crate::commands::broker_error)
 }
 
+/// The GitHub accounts and organizations Plenipo was added to, and their repositories' names
+/// (ADR-204): read through Guard with the connection's sign-in, which never comes out. Kept for
+/// ten minutes in this organization alone; `fresh` asks GitHub again.
+#[tauri::command]
+pub async fn list_github_repositories(
+    broker: Org<'_, Broker>,
+    fresh: bool,
+) -> Result<GithubRepositories, CommandError> {
+    let broker = broker.inner().clone();
+    broker
+        .github_repositories(fresh)
+        .await
+        .map_err(crate::commands::broker_error)
+}
+
+/// The GitHub pages Plenipo opens in the owner's browser (ADR-204): where the code is typed,
+/// where the owner chooses the accounts Plenipo may list, and where the owner removes Plenipo
+/// at GitHub. Fixed addresses only; Guard checks each.
+#[tauri::command]
+pub async fn open_github_page(broker: Org<'_, Broker>, page: String) -> Result<(), CommandError> {
+    if !GITHUB_PAGES.contains(&page.as_str()) {
+        return Err(CommandError::invalid_input("unknown GitHub page"));
+    }
+    let broker = broker.inner().clone();
+    broker
+        .open_github_page(&page)
+        .await
+        .map_err(crate::commands::broker_error)
+}
+
+/// The GitHub pages `open_github_page` opens, by name.
+const GITHUB_PAGES: [&str; 4] = ["device", "install", "authorizations", "installations"];
+
 /// An add-on's ID: small letters and digits, 1–12.
 fn validate_add_on_id(id: &str) -> Result<(), CommandError> {
     let ok = (1..=12).contains(&id.len())
@@ -397,7 +431,7 @@ mod tests {
             .skip(1)
             .map(|rest| rest.lines().next().unwrap_or_default())
             .collect();
-        assert_eq!(commands.len(), 17, "{commands:?}");
+        assert_eq!(commands.len(), 19, "{commands:?}");
         for line in commands {
             assert!(line.starts_with("pub async fn "), "not async: {line}");
         }
@@ -405,7 +439,14 @@ mod tests {
 
     #[test]
     fn only_known_services_are_connection_ids() {
-        for ok in ["microsoft365", "slack", "slack-2", "google", "stripe"] {
+        for ok in [
+            "microsoft365",
+            "slack",
+            "slack-2",
+            "google",
+            "stripe",
+            "github",
+        ] {
             assert!(validate_connection_id(ok).is_ok(), "{ok}");
         }
         for bad in [

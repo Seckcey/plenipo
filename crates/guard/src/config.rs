@@ -673,7 +673,7 @@ impl GuardConfig {
         let mut c = self.connection_or_new(id)?;
         if c.service.owner_only() && !access.is_empty() {
             return Err(invalid(format!(
-                "{} is yours alone: no worker may use it (ADR-204)",
+                "{} is yours alone: no worker may use it",
                 c.label()
             )));
         }
@@ -709,7 +709,7 @@ impl GuardConfig {
         let mut c = self.connection_or_new(id)?;
         if c.service.owner_only() && !list.is_empty() {
             return Err(invalid(format!(
-                "{} sends nothing: it only lists your repositories (ADR-204)",
+                "{} sends nothing: it only lists your repositories",
                 c.label()
             )));
         }

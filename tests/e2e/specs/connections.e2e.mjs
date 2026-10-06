@@ -28,9 +28,14 @@
 // Changing tool asks. Disconnect removes every key and
 // revokes the site's password.
 //
-// It needs a copy built with PLENIPO_CONNECTIONS_STAND_IN, PLENIPO_MICROSOFT_APP_ID, and
-// PLENIPO_SLACK_CLIENT_ID (CI's E2E job builds one); without them, the suite is skipped. Real
-// accounts are the owner's check on Windows (see the Phase 20 acceptance reports).
+// Phase 25 (ADR-204): the owner connects GitHub with a short code typed on GitHub's own page, and
+// the card lists the accounts and repositories Plenipo may see; Disconnect says where to remove
+// Plenipo at GitHub.
+//
+// It needs a copy built with PLENIPO_CONNECTIONS_STAND_IN, PLENIPO_MICROSOFT_APP_ID,
+// PLENIPO_SLACK_CLIENT_ID, and PLENIPO_GITHUB_CLIENT_ID (CI's E2E job builds one); without them,
+// the suite is skipped. Real accounts are the owner's check on Windows (see the Phase 20
+// acceptance reports).
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -1195,6 +1200,73 @@ describe(
         30_000,
       );
       await screenshot(browser, "keys-disconnected", cardOf("wordpress"));
+    });
+  },
+);
+
+const GITHUB_ID = process.env.PLENIPO_GITHUB_CLIENT_ID;
+const GITHUB_CARD = 'li[aria-labelledby="connection-github"]';
+
+// Phase 25 (ADR-204): the read-only GitHub connection. The owner presses Sign in with GitHub; the
+// card shows a short code to type on GitHub's own page (the stand-in "types" it after a few
+// looks), then says who it is connected as and lists the accounts and repositories. It is free,
+// so Pro is not needed, and no token ever reaches github.com. Disconnect says where to remove
+// Plenipo at GitHub.
+describe(
+  "Phase 25: the GitHub connection in the real app (a stand-in GitHub)",
+  { skip: STAND_IN && GITHUB_ID ? false : "needs a copy built with the GitHub stand-in" },
+  () => {
+    const home3 = makeHome();
+    const env3 = installFakeTools(home3);
+    let app;
+    let services;
+
+    before(async () => {
+      services = await startServices();
+      app = await launch(home3, env3);
+      await app.browser.setWindowSize(1600, 1000);
+    });
+    after(async () => {
+      await app?.close();
+      await stopServices(services);
+    });
+
+    it("connects with a short code typed on GitHub's page, and lists the repositories", async () => {
+      const { browser } = app;
+      await waitForShell(browser);
+      await openSettings(browser, "Connections");
+      await waitUntil(() => exists(browser, GITHUB_CARD), "GitHub's card");
+      await openCards(browser);
+      await waitForText(browser, GITHUB_CARD, "Not connected");
+      await waitForText(browser, GITHUB_CARD, "who collaborates; never code");
+      // A few looks before the owner "types" the code, so the code can be seen.
+      await knobs({ github: { pendingPolls: 6 } });
+      await onCardOf(browser, "github", "Sign in with GitHub");
+      await waitForText(browser, GITHUB_CARD, "Type this code on GitHub's page.", 30_000);
+      await waitForText(browser, GITHUB_CARD, "WDJB-MJHT");
+      await waitForText(browser, GITHUB_CARD, "Only type a code Plenipo just showed you here.");
+      await screenshot(browser, "github-code", GITHUB_CARD);
+      await waitForText(browser, GITHUB_CARD, "Connected as Frankie G (frankieg).", 60_000);
+      await waitForText(browser, GITHUB_CARD, "frankieg (your account, every repository)", 30_000);
+      await waitForText(
+        browser,
+        GITHUB_CARD,
+        "8west (an organization, only the repositories you picked)",
+      );
+      await waitForText(browser, GITHUB_CARD, "5 repositories");
+      await waitForText(browser, GITHUB_CARD, "8west/8west-repo-001");
+      await screenshot(browser, "github-connected", GITHUB_CARD);
+      assert.equal((await world()).githubTokenOnGithubCom, false);
+    });
+
+    it("Disconnect removes the sign-in here, and says where to remove Plenipo at GitHub", async () => {
+      const { browser } = app;
+      await onCardOf(browser, "github", "Disconnect");
+      await onCardOf(browser, "github", "Yes, disconnect");
+      await waitForText(browser, GITHUB_CARD, "Not connected", 30_000);
+      await waitForText(browser, GITHUB_CARD, "To remove Plenipo from GitHub too");
+      await waitForText(browser, GITHUB_CARD, "Open Authorized GitHub Apps");
+      await screenshot(browser, "github-disconnected", GITHUB_CARD);
     });
   },
 );

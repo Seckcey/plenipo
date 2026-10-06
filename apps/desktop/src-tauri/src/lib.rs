@@ -662,6 +662,8 @@ pub fn configure<R: Runtime>(
             connections_commands::add_connection,
             connections_commands::remove_connection,
             connections_commands::save_connection_key,
+            connections_commands::list_github_repositories,
+            connections_commands::open_github_page,
             connections_commands::add_add_on,
             connections_commands::change_add_on,
             connections_commands::remove_add_on,
@@ -5577,6 +5579,101 @@ mod ipc_boundary_tests {
         assert_eq!(slack, ["slack", "slack-2"]);
     }
 
+    /// Phase 25 (ADR-204): GitHub's list of repositories and its pages are the main window's
+    /// alone, each takes only what it names, and GitHub stays the owner's alone.
+    #[test]
+    fn the_github_connection_is_the_main_windows_alone() {
+        let app = app();
+        let main = window(&app, "main");
+        let other = window(&app, "untrusted");
+        let sign = window(&app, crate::indicator::LABEL);
+        for (cmd, args) in [
+            (
+                "list_github_repositories",
+                serde_json::json!({ "fresh": true }),
+            ),
+            ("open_github_page", serde_json::json!({ "page": "device" })),
+            (
+                "connect_connection",
+                serde_json::json!({ "connectionId": "github", "kind": "work" }),
+            ),
+        ] {
+            for (from, answer) in [
+                ("another window", invoke_json(&other, cmd, args.clone())),
+                ("the sign", invoke_json(&sign, cmd, args.clone())),
+                (
+                    "a web page",
+                    invoke_with(&main, cmd, args.clone(), "https://example.com"),
+                ),
+            ] {
+                let err = answer.expect_err(from);
+                assert!(
+                    err.to_string().contains("not allowed"),
+                    "{cmd} from {from}: {err}"
+                );
+            }
+        }
+        let said = |cmd: &str, args: serde_json::Value| -> String {
+            let err = invoke_json(&main, cmd, args.clone())
+                .expect_err(&format!("{cmd} must refuse {args}"));
+            err["message"]
+                .as_str()
+                .map_or_else(|| err.to_string(), str::to_owned)
+        };
+        // Not connected: no list, and nothing is asked of GitHub.
+        let why = said(
+            "list_github_repositories",
+            serde_json::json!({ "fresh": false }),
+        );
+        assert!(why.contains("GitHub isn't connected"), "{why}");
+        // Only GitHub's own few pages, by name: never an address.
+        for page in [
+            "https://evil.example/login/device",
+            "https://github.com/login/device",
+            "../device",
+            "Device",
+            "settings",
+            "",
+        ] {
+            let why = said("open_github_page", serde_json::json!({ "page": page }));
+            assert!(why.contains("unknown GitHub page"), "{page}: {why}");
+        }
+        // Nobody else may use it, and it sends nothing.
+        let line = serde_json::json!([{
+            "who": { "kind": "role", "id": "0f8fad5b-d9cb-469f-a165-70867728950e" },
+            "level": "readOnly",
+        }]);
+        let why = said(
+            "set_connection_access",
+            serde_json::json!({ "connectionId": "github", "access": line }),
+        );
+        assert!(why.contains("GitHub is yours alone"), "{why}");
+        let why = said(
+            "set_connection_send_list",
+            serde_json::json!({ "connectionId": "github", "list": ["a@b.co"] }),
+        );
+        assert!(why.contains("GitHub sends nothing"), "{why}");
+        // A copy built without 8 West's GitHub App says so (the tests' copy has none).
+        if option_env!("PLENIPO_GITHUB_CLIENT_ID").is_none() {
+            let why = said(
+                "connect_connection",
+                serde_json::json!({ "connectionId": "github", "kind": "work" }),
+            );
+            assert!(why.contains("GitHub"), "{why}");
+        }
+        // The card shows no parts and no code, and asks for no Pro.
+        let page: plenipo_capabilities::connections::ConnectionsPage =
+            body(invoke(&main, "get_connections"));
+        let github = page
+            .services
+            .iter()
+            .find(|s| s.service == plenipo_guard::Service::Github)
+            .expect("GitHub's card");
+        let card = &github.connections[0];
+        assert!(card.owner_only && card.code.is_none());
+        assert!(card.connection.access.is_empty() && card.connection.send_list.is_empty());
+    }
+
     #[test]
     fn the_phase_20_commands_check_what_they_are_given() {
         let app = app();
@@ -5938,7 +6035,8 @@ mod ipc_boundary_tests {
                 "Google",
                 "HubSpot",
                 "Stripe",
-                "WordPress and WooCommerce"
+                "WordPress and WooCommerce",
+                "GitHub"
             ]
         );
         let has_app = guard_host::connections_config().microsoft_app_id.is_some();
