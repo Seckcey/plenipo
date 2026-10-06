@@ -22,6 +22,17 @@ import {
   waitUntil,
   waitForShell,
 } from "../lib/app.mjs";
+import {
+  CHAT_LOG,
+  START_FORM,
+  openConversation,
+  openFolds,
+  sendMessage,
+  sessionTitled,
+  startConversation,
+  stopChat,
+  waitForTurn,
+} from "../lib/chat.mjs";
 
 const home = makeHome();
 const env = installFakeTools(home);
@@ -31,29 +42,11 @@ const setAuth = (mode) => {
   writeFileSync(join(stateDir, "auth"), mode);
 };
 
-const TURNS = '[aria-label="Tasks"]';
-const NEW_TASK = 'form[aria-label="New task"]';
-
-/** Snapshot the turns of the selected session in one in-page read. */
-function turns(browser) {
-  return browser.execute((selector) => {
-    return [...document.querySelectorAll(`${selector} > li`)].map((li) => ({
-      running: li.getAttribute("data-running") === "true",
-      outcome: li.getAttribute("data-outcome"),
-      text: li.innerText.replace(/\s+/g, " ").trim(),
-    }));
-  }, TURNS);
+/** The AI tool's own conversation was confirmed for it (its ID kept, ADR-014). */
+async function confirmed(browser, title) {
+  const session = await sessionTitled(browser, title);
+  assert.ok(session.providerSessionConfirmed && session.providerSessionId, title);
 }
-
-const waitForTurn = (browser, n, predicate, what, timeoutMs = 30_000) =>
-  waitUntil(
-    async () => {
-      const t = (await turns(browser))[n - 1];
-      return t && predicate(t) ? t : null;
-    },
-    what,
-    timeoutMs,
-  );
 
 /**
  * AI tool cards start closed (Phase 25, item 2.1): open every card shown. An opened card is
@@ -67,39 +60,6 @@ async function openCards(browser) {
       toggle.click();
     }
   });
-}
-
-async function startTask(browser, runtimeLabel, objective) {
-  await nav(browser, "Workers");
-  const radio = await browser.$(`//label[.//span[normalize-space()="${runtimeLabel}"]]//input`);
-  await radio.waitForExist({ timeout: 10_000 });
-  await radio.click();
-  await waitUntil(
-    async () => (await textOf(browser, NEW_TASK)).includes("Ready"),
-    `${runtimeLabel} ready`,
-  );
-  const box = await browser.$(`${NEW_TASK} textarea`);
-  await box.setValue(objective);
-  await clickButton(browser, "Start task");
-  // Wait until the new session is the one shown (the previous selection stays visible until
-  // the command returns).
-  await waitForText(browser, ".detail__header h2", objective);
-}
-
-async function openSession(browser, title) {
-  await nav(browser, "Workers");
-  const item = await browser.$(
-    `//ul[@aria-label="Conversations"]//button[contains(., "${title}")]`,
-  );
-  await item.waitForExist({ timeout: 10_000 });
-  await item.click();
-  await waitForText(browser, ".detail__header", title);
-}
-
-async function followUp(browser, objective) {
-  const box = await browser.$('form[aria-label="Continue the conversation"] textarea');
-  await box.setValue(objective);
-  await clickButton(browser, "Send");
 }
 
 describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
@@ -141,26 +101,27 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
 
   it("A1+A3+A4: launches a Codex task with live activity and a normalized result", async () => {
     const { browser } = app;
-    await startTask(browser, "Codex", "List the workspace");
+    await startConversation(browser, "Codex", "List the workspace");
     const t = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "Codex result");
     assert.match(t.text, /Turn 1: you said "List the workspace"\. Previous: None\./);
-    assert.match(t.text, /20 in \(8 cached\) · 9 out/);
-    // Live activity included Codex's command and message.
-    await (await browser.$('//summary[contains(., "Live activity")]')).click();
-    await waitForText(browser, TURNS, "bash -lc ls");
+    // Its tokens, normalized: 20 read, 8 of them reused, and 9 written.
+    assert.match(t.text, /20 read \(8 reused\) · 9 written/);
+    // Its steps included Codex's command (a step line you can open).
+    await waitForTurn(browser, 1, (t) => t.text.includes("bash -lc ls"), "Codex's command");
   });
 
   it("A2+A3+A4: launches a Claude Code task with streamed text and a normalized result", async () => {
     const { browser } = app;
-    await startTask(browser, "Claude Code", "Say hello");
+    await startConversation(browser, "Claude Code", "Say hello");
     const t = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "Claude result");
     assert.match(t.text, /Turn 1: you said "Say hello"\. Previous: None\./);
-    await waitForText(browser, ".detail__header", "Claude Code conversation");
-    // Finished sessions are not shown as running (the start response can arrive after the
+    await confirmed(browser, "Say hello");
+    // Finished conversations are not shown as working (the start response can arrive after the
     // live "finished" update for a fast turn).
     await waitUntil(
-      async () => !(await textOf(browser, '[aria-label="Conversations"]')).includes("Running"),
-      "no session shown as running",
+      async () =>
+        !(await textOf(browser, '[aria-label="Other conversations"]')).includes("Working"),
+      "no conversation shown as working",
     );
     await screenshot(browser, "worker-result");
   });
@@ -168,45 +129,37 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
   it("shows Claude's thinking as one paragraph, not a few letters on each line", async () => {
     const { browser } = app;
     // The fake Claude Code thinks first, its thinking in eight small pieces (ADR-200).
-    await startTask(browser, "Claude Code", "Plan first [think]");
+    await startConversation(browser, "Claude Code", "Plan first [think]");
     await waitForTurn(browser, 1, (t) => t.outcome === "completed", "Claude result with thinking");
-    await (await browser.$('//summary[contains(., "Live activity")]')).click();
+    await openFolds(browser);
     const thinking = await waitUntil(async () => {
-      const rows = await browser.execute(
-        (selector) =>
-          [...document.querySelectorAll(`${selector} li[data-type="reasoning"]`)].map((li) =>
-            li.innerText.replace(/\s+/g, " ").trim(),
+      const blocks = await browser.execute(
+        (log) =>
+          [...document.querySelectorAll(`${log} .chat-thinking__text`)].map((p) =>
+            p.innerText.replace(/\s+/g, " ").trim(),
           ),
-        TURNS,
+        CHAT_LOG,
       );
-      return rows.length > 0 ? rows : null;
-    }, "the thinking row");
-    assert.deepEqual(thinking, ["Thinking I should check the file first."]);
-    // Its sign that it began to think is not a row of its own once the words came.
-    const signs = await browser.execute(
-      (selector) =>
-        [...document.querySelectorAll(`${selector} li[data-type="status"]`)].map((li) =>
-          li.innerText.replace(/\s+/g, " ").trim(),
-        ),
-      TURNS,
-    );
-    assert.ok(!signs.includes("Thinking Thinking"), signs.join(" | "));
+      return blocks.length > 0 ? blocks : null;
+    }, "its thinking");
+    // One paragraph from its eight pieces, and no second block for its sign that it began.
+    assert.deepEqual(thinking, ["I should check the file first."]);
     await screenshot(browser, "worker-thinking");
   });
 
   it("launches a Grok task over ACP with a normalized result", async () => {
     const { browser } = app;
-    await startTask(browser, "Grok", "Hello Grok");
+    await startConversation(browser, "Grok", "Hello Grok");
     const t = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "Grok result");
     assert.match(t.text, /Turn 1: you said "Hello Grok"\. Previous: None\./);
-    assert.match(t.text, /30 in \(12 cached\) · 9 out/);
-    await waitForText(browser, ".detail__header", "Grok conversation");
+    assert.match(t.text, /30 read \(12 reused\) · 9 written/);
+    await confirmed(browser, "Hello Grok");
     await screenshot(browser, "worker-result-grok");
   });
 
   it("launches an Antigravity task, text only, with Plenipo's own settings for it (ADR-082)", async () => {
     const { browser } = app;
-    await startTask(browser, "Antigravity", "Hello Antigravity [refused-tool] [settings]");
+    await startConversation(browser, "Antigravity", "Hello Antigravity [refused-tool] [settings]");
     const t = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "Antigravity result");
     assert.match(
       t.text,
@@ -215,17 +168,21 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     // It ran with Plenipo's settings for it: strict permissions, paid AI credits off.
     assert.match(t.text, /"toolPermission":"strict"/);
     assert.doesNotMatch(t.text, /"useG1Credits":true/);
-    assert.match(t.text, /20 in \(8 cached\) · 9 out/);
-    await waitForText(browser, ".detail__header", "Antigravity conversation");
-    // The tool it asked for was refused, and that is in the task's activity, in plain words.
-    await (await browser.$('//summary[contains(., "Live activity")]')).click();
-    await waitForText(browser, TURNS, "they are off for Plenipo's tasks");
+    assert.match(t.text, /20 read \(8 reused\) · 9 written/);
+    await confirmed(browser, "Hello Antigravity");
+    // The tool it asked for was refused, and that is in its chat, in plain words.
+    await waitForTurn(
+      browser,
+      1,
+      (t) => t.text.includes("they are off for Plenipo's tasks"),
+      "the refusal",
+    );
     await screenshot(browser, "worker-result-antigravity");
   });
 
   it("launches a GitHub Copilot task, text only, in Plenipo's own settings folder for it (ADR-083)", async () => {
     const { browser } = app;
-    await startTask(browser, "GitHub Copilot", "Hello Copilot [refused-tool] [settings]");
+    await startConversation(browser, "GitHub Copilot", "Hello Copilot [refused-tool] [settings]");
     const t = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "Copilot result");
     assert.match(
       t.text,
@@ -233,23 +190,26 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     );
     // It ran with Plenipo's settings folder for it, never the owner's.
     assert.match(t.text, /Settings folder: .*ai-tool-homes.copilot/);
-    await waitForText(browser, ".detail__header", "GitHub Copilot conversation");
-    // The tool it asked for was refused, and that is in the task's activity.
-    await (await browser.$('//summary[contains(., "Live activity")]')).click();
-    await waitForText(browser, TURNS, "does not exist");
+    await confirmed(browser, "Hello Copilot");
+    // The tool it asked for was refused, and that is in its chat.
+    await waitForTurn(browser, 1, (t) => t.text.includes("does not exist"), "the refusal");
     await screenshot(browser, "worker-result-copilot");
   });
 
   it("launches a Kimi task over ACP, and Plenipo refuses Kimi's own shell", async () => {
     const { browser } = app;
-    await startTask(browser, "Kimi", "Hello Kimi [own-shell]");
+    await startConversation(browser, "Kimi", "Hello Kimi [own-shell]");
     const t = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "Kimi result");
     assert.match(t.text, /Turn 1: you said "Hello Kimi \[own-shell\]"\. Previous: None\./);
     assert.match(t.text, /Shell answer: reject\./);
-    await waitForText(browser, ".detail__header", "Kimi conversation");
-    // The refusal is in the task's activity, in plain words.
-    await (await browser.$('//summary[contains(., "Live activity")]')).click();
-    await waitForText(browser, TURNS, "Workers run programs with Plenipo's run_command tool");
+    await confirmed(browser, "Hello Kimi");
+    // The refusal is in its chat, in plain words.
+    await waitForTurn(
+      browser,
+      1,
+      (t) => t.text.includes("Workers run programs with Plenipo's run_command tool"),
+      "the refusal",
+    );
     await screenshot(browser, "worker-result-kimi");
   });
 
@@ -259,8 +219,8 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
       ["Say hello", "Say hello"],
       ["List the workspace", "List the workspace"],
     ]) {
-      await openSession(browser, title);
-      await followUp(browser, "And again?");
+      await openConversation(browser, title);
+      await sendMessage(browser, "And again?");
       const t = await waitForTurn(browser, 2, (t) => t.outcome === "completed", `${title} turn 2`);
       assert.match(
         t.text,
@@ -271,15 +231,15 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
 
   it("A3+A6: shows live activity and cancels an active task", async () => {
     const { browser } = app;
-    await startTask(browser, "Claude Code", "Count slowly [slow]");
+    await startConversation(browser, "Claude Code", "Count slowly [slow]");
     // Live: streamed ticks appear while the turn is still running.
     await waitForTurn(browser, 1, (t) => t.running && /tick 3/.test(t.text), "live ticks", 20_000);
     await screenshot(browser, "worker-live");
-    await clickButton(browser, "Cancel task");
+    await stopChat(browser);
     const t = await waitForTurn(browser, 1, (t) => t.outcome === "cancelled", "cancelled");
-    assert.match(t.text, /Cancelled/);
-    // The session stays usable: resume after cancel.
-    await followUp(browser, "Done counting?");
+    assert.match(t.text, /Stopped/);
+    // The conversation stays usable: it goes on after the stop.
+    await sendMessage(browser, "Done counting?");
     await waitForTurn(browser, 2, (t) => t.outcome === "completed", "resume after cancel");
   });
 
@@ -307,7 +267,7 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
 
   it("marks a turn interrupted when Plenipo is killed mid-turn, keeping all history", async () => {
     let { browser } = app;
-    await startTask(browser, "Codex", "Think slowly [slow]");
+    await startConversation(browser, "Codex", "Think slowly [slow]");
     await waitForTurn(browser, 1, (t) => t.running && /tick 2/.test(t.text), "running turn");
     const [pid] = appPids();
     process.kill(pid, "SIGKILL"); // no graceful shutdown at all
@@ -317,12 +277,12 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     app = await launch(home, env);
     ({ browser } = app);
     await waitForShell(browser);
-    await openSession(browser, "Think slowly");
+    await openConversation(browser, "Think slowly");
     const t = await waitForTurn(browser, 1, (t) => t.outcome === "interrupted", "interrupted");
-    assert.match(t.text, /Interrupted/);
+    assert.match(t.text, /Stopped/);
     await waitForText(browser, '[aria-label="Worker notices"]', "marked interrupted");
     // Earlier sessions and results are intact.
-    await openSession(browser, "Say hello");
+    await openConversation(browser, "Say hello");
     await waitForTurn(browser, 2, (t) => t.outcome === "completed", "history after restart");
   });
 
@@ -333,10 +293,15 @@ describe("Phase 3 agent runtimes (real app, fake CLIs)", () => {
     await clickButton(browser, "Check again");
     await waitForText(browser, '[aria-label="AI tools"]', "Not signed in");
     await nav(browser, "Workers");
-    const radio = await browser.$('//label[.//span[normalize-space()="Codex"]]//input');
+    await clickButton(browser, "Start a conversation outside your organization");
+    const radio = await browser.$(
+      '//form[@aria-label="Start a conversation"]//label[.//span[normalize-space()="Codex"]]//input',
+    );
     await radio.click();
-    await waitForText(browser, `${NEW_TASK} [role="note"]`, "codex login");
-    const start = await browser.$('//button[normalize-space()="Start task"]');
+    await waitForText(browser, `${START_FORM} [role="note"]`, "codex login");
+    const start = await browser.$(
+      '//form[@aria-label="Start a conversation"]//button[normalize-space()="Start"]',
+    );
     assert.equal(await start.isEnabled(), false);
     // Even a direct call from the webview is refused, and nothing runs.
     const result = await browser.execute(async () => {

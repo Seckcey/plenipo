@@ -94,28 +94,3 @@ export function HandoffCard({
     </li>
   );
 }
-
-/** The request a handoff worker was started for (its session header links to the requester). */
-export function ReceivedHandoff({
-  view,
-  requesterLabel,
-}: {
-  view: HandoffView;
-  requesterLabel: string;
-}) {
-  const caps = capabilitiesText(view);
-  return (
-    <div className="handoff handoff--received" aria-label="Handoff request">
-      <div className="card__meta">
-        Asked by {requesterLabel} through Plenipo Liaison · depth {view.depth}
-      </div>
-      <div className="card__meta">
-        Acceptance criteria: {view.acceptanceCriteria.trim() || "none given"}
-      </div>
-      <div className="card__meta">
-        {contextText(view)}
-        {caps && <> · {caps}</>}
-      </div>
-    </div>
-  );
-}

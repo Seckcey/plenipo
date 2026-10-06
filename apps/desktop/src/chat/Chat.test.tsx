@@ -1,6 +1,6 @@
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { AgentSessionDetail, AgentTurn, AgentUpdate } from "@plenipo/types";
+import type { AgentSessionDetail, AgentTurn, AgentUpdate, TaskCost } from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentsProvider } from "../agents/AgentsProvider";
@@ -27,6 +27,7 @@ vi.mock("../api/commands", async (importOriginal) => {
     openWorkFolder: vi.fn(),
     getTaskHandoffs: vi.fn(),
     getChainOrders: vi.fn(),
+    getTaskCost: vi.fn(),
   };
 });
 
@@ -90,13 +91,18 @@ function Opener({ target }: { target: ChatTarget }) {
   );
 }
 
+/** Where the chat sends you (a task's page, from Details). */
+const go = vi.fn();
+/** Where Raw output takes you: the run, on the AI tools page. */
+const showExecution = vi.fn();
+
 async function openChat(target: ChatTarget = { positionId: "p1", title: "Development Manager" }) {
   const user = userEvent.setup();
   render(
     <AgentsProvider>
       <ChatProvider>
         <Opener target={target} />
-        <ChatPanel go={() => undefined} />
+        <ChatPanel go={go} onShowExecution={showExecution} />
       </ChatProvider>
     </AgentsProvider>,
   );
@@ -271,6 +277,126 @@ describe("a chat with an agent (ADR-200)", () => {
       await within(log).findByText(/Claude Code did not report tokens/, {}, SLOW),
     ).toBeInTheDocument();
     expect(within(log).queryByRole("button", { name: /tokens/ })).not.toBeInTheDocument();
+  });
+
+  it("says what an answer cost on a paid key, and asks no cost on a subscription (I2)", async () => {
+    const paid = {
+      ...runtime("claude-code"),
+      auth: { state: "paidKey", method: "Key saved in Plenipo", detail: null },
+    } as const;
+    vi.mocked(commands.getAgentOverview).mockResolvedValue({
+      runtimes: [paid],
+      sessions: [],
+      notices: [],
+    });
+    const cost: TaskCost = {
+      taskId: "t1",
+      read: 900,
+      reused: 0,
+      written: 300,
+      runs: 1,
+      counted: 1,
+      atLeast: false,
+      spentMicros: 40_000,
+      setAsideMicros: 0,
+      notPriced: 0,
+      notPricedMicros: 0,
+      pricedBy: "priceList",
+      running: false,
+    };
+    vi.mocked(commands.getTaskCost).mockResolvedValue(cost);
+    vi.mocked(commands.giveObjective).mockResolvedValue(
+      detail([turn("t1", { objective: "Write a plan", startedAt: started })]),
+    );
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "Write a plan{Enter}");
+    const log = await screen.findByRole("log", {}, SLOW);
+    emit({ kind: "session", ...session("s1", { metadata: MEMBER }) });
+    // While it runs there is nothing to say yet.
+    expect(commands.getTaskCost).not.toHaveBeenCalled();
+
+    emit({ kind: "turn", ...done("t1", "Planned.") });
+    expect(await within(log).findByText(/· \$0\.04/, {}, SLOW)).toBeInTheDocument();
+    expect(commands.getTaskCost).toHaveBeenCalledWith("t1");
+    // Opened, it says how the money was worked out.
+    await user.click(within(log).getByRole("button", { name: "1,200 tokens" }));
+    expect(
+      within(log).getByText(
+        /900 read · 300 written · spent \$0\.04, priced from Plenipo's price list/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a subscription's answers in tokens only, without asking what they cost (I2)", async () => {
+    vi.mocked(commands.giveObjective).mockResolvedValue(
+      detail([turn("t1", { objective: "Write a plan", startedAt: started })]),
+    );
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "Write a plan{Enter}");
+    const log = await screen.findByRole("log", {}, SLOW);
+    emit({ kind: "session", ...session("s1", { metadata: MEMBER }) });
+    emit({ kind: "turn", ...done("t1", "Planned.") });
+    expect(
+      await within(log).findByRole("button", { name: "1,200 tokens" }, SLOW),
+    ).toBeInTheDocument();
+    expect(within(log).queryByText(/\$/)).not.toBeInTheDocument();
+    expect(commands.getTaskCost).not.toHaveBeenCalled();
+  });
+
+  it("says what Plenipo itself sent with a task, beside its tokens, and opens its page and raw output (ADR-044)", async () => {
+    vi.mocked(commands.giveObjective).mockResolvedValue(
+      detail([turn("t1", { objective: "Write a plan", startedAt: started })]),
+    );
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "Write a plan{Enter}");
+    const log = await screen.findByRole("log", {}, SLOW);
+    // What Plenipo sent with the task, by size only.
+    const prompt = {
+      bytes: 900,
+      ownBytes: 410,
+      brief: "reminder",
+      why: "routine",
+      fullOwnBytes: 6600,
+      note: "reminder",
+    } as const;
+    emit({
+      kind: "turn",
+      ...done("t1", "Planned."),
+      result: { ...done("t1", "Planned.").result!, prompt },
+    });
+    await user.click(await within(log).findByRole("button", { name: "1,200 tokens" }, SLOW));
+    expect(
+      within(log).getByText(
+        "900 read · 300 written · Plenipo's own text: 0.4 KB (a short reminder)",
+      ),
+    ).toBeInTheDocument();
+    // Details: the task's own page, its whole record.
+    await user.click(within(log).getByRole("button", { name: "Details" }));
+    expect(go).toHaveBeenCalledWith({ view: "task", id: "t1" });
+    // Raw output: its run, as the AI tool wrote it (the AI tools page).
+    await user.click(within(log).getByRole("button", { name: "Raw output" }));
+    expect(showExecution).toHaveBeenCalledWith("e1");
+  });
+
+  it("keeps the live words that came while its history was being fetched", async () => {
+    let answer: (d: AgentSessionDetail) => void = () => undefined;
+    vi.mocked(commands.getAgentSession).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    await openChat({ sessionId: "s1", title: "Development Manager" });
+    // Its next answer starts streaming before the history is in.
+    emit({ kind: "turn", ...turn("t2", { number: 2, objective: "Go on", startedAt: started }) });
+    emit({ kind: "activity", ...activity("t2", 1, { type: "textDelta", text: "Going on." }) });
+    await act(async () => {
+      answer(detail([done("t1", "Here is the plan.")]));
+      await Promise.resolve();
+    });
+    const log = await screen.findByRole("log", {}, SLOW);
+    expect(await within(log).findByText("Here is the plan.", {}, SLOW)).toBeInTheDocument();
+    expect(within(log).getByText("Going on.")).toBeInTheDocument();
   });
 
   it("holds a message sent while the agent works, and sends it when it finishes", async () => {

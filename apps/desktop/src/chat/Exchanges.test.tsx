@@ -27,7 +27,10 @@ vi.mock("../api/commands", async (importOriginal) => {
   };
 });
 
-const hub = vi.hoisted(() => ({ handlers: [] as ((u: unknown) => void)[] }));
+const hub = vi.hoisted(() => ({
+  handlers: [] as ((u: unknown) => void)[],
+  ledger: [] as ((e: unknown) => void)[],
+}));
 vi.mock("../api/events", () => ({
   subscribeAgentUpdates: vi.fn((handler: (u: unknown) => void) => {
     hub.handlers.push(handler);
@@ -35,11 +38,29 @@ vi.mock("../api/events", () => ({
       hub.handlers = hub.handlers.filter((h) => h !== handler);
     });
   }),
-  subscribeLedgerEvents: vi.fn(() => Promise.resolve(() => undefined)),
+  subscribeLedgerEvents: vi.fn((handler: (e: unknown) => void) => {
+    hub.ledger.push(handler);
+    return Promise.resolve(() => {
+      hub.ledger = hub.ledger.filter((h) => h !== handler);
+    });
+  }),
 }));
 
 const api = vi.mocked(commands);
 const SLOW = { timeout: 5000 };
+
+/**
+ * A request's card once Liaison's record of it is drawn, showing `text`. Until the record comes
+ * the card says "Sending…", and the record's card is drawn in its place: a card found before it
+ * came would stay the old one, so this finds it again each time it looks.
+ */
+async function recordCard(log: HTMLElement, name: string, text: string | RegExp) {
+  await waitFor(
+    () => expect(within(log).getByRole("listitem", { name })).toHaveTextContent(text),
+    SLOW,
+  );
+  return within(log).getByRole("listitem", { name });
+}
 
 /** The Website Supervisor's own conversation, and the one its Senior Developer worked in. */
 const LEAD = session("s-lead", {
@@ -181,6 +202,7 @@ async function openChat(target: ChatTarget) {
 beforeEach(() => {
   localStorage.clear();
   hub.handlers = [];
+  hub.ledger = [];
   api.getAgentOverview.mockResolvedValue({
     runtimes: [runtime("claude-code")],
     sessions: [LEAD, WORKER],
@@ -216,13 +238,12 @@ describe("what agents say to each other, in their chats (B5)", () => {
       title: "Website Supervisor",
     });
     const log = await screen.findByRole("log", { name: "Conversation with Website Supervisor" });
-    const card = await within(log).findByRole(
-      "listitem",
-      { name: "Handoff to Senior Developer: Review the parser" },
-      SLOW,
+    const card = await recordCard(
+      log,
+      "Handoff to Senior Developer: Review the parser",
+      "Answered",
     );
     expect(card).toHaveTextContent("→ Senior Developer");
-    expect(card).toHaveTextContent("Answered");
     // Its words, not the raw request.
     expect(within(log).getByText("I will get a review.")).toBeInTheDocument();
     expect(log).not.toHaveTextContent("plenipo-handoff");
@@ -315,5 +336,109 @@ describe("what agents say to each other, in their chats (B5)", () => {
     expect(
       await within(two).findByText(/on its way to Website Supervisor/, {}, SLOW),
     ).toBeVisible();
+  });
+
+  /** The lead's conversation with one turn that asked for `objective` from `to`. */
+  function leadAsked(to: string, objective: string, over: Partial<AgentTurn> = {}) {
+    const text = `I will ask.\n\`\`\`plenipo-handoff\n{"to": "${to}", "objective": "${objective}"}\n\`\`\``;
+    const waiting = over.waiting === true;
+    const lead = { ...LEAD, waitingTaskId: waiting ? "t-lead" : null };
+    api.getAgentOverview.mockResolvedValue({
+      runtimes: [runtime("claude-code")],
+      sessions: [lead, WORKER],
+      notices: [],
+    });
+    api.getAgentSession.mockResolvedValue({
+      session: lead,
+      turns: [
+        waiting
+          ? turn("t-lead", { sessionId: "s-lead", objective: "Ship the parser", ...over })
+          : { ...finished("t-lead", "s-lead", "Ship the parser", "Did it myself."), ...over },
+      ],
+      activity: [
+        { ...activity("t-lead", 1, { type: "textDelta", text }), sessionId: "s-lead", ts: 1_000 },
+      ],
+    });
+  }
+
+  it("shows a refused request with Liaison's reason, and no worker to open", async () => {
+    leadAsked("gemini", "Ask around");
+    api.getTaskHandoffs.mockImplementation((taskId) =>
+      Promise.resolve({
+        ...none(taskId),
+        sent: [
+          handoff({
+            state: "rejected",
+            destination: "runtime:gemini",
+            destinationLabel: "gemini",
+            objective: "Ask around",
+            rejection: 'missing destination: there is no AI tool named "gemini"',
+            childTaskId: null,
+            childSessionId: null,
+            childState: null,
+            context: [],
+            reply: { ...handoff().reply!, source: "liaison", outcome: "rejected" },
+          }),
+        ],
+      }),
+    );
+    await openChat({ positionId: "p-lead", sessionId: "s-lead", title: "Website Supervisor" });
+    const log = await screen.findByRole("log", { name: "Conversation with Website Supervisor" });
+    const card = await recordCard(log, "Handoff to gemini: Ask around", "Refused");
+    expect(within(card).getByText("Refused")).toBeInTheDocument();
+    expect(within(card).getByText(/no AI tool named "gemini"/)).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Open worker conversation" })).toBeNull();
+  });
+
+  it("shows a lead waiting for its team, which you can stop", async () => {
+    leadAsked("role:Senior Developer", "Review the parser", { running: false, waiting: true });
+    api.getTaskHandoffs.mockImplementation((taskId) =>
+      Promise.resolve({
+        ...none(taskId),
+        sent: [handoff({ state: "dispatched", childState: "running", reply: null })],
+      }),
+    );
+    api.cancelAgentTurn.mockResolvedValue({
+      session: LEAD,
+      turns: [finished("t-lead", "s-lead", "Ship the parser", "")],
+      activity: [],
+    });
+    const user = await openChat({
+      positionId: "p-lead",
+      sessionId: "s-lead",
+      title: "Website Supervisor",
+    });
+    const log = await screen.findByRole("log", { name: "Conversation with Website Supervisor" });
+    const card = await recordCard(
+      log,
+      "Handoff to Senior Developer: Review the parser",
+      "Worker running",
+    );
+    expect(within(card).getByText("Worker running")).toBeInTheDocument();
+    expect(within(card).getByText(/Context: The requester's answer/)).toBeInTheDocument();
+    expect(screen.getByText("Waiting for its team")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Stop Website Supervisor" }));
+    expect(api.cancelAgentTurn).toHaveBeenCalledWith("s-lead");
+  });
+
+  it("refreshes a request as Liaison records its progress", async () => {
+    leadAsked("role:Senior Developer", "Review the parser", { running: false, waiting: true });
+    api.getTaskHandoffs.mockResolvedValueOnce({
+      ...none("t-lead"),
+      sent: [handoff({ state: "accepted", childState: "queued", reply: null })],
+    });
+    api.getTaskHandoffs.mockResolvedValue({
+      ...none("t-lead"),
+      sent: [handoff({ state: "dispatched", childState: "running", reply: null })],
+    });
+    await openChat({ positionId: "p-lead", sessionId: "s-lead", title: "Website Supervisor" });
+    const log = await screen.findByRole("log", { name: "Conversation with Website Supervisor" });
+    expect(await within(log).findByText("Waiting for a worker", {}, SLOW)).toBeInTheDocument();
+    // Liaison records that a worker took it: the card follows.
+    act(() => {
+      for (const handler of hub.ledger) handler({ eventType: "liaison.dispatched" });
+    });
+    expect(await within(log).findByText("Worker running", {}, SLOW)).toBeInTheDocument();
+    expect(api.getTaskHandoffs).toHaveBeenCalledWith("t-lead");
   });
 });
