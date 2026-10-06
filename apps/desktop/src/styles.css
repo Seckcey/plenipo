@@ -5121,6 +5121,31 @@ body.popout {
   font-size: var(--ui-font-sm);
 }
 
+/* GitHub's card (ADR-204): the short code to type on GitHub's page, and the lists. */
+.github-code__code {
+  margin: 10px 0;
+  font-family: var(--ui-font-mono);
+  font-size: 1.6em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  user-select: all;
+}
+
+.github-accounts,
+.github-repositories {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
+.github-repositories {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
 .connection__advanced summary {
   cursor: pointer;
 }

@@ -2,6 +2,7 @@
 import type { Connection } from "./Connection";
 import type { PartCard } from "./PartCard";
 import type { PermissionWords } from "./PermissionWords";
+import type { SignInCode } from "./SignInCode";
 
 /**
  * One connection's card.
@@ -49,4 +50,16 @@ keyNeeds: Array<string>,
 /**
  * For the website: a WooCommerce key is kept.
  */
-storeKeyKept: boolean, };
+storeKeyKept: boolean, 
+/**
+ * The owner's alone (GitHub, ADR-204): no parts, no **Who may use it**, no send list.
+ */
+ownerOnly: boolean, 
+/**
+ * A short code waiting for the owner to type it on the service's own page (GitHub).
+ */
+code?: SignInCode, 
+/**
+ * GitHub: the page where the owner chooses the accounts Plenipo may list.
+ */
+installPage?: string, };

@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ConnectionsPage } from "@plenipo/types";
+import type { ConnectionsPage, GithubRepositories } from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as commands from "../../api/commands";
@@ -9,6 +9,8 @@ import { afterChange as coreAfterChange } from "../../test/core";
 import {
   SAMPLE_MANIFEST,
   connectedCard,
+  connectedGithubCard,
+  githubCard,
   googleCard,
   keyedCard,
   sampleAddOn,
@@ -17,6 +19,7 @@ import {
   slackCard,
 } from "../../test/connectionFixtures";
 import { ConnectionsSettings } from "./ConnectionsSettings";
+import { SHOWN_REPOSITORIES } from "./GithubCard";
 import { affectsConnections } from "./useConnections";
 
 vi.mock("../../api/commands", async (importOriginal) => {
@@ -40,6 +43,8 @@ vi.mock("../../api/commands", async (importOriginal) => {
     removeAddOn: vi.fn(),
     checkAddOnTools: vi.fn(),
     setAddOnTools: vi.fn(),
+    listGithubRepositories: vi.fn(),
+    openGithubPage: vi.fn(),
   };
 });
 vi.mock("../../api/events", () => ({
@@ -129,7 +134,14 @@ describe("Settings → Connections", () => {
     );
     const m365 = await opened("Microsoft 365");
     expect(within(m365).getByText("Not connected")).toBeInTheDocument();
-    for (const built of ["Slack", "Google", "HubSpot", "Stripe", "WordPress and WooCommerce"]) {
+    for (const built of [
+      "Slack",
+      "Google",
+      "HubSpot",
+      "Stripe",
+      "WordPress and WooCommerce",
+      "GitHub",
+    ]) {
       expect(await opened(built)).toHaveTextContent("Not connected");
     }
     expect(screen.queryByText("Coming in a later update")).not.toBeInTheDocument();
@@ -906,5 +918,196 @@ describe("Settings → Connections", () => {
     await userEvent.setup().click(within(card).getByRole("button", { name: "Look at its tools" }));
     expect(api.checkAddOnTools).toHaveBeenCalledWith("tickets");
     expect(a11yProblems(container)).toEqual([]);
+  });
+});
+
+/** GitHub's list as the stand-in has it: your account, an organization, and one refused. */
+function githubList(repositories = 3): GithubRepositories {
+  return {
+    accounts: [
+      { login: "frankieg", organization: false, allRepositories: true },
+      { login: "8west", organization: true, allRepositories: false },
+      {
+        login: "client-co",
+        organization: true,
+        allRepositories: true,
+        refused:
+          "Plenipo doesn't list client-co: its permissions there are more than reading names. Remove Plenipo there and add it again.",
+      },
+    ],
+    repositories: Array.from({ length: repositories }, (_, i) => ({
+      owner: "frankieg",
+      name: `repo-${String(i + 1).padStart(3, "0")}`,
+      private: i % 2 === 1,
+      ...(i === 0 ? { description: "The first one" } : {}),
+    })),
+    more: false,
+    installPage: "https://github.com/apps/plenipo-test-app/installations/new",
+  };
+}
+
+async function githubCardOpened(): Promise<HTMLElement> {
+  render(
+    <main>
+      <h1>Settings</h1>
+      <h2>Connections</h2>
+      <ConnectionsSettings go={go} />
+    </main>,
+  );
+  return opened("GitHub");
+}
+
+describe("Settings → Connections → GitHub (ADR-204)", () => {
+  beforeEach(() => {
+    api.openGithubPage.mockResolvedValue(undefined);
+  });
+
+  it("is free and yours alone: no parts, no Who may use it, no send list", async () => {
+    const github = await githubCardOpened();
+    expect(github).toHaveTextContent("Yours alone · Free");
+    expect(github).toHaveTextContent(
+      "GitHub lets it see names, descriptions, branch and tag names, and who collaborates; never code.",
+    );
+    expect(github).toHaveTextContent("no worker ever uses it. Free with every plan.");
+    expect(within(github).queryByRole("region", { name: "What it can do" })).toBeNull();
+    expect(within(github).queryByText(/Who may use it/)).toBeNull();
+    expect(within(github).queryByText(/Send without asking to/)).toBeNull();
+    // Nothing is asked of GitHub until it is connected.
+    expect(api.listGithubRepositories).not.toHaveBeenCalled();
+    expect(within(github).getByRole("button", { name: "Sign in with GitHub" })).toBeEnabled();
+    expect(screen.getByText(/except GitHub, which is free/)).toBeInTheDocument();
+    expect(a11yProblems(document.body)).toEqual([]);
+  });
+
+  it("shows the code to type on GitHub's own page, with its words, and can cancel", async () => {
+    const waiting = githubCard({
+      signingIn: true,
+      code: {
+        code: "WDJB-MJHT",
+        page: "https://github.com/login/device",
+        words: "Only type a code Plenipo just showed you here.",
+        expiresAt: Date.now() + 15 * 60_000,
+      },
+    });
+    afterChange(api.connectConnection, samplePage(sampleCard(), {}, { github: waiting }));
+    afterChange(api.cancelConnectionSignIn, samplePage());
+    const github = await githubCardOpened();
+    const user = userEvent.setup();
+    await user.click(within(github).getByRole("button", { name: "Sign in with GitHub" }));
+    expect(api.connectConnection).toHaveBeenCalledWith("github", "work");
+    expect(await within(github).findByLabelText("Your code")).toHaveTextContent("WDJB-MJHT");
+    expect(github).toHaveTextContent("Type this code on GitHub's page.");
+    expect(github).toHaveTextContent("(github.com/login/device)");
+    expect(github).toHaveTextContent("Only type a code Plenipo just showed you here.");
+    expect(within(github).getByText("Waiting for you to type the code")).toBeInTheDocument();
+    expect(within(github).queryByRole("button", { name: "Sign in with GitHub" })).toBeNull();
+    await user.click(within(github).getByRole("button", { name: "Open GitHub's page" }));
+    expect(api.openGithubPage).toHaveBeenCalledWith("device");
+    expect(within(github).getByRole("button", { name: "Copy the code" })).toBeEnabled();
+    await user.click(within(github).getByRole("button", { name: "Cancel" }));
+    expect(api.cancelConnectionSignIn).toHaveBeenCalledWith("github");
+    expect(
+      await within(github).findByRole("button", { name: "Sign in with GitHub" }),
+    ).toBeEnabled();
+  });
+
+  it("lists the accounts and repositories once connected, adds an account, and looks again", async () => {
+    api.getConnections.mockResolvedValue(
+      samplePage(sampleCard(), {}, { github: connectedGithubCard() }),
+    );
+    api.listGithubRepositories.mockResolvedValue(githubList(SHOWN_REPOSITORIES + 5));
+    const github = await githubCardOpened();
+    expect(github).toHaveTextContent("Connected as Frankie G (frankieg).");
+    expect(api.listGithubRepositories).toHaveBeenCalledWith(false);
+    const accounts = await within(github).findByRole("region", {
+      name: "Accounts Plenipo may list",
+    });
+    expect(accounts).toHaveTextContent("frankieg (your account, every repository)");
+    expect(accounts).toHaveTextContent("8west (an organization, only the repositories you picked)");
+    expect(within(accounts).getByRole("alert")).toHaveTextContent("Plenipo doesn't list client-co");
+    expect(within(accounts).getByText("25 repositories")).toBeInTheDocument();
+    const repositories = within(accounts).getByRole("list", { name: "25 repositories" });
+    expect(within(repositories).getAllByRole("listitem")).toHaveLength(SHOWN_REPOSITORIES);
+    expect(repositories).toHaveTextContent("frankieg/repo-001 — The first one");
+    expect(repositories).toHaveTextContent("frankieg/repo-002 (private)");
+    expect(accounts).toHaveTextContent(
+      "And 5 more. You pick from all of them when you set up a project.",
+    );
+    const user = userEvent.setup();
+    await user.click(
+      within(github).getByRole("button", { name: "Add an account or organization" }),
+    );
+    expect(api.openGithubPage).toHaveBeenCalledWith("install");
+    await user.click(within(github).getByRole("button", { name: "Look again" }));
+    expect(api.listGithubRepositories).toHaveBeenLastCalledWith(true);
+    // Connected: no Connect button to press again.
+    expect(within(github).queryByRole("button", { name: "Sign in with GitHub" })).toBeNull();
+    expect(a11yProblems(document.body)).toEqual([]);
+  });
+
+  it("says when Plenipo isn't added to any account, and when GitHub refuses", async () => {
+    api.getConnections.mockResolvedValue(
+      samplePage(sampleCard(), {}, { github: connectedGithubCard() }),
+    );
+    api.listGithubRepositories.mockResolvedValueOnce({
+      accounts: [],
+      repositories: [],
+      more: false,
+      installPage: "https://github.com/apps/plenipo-test-app/installations/new",
+    });
+    const github = await githubCardOpened();
+    expect(
+      await within(github).findByText("One more step: choose which accounts Plenipo may list."),
+    ).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(within(github).getByRole("button", { name: "Choose on GitHub" }));
+    expect(api.openGithubPage).toHaveBeenCalledWith("install");
+    expect(github).toHaveTextContent("For an organization you don't own, GitHub asks its owners");
+    api.listGithubRepositories.mockRejectedValueOnce({
+      kind: "invalidInput",
+      message: "GitHub didn't allow this. Sign in with GitHub again.",
+    });
+    await user.click(within(github).getByRole("button", { name: "Look again" }));
+    expect(api.listGithubRepositories).toHaveBeenLastCalledWith(true);
+    expect(
+      await within(github).findByText("GitHub didn't allow this. Sign in with GitHub again."),
+    ).toBeInTheDocument();
+  });
+
+  it("disconnects after asking, and says where to remove Plenipo at GitHub", async () => {
+    api.getConnections.mockResolvedValue(
+      samplePage(sampleCard(), {}, { github: connectedGithubCard() }),
+    );
+    api.listGithubRepositories.mockResolvedValue(githubList());
+    const note =
+      "Plenipo removed the sign-in from this computer. To remove Plenipo from GitHub too: GitHub, then Settings, then Applications (Authorized GitHub Apps and Installed GitHub Apps).";
+    afterChange(
+      api.disconnectConnection,
+      samplePage(sampleCard(), {}, { github: githubCard({ problem: note }) }),
+    );
+    const github = await githubCardOpened();
+    const user = userEvent.setup();
+    await user.click(within(github).getByRole("button", { name: "Disconnect" }));
+    expect(api.disconnectConnection).not.toHaveBeenCalled();
+    expect(github).toHaveTextContent(
+      "its sign-in is removed from Windows Credential Manager. GitHub has no way for Plenipo to remove itself there",
+    );
+    await user.click(within(github).getByRole("button", { name: "Yes, disconnect" }));
+    expect(api.disconnectConnection).toHaveBeenCalledWith("github");
+    expect(await within(github).findByText(note)).toBeInTheDocument();
+    const remove = within(github).getByRole("region", { name: "Remove Plenipo at GitHub" });
+    await user.click(within(remove).getByRole("button", { name: "Open Authorized GitHub Apps" }));
+    expect(api.openGithubPage).toHaveBeenCalledWith("authorizations");
+    await user.click(within(remove).getByRole("button", { name: "Open Installed GitHub Apps" }));
+    expect(api.openGithubPage).toHaveBeenLastCalledWith("installations");
+  });
+
+  it("explains a copy with no GitHub app", async () => {
+    api.getConnections.mockResolvedValue(
+      samplePage(sampleCard(), {}, { github: githubCard({ hasApp: false, builtInApp: false }) }),
+    );
+    const github = await githubCardOpened();
+    expect(github).toHaveTextContent("This copy of Plenipo has no GitHub app yet");
+    expect(within(github).getByRole("button", { name: "Sign in with GitHub" })).toBeDisabled();
   });
 });

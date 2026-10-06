@@ -328,8 +328,11 @@ impl Broker {
                 conn.label()
             )));
         }
-        // Connecting is part of Pro (ADR-068); Disconnect always works.
-        self.pro(plenipo_licensing::Limit::Connections)?;
+        // Connecting is part of Pro (ADR-068); Disconnect always works. GitHub's list of
+        // repositories is project setup, free like GitHub's tools (ADR-204).
+        if !conn.service.owner_only() {
+            self.pro(plenipo_licensing::Limit::Connections)?;
+        }
         let parts_on = conn
             .service
             .parts()
@@ -342,6 +345,31 @@ impl Broker {
             .await
             .map_err(BrokerError::Invalid)?;
         self.connections_page()
+    }
+
+    /// The owner's GitHub repositories, for project setup (ADR-204): only while the owner asks,
+    /// kept ten minutes for this organization, never recorded or given to a worker. `fresh`: ask
+    /// GitHub again.
+    pub async fn github_repositories(
+        &self,
+        fresh: bool,
+    ) -> Result<crate::connections::github::GithubRepositories> {
+        self.inner
+            .connections
+            .github_repositories(fresh)
+            .await
+            .map_err(BrokerError::Invalid)
+    }
+
+    /// Open one of GitHub's own pages in the owner's browser (ADR-204): `device` (where the code
+    /// is typed), `install` (choose the accounts Plenipo may list), `authorizations` or
+    /// `installations` (remove Plenipo at GitHub). Fixed addresses only, checked by Guard.
+    pub async fn open_github_page(&self, page: &str) -> Result<()> {
+        self.inner
+            .connections
+            .open_github_page(page)
+            .await
+            .map_err(BrokerError::Invalid)
     }
 
     /// Save and check a key for HubSpot, Stripe, or the website (ADR-071 §1): one reading call
@@ -603,6 +631,14 @@ impl Broker {
             Service::Hubspot => hubspot::parse(tool.def.name, &args).map(Call::H),
             Service::Stripe => stripe::parse(tool.def.name, &args).map(Call::St),
             Service::Wordpress => wordpress::parse(tool.def.name, &args).map(Call::W),
+            // GitHub has no tools: it is the owner's alone (ADR-204).
+            Service::Github => {
+                return refuse(
+                    format!("Blocked: {} is not offered to you.", tool.def.name),
+                    Layer::Grant,
+                    "",
+                )
+            }
         };
         let call = match parsed {
             Ok(c) => c,
