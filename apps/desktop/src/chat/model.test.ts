@@ -36,6 +36,7 @@ function record(over: Partial<AgentTurn> = {}): AgentTurn {
     sessionId: SESSION,
     number: 1,
     objective: "Write a script that clears my temp files",
+    requestedBy: { kind: "owner" },
     executionId: null,
     running: true,
     waiting: false,

@@ -170,6 +170,7 @@ architecture must be recorded here.
 | [202](ADR-202-the-chain-of-command.md)                               | The chain of command: skipped leads are told, reports come back up one level at a time                                 | Proposed |
 | [203](ADR-203-each-agents-chat-in-its-own-window.md)                 | Each agent's chat in a window of its own: up to six, from the map, and its earlier steps after a restart               | Accepted |
 | [204](ADR-204-a-read-only-github-connection.md)                      | A read-only GitHub connection to pick repositories: a short code, Metadata only, yours alone, free                     | Proposed |
+| [208](ADR-208-talking-to-an-agent-is-direct.md)                      | Talking to an agent is direct: your words go straight to it, the Liaison carries only hand-offs (amends 008, 202)      | Proposed |
 | [210][adr-210]                                                       | The page and the relay are signed like the installer, with a server key of their own (amends 038, 052, 146, 149)       | Accepted |
 | [211][adr-211]                                                       | Pro ends a set time after the paid period (amends 022, 116)                                                            | Accepted |
 | [212](ADR-212-the-owner-compares-six-digits.md)                      | The owner compares six digits; a page that refreshes by itself keeps no sign-in (amends 141, 142)                      | Accepted |

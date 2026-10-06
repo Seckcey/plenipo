@@ -3,9 +3,11 @@
 
 use std::sync::{Mutex, MutexGuard};
 
-use crate::agent::dto::{AgentEvent, AgentSession, AgentTurn, TurnResult, TurnStep};
+use crate::agent::dto::{
+    AgentEvent, AgentSession, AgentTurn, RequestedBy, RequesterKind, TurnResult, TurnStep,
+};
 use crate::agent::service::{
-    KeptActivity, SessionChange, SessionStore, StepNote, TurnInput, TurnRef, TurnTask,
+    KeptActivity, SessionChange, SessionStore, StepNote, TurnInput, TurnRef, TurnTask, OWNER,
 };
 
 #[derive(Debug, Default)]
@@ -97,6 +99,7 @@ fn push_step(turn: &mut AgentTurn, turn_ref: &TurnRef<'_>, result: &TurnResult) 
             result: Some(result.clone()),
             started_at: None,
             ended_at: Some(crate::now_ms()),
+            started_by: None,
         });
     }
 }
@@ -150,13 +153,22 @@ impl SessionStore for MemorySessionStore {
     ) -> Result<String, String> {
         let mut data = self.lock();
         let task_id = match &input.task {
-            TurnTask::New { .. } => {
+            TurnTask::New { requested_by, .. } => {
                 let task_id = uuid::Uuid::new_v4().to_string();
                 data.turns.push(AgentTurn {
                     task_id: task_id.clone(),
                     session_id: session.id.clone(),
                     number,
                     objective: input.objective.clone(),
+                    requested_by: if requested_by == OWNER {
+                        RequestedBy::owner()
+                    } else {
+                        RequestedBy {
+                            kind: RequesterKind::Lead,
+                            position_id: None,
+                            task_id: None,
+                        }
+                    },
                     execution_id: None,
                     running: true,
                     waiting: false,

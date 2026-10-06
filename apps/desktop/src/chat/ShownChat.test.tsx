@@ -185,6 +185,25 @@ describe("a chat shown outside the Chat panel (the Workers page)", () => {
     expect(chat().tabs.tabs).toEqual([]);
   });
 
+  it("sends a waiting message when its agent is free, even after nothing shows the chat", async () => {
+    await draw();
+    const copy = screen.getByRole("region", { name: "Copy 1" });
+    await within(copy).findByText("Here is the plan.", {}, SLOW);
+    // It is working: what you write waits.
+    emit({ kind: "turn", ...turn("t2", { sessionId: "s1", number: 2, objective: "Go on" }) });
+    const box = within(copy).getByLabelText("Message to Development Manager");
+    fireEvent.change(box, { target: { value: "And the budget" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(await within(copy).findByRole("list", { name: "Waiting to send" })).toBeVisible();
+    // You leave the page: nothing shows the chat any more.
+    fireEvent.click(screen.getByRole("button", { name: "One less" }));
+    await waitFor(() => expect(chat().tab("position:p1")).toBeNull());
+    // It finishes: the message goes.
+    api.giveObjective.mockResolvedValue(detail([]));
+    emit({ kind: "turn", ...finished("t2", "Go on", "Went on."), sessionId: "s1", number: 2 });
+    await waitFor(() => expect(api.giveObjective).toHaveBeenCalledWith("p1", "And the budget"));
+  });
+
   it("stops being shown when nothing draws it any more; two copies share it", async () => {
     await draw();
     await screen.findByText("Here is the plan.", {}, SLOW);
