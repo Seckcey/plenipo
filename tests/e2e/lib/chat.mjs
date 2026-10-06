@@ -66,9 +66,10 @@ export async function waitForChat(browser, title) {
       { cause: error },
     );
   }
-  // Found by its name. The specs used to read its title's words instead, which the real-app
-  // driver did not give back (I4 2b's first runs), though the page showed them: say what it reads,
-  // once, so the reason can be seen in the log.
+  // Found by its name. The specs used to read its title's words through the driver, which gives
+  // back "" for the words in the chat's head though it says they are shown (I4 2b's runs), so
+  // what is there is read from the page itself (see `chatState`). Say what the driver reads, so a
+  // change in it can be seen in the log.
   const head = await browser.$(`${CHAT} .chat-head__title`);
   const words = await head.getText();
   if (!words.includes(title)) {
@@ -78,6 +79,23 @@ export async function waitForChat(browser, title) {
     );
   }
 }
+
+/**
+ * What the chat shown says it is doing, as its head shows it ("Working", "Waiting for its team"):
+ * read from the page, as its turns are, since the driver gives back no words from the chat's head.
+ */
+export const chatState = (browser) =>
+  browser.execute(
+    (selector) => document.querySelector(selector)?.innerText.replace(/\s+/g, " ").trim() ?? "",
+    `${CHAT} .chat-head__state`,
+  );
+
+/** Wait until the chat shown says `words` in its head. */
+export const waitForChatState = (browser, words) =>
+  waitUntil(
+    async () => (await chatState(browser)).includes(words),
+    `"${words}" in the chat's head`,
+  );
 
 /**
  * Open every fold in the chat shown (thinking, a run of tool steps, a turn's tokens, a reply), so
