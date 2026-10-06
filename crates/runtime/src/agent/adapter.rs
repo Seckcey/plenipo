@@ -177,6 +177,12 @@ pub trait TurnParser: Send {
     }
     /// One stderr line; kept to explain failures, never parsed as events.
     fn stderr(&mut self, text: &str);
+    /// What the task's connection waits on now, in short plain words for a stalled step's
+    /// diagnostics: an answer it asked for, the prompt's answer, a call it opened. Never the AI
+    /// tool's words. Default: nothing known (a task that does not talk).
+    fn waiting_on(&self) -> Vec<String> {
+        Vec::new()
+    }
     /// The process ended: produce the normalized result.
     fn finish(&mut self, end: &ProcessEnd) -> TurnResult;
     /// How much of the conversation's context the AI tool last reported in use, for an AI tool

@@ -32,6 +32,14 @@ export interface ChatApi {
   focusWindow: (key: string) => void;
   /** The window a chat is in (1 to 6), or `null` while it is in the panel. */
   windowSlot: (key: string) => number | null;
+  /**
+   * Show a chat outside the Chat panel (the Workers page): its conversation is fetched and kept
+   * live, and it works as in the panel (messages, Stop, waiting messages), without a tab of its
+   * own. Returns the function that stops showing it there.
+   */
+  showElsewhere: (target: ChatTarget) => () => void;
+  /** An open chat, in the panel or shown elsewhere. */
+  tab: (key: string) => ChatTab | null;
   /** The conversation a chat shows (its ID): the tab's, or its position's agent's. */
   sessionOf: (tab: ChatTab) => string | null;
   /** The conversation a chat shows, as far as Plenipo has it; `null` before the first message. */

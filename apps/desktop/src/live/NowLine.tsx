@@ -6,7 +6,7 @@ import { useContext, type ReactNode } from "react";
 import type { PositionInfo } from "@plenipo/types";
 
 import { AgentsContext } from "../agents/context";
-import { liveWork, nowWords } from "./words";
+import { liveWork, nowFor } from "./words";
 
 export function NowLine({
   p,
@@ -20,7 +20,7 @@ export function NowLine({
 }) {
   const agents = useContext(AgentsContext);
   const work = liveWork(p)[0];
-  const words = work ? nowWords(agents?.state.activity[work.taskId] ?? []) : null;
+  const words = work ? nowFor(work.state, agents?.state.activity[work.taskId] ?? []) : null;
   if (!words) return <span className={className}>{otherwise}</span>;
   return (
     <span className={`${className} topo-node__now`} title={words}>
