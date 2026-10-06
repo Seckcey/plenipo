@@ -105,15 +105,15 @@ and `plenipo-test-app`), as it does for Microsoft's and Slack's.
 
 ## Safe to share, and secret
 
-| Value                      | Secret?                     | Where it goes                             |
-| -------------------------- | --------------------------- | ----------------------------------------- |
-| Client ID (`Iv23li…`)      | **No** — public             | The repository variable; Plenipo's code   |
-| Short name (`plenipo-by-…`) | **No** — public            | The repository variable; Plenipo's code   |
-| App ID (a number)          | No, but not needed          | Nowhere                                   |
-| A client secret            | **Yes** — do not create one | Nowhere. If one exists, delete it         |
-| A private key (`.pem`)     | **Yes** — do not create one | Nowhere. If one exists, delete it         |
-| Each person's sign-in      | **Yes**                     | Only in the Vault on that person's own PC |
-| The short code             | **Yes, for 15 minutes**     | Only on GitHub's own page                 |
+| Value                       | Secret?                     | Where it goes                             |
+| --------------------------- | --------------------------- | ----------------------------------------- |
+| Client ID (`Iv23li…`)       | **No** — public             | The repository variable; Plenipo's code   |
+| Short name (`plenipo-by-…`) | **No** — public             | The repository variable; Plenipo's code   |
+| App ID (a number)           | No, but not needed          | Nowhere                                   |
+| A client secret             | **Yes** — do not create one | Nowhere. If one exists, delete it         |
+| A private key (`.pem`)      | **Yes** — do not create one | Nowhere. If one exists, delete it         |
+| Each person's sign-in       | **Yes**                     | Only in the Vault on that person's own PC |
+| The short code              | **Yes, for 15 minutes**     | Only on GitHub's own page                 |
 
 ## Sources (checked 2026-10-05)
 

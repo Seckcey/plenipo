@@ -131,13 +131,13 @@ to it with a short code, and the rules below for what Plenipo sends to GitHub an
 
 ### 5. What is kept
 
-| What | Where | Never |
-| --- | --- | --- |
-| The long-lived sign-in | The Vault, as `connection-github-token`, under the organization's own Vault name (ADR-094 §9) | The Ledger, a prompt, a log, diagnostics, or a page |
-| The 8-hour sign-in | Memory only | Saved anywhere |
-| The connection's record (connected, who, when, `metadata:read`) | Guard's settings, like every connection | — |
-| `connection.connected`, `connection.disconnected`, a failed or stopped sign-in | The Ledger, with no code and no sign-in | — |
-| The list of accounts and repositories | Memory, **per organization**, for 10 minutes; another organization's window never sees it | Saved, logged, or given to a worker |
+| What                                                                           | Where                                                                                         | Never                                               |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| The long-lived sign-in                                                         | The Vault, as `connection-github-token`, under the organization's own Vault name (ADR-094 §9) | The Ledger, a prompt, a log, diagnostics, or a page |
+| The 8-hour sign-in                                                             | Memory only                                                                                   | Saved anywhere                                      |
+| The connection's record (connected, who, when, `metadata:read`)                | Guard's settings, like every connection                                                       | —                                                   |
+| `connection.connected`, `connection.disconnected`, a failed or stopped sign-in | The Ledger, with no code and no sign-in                                                       | —                                                   |
+| The list of accounts and repositories                                          | Memory, **per organization**, for 10 minutes; another organization's window never sees it     | Saved, logged, or given to a worker                 |
 
 Both sign-ins feed the redactor, as every connection's do. **One GitHub sign-in per
 organization**, like every connection (ADR-094): a client's organization can use another account.
