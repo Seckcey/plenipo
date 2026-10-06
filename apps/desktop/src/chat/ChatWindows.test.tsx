@@ -161,7 +161,14 @@ beforeEach(() => {
         ? detail("s1", [finished("t1", "Write a plan", "Here is the plan.")])
         : detail(
             id,
-            [{ ...finished(`t-${id}`, "Check the page", "Checked."), sessionId: id }],
+            [
+              {
+                ...finished(`t-${id}`, "Check the page", "Checked."),
+                sessionId: id,
+                // Its lead handed it the work (#219).
+                requestedBy: { kind: "lead", positionId: "p-lead", taskId: "t-lead" },
+              },
+            ],
             HANDOFF,
           ),
     ),
@@ -353,7 +360,31 @@ describe("each agent's chat in a window of its own (ADR-203)", () => {
     await waitFor(() => expect(api.preparePopOut).toHaveBeenCalledTimes(6));
   });
 
-  it("says a handed-off worker's messages are its lead's", async () => {
+  it("says a handed-off worker's messages are its lead's, each by its own record (#219)", async () => {
+    // A second message in its conversation came from you, not its lead.
+    const lead = { kind: "lead", positionId: "p-lead", taskId: "t-lead" } as const;
+    api.getAgentSession.mockImplementation((id) =>
+      Promise.resolve(
+        id === "s2"
+          ? detail(
+              "s2",
+              [
+                {
+                  ...finished("t-s2", "Check the page", "Checked."),
+                  sessionId: "s2",
+                  requestedBy: lead,
+                },
+                {
+                  ...finished("t-s2b", "Check the footer too", "Footer checked."),
+                  sessionId: "s2",
+                  number: 2,
+                },
+              ],
+              HANDOFF,
+            )
+          : detail("s1", [finished("t1", "Write a plan", "Here is the plan.")]),
+      ),
+    );
     await show();
     act(() => chat().open({ sessionId: "s2", title: "Developer (on call)" }));
     const log = await screen.findByRole(
@@ -361,8 +392,12 @@ describe("each agent's chat in a window of its own (ADR-203)", () => {
       { name: "Conversation with Developer (on call)" },
       SLOW,
     );
-    expect(await within(log).findByText("From its lead", {}, SLOW)).toBeInTheDocument();
-    expect(within(log).getByText("Check the page")).toBeInTheDocument();
+    const one = await within(log).findByRole("article", { name: "Message 1" }, SLOW);
+    const two = await within(log).findByRole("article", { name: "Message 2" }, SLOW);
+    expect(within(one).getByText("From its lead")).toBeInTheDocument();
+    expect(within(one).getByText("Check the page")).toBeInTheDocument();
+    expect(within(two).getByText("Check the footer too")).toBeInTheDocument();
+    expect(within(two).queryByText("From its lead")).toBeNull();
     // Your own chat with an agent says no such thing.
     act(() => chat().open(MANAGER));
     const mine = await screen.findByRole(

@@ -262,6 +262,38 @@ describe("a turn's record", () => {
     expect(isBusy(s)).toBe(false);
   });
 
+  it("says who asked for it and what started each step, as its record says (#219)", () => {
+    let s = run([{ type: "textDelta", text: "Asking my team." }]);
+    expect(turn(s).askedBy).toBeNull();
+    const step = (number: number) => ({
+      number,
+      executionId: null,
+      running: false,
+      result: null,
+      startedAt: null,
+      endedAt: null,
+    });
+    s = applyTurn(
+      s,
+      record({
+        requestedBy: { kind: "lead", positionId: "p-lead", taskId: "t-lead" },
+        steps: [
+          step(1),
+          { ...step(2), startedBy: { kind: "replies", messageIds: ["r1"] } },
+          { ...step(3), startedBy: { kind: "checkIn" } },
+        ],
+      }),
+    );
+    expect(turn(s).askedBy).toBe("lead");
+    expect(turn(s).startedBy).toEqual({
+      2: { kind: "replies", messageIds: ["r1"] },
+      3: { kind: "checkIn" },
+    });
+    // A later record without them (an older Plenipo's) keeps what was said.
+    s = applyTurn(s, record({ steps: [step(1)] }));
+    expect(turn(s).startedBy[2]).toEqual({ kind: "replies", messageIds: ["r1"] });
+  });
+
   it("adds the answer when no words on screen say it", () => {
     let s = run([{ type: "toolUse", tool: "read_file", summary: "a.txt" }]);
     s = applyTurn(s, finished("The script is in clear-temp.ps1."));
