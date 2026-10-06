@@ -147,9 +147,13 @@ pub fn create<R: Runtime>(
     // Plenipo's browser's own profile, and the screenshots kept as evidence (Phase 10).
     config.browser = BrowserConfig::new(data.join("browser-profile"));
     config.screenshots_dir = data.join("screenshots");
-    // Work that belongs to no project folder: `<Documents>/Plenipo/<organization>/<position>`
-    // (ADR-201), so a worker can always save its files and the owner can find them.
+    // Work that belongs to no project folder: its scratch pad in the organization folder
+    // (ADR-205), or `<Documents>/Plenipo/<organization>/<position>` for an organization without
+    // one (ADR-201), so a worker can always save its files and the owner can find them.
     config.files_dir = Some(files);
+    // The system's own folders, above which a junction is not looked at when a step's folder in
+    // the organization folder is checked (ADR-205), as the folder keeper does.
+    config.trusted_places = crate::folder_commands::trusted(app);
     // Connections (Phase 20): the app ID this copy signs in to Microsoft 365 with, and the
     // stand-in for the services in copies built for the end-to-end tests.
     config.connections = connections_config();

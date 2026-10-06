@@ -194,6 +194,21 @@ pub fn within(path: &Path, place: &Path) -> bool {
     path.len() >= place.len() && path[..place.len()] == place[..]
 }
 
+/// The names of `path` below `place`, as `path` writes them, when it is `place` or inside it
+/// (compared part by part, see [`parts`]); empty for `place` itself.
+pub fn relative_parts(path: &Path, place: &Path) -> Option<Vec<String>> {
+    if !within(path, place) {
+        return None;
+    }
+    let skip = parts(place).len();
+    let names: Vec<String> = path
+        .components()
+        .filter(|c| !matches!(c, Component::CurDir))
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    Some(names.get(skip..).unwrap_or_default().to_vec())
+}
+
 /// A network share's path as Windows' tools write it, `\\server\share\…`, instead of the
 /// `\\?\UNC\server\share\…` form a full path is given in, which File Explorer may not open (the
 /// reviewer's N1 on #221). Left as it is when it is too long for the usual form.
@@ -919,6 +934,28 @@ mod tests {
             ));
             assert!(!within(Path::new(r"C:\Workshop"), Path::new(r"C:\Work")));
             assert!(!same_place(Path::new(r"D:\Work"), Path::new(r"C:\Work")));
+        }
+    }
+
+    /// The names below a place, found part by part, as the path writes them.
+    #[test]
+    fn the_names_below_a_place() {
+        let (_d, base) = real_temp();
+        let deep = base.join("Acme").join("Development").join("Files");
+        assert_eq!(
+            relative_parts(&deep, &base.join("Acme")),
+            Some(vec!["Development".to_owned(), "Files".to_owned()])
+        );
+        assert_eq!(relative_parts(&base, &base), Some(Vec::new()));
+        assert_eq!(relative_parts(&base, &deep), None);
+        if cfg!(windows) {
+            assert_eq!(
+                relative_parts(
+                    Path::new(r"\\?\C:\Work\Acme\Scratch pads\Alex"),
+                    Path::new(r"c:\work\ACME")
+                ),
+                Some(vec!["Scratch pads".to_owned(), "Alex".to_owned()])
+            );
         }
     }
 

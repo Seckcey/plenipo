@@ -109,6 +109,9 @@ pub struct BrokerConfig {
     /// `Documents\Plenipo` (ADR-201). Inside it, each organization and each project or position
     /// gets a folder of its own. `None`: such work has no folder, and so no file tools.
     pub files_dir: Option<PathBuf>,
+    /// The system's own folders (the profile's and Documents), at and above which a junction is
+    /// not looked at when a step's folder in the organization folder is checked (ADR-205).
+    pub trusted_places: Vec<PathBuf>,
     /// Folders searched for programs (such as GitHub's `gh`) before Plenipo's own PATH (tests
     /// put stand-ins there).
     pub search_path: Option<std::ffi::OsString>,
@@ -141,6 +144,7 @@ impl BrokerConfig {
             workspaces_dir: tickets_dir.with_file_name("workspaces"),
             attachments_dir: tickets_dir.with_file_name("attachments"),
             files_dir: None,
+            trusted_places: Vec::new(),
             browser: BrowserConfig::new(tickets_dir.with_file_name("browser-profile")),
             screenshots_dir: tickets_dir.with_file_name("screenshots"),
             search_path: None,
@@ -1043,41 +1047,79 @@ impl Broker {
             .map_err(BrokerError::PartOfPro)
     }
 
-    /// The folder for work that belongs to no project (ADR-201): `<files>/<organization>/<name>`,
-    /// where the name is the project's, or the position's when there is no project. Made here
-    /// when it is not there yet. `None` when Plenipo has no such place or cannot make it.
-    ///
-    /// An organization with an organization folder (ADR-205) keeps it there, never in a folder
-    /// worked out from its name, which another organization of the same name may have.
-    fn own_folder(&self, scope: &Scope, position_id: Option<&str>) -> Option<String> {
+    /// The organization folder's folder of `kind` for `ref_id` (ADR-205): where it is recorded,
+    /// made by one pass of keeping the organization folder when it isn't recorded yet or has gone
+    /// missing (again at its recorded place, never elsewhere). `None` when the organization has no
+    /// organization folder, or the folder can't be had: never one with a junction or link on the
+    /// way, or a folder Plenipo may not look into (the reviewer's O2 and O6 on the design).
+    fn organization_place(
+        &self,
+        kind: plenipo_ledger::FolderKind,
+        ref_id: &str,
+    ) -> Option<PathBuf> {
         let l = self.ledger();
-        let recorded = l
-            .organization_folder()
-            .ok()
-            .flatten()
-            .map(|f| std::path::PathBuf::from(f.path));
-        let organization_folder = match recorded {
-            // One that became a junction or link leads somewhere else: no folder (ADR-205).
-            Some(folder)
-                if std::fs::symlink_metadata(&folder).is_ok_and(|m| m.file_type().is_symlink()) =>
-            {
-                return None
-            }
-            Some(folder) => folder,
-            None => {
-                let organization = l
-                    .setting("organization")
-                    .ok()
-                    .flatten()
-                    .and_then(|v| v["name"].as_str().map(str::to_owned))
-                    .unwrap_or_default();
-                self.inner
-                    .config
-                    .files_dir
-                    .as_ref()?
-                    .join(folder_name(&organization, "Organization"))
+        l.organization_folder().ok().flatten()?;
+        let recorded = || {
+            l.folder(kind, Some(ref_id))
+                .ok()
+                .flatten()
+                .map(|f| PathBuf::from(f.path))
+        };
+        let trusted = &self.inner.config.trusted_places;
+        let path = match recorded() {
+            Some(p) if p.is_dir() => p,
+            _ => {
+                for problem in crate::org_folder::keep(l, trusted).problems {
+                    log::warn!("organization folder: {problem}");
+                }
+                recorded().filter(|p| p.is_dir())?
             }
         };
+        plenipo_guard::places::on_the_way(&path, trusted)
+            .is_none()
+            .then_some(path)
+    }
+
+    /// A project's **Files** folder in the organization folder (ADR-205 §2.4): the folder its
+    /// workers work in when the project has no folder of its own.
+    fn project_files_folder(&self, project_id: &str) -> Option<String> {
+        self.organization_place(plenipo_ledger::FolderKind::ProjectFiles, project_id)
+            .map(|p| p.display().to_string())
+    }
+
+    /// The folder for work that belongs to no project (ADR-201, ADR-205 §2.4). With an
+    /// organization folder, it is the position's **scratch pad** there, as recorded; never a
+    /// folder worked out from a name, which another organization of the same name may have.
+    /// Without one, it is `<files>/<organization>/<name>` as before, where the name is the
+    /// project's, or the position's when there is no project, made here when it is not there
+    /// yet. `None` when Plenipo has no such place or cannot make it.
+    fn own_folder(&self, scope: &Scope, position_id: Option<&str>) -> Option<OwnFolder> {
+        let l = self.ledger();
+        if l.organization_folder().ok().flatten().is_some() {
+            return match position_id {
+                Some(id) if scope.project.is_none() => self
+                    .organization_place(plenipo_ledger::FolderKind::ScratchPad, id)
+                    .map(|p| OwnFolder {
+                        path: p.display().to_string(),
+                        scratch_pad: true,
+                    }),
+                // A project's work is in its folder, or its Files folder; a step that is no
+                // position's has no scratch pad.
+                _ => None,
+            };
+        }
+        let organization = l
+            .setting("organization")
+            .ok()
+            .flatten()
+            .and_then(|v| v["name"].as_str().map(str::to_owned))
+            .unwrap_or_default();
+        let organization_folder = self
+            .inner
+            .config
+            .files_dir
+            .as_ref()?
+            .join(folder_name(&organization, "Organization"));
         let name = match (&scope.project, position_id) {
             (Some(p), _) => p.name.clone(),
             (None, Some(id)) => l
@@ -1096,7 +1138,10 @@ impl Broker {
             return None;
         }
         std::fs::create_dir_all(&path).ok()?;
-        (!is_link(&path)).then(|| path.display().to_string())
+        (!is_link(&path)).then(|| OwnFolder {
+            path: path.display().to_string(),
+            scratch_pad: false,
+        })
     }
 
     /// A lead (a VP, Manager, or Supervisor) working in its team's project folder (ADR-016):
@@ -1116,11 +1161,25 @@ impl Broker {
     fn try_open(&self, step: &StepInfo<'_>) -> Result<Option<StepTools>> {
         let workforce = self.workforce_of(step);
         let workforce = &workforce;
-        let Some(scope) = self.inner.guard.scope_for(workforce)? else {
+        let Some(mut scope) = self.inner.guard.scope_for(workforce)? else {
             return Ok(None);
         };
         let config = self.inner.guard.config()?;
         let mut levels = levels_for(&config, &scope);
+        // A project with no folder of its own works in its Files folder in the organization
+        // folder (ADR-205 §2.4): that is its project folder, for its workers and its leads alike.
+        // Looked for only by a step that may use a folder at all.
+        let may_use_folder = TOOLS.iter().any(|t| {
+            t.capability.needs_folder()
+                && levels.get(&t.capability).copied().unwrap_or_default() != Level::Blocked
+        });
+        let files_folder = match scope.project.as_ref() {
+            Some(p) if p.folder.is_none() && may_use_folder => self.project_files_folder(&p.id),
+            _ => None,
+        };
+        if let (Some(p), Some(f)) = (scope.project.as_mut(), files_folder.as_ref()) {
+            p.folder = Some(f.clone());
+        }
         // In its team's project folder (and its working copies), the worker making a change is
         // the one writer (ADR-016): a lead there reads and hands the work on, as before ADR-201.
         // Its Everyday work applies to its own work, in Plenipo's own folder.
@@ -1148,14 +1207,15 @@ impl Broker {
             .as_ref()
             .and_then(|p| p.folder.as_deref())
             .filter(|_| uses_folder);
-        // Work with no project folder is done in a folder of Plenipo's own that the owner can
-        // find (ADR-201): `Documents\Plenipo\<organization>\<project or position>`.
+        // Work with no project folder is done in a folder the owner can find: its scratch pad in
+        // the organization folder (ADR-205), or Plenipo's own folder in Documents (ADR-201).
         let own_path = match project_folder {
             None if uses_folder => self.own_folder(&scope, workforce["positionId"].as_str()),
             _ => None,
         };
         let own = own_path.is_some();
-        let folder = project_folder.or(own_path.as_deref());
+        let scratch_pad = own_path.as_ref().is_some_and(|o| o.scratch_pad);
+        let folder = project_folder.or(own_path.as_ref().map(|o| o.path.as_str()));
         let (workspace, problem) = match folder {
             Some(folder) => match Workspace::open(folder) {
                 Ok(w) => (Some(w), None),
@@ -1177,7 +1237,8 @@ impl Broker {
         let grant_id = uuid::Uuid::new_v4().to_string();
         let writer = permitted(Capability::FilesystemWrite) || permitted(Capability::GitWrite);
         let (workspace, place, problem) = match (workspace, &scope.project) {
-            (Some(folder), Some(project)) if !own => {
+            // A Files folder is the owner's documents, never a working copy's repository.
+            (Some(folder), Some(project)) if !own && files_folder.is_none() => {
                 match self.place_for(step, project, &folder, writer, &grant_id) {
                     Ok(Some((w, place, note))) => (Some(w), Some(place), note),
                     Ok(None) => (Some(folder), None, problem),
@@ -1342,17 +1403,20 @@ impl Broker {
             ..NewEvent::default()
         })?;
         let light = config.safety == Safety::Light;
+        let extras = NoteExtras {
+            own_folder: own,
+            scratch_pad,
+            files_folder: files_folder.is_some(),
+            light,
+            coordinates,
+        };
         let mut note = note_for(
             &scope,
             workspace.as_ref(),
             place.as_ref(),
             &levels,
             problem.as_deref(),
-            NoteExtras {
-                own_folder: own,
-                light,
-                coordinates,
-            },
+            extras,
         );
         if !offers.note.is_empty() {
             note = format!("{note}\n{}", offers.note);
@@ -1376,11 +1440,7 @@ impl Broker {
             position_id,
             worker,
             scope,
-            note_extras: NoteExtras {
-                own_folder: own,
-                light,
-                coordinates,
-            },
+            note_extras: extras,
             workspace,
             place,
             github,
@@ -3409,11 +3469,23 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// organization folder, ADR-205).
 pub(crate) use plenipo_guard::places::folder_name;
 
+/// The folder for work that belongs to no project.
+#[derive(Debug, Clone)]
+struct OwnFolder {
+    path: String,
+    /// Its scratch pad in the organization folder (ADR-205), not ADR-201's folder in Documents.
+    scratch_pad: bool,
+}
+
 /// What a worker's note says beyond its permissions (ADR-201).
 #[derive(Debug, Clone, Copy, Default)]
 struct NoteExtras {
     /// Its folder is Plenipo's own, made for work that belongs to no project.
     own_folder: bool,
+    /// That folder is its scratch pad in the organization folder (ADR-205).
+    scratch_pad: bool,
+    /// Its project folder is the project's Files folder in the organization folder (ADR-205).
+    files_folder: bool,
     /// Safety is Light: programs that are on no list run without asking.
     light: bool,
     /// A lead in its team's project folder: its workers change the files (ADR-016).
@@ -3455,9 +3527,31 @@ fn note_for(
                 w.root().display(),
                 p.branch
             ));
+            lines.push(
+                "Your work is the project's code: put documents where the project keeps them \
+                 (for example docs/)."
+                    .into(),
+            );
             if let Some(problem) = problem {
                 lines.push(problem.to_owned());
             }
+        }
+        (Some(w), None) if extras.scratch_pad => {
+            lines.push(format!(
+                "Your scratch pad is {}: your own folder in the organization folder, which the \
+                 owner can open. Keep your notes and drafts there, and save the files you make \
+                 for the owner there. Give paths relative to it; nothing outside it can be used.",
+                w.root().display()
+            ));
+        }
+        (Some(w), None) if extras.files_folder => {
+            lines.push(format!(
+                "The project folder is {}, {}'s Files folder in the organization folder. \
+                 Finished work for the project goes here, where the owner looks for it. Give \
+                 paths relative to it; nothing outside it can be used.",
+                w.root().display(),
+                project
+            ));
         }
         (Some(w), None) if extras.own_folder => {
             lines.push(format!(
@@ -4280,14 +4374,73 @@ mod tests {
                 &levels,
                 None,
                 NoteExtras {
-                    own_folder: false,
                     light: true,
                     coordinates,
+                    ..NoteExtras::default()
                 },
             )
         };
         assert!(told(true).contains("your team's workers change the files"));
         assert!(!told(false).contains("your team's workers"));
+    }
+
+    /// ADR-205 §2.4: each worker is told where its files go: its scratch pad for work that
+    /// belongs to no project, and its project's Files folder for a project with no folder of
+    /// its own.
+    #[test]
+    fn the_note_says_where_files_go() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = Workspace::open(&dir.path().display().to_string()).unwrap();
+        let levels = BTreeMap::from([
+            (Capability::FilesystemRead, Level::Allowed),
+            (Capability::FilesystemWrite, Level::Allowed),
+        ]);
+        let mut scope = Scope {
+            role_id: "writer".into(),
+            role_name: "Writer".into(),
+            position_id: None,
+            project: None,
+            department: None,
+        };
+        let pad = note_for(
+            &scope,
+            Some(&folder),
+            None,
+            &levels,
+            None,
+            NoteExtras {
+                own_folder: true,
+                scratch_pad: true,
+                ..NoteExtras::default()
+            },
+        );
+        assert!(pad.contains("Your scratch pad is"), "{pad}");
+        assert!(pad.contains("Keep your notes and drafts there"), "{pad}");
+        assert!(!pad.contains("Plenipo's own folder"), "{pad}");
+        scope.project = Some(plenipo_guard::engine::ScopeProject {
+            id: "p1".into(),
+            name: "Website".into(),
+            ..Default::default()
+        });
+        let files = note_for(
+            &scope,
+            Some(&folder),
+            None,
+            &levels,
+            None,
+            NoteExtras {
+                files_folder: true,
+                ..NoteExtras::default()
+            },
+        );
+        assert!(
+            files.contains("the Website project's Files folder"),
+            "{files}"
+        );
+        assert!(
+            files.contains("Finished work for the project goes here"),
+            "{files}"
+        );
     }
 
     /// B6: three of a grant's requests may wait for the owner at once. A place held for a card
