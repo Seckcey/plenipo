@@ -655,15 +655,15 @@ impl Broker {
             .collect()
     }
 
-    /// Every folder the organization has recorded (ADR-205): where each really is when it is
-    /// there, and where it was recorded when it is missing.
+    /// Every folder the organization has recorded (ADR-205), where each really is, or would be
+    /// when it is missing (the part of its path that exists, followed).
     fn recorded_folder_paths(&self) -> Vec<PathBuf> {
         self.ledger()
             .folders()
             .map(|folders| {
                 folders
                     .into_iter()
-                    .map(|f| dunce::canonicalize(&f.path).unwrap_or_else(|_| PathBuf::from(f.path)))
+                    .map(|f| plenipo_guard::places::real_or_written(Path::new(&f.path)))
                     .collect()
             })
             .unwrap_or_default()

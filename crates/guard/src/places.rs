@@ -239,8 +239,9 @@ fn real(path: &Path) -> Option<Real> {
     }
 }
 
-/// A place as it really is, or as written when no part of it exists.
-fn real_or_written(path: &Path) -> PathBuf {
+/// A place as it really is: links and short names followed for the part that exists, the rest
+/// added as written; as written when no part of it exists.
+pub fn real_or_written(path: &Path) -> PathBuf {
     real(path).map_or_else(|| path.to_path_buf(), |r| r.path)
 }
 
