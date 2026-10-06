@@ -71,6 +71,7 @@ export function ChatWindow({
   onOpenLink,
   onPopOut,
   onPutBack,
+  onOpenConversation,
 }: {
   tab: ChatTab;
   /** Drawn small, beside others. */
@@ -80,6 +81,11 @@ export function ChatWindow({
   onPopOut?: (() => void) | undefined;
   /** In a window of its own: put it back in the Chat panel. */
   onPutBack?: (() => void) | undefined;
+  /**
+   * Show another agent's conversation (a worker it asked, or who asked it) where this chat is,
+   * as the Workers page does; without it, it opens in the Chat panel.
+   */
+  onOpenConversation?: ((sessionId: string, title: string) => void) | undefined;
 }) {
   const chat = useChat();
   const agents = useAgents();
@@ -103,6 +109,10 @@ export function ChatWindow({
       ? {
           canOpen: (id) => id in sessions,
           open: (id, name) => {
+            if (onOpenConversation) {
+              onOpenConversation(id, name);
+              return;
+            }
             const positionId = liaisonInfo(sessions[id]).positionId;
             chat.open(
               positionId
