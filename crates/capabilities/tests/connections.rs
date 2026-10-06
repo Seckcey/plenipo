@@ -1925,6 +1925,7 @@ async fn later_services_wait_and_disconnect_always_works() {
             ("HubSpot", true),
             ("Stripe", true),
             ("WordPress and WooCommerce", true),
+            ("GitHub", true),
         ]
     );
     assert!(page.vault_available);

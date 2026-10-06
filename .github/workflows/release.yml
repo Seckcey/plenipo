@@ -340,7 +340,8 @@ jobs:
             echo "::error::Repository variable PLENIPO_SLACK_CLIENT_ID is the tests' stand-in ID; set 8 West's Slack app's client ID (docs/phases/phase-20-slack-and-google-apps.md)"
             exit 1
           fi
-          # Phase 25 (ADR-204): nor with the tests' stand-in GitHub App.
+          # Phase 25 (ADR-204): nor with the tests' stand-in GitHub App. Unset is fine: until the
+          # owner registers 8 West's GitHub App, that copy's GitHub card says it has no app yet.
           if [ "$github_id" = "Iv1.0123456789abcdef" ] || [ "$github_slug" = "plenipo-test-app" ]; then
             echo "::error::Repository variable PLENIPO_GITHUB_CLIENT_ID or PLENIPO_GITHUB_APP_SLUG is the tests' stand-in; set 8 West's GitHub App's (docs/phases/phase-25-github-app.md)"
             exit 1

@@ -5654,12 +5654,12 @@ mod ipc_boundary_tests {
         );
         assert!(why.contains("GitHub sends nothing"), "{why}");
         // A copy built without 8 West's GitHub App says so (the tests' copy has none).
-        if option_env!("PLENIPO_GITHUB_CLIENT_ID").is_none() {
+        if guard_host::connections_config().github_client_id.is_none() {
             let why = said(
                 "connect_connection",
                 serde_json::json!({ "connectionId": "github", "kind": "work" }),
             );
-            assert!(why.contains("GitHub"), "{why}");
+            assert!(why.contains("no app ID for GitHub"), "{why}");
         }
         // The card shows no parts and no code, and asks for no Pro.
         let page: plenipo_capabilities::connections::ConnectionsPage =
