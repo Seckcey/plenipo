@@ -1,6 +1,6 @@
 # ADR-205: The organization folder — one folder per organization, with its departments, projects, and scratch pads
 
-- **Status:** Proposed. The owner's request (I3, 2026-10-05) and the owner's answers to the
+- **Status:** Accepted (2026-10-06, the owner: "i accept all decisions as recommended"). Proposed 2026-10-05. The owner's request (I3, 2026-10-05) and the owner's answers to the
   design (2026-10-05): every recommendation approved, with one change (§3: the folder stays in
   Documents even when OneDrive syncs it, with an alert to keep it on this device).
 - **Date:** 2026-10-05

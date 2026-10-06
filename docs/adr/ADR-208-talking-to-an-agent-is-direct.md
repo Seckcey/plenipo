@@ -1,6 +1,6 @@
 # ADR-208: Talking to an agent is direct — your words go straight to it, not through the Liaison
 
-- **Status:** Proposed. The direction is the owner's own, 2026-10-05 (Phase 25, I5): "Talking
+- **Status:** Accepted (2026-10-06, the owner: "i accept all decisions as recommended"). Proposed 2026-10-05. The direction is the owner's own, 2026-10-05 (Phase 25, I5): "Talking
   directly to an agent in its chat must not go through the Liaison. The Liaison is only for agents
   from different labs working together." His answers to the design (D1, D1b, D2 below) are the
   same day's.
