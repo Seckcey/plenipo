@@ -41,18 +41,27 @@ export function splitHandoffs(text: string): Piece[] {
   return pieces;
 }
 
-/** Pair each request the lead wrote with Liaison's record of it, by its words, in order. */
+/**
+ * Pair each request the lead wrote with Liaison's record of it, in order: by its words and the
+ * worker it went to first (two requests with the same words to different workers keep their own
+ * cards), then by its words alone for any left over.
+ */
 export function matchRequests(
-  asked: readonly { objective: string }[],
+  asked: readonly { to: string; objective: string }[],
   sent: readonly HandoffView[],
 ): (HandoffView | null)[] {
-  const left = [...sent];
-  return asked.map((a) => {
-    const i = left.findIndex((v) => v.objective.trim() === a.objective.trim());
+  const left: (HandoffView | null)[] = [...sent];
+  const take = (match: (v: HandoffView) => boolean): HandoffView | null => {
+    const i = left.findIndex((v) => v !== null && match(v));
     if (i < 0) return null;
-    const [view] = left.splice(i, 1);
-    return view ?? null;
-  });
+    const view = left[i] ?? null;
+    left[i] = null;
+    return view;
+  };
+  const same = (v: HandoffView, a: { objective: string }) =>
+    v.objective.trim() === a.objective.trim();
+  const exact = asked.map((a) => take((v) => same(v, a) && v.destination.trim() === a.to.trim()));
+  return asked.map((a, i) => exact[i] ?? take((v) => same(v, a)));
 }
 
 /** The conversation a request came from, or `null`. */
