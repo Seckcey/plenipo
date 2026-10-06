@@ -728,7 +728,15 @@ mod tests {
                 .display()
                 .to_string(),
             base.join("Windows").display().to_string(),
-            base.join("WINDOWS").join("System32").display().to_string(),
+            // Another letter case is the same folder where the system ignores case.
+            base.join(if cfg!(any(windows, target_os = "macos")) {
+                "WINDOWS"
+            } else {
+                "Windows"
+            })
+            .join("System32")
+            .display()
+            .to_string(),
             base.join("Program Files").join("App").display().to_string(),
             base.join("Startup").display().to_string(),
             base.join("Startup").join("x").display().to_string(),

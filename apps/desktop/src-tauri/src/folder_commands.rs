@@ -23,20 +23,17 @@ use crate::orgs::{Org, MAX_NAME};
 use crate::runtime_host::Persistence;
 
 /// Where organizations' folders go by default (ADR-205 §2.1): `Documents\Plenipo`, where
-/// ADR-201's folders already are; Plenipo's data folder's `files` where there is no Documents
-/// folder; a temporary folder for the app's own tests.
+/// ADR-201's folders already are; `Plenipo` in the owner's home folder where the system names no
+/// Documents folder (a Linux PC without one set up). Never inside Plenipo's own data folder, which
+/// can't hold one. A temporary folder for the app's own tests.
 pub fn base<R: Runtime>(app: &AppHandle<R>, persistence: Persistence) -> PathBuf {
     match persistence {
         Persistence::AppData => app
             .path()
             .document_dir()
-            .map(|d| d.join("Plenipo"))
-            .unwrap_or_else(|_| {
-                app.path()
-                    .app_local_data_dir()
-                    .unwrap_or_else(|_| std::env::temp_dir())
-                    .join("files")
-            }),
+            .or_else(|_| app.path().home_dir())
+            .unwrap_or_else(|_| std::env::temp_dir())
+            .join("Plenipo"),
         Persistence::InMemory => std::env::temp_dir()
             .join(format!("plenipo-{}", std::process::id()))
             .join("files"),
