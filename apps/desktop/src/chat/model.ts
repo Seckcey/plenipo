@@ -66,6 +66,11 @@ export interface ChatTurn {
   usageAtLeast: boolean;
   /** What each step reported live, by step, until the turn's record adds them up. */
   stepUsage: Record<number, TokenUsage>;
+  /**
+   * Where each step after the first began: its first part, and when. A lead's turn goes on in a
+   * new step when its team's replies come back (B5), or when Plenipo checks on it.
+   */
+  stepStarts: { step: number; firstPart: number; at: number }[];
   model: string | null;
   /** The newest piece of live activity applied (replays of older ones are ignored). */
   seq: number;
@@ -96,6 +101,7 @@ function newTurn(taskId: string, number: number, at: number): ChatTurn {
     usage: null,
     usageAtLeast: false,
     stepUsage: {},
+    stepStarts: [],
     model: null,
     seq: 0,
   };
@@ -388,8 +394,19 @@ export function applyActivity(session: ChatSession, activity: AgentActivity): Ch
   const base = turn ?? newTurn(activity.taskId, session.turns.length + 1, activity.ts);
   // A piece that was applied already (it came in the replay and again live) is skipped.
   if (turn && activity.seq <= turn.seq) return session;
+  const step = stepOf(activity.seq);
+  const known = base.stepStarts[base.stepStarts.length - 1]?.step ?? 1;
+  // A new step (the replies its team sent, or a check-in) begins: what was open is done.
+  const begun =
+    step > known
+      ? {
+          ...base,
+          parts: closeOpen(base.parts, activity.ts, false),
+          stepStarts: [...base.stepStarts, { step, firstPart: base.parts.length, at: activity.ts }],
+        }
+      : base;
   const next = {
-    ...applyEvent(base, activity.event, activity.ts, stepOf(activity.seq)),
+    ...applyEvent(begun, activity.event, activity.ts, step),
     seq: activity.seq,
   };
   if (i >= 0) return replaceTurn(session, i, next);

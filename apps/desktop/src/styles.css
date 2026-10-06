@@ -5721,6 +5721,73 @@ body.popout {
   font-size: var(--ui-font-xs);
 }
 
+/* What agents say to each other (B5): who asked, the lead's requests, and the replies back. */
+.chat-asked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--ui-space-2);
+  margin-bottom: var(--ui-space-1);
+}
+
+.chat-asked .chat-turn__from {
+  display: inline;
+  margin: 0;
+}
+
+.chat-asked__meta {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-xs);
+}
+
+.chat-handoffs {
+  margin: 0;
+}
+
+/* Where a turn went on in a new step (its team's replies came back). Not .chat-step: a tool's. */
+.chat-stepmark {
+  margin: var(--ui-space-2) 0 0;
+  padding-top: var(--ui-space-2);
+  border-top: 1px dashed var(--ui-border);
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-xs);
+}
+
+.chat-stepmark:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.chat-replies {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-reply summary {
+  cursor: pointer;
+  font-size: var(--ui-font-sm);
+}
+
+.chat-reply__line {
+  color: var(--ui-text-secondary);
+}
+
+.chat-reply__text {
+  margin: var(--ui-space-1) 0 0;
+  white-space: pre-wrap;
+  font-size: var(--ui-font-sm);
+}
+
+.chat-reply-back {
+  margin: 0;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+}
+
 .chat-turn__answer {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

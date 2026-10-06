@@ -3,6 +3,8 @@ import { Icon, IconButton, StatusDot, cx, type Status } from "@plenipo/ui";
 
 import { useAgents } from "../agents/useAgents";
 import { liaisonInfo } from "../agents/store";
+import type { ChatLiaison } from "./Exchanges";
+import { sessionOfSource } from "./handoffBlocks";
 import { useNow } from "../runtime/useNow";
 import { EFFORT_LABEL } from "../routing/format";
 import { usePanelWindow } from "../workspace/context";
@@ -91,7 +93,30 @@ export function ChatWindow({
   const last = turns[turns.length - 1];
   const busy = chat.busy(tab);
   const runtime = agents.state.runtimes.find((r) => r.id === session?.runtimeId);
-  const origin = liaisonInfo(session).origin;
+  const info = liaisonInfo(session);
+  const origin = info.origin;
+  // It works with other agents (B5): their requests and replies show in its chat.
+  const { sessions, runtimes } = agents.state;
+  const liaison: ChatLiaison | null =
+    info.enabled || origin === "handoff"
+      ? {
+          canOpen: (id) => id in sessions,
+          open: (id, name) => {
+            const positionId = liaisonInfo(sessions[id]).positionId;
+            chat.open(
+              positionId
+                ? { positionId, sessionId: id, title: name }
+                : { sessionId: id, title: name },
+            );
+          },
+          nameOf: (source, runtimeId) => {
+            const asker = sessions[sessionOfSource(source) ?? ""];
+            // A lead in your organization talks in a conversation named for its position.
+            if (asker && liaisonInfo(asker).origin === "member") return asker.title;
+            return runtimes.find((r) => r.id === runtimeId)?.label ?? "its lead";
+          },
+        }
+      : null;
 
   const wide = width >= WIDE && !compact;
   const planShown = planChoice ?? wide;
@@ -157,6 +182,7 @@ export function ChatWindow({
             // A worker whose work comes from its lead: each message is the lead's (ADR-202).
             askFrom={origin === "handoff" ? "From its lead" : null}
             tool={runtime?.label ?? null}
+            liaison={liaison}
             onOpenLink={onOpenLink}
           />
           {chat.note(tab.key) && (

@@ -496,6 +496,8 @@ describe("a chat with an agent (ADR-200)", () => {
     const handed = (id: string) =>
       session(id, {
         state: "closed",
+        // Its older task's conversation began first.
+        createdAt: id === "s-new" ? 2_000 : 1_000,
         metadata: {
           liaison: { origin: "handoff", parentSessionId: "s-lead" },
           workforce: { positionId: "p-dev" },
@@ -523,7 +525,14 @@ describe("a chat with an agent (ADR-200)", () => {
     await openChat({ positionId: "p-dev", title: "Senior Developer" });
     expect(await screen.findByText("Build the contact page", {}, SLOW)).toBeInTheDocument();
     expect(screen.getByText("Built the contact page.")).toBeInTheDocument();
-    expect(screen.queryByText("Fix the header")).not.toBeInTheDocument();
+    // Its whole thread (#218): the older task too, above its last one.
+    const log = screen.getByRole("log", { name: "Conversation with Senior Developer" });
+    expect(await within(log).findByRole("article", { name: "Message 1" }, SLOW)).toHaveTextContent(
+      "Fix the header",
+    );
+    expect(within(log).getByRole("article", { name: "Message 2" })).toHaveTextContent(
+      "Build the contact page",
+    );
     // Watched, not messaged: its work comes from its lead.
     expect(await screen.findByText(/takes its work from its lead/, {}, SLOW)).toBeInTheDocument();
     expect(screen.getByLabelText("Message to Senior Developer")).toBeDisabled();
