@@ -671,6 +671,12 @@ impl GuardConfig {
         agents: &[String],
     ) -> Result<Connection> {
         let mut c = self.connection_or_new(id)?;
+        if c.service.owner_only() && !access.is_empty() {
+            return Err(invalid(format!(
+                "{} is yours alone: no worker may use it",
+                c.label()
+            )));
+        }
         if access.len() > MAX_ACCESS {
             return Err(invalid(format!(
                 "at most {MAX_ACCESS} lines on Who may use it"
@@ -701,6 +707,12 @@ impl GuardConfig {
     /// Set a connection's **Send without asking to** list.
     pub fn set_connection_send_list(&mut self, id: &str, list: &[String]) -> Result<Connection> {
         let mut c = self.connection_or_new(id)?;
+        if c.service.owner_only() && !list.is_empty() {
+            return Err(invalid(format!(
+                "{} sends nothing: it only lists your repositories",
+                c.label()
+            )));
+        }
         if list.len() > MAX_SEND_LIST {
             return Err(invalid(format!(
                 "at most {MAX_SEND_LIST} entries on Send without asking to"
@@ -1501,6 +1513,42 @@ mod tests {
             approval_minutes: 5,
         })
         .unwrap();
+    }
+
+    /// ADR-204: GitHub is the owner's alone. It has no parts, nobody may be put on its **Who may
+    /// use it** list, and its **Send without asking to** list stays empty; emptying them works.
+    #[test]
+    fn the_github_connection_is_the_owners_alone() {
+        use crate::connections::*;
+        let mut c = GuardConfig::with_defaults();
+        let roles = vec!["writer".to_owned()];
+        let g = c.connection_or_new("github").unwrap();
+        assert_eq!(g.service, Service::Github);
+        assert!(g.parts.is_empty() && Service::Github.parts().is_empty());
+        assert!(Service::Github.owner_only() && Service::Github.signs_in_with_a_code());
+        let why = c
+            .set_connection_access(
+                "github",
+                &[Access {
+                    who: Who::Role {
+                        id: "writer".into(),
+                    },
+                    level: AccessLevel::ReadOnly,
+                }],
+                &roles,
+                &[],
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(why.contains("yours alone"), "{why}");
+        assert!(c
+            .set_connection_send_list("github", &["a@b.test".into()])
+            .is_err());
+        assert!(c.set_connection_access("github", &[], &roles, &[]).is_ok());
+        assert!(c.set_connection_send_list("github", &[]).is_ok());
+        let mut parts = BTreeMap::new();
+        parts.insert(Part::Mail, PartLevel::ReadOnly);
+        assert!(c.set_connection_parts("github", &parts).is_err());
     }
 
     #[test]

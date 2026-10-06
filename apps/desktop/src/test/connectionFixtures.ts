@@ -156,8 +156,62 @@ function makeCard(
           ? ["Balance: Read", "PaymentIntents: Read", "Payouts: Read", "Customers: Read"]
           : [],
     storeKeyKept: false,
+    ownerOnly: false,
     ...card,
   };
+}
+
+/** GitHub's card (ADR-204): the owner's alone, no parts; not connected, unless `card` says so. */
+export function githubCard(card: Partial<ConnectionCard> = {}): ConnectionCard {
+  return {
+    connection: {
+      id: "github",
+      service: "github",
+      parts: {},
+      granted: [],
+      access: [],
+      sendList: [],
+      state: "notConnected",
+      ...(card.connection ?? {}),
+    },
+    hasApp: true,
+    builtInApp: true,
+    signingIn: false,
+    parts: [],
+    reconnectFor: [],
+    granted: [],
+    usesKey: false,
+    keyNeeds: [],
+    storeKeyKept: false,
+    ownerOnly: true,
+    installPage: "https://github.com/apps/plenipo-test-app/installations/new",
+    ...card,
+  };
+}
+
+/** GitHub's card, connected as Frankie G (frankieg). */
+export function connectedGithubCard(): ConnectionCard {
+  return githubCard({
+    connection: {
+      id: "github",
+      service: "github",
+      parts: {},
+      access: [],
+      sendList: [],
+      state: "connected",
+      accountKind: "work",
+      account: { name: "Frankie G", address: "frankieg" },
+      granted: ["metadata:read"],
+      connectedAt: 1,
+    },
+    granted: [
+      {
+        name: "metadata:read",
+        words:
+          "Read your repositories' names, descriptions, branch and tag names, and who collaborates; never code",
+      },
+    ],
+  });
 }
 
 /** HubSpot's, Stripe's, or the website's card (not connected, unless `card` says so). */
@@ -280,6 +334,7 @@ export function samplePage(
     hubspot?: ConnectionCard;
     stripe?: ConnectionCard;
     wordpress?: ConnectionCard;
+    github?: ConnectionCard;
   } = {},
 ): ConnectionsPage {
   const built = (service: Service, label: string, connections: ConnectionCard[]): ServiceCard => ({
@@ -297,6 +352,7 @@ export function samplePage(
       built("hubspot", "HubSpot", [others.hubspot ?? keyedCard("hubspot")]),
       built("stripe", "Stripe", [others.stripe ?? keyedCard("stripe")]),
       built("wordpress", "WordPress and WooCommerce", [others.wordpress ?? keyedCard("wordpress")]),
+      built("github", "GitHub", [others.github ?? githubCard()]),
     ],
     people: [
       { kind: "role", id: "role-sup", name: "Supervisor", archived: false },

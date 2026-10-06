@@ -9,6 +9,7 @@ import { PartOfPro } from "../../license/PartOfPro";
 import { useOnFree } from "../../license/useLicense";
 import { AddOnTools } from "./AddOnTools";
 import { ConnectionCard } from "./ConnectionCard";
+import { GithubCard } from "./GithubCard";
 import { useConnections } from "./useConnections";
 import { LATER, SEND_LIST_NOTE } from "./words";
 
@@ -71,11 +72,13 @@ export function ConnectionsSettings({ go }: { go: Go }) {
       {onFree ? (
         <PartOfPro go={go}>
           Connections and add-on tools are paused on Free: nothing is deleted, your sign-ins are
-          kept, and Disconnect always works. With Pro, they work again with no new sign-in.
+          kept, and Disconnect always works. With Pro, they work again with no new sign-in. GitHub
+          is free: it only lists your repositories for you.
         </PartOfPro>
       ) : (
         <p className="muted">
-          Connections and add-on tools are part of Plenipo Pro. Disconnecting always works.
+          Connections and add-on tools are part of Plenipo Pro, except GitHub, which is free.
+          Disconnecting always works.
         </p>
       )}
       <ul className="connection-list" aria-label="Services">
@@ -110,6 +113,15 @@ function ServiceItem({
           <StatusPill status="offline" label={LATER} />
         </div>
       </li>
+    );
+  }
+  if (s.service === "github") {
+    return (
+      <>
+        {s.connections.map((c) => (
+          <GithubCard key={c.connection.id} service={s} card={c} page={page} onApply={onApply} />
+        ))}
+      </>
     );
   }
   return (

@@ -125,22 +125,33 @@ impl Guard {
         };
         rules
             .check_for(purpose, address, site_host.as_deref())
-            .inspect_err(|why| {
-                let host = crate::websites::Site::parse(address)
-                    .map(|s| s.shown())
-                    .unwrap_or_else(|_| "an address that is not a website".into());
-                let event = plenipo_ledger::NewEvent {
-                    source: PLENIPO.into(),
-                    event_type: "guard.request_refused".into(),
-                    payload: serde_json::json!({
-                        "purpose": purpose.label(),
-                        "host": host,
-                        "reason": why,
-                    }),
-                    ..plenipo_ledger::NewEvent::default()
-                };
-                let _ = self.ledger().append_event(event);
-            })
+            .inspect_err(|why| self.record_refused_request(purpose, address, why))
+    }
+
+    /// Record a request Plenipo refused for itself (`guard.request_refused`): the host and the
+    /// reason, never the rest of the address. Also for a step Guard's gate can't see on its own,
+    /// such as a service sending the GitHub connection to another page (ADR-204: never
+    /// followed).
+    pub fn record_refused_request(
+        &self,
+        purpose: crate::outbound::Purpose,
+        address: &str,
+        why: &str,
+    ) {
+        let host = crate::websites::Site::parse(address)
+            .map(|s| s.shown())
+            .unwrap_or_else(|_| "an address that is not a website".into());
+        let event = plenipo_ledger::NewEvent {
+            source: PLENIPO.into(),
+            event_type: "guard.request_refused".into(),
+            payload: serde_json::json!({
+                "purpose": purpose.label(),
+                "host": host,
+                "reason": why,
+            }),
+            ..plenipo_ledger::NewEvent::default()
+        };
+        let _ = self.ledger().append_event(event);
     }
 
     /// A link named in a worker's answer that Plenipo may visit to see whether it exists (Phase

@@ -53,6 +53,7 @@ impl Purpose {
                 Service::Hubspot => "the HubSpot connection",
                 Service::Stripe => "the Stripe connection",
                 Service::Wordpress => "the WordPress connection",
+                Service::Github => "the GitHub connection",
             },
             Self::PaidAi(s) => match s {
                 PaidService::OpenRouter => "the OpenRouter paid key",
@@ -93,6 +94,46 @@ pub fn connection_hosts(service: Service) -> &'static [&'static str] {
         Service::Hubspot => &["api.hubapi.com"],
         Service::Stripe => &["api.stripe.com"],
         Service::Wordpress => &[],
+        // GitHub's sign-in (the short code) and its web interface (ADR-204).
+        Service::Github => &["github.com", "api.github.com"],
+    }
+}
+
+/// The only paths the GitHub connection reaches (ADR-204, the reviewer's G2): on `github.com`,
+/// the short-code sign-in's own three (the page the owner opens, and the two Plenipo asks), and
+/// the pages to choose accounts and to remove Plenipo; on `api.github.com`, who signed in, which
+/// accounts Plenipo may list, and their repositories' names. Nothing that reads code or changes
+/// anything.
+pub fn github_path_allowed(host: &str, path: &str) -> bool {
+    let path = path.trim_end_matches('/');
+    match host {
+        "github.com" => {
+            matches!(
+                path,
+                "/login/device"
+                    | "/login/device/code"
+                    | "/login/oauth/access_token"
+                    | "/settings/installations"
+                    | "/settings/apps/authorizations"
+            ) || path
+                .strip_prefix("/apps/")
+                .and_then(|rest| rest.strip_suffix("/installations/new"))
+                .is_some_and(|slug| {
+                    !slug.is_empty()
+                        && slug.len() <= 100
+                        && slug.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+                })
+        }
+        "api.github.com" => {
+            matches!(path, "/user" | "/user/installations" | "/user/repos")
+                || path
+                    .strip_prefix("/user/installations/")
+                    .and_then(|rest| rest.strip_suffix("/repositories"))
+                    .is_some_and(|id| {
+                        !id.is_empty() && id.len() <= 20 && id.chars().all(|c| c.is_ascii_digit())
+                    })
+        }
+        _ => false,
     }
 }
 
@@ -665,6 +706,10 @@ impl OutboundRules {
                 // `http://127.0.0.1:<port>/<host><path>`.
                 let rest = url.path().trim_start_matches('/');
                 let host = &rest[..rest.find('/').unwrap_or(rest.len())];
+                let path = &rest[host.len()..];
+                if service == Service::Github && !github_path_allowed(host, path) {
+                    return refuse("the GitHub connection reaches only its own few addresses");
+                }
                 if connection_host(service, host, site_host) {
                     return Ok(site.clone());
                 }
@@ -676,6 +721,9 @@ impl OutboundRules {
         }
         if site.port.is_some() {
             return refuse("only the usual https port is allowed");
+        }
+        if service == Service::Github && !github_path_allowed(&site.host, url.path()) {
+            return refuse("the GitHub connection reaches only its own few addresses");
         }
         if connection_host(service, &site.host, site_host) {
             Ok(site.clone())
@@ -1509,6 +1557,68 @@ mod tests {
         // Another purpose never reaches a paid service's addresses.
         assert!(rules
             .check(Purpose::Updates, "https://openrouter.ai/api/v1/key")
+            .is_err());
+    }
+
+    /// ADR-204, the reviewer's G2: the GitHub connection reaches only github.com's short-code
+    /// sign-in and account pages, and api.github.com's few reading addresses; never code, never a
+    /// change, never another host, never plain http or another port.
+    #[test]
+    fn the_github_connection_reaches_only_its_few_addresses() {
+        let rules = OutboundRules::default();
+        let github = Purpose::Connection(Service::Github);
+        for ok in [
+            "https://github.com/login/device",
+            "https://github.com/login/device/code",
+            "https://github.com/login/oauth/access_token",
+            "https://github.com/apps/plenipo-by-8-west/installations/new",
+            "https://github.com/settings/installations",
+            "https://github.com/settings/apps/authorizations",
+            "https://api.github.com/user",
+            "https://api.github.com/user/installations?per_page=100&page=2",
+            "https://api.github.com/user/installations/12345/repositories?per_page=100",
+            "https://api.github.com/user/repos?per_page=100",
+        ] {
+            assert!(rules.check(github, ok).is_ok(), "{ok}");
+        }
+        for refused in [
+            "https://api.github.com/repos/acme/web/contents/README.md",
+            "https://api.github.com/repos/acme/web",
+            "https://api.github.com/user/emails",
+            "https://api.github.com/user/installations/12x/repositories",
+            "https://api.github.com/user/installations/1/repositories/2",
+            "https://github.com/acme/web",
+            "https://github.com/login/oauth/authorize",
+            "https://github.com/apps/a/b/installations/new",
+            "https://raw.githubusercontent.com/acme/web/main/README.md",
+            "https://uploads.github.com/x",
+            "http://api.github.com/user",
+            "https://api.github.com:8443/user",
+            "https://user:pass@api.github.com/user",
+        ] {
+            assert!(rules.check(github, refused).is_err(), "{refused}");
+        }
+        // The stand-in in a copy built for the tests serves the same few addresses only.
+        let test =
+            OutboundRules::default().with_connections_stand_in(Some("http://127.0.0.1:8767"));
+        assert!(test
+            .check(github, "http://127.0.0.1:8767/api.github.com/user")
+            .is_ok());
+        assert!(test
+            .check(
+                github,
+                "http://127.0.0.1:8767/api.github.com/repos/a/b/contents"
+            )
+            .is_err());
+        assert!(test
+            .check(github, "http://127.0.0.1:8767/graph.microsoft.com/v1.0/me")
+            .is_err());
+        // Another connection never reaches GitHub.
+        assert!(rules
+            .check(
+                Purpose::Connection(Service::Slack),
+                "https://api.github.com/user"
+            )
             .is_err());
     }
 }

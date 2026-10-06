@@ -225,6 +225,16 @@ pub fn connections_config() -> ConnectionsConfig {
             .map(str::trim)
             .filter(|b| b.starts_with("http://127.0.0.1:"))
             .map(str::to_owned),
+        // 8 West's read-only GitHub App (ADR-204): its client ID and its short name, both public
+        // (`PLENIPO_GITHUB_CLIENT_ID`, `PLENIPO_GITHUB_APP_SLUG`). No secret exists for it.
+        github_client_id: option_env!("PLENIPO_GITHUB_CLIENT_ID")
+            .map(str::trim)
+            .filter(|id| plenipo_capabilities::connections::github::is_client_id(id))
+            .map(str::to_owned),
+        github_app_slug: option_env!("PLENIPO_GITHUB_APP_SLUG")
+            .map(str::trim)
+            .filter(|slug| plenipo_capabilities::connections::github::is_app_slug(slug))
+            .map(str::to_owned),
     }
 }
 

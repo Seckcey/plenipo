@@ -3,4 +3,4 @@
 /**
  * A service Plenipo can connect to.
  */
-export type Service = "microsoft365" | "slack" | "google" | "hubspot" | "stripe" | "wordpress";
+export type Service = "microsoft365" | "slack" | "google" | "hubspot" | "stripe" | "wordpress" | "github";
