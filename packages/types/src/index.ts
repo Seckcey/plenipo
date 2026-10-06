@@ -77,6 +77,11 @@ export type { SessionState } from "./generated/SessionState";
 export type { TurnOutcome } from "./generated/TurnOutcome";
 export type { TurnResult } from "./generated/TurnResult";
 export type { TurnStep } from "./generated/TurnStep";
+// Who asked for a turn, and what started each step (Phase 25, B5).
+export type { RequestedBy } from "./generated/RequestedBy";
+export type { RequesterKind } from "./generated/RequesterKind";
+export type { StepStart } from "./generated/StepStart";
+export type { StepStartKind } from "./generated/StepStartKind";
 
 // Liaison (Phase 4)
 export type { ContextSummary } from "./generated/ContextSummary";

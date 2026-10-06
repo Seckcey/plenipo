@@ -24,6 +24,9 @@ pub const CONTEXT_FORMAT: &str = "plenipo-context/1";
 
 /// First and last line markers of every Liaison message to a worker.
 pub const ROOT_HEADER: &str = "[Plenipo Liaison — instructions]";
+/// The first line of the owner's words given straight to an agent (ADR-208), which ends with
+/// the same [`FOOTER`].
+pub const DIRECT_HEADER: &str = "[Plenipo — instructions]";
 pub const REQUEST_HEADER: &str = "[Plenipo Liaison — handoff request]";
 pub const REPLIES_HEADER: &str = "[Plenipo Liaison — handoff replies]";
 pub const SENT_BACK_HEADER: &str = "[Plenipo Liaison — your answer, sent back to check]";
@@ -425,15 +428,62 @@ pub fn root_brief(
     destinations: &[Destination],
     limits: PromptLimits,
 ) -> Brief {
-    let identity = identity.map(str::trim).filter(|i| !i.is_empty());
-    let mut out = Writer::default();
-    out.own(ROOT_HEADER);
-    out.own("\n");
-    out.own(&format!(
+    let opening = format!(
         "You are an AI worker supervised by Plenipo ({PROTOCOL}). For this objective you may ask \
          another AI worker for help through Plenipo Liaison. Workers never contact each other \
          directly.\n\n"
-    ));
+    );
+    first_brief(
+        ROOT_HEADER,
+        &opening,
+        objective,
+        identity,
+        who,
+        destinations,
+        limits,
+    )
+}
+
+/// The owner's words to an agent, given straight to its conversation (ADR-208, talking to an
+/// agent is direct): its instructions as in [`root_brief`], under Plenipo's own name, without
+/// the Liaison's. The agent can still hand work to its team; the Liaison only carries that.
+/// The same instructions give the same number as there, so a conversation that has them gets
+/// the short reminder.
+pub fn direct_brief(
+    objective: &str,
+    identity: Option<&str>,
+    who: Option<&str>,
+    destinations: &[Destination],
+    limits: PromptLimits,
+) -> Brief {
+    first_brief(
+        DIRECT_HEADER,
+        "You are an AI worker supervised by Plenipo. For this objective you may ask another AI \
+         worker for help through Plenipo. Workers never contact each other directly.\n\n",
+        objective,
+        identity,
+        who,
+        destinations,
+        limits,
+    )
+}
+
+/// A turn's first message under `header`: `opening`, the identity, how to hand work on, then
+/// the objective; with its short reminder.
+fn first_brief(
+    header: &str,
+    opening: &str,
+    objective: &str,
+    identity: Option<&str>,
+    who: Option<&str>,
+    destinations: &[Destination],
+    limits: PromptLimits,
+) -> Brief {
+    let identity = identity.map(str::trim).filter(|i| !i.is_empty());
+    let mut out = Writer::default();
+    out.own(header);
+    out.own("\n");
+    out.own(opening);
     if let Some(identity) = identity {
         out.own(identity);
         out.own("\n\n");
@@ -444,7 +494,7 @@ pub fn root_brief(
     out.pass(objective.trim());
 
     let mut short = Writer::default();
-    short.own(ROOT_HEADER);
+    short.own(header);
     short.own("\n");
     reminder_head(&mut short, identity.is_some(), who, limits);
     ready_line(&mut short, identity.is_some(), destinations);
@@ -1095,6 +1145,55 @@ mod tests {
                 .unwrap()
                 .identity,
             None
+        );
+    }
+
+    /// The owner's words given straight to a member (ADR-208): the same instructions as the
+    /// Liaison's first message, under Plenipo's own name, with no word of the Liaison. The same
+    /// instructions give the same hash, so a conversation that has them gets the reminder, under
+    /// the same name.
+    #[test]
+    fn the_owners_words_to_a_member_name_plenipo_not_the_liaison() {
+        let team = [Destination {
+            address: "role:QA Engineer".into(),
+            label: "QA Engineer on Claude Code".into(),
+            ready: true,
+        }];
+        let identity = Some("You are Cloudline Coordinator, the project coordinator.");
+        let who = Some("You are Cloudline Coordinator.");
+        let direct = direct_brief("Ship it", identity, who, &team, LIMITS);
+        let root = root_brief("Ship it", identity, who, &team, LIMITS);
+        let full = &direct.full.text;
+        assert!(
+            full.starts_with(&format!(
+                "{DIRECT_HEADER}\nYou are an AI worker supervised by Plenipo. For this objective \
+                 you may ask another AI worker for help through Plenipo. Workers never contact \
+                 each other directly.\n\nYou are Cloudline Coordinator"
+            )),
+            "{full}"
+        );
+        assert!(
+            full.contains("```plenipo-handoff"),
+            "it can still hand work on"
+        );
+        assert!(full.ends_with(&format!("{FOOTER}\n\nShip it")));
+        assert!(
+            !full.contains("Liaison") && !full.contains(PROTOCOL),
+            "{full}"
+        );
+        // Everything after the opening is the Liaison's first message, word for word.
+        let after = |text: &str| text.split_once("\n\n").map(|(_, rest)| rest.to_owned());
+        assert_eq!(after(full.as_str()), after(root.full.text.as_str()));
+        assert_eq!(direct.hash, root.hash);
+        let reminder = direct.reminder.unwrap().text;
+        assert!(
+            reminder.starts_with(&format!("{DIRECT_HEADER}\n")),
+            "{reminder}"
+        );
+        assert!(!reminder.contains("Liaison"), "{reminder}");
+        assert_eq!(
+            reminder.replacen(DIRECT_HEADER, ROOT_HEADER, 1),
+            root.reminder.unwrap().text
         );
     }
 

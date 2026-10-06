@@ -16,7 +16,8 @@ use plenipo_liaison::Liaison;
 use plenipo_licensing::{Entitlements, Limit};
 use plenipo_router::{ModelRule, RouteRequest, Router, RoutingSnapshot, RuleTarget};
 use plenipo_runtime::agent::{
-    AgentRuntime, AgentRuntimeInfo, AgentSessionDetail, InstallState, SessionStart,
+    AgentRuntime, AgentRuntimeInfo, AgentSessionDetail, InstallState, SessionStart, TurnInput,
+    TurnTask,
 };
 use serde_json::{json, Value};
 
@@ -2025,33 +2026,51 @@ impl Workforce {
         } else {
             format!("{words}\n\n{}", notes.join("\n\n"))
         };
+        // Straight to the agent's conversation (ADR-208, talking to an agent is direct): Liaison
+        // only gives the worker its place on the job and its instructions, which name its team.
+        // It comes in only if the agent hands work on.
         let liaison = &self.inner.liaison;
-        let detail = if plan.existing {
-            liaison
-                .resume_member_session(
-                    &plan.session_id,
-                    &objective,
-                    plan.workforce,
-                    plan.project_id,
-                )
-                .await?
+        if plan.existing {
+            let open = runtime.session(&plan.session_id).await?;
+            if !plenipo_liaison::members_conversation(&open.session.metadata, &plan.workforce) {
+                return Err(invalid(
+                    "that conversation does not belong to this position's agent",
+                ));
+            }
+        }
+        let place = liaison.owner_place()?;
+        let turn = liaison
+            .direct_turn(&objective, plan.workforce.clone())
+            .await?;
+        let input = TurnInput {
+            objective: objective.clone(),
+            prompt: None,
+            brief: Some(turn.brief),
+            task: TurnTask::New {
+                requested_by: OWNER.into(),
+                metadata: turn.task_metadata,
+                project_id: plan.project_id,
+            },
+        };
+        let started = if plan.existing {
+            runtime.resume_session_with(&plan.session_id, input).await
         } else {
-            liaison
-                .start_member_session(
+            runtime
+                .start_session_with(
                     SessionStart {
                         id: Some(plan.session_id),
                         runtime_id: plan.runtime_id,
                         model: plan.model,
                         effort: plan.effort,
                         title: Some(plan.title),
-                        metadata: Value::Null,
+                        metadata: turn.session_metadata,
                     },
-                    &objective,
-                    plan.workforce,
-                    plan.project_id,
+                    input,
                 )
-                .await?
+                .await
         };
+        drop(place);
+        let detail = started?;
         // The chain of command's records, once the turn has started (ADR-202).
         let this = self.clone();
         let task_id = detail.turns.last().map(|t| t.task_id.clone());

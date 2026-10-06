@@ -13,8 +13,8 @@ use plenipo_ledger::{
 use plenipo_liaison::store::{LedgerExecutionStore, LedgerSessionStore};
 use plenipo_liaison::{HandoffOutcome, HandoffState, Liaison, LiaisonConfig, ReplyState};
 use plenipo_runtime::agent::{
-    builtin_adapters, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, HostEnv, SessionState,
-    TurnOutcome, TurnResult,
+    builtin_adapters, AgentConfig, AgentRuntime, AgentSink, AgentUpdate, HostEnv, RequestedBy,
+    RequesterKind, SessionState, StepStart, StepStartKind, TurnOutcome, TurnResult,
 };
 use plenipo_runtime::{
     EventSink, ExecutablePolicy, ProfileRegistry, RuntimeError, RuntimeEvent, Supervisor,
@@ -400,6 +400,33 @@ async fn review_round_trip(requester: &str, reviewer: &str, reviewer_label: &str
     assert_eq!(reply.correlation_id, request.correlation_id);
     assert_eq!(request.correlation_id, correlation(&done));
     assert_eq!(reply.destination, request.source);
+
+    // Who asked, and what started each step (Phase 25, B5): the requester's turn is the
+    // owner's, and its second step took the reply; the reviewer's turn was handed on by it.
+    assert_eq!(turn.requested_by, RequestedBy::owner());
+    assert_eq!(turn.steps[0].started_by, None);
+    assert_eq!(
+        turn.steps[1].started_by,
+        Some(StepStart {
+            kind: StepStartKind::Replies,
+            message_ids: Some(vec![reply.id.clone()]),
+        })
+    );
+    let reviewer_session = child.metadata["sessionId"].as_str().unwrap();
+    let handed =
+        h.rt.session(reviewer_session)
+            .await
+            .unwrap()
+            .turns
+            .remove(0);
+    assert_eq!(
+        handed.requested_by,
+        RequestedBy {
+            kind: RequesterKind::Lead,
+            position_id: None,
+            task_id: Some(root.clone()),
+        }
+    );
 
     // A complete, ordered Ledger trail on both tasks.
     assert_in_order(
@@ -1723,6 +1750,26 @@ async fn a_check_in_never_ends_the_lead_hands_work_on_or_is_checked_as_an_answer
         h.text(&lead.id).contains("received 2 replies"),
         "{}",
         h.text(&lead.id)
+    );
+    // The lead's turn (Phase 25, B5): handed on by the owner's task; its second step was the
+    // check-in, and its last took both replies.
+    let lead_session = lead.metadata["sessionId"].as_str().unwrap();
+    let turn = h.rt.session(lead_session).await.unwrap().turns.remove(0);
+    assert_eq!(turn.requested_by.kind, RequesterKind::Lead);
+    assert_eq!(turn.requested_by.task_id.as_deref(), Some(root.as_str()));
+    let started: Vec<_> = turn
+        .steps
+        .iter()
+        .map(|s| s.started_by.as_ref().map(|b| b.kind))
+        .collect();
+    assert_eq!(
+        started,
+        [
+            None,
+            Some(StepStartKind::CheckIn),
+            Some(StepStartKind::Replies)
+        ],
+        "{turn:#?}"
     );
 }
 
