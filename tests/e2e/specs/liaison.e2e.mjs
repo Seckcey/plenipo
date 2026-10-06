@@ -29,6 +29,7 @@ import {
   startConversation,
   stopChat,
   waitForChat,
+  waitForChatState,
   waitForTurn,
 } from "../lib/chat.mjs";
 
@@ -113,9 +114,11 @@ describe("Phase 4 Liaison handoffs (real app, fake CLIs)", () => {
     await waitForChat(browser, "Review the answer above");
     await waitForText(browser, `${CHAT} [aria-label="Request from Codex"]`, "Codex asked");
     const review = await waitForTurn(browser, 1, (t) => t.outcome === "completed", "review");
+    // Its answer carries Codex's answer as its context. The chat shows answers as Markdown, where
+    // the fake's escaped quote (\") is a quote.
     assert.match(
       review.text,
-      /Turn 1: you asked "Review the answer above"; context: "Turn 1: you said \\"Write a parser/,
+      /Turn 1: you asked "Review the answer above"; context: "Turn 1: you said "Write a parser/,
     );
     // Its work comes from who asked it: watched, not messaged.
     assert.equal(await (await browser.$(`${CHAT} textarea`)).isEnabled(), false);
@@ -187,7 +190,7 @@ describe("Phase 4 Liaison handoffs (real app, fake CLIs)", () => {
       async () => (await handoffCard(browser, "Claude Code")).includes("Worker running"),
       "the handoff worker running",
     );
-    await waitForText(browser, `${CHAT} .chat-head__state`, "Waiting for its team");
+    await waitForChatState(browser, "Waiting for its team");
     await screenshotTurns(browser, "handoff-waiting");
     await stopChat(browser);
     await waitForTurn(browser, 1, (t) => t.outcome === "cancelled", "cancelled");
