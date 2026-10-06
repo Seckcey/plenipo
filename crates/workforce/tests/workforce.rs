@@ -3584,6 +3584,10 @@ async fn talking_to_an_on_call_worker_is_direct() {
     );
     assert_eq!(metadata["directChat"], true);
     assert_eq!(metadata["liaison"]["origin"], "member");
+    assert_eq!(
+        session, o.developer,
+        "its first conversation takes the position's ID, so two first messages share it"
+    );
     let task = detail.turns.last().unwrap().task_id.clone();
     let first = h.task(&task);
     assert_eq!(
@@ -3656,4 +3660,34 @@ async fn talking_to_an_on_call_worker_is_direct() {
         "{}",
         h.text(&third)
     );
+}
+
+/// A lent on-call worker (ADR-054) works for the team it is lent to in a direct chat too: the
+/// owner's task carries that team's lead and department, as a hand-off's would, and never ties
+/// the loan to an objective, so the worker is still lent after its answer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_lent_on_call_worker_talked_to_directly_works_for_the_team_it_helps() {
+    let h = harness().await;
+    let o = h.development();
+    let (operations, ops_head) = h.department("Operations", "Operations Manager", "claude-code");
+    h.ledger
+        .lend_position(
+            &o.developer,
+            &ops_head,
+            plenipo_ledger::LoanUntil::Objective,
+            "owner",
+        )
+        .unwrap();
+    let task = h.objective(&o.developer, "Check the build").await;
+    let record = h.task(&task).metadata["workforce"].clone();
+    assert_eq!(record["departmentId"], operations.as_str(), "{record}");
+    assert_eq!(record["leadId"], ops_head.as_str(), "{record}");
+    assert!(
+        record["projectId"].is_null(),
+        "not its home project: {record}"
+    );
+    assert_eq!(h.finished(&task).await.state, TaskState::Succeeded);
+    let loan = h.ledger.loans_of(&o.developer, 1).unwrap().remove(0);
+    assert!(loan.active, "still lent after the answer");
+    assert_eq!(loan.objective_task_id, None);
 }

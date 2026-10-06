@@ -107,8 +107,13 @@ agent should be talking to that agent.
   Liaison's own, between agents (D2).
 - An on-call worker's open chat costs nothing while it waits: a worker is staffed only while it
   answers. The owner ends the chat when done.
-- An on-call position that is lent to another team (ADR-054) takes the owner's words only as the
-  loan allows, and says so.
+- An on-call position that is lent to another team (ADR-054) works for that team in a direct chat
+  too: its project and department are the team's, as for a hand-off. The owner's words never tie
+  the loan to an objective nor end it; they wait while the worker is lent for another objective or
+  going home, and say so.
+- The owner's words to an on-call worker start a workflow of their own (depth 0), as they do for a
+  full-time member: that worker can hand work on as many levels down as the Liaison's depth limit
+  allows, one more than when its lead hands it the same job.
 - No new screen words: the Liaison's name appears nowhere in a chat.
 
 ## Built in pieces

@@ -178,7 +178,9 @@ pub(crate) fn direct_plan(
     if position.state != PositionState::Active {
         return Err(invalid(format!("{} has been archived", position.title)));
     }
-    let project = view.project_of(&position.id);
+    // The team it works for: the one it is lent to (ADR-054), as for a hand-off. Its project and
+    // department are what Guard, the allowed AI tools, and paid keys' limits read.
+    let project = view.work_project_of(&position.id);
     let project_id = project.map(|p| p.id.clone());
     let not_allowed = |runtime_id: &str| {
         invalid(format!(
@@ -226,8 +228,16 @@ pub(crate) fn direct_plan(
                 if !allowed(project, &choice.runtime_id) {
                     return Err(not_allowed(&choice.runtime_id));
                 }
+                // Its first conversation takes the position's ID, so two first messages at the
+                // same moment start the same one (the second is refused as busy), as a member's
+                // takes its agent's; a fresh ID after that.
+                let session_id = if ledger.runtime_session(&position.id)?.is_none() {
+                    position.id.clone()
+                } else {
+                    uuid::Uuid::new_v4().to_string()
+                };
                 (
-                    uuid::Uuid::new_v4().to_string(),
+                    session_id,
                     false,
                     choice.runtime_id,
                     choice.model,
@@ -247,7 +257,7 @@ pub(crate) fn direct_plan(
         "positionId": position.id,
         "agentId": agent_id,
         "projectId": project_id,
-        "departmentId": view.department_of(&position.id).map(|d| d.id.clone()),
+        "departmentId": view.work_department_of(&position.id).map(|d| d.id.clone()),
         "leadId": view.lead_of(&position.id).map(|l| l.id.clone()),
         "routing": routing,
     });

@@ -2127,15 +2127,23 @@ impl Workforce {
         };
         drop(place);
         // A task recorded for a turn that did not start is cancelled, and its worker leaves.
+        // Only one still queued: a turn that began and then failed (Plenipo closing mid-turn,
+        // say) is the runtime's to record.
         if let (Err(e), Some(task_id)) = (&started, &staffed) {
             let (this, task_id, why) = (self.clone(), task_id.clone(), e.to_string());
             let _ = tokio::task::spawn_blocking(move || {
-                this.ledger().transition_task(
-                    &task_id,
-                    TaskState::Cancelled,
-                    OWNER,
-                    Some(&format!("not started: {why}")),
-                )
+                let l = this.ledger();
+                match l.task(&task_id)? {
+                    Some(t) if t.state == TaskState::Queued => l
+                        .transition_task(
+                            &task_id,
+                            TaskState::Cancelled,
+                            OWNER,
+                            Some(&format!("not started: {why}")),
+                        )
+                        .map(|_| ()),
+                    _ => Ok(()),
+                }
             })
             .await;
         }
