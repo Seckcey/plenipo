@@ -1,5 +1,5 @@
 import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { HandoffView, TaskCost, WorkFolder } from "@plenipo/types";
+import type { HandoffView, StepStart, TaskCost, WorkFolder } from "@plenipo/types";
 import { Button, Icon, cx } from "@plenipo/ui";
 
 import { useLiaisonRevision, useTaskHandoffs } from "../agents/useTaskHandoffs";
@@ -47,7 +47,10 @@ export function Transcript({
 }: {
   session: ChatSession | null;
   title: string;
-  /** Who each message is from, when it is not you ("From its lead", ADR-203). */
+  /**
+   * Who a message is from when it is not you ("From its lead", ADR-203), until its record says
+   * who asked for it (#219): each message's own record decides.
+   */
   askFrom?: string | null;
   /** Its AI tool, by name: said when it reports no tokens. */
   tool?: string | null;
@@ -164,25 +167,56 @@ function Announcer({ turn, title }: { turn: ChatTurn | undefined; title: string 
   );
 }
 
+interface StepMark {
+  step: number;
+  /** What started it, from the turn's record (#219); `null` until it says, or before it kept it. */
+  startedBy: StepStart | null;
+  /** Its team's replies that it went on with. */
+  replies: HandoffView[];
+}
+
 /**
- * Where each step after the first begins, and the replies that came back into it: each reply goes
- * to the first step that began after it was written (Plenipo passes replies on in the next step).
+ * Where each step after the first begins, what started it, and the replies that came back into
+ * it. Each reply goes to the step whose record names it (#219). A step recorded before Plenipo
+ * kept that gets its replies by time instead: the first step that began after a reply was written
+ * (Plenipo passes replies on in the next step), never a check-in.
  */
-function stepMarks(
-  turn: ChatTurn,
-  sent: readonly HandoffView[],
-): Map<number, { step: number; replies: HandoffView[] }> {
-  const marks = new Map<number, { step: number; replies: HandoffView[] }>();
+function stepMarks(turn: ChatTurn, sent: readonly HandoffView[]): Map<number, StepMark> {
+  const marks = new Map<number, StepMark>();
   for (const start of turn.stepStarts) {
-    marks.set(start.firstPart, { step: start.step, replies: [] });
+    marks.set(start.firstPart, {
+      step: start.step,
+      startedBy: turn.startedBy[start.step] ?? null,
+      replies: [],
+    });
   }
   for (const view of sent) {
     const reply = view.reply;
     if (!reply || reply.state !== "delivered") continue;
-    const start = turn.stepStarts.find((s) => s.at >= reply.createdAt);
+    const named = turn.stepStarts.find((s) =>
+      turn.startedBy[s.step]?.messageIds?.includes(reply.messageId),
+    );
+    const start =
+      named ??
+      turn.stepStarts.find(
+        (s) => s.at >= reply.createdAt && turn.startedBy[s.step]?.kind !== "checkIn",
+      );
     if (start) marks.get(start.firstPart)?.replies.push(view);
   }
   return marks;
+}
+
+/** What a step after the first went on with, in the words its mark shows. */
+function stepWords(mark: StepMark): string {
+  switch (mark.startedBy?.kind) {
+    case "replies":
+      return "continued with handoff replies";
+    case "checkIn":
+      return "checked in on its team";
+    default:
+      // Not said (yet): replies placed in it by time say what it went on with.
+      return mark.replies.length > 0 ? "continued with handoff replies" : "continued";
+  }
 }
 
 /** One message and its answer. Drawn again only when it changes. */
@@ -215,12 +249,18 @@ const TurnView = memo(function TurnView({
   const files = isOver(turn) ? filesOf(turn) : [];
   // On a paid key, what it cost once it is over: only then can a spending record exist.
   const cost = useTaskCost(paid && !live ? turn.taskId : null);
-  // What it asked of its team, and who asked it (B5): Liaison's record of this task.
-  const handoffs = useTaskHandoffs(liaison ? turn.taskId : null, turn.taskId, revision, !live);
-  const received = liaison ? (handoffs?.received ?? null) : null;
-  const sent = handoffs?.sent ?? [];
   const pieces = turn.parts.map((p) => (p.kind === "text" ? splitHandoffs(p.text) : null));
   const asked = pieces.flatMap((ps) => (ps ?? []).filter((p) => p.kind === "handoff"));
+  // Who asked for it: its record says (#219); until it does, the conversation's way.
+  const from = turn.askedBy === null ? askFrom : turn.askedBy === "lead" ? "From its lead" : null;
+  // What it asked of its team, and who asked it (B5): Liaison's record of this task, read only
+  // for a message that has some (it asked its team something, went on with their replies, or
+  // its lead asked it), so a long thread does not read one for every message.
+  const exchanges =
+    liaison !== null && (asked.length > 0 || turn.stepStarts.length > 0 || from !== null);
+  const handoffs = useTaskHandoffs(exchanges ? turn.taskId : null, turn.taskId, revision, !live);
+  const received = liaison ? (handoffs?.received ?? null) : null;
+  const sent = handoffs?.sent ?? [];
   const views = matchRequests(asked, sent);
   const marks = stepMarks(turn, sent);
   let request = 0;
@@ -237,7 +277,7 @@ const TurnView = memo(function TurnView({
           {received && liaison ? (
             <AskedBy view={received} worker={title} liaison={liaison} />
           ) : (
-            askFrom && <span className="chat-turn__from">{askFrom}</span>
+            from && <span className="chat-turn__from">{from}</span>
           )}
           <p>{turn.ask}</p>
         </div>
@@ -252,8 +292,7 @@ const TurnView = memo(function TurnView({
               {mark && (
                 <>
                   <p className="chat-stepmark">
-                    Step {mark.step} ·{" "}
-                    {sent.length > 0 ? "continued with handoff replies" : "continued"}
+                    Step {mark.step} · {stepWords(mark)}
                   </p>
                   <RepliesBack views={mark.replies} />
                 </>

@@ -1,9 +1,17 @@
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { AgentSessionDetail, AgentTurn, HandoffView, TaskHandoffs } from "@plenipo/types";
+import type {
+  AgentSessionDetail,
+  AgentTurn,
+  HandoffView,
+  StepStart,
+  TaskHandoffs,
+  TurnStep,
+} from "@plenipo/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentsProvider } from "../agents/AgentsProvider";
+import { STEP_SEQ } from "../agents/store";
 import * as commands from "../api/commands";
 import { activity, runtime, session, turn } from "../test/agentFixtures";
 import { ChatPanel } from "./ChatPanel";
@@ -119,6 +127,11 @@ const none = (taskId: string): TaskHandoffs => ({
   sent: [],
 });
 
+/** A worker's turn: its lead handed it the work (#219). */
+const FROM_LEAD = {
+  requestedBy: { kind: "lead", positionId: "p-lead", taskId: "t-lead" },
+} satisfies Partial<AgentTurn>;
+
 function finished(id: string, sessionId: string, objective: string, text: string): AgentTurn {
   return turn(id, {
     sessionId,
@@ -165,7 +178,12 @@ const DETAILS: Record<string, AgentSessionDetail> = {
   },
   "s-worker": {
     session: WORKER,
-    turns: [finished("t-worker", "s-worker", "Review the parser", "The parser looks correct.")],
+    turns: [
+      {
+        ...finished("t-worker", "s-worker", "Review the parser", "The parser looks correct."),
+        ...FROM_LEAD,
+      },
+    ],
     activity: [],
   },
 };
@@ -262,6 +280,113 @@ describe("what agents say to each other, in their chats (B5)", () => {
     ).toBeInTheDocument();
   });
 
+  it("names what started each step from its record, and puts each reply in the step that got it (#219)", async () => {
+    // Two requests; the second's reply came first, and each step's record names what it got.
+    const ask = (to: string, objective: string) =>
+      `\`\`\`plenipo-handoff\n{"to": "${to}", "objective": "${objective}"}\n\`\`\``;
+    const words = [
+      "I will get a review and a test run.",
+      ask("role:Senior Developer", "Review the parser"),
+      ask("role:QA Engineer", "Test the parser"),
+    ].join("\n");
+    const tested = handoff({
+      messageId: "m2",
+      destination: "role:QA Engineer",
+      destinationLabel: "QA Engineer",
+      objective: "Test the parser",
+      childTaskId: "t-qa",
+      childSessionId: null,
+      reply: { ...handoff().reply!, messageId: "r2", text: "All tests pass.", createdAt: 2_100 },
+    });
+    api.getTaskHandoffs.mockImplementation((taskId) =>
+      Promise.resolve(
+        taskId === "t-lead" ? { ...none(taskId), sent: [handoff(), tested] } : none(taskId),
+      ),
+    );
+    const step = (number: number, startedBy?: StepStart): TurnStep => ({
+      number,
+      executionId: `e${number}`,
+      running: false,
+      result: null,
+      startedAt: number * 1_000,
+      endedAt: number * 1_000 + 500,
+      ...(startedBy ? { startedBy } : {}),
+    });
+    const said = (seq: number, ts: number, text: string) => ({
+      ...activity("t-lead", seq, { type: "textDelta", text }),
+      sessionId: "s-lead",
+      ts,
+    });
+    api.getAgentSession.mockImplementation((id) =>
+      id === "s-lead"
+        ? Promise.resolve({
+            session: LEAD,
+            turns: [
+              {
+                ...finished("t-lead", "s-lead", "Ship the parser", "Both are back: shipping it."),
+                steps: [
+                  step(1),
+                  step(2, { kind: "replies", messageIds: ["r2"] }),
+                  step(3, { kind: "checkIn" }),
+                  step(4, { kind: "replies", messageIds: ["r1"] }),
+                ],
+              },
+            ],
+            activity: [
+              said(1, 1_000, words),
+              said(STEP_SEQ + 1, 2_500, "The tests are back; the review is not yet."),
+              said(2 * STEP_SEQ + 1, 3_500, "Still waiting for the review."),
+              said(3 * STEP_SEQ + 1, 4_500, "Both are back: shipping it."),
+            ],
+          })
+        : Promise.reject(new Error("not in this test")),
+    );
+    await openChat({ positionId: "p-lead", sessionId: "s-lead", title: "Website Supervisor" });
+    const log = await screen.findByRole("log", { name: "Conversation with Website Supervisor" });
+    await recordCard(log, "Handoff to Senior Developer: Review the parser", "Answered");
+    const two = within(log).getByText("Step 2 · continued with handoff replies");
+    expect(within(log).getByText("Step 3 · checked in on its team")).toBeInTheDocument();
+    const four = within(log).getByText("Step 4 · continued with handoff replies");
+    // Both replies were written before step 2 began, yet each shows in the step that got it.
+    const [first, second] = within(log).getAllByRole("list", { name: "Replies from its team" });
+    expect(first?.previousElementSibling).toBe(two);
+    expect(first).toHaveTextContent("All tests pass.");
+    expect(first).not.toHaveTextContent("The parser looks correct.");
+    expect(second?.previousElementSibling).toBe(four);
+    expect(second).toHaveTextContent("The parser looks correct.");
+  });
+
+  it("reads Liaison's record only for a message that has some (N3)", async () => {
+    // Its first message was its own work, asked by you: nothing to read for it.
+    const plain = { ...finished("t-plain", "s-lead", "Say hi", "Hi."), number: 1 };
+    const asked = {
+      ...finished("t-lead", "s-lead", "Ship the parser", "It is correct: shipping it."),
+      number: 2,
+    };
+    api.getAgentSession.mockImplementation((id) =>
+      id === "s-lead"
+        ? Promise.resolve({
+            session: LEAD,
+            turns: [plain, asked],
+            activity: [
+              {
+                ...activity("t-plain", 1, { type: "textDelta", text: "Hi." }),
+                sessionId: "s-lead",
+                ts: 500,
+              },
+              ...DETAILS["s-lead"]!.activity,
+            ],
+          })
+        : Promise.reject(new Error("not in this test")),
+    );
+    await openChat({ positionId: "p-lead", sessionId: "s-lead", title: "Website Supervisor" });
+    const log = await screen.findByRole("log", { name: "Conversation with Website Supervisor" });
+    await recordCard(log, "Handoff to Senior Developer: Review the parser", "Answered");
+    expect(within(log).getByText("Hi.")).toBeInTheDocument();
+    expect(api.getTaskHandoffs).toHaveBeenCalledWith("t-lead");
+    expect(api.getTaskHandoffs).not.toHaveBeenCalledWith("t-plain");
+  });
+
   it("shows in a worker's chat who asked it, and that its answer reached them", async () => {
     const user = await openChat({ sessionId: "s-worker", title: "Senior Developer" });
     const log = await screen.findByRole("log", { name: "Conversation with Senior Developer" });
@@ -301,7 +426,12 @@ describe("what agents say to each other, in their chats (B5)", () => {
       id === "s-worker-2"
         ? Promise.resolve({
             session: second,
-            turns: [finished("t-worker-2", "s-worker-2", "Fix the header", "Header fixed.")],
+            turns: [
+              {
+                ...finished("t-worker-2", "s-worker-2", "Fix the header", "Header fixed."),
+                ...FROM_LEAD,
+              },
+            ],
             activity: [],
           })
         : id === "s-worker"

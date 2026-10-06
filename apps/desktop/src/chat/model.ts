@@ -12,6 +12,8 @@ import type {
   AgentEvent,
   AgentSessionDetail,
   AgentTurn,
+  RequesterKind,
+  StepStart,
   TokenUsage,
   TurnOutcome,
 } from "@plenipo/types";
@@ -78,6 +80,14 @@ export interface ChatTurn {
    * new step when its team's replies come back (B5), or when Plenipo checks on it.
    */
   stepStarts: { step: number; firstPart: number; at: number }[];
+  /**
+   * What started each step after the first, by its number, from the turn's record (#219): its
+   * team's replies (which ones), or a check-in on its team. Missing for a step recorded before
+   * Plenipo kept it, and until the record says.
+   */
+  startedBy: Record<number, StepStart>;
+  /** Who asked for it, from its record (#219): you, or the lead that handed it on. */
+  askedBy: RequesterKind | null;
   model: string | null;
   /** The newest piece of live activity applied (replays of older ones are ignored). */
   seq: number;
@@ -111,9 +121,20 @@ function newTurn(taskId: string, number: number, at: number): ChatTurn {
     executionId: null,
     stepUsage: {},
     stepStarts: [],
+    startedBy: {},
+    askedBy: null,
     model: null,
     seq: 0,
   };
+}
+
+/** What started each of a record's steps, by its number (#219). */
+function startsOf(record: AgentTurn): Record<number, StepStart> {
+  const starts: Record<number, StepStart> = {};
+  for (const step of record.steps) {
+    if (step.startedBy) starts[step.number] = step.startedBy;
+  }
+  return starts;
 }
 
 function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
@@ -494,6 +515,8 @@ export function applyTurn(session: ChatSession, record: AgentTurn): ChatSession 
     ownText: describePrompt(turnPromptSizes(record)) ?? base.ownText,
     executionId:
       record.steps[record.steps.length - 1]?.executionId ?? record.executionId ?? base.executionId,
+    startedBy: { ...base.startedBy, ...startsOf(record) },
+    askedBy: record.requestedBy.kind,
     model: record.result?.model ?? base.model,
   };
   const turns = i >= 0 ? session.turns.slice() : [...session.turns, next];
