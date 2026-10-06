@@ -332,6 +332,18 @@ What was there (read at `306af756`, v1.26.0):
   plain words and not taken). An organization without an organization folder shows the folder box
   as before. **No folder**, the design's third choice, is left out: every project in an
   organization folder gets its Files folder anyway, so it would mean the same as the first.
+- **Choose… and a typed folder are checked differently** (the reviewer's N2 on #230). **Choose…**
+  runs Guard's `place_problem` on the chosen folder (Plenipo's data folder, the system's folders, a
+  Startup folder, a drive's or share's top, a junction or an unreadable folder on the way, this PC
+  through a network name) and says why in plain words. A folder **typed** in the box is checked as
+  project folders always were (ADR-016): a full path when the project is saved, and, at each step,
+  Guard's path checker keeps the worker inside it. `place_problem`'s list is not applied to it, so
+  existing projects whose folders are elsewhere keep working. Applying it to typed folders too
+  would refuse some existing projects' folders; that is left for its own decision.
+- **Why a folder can't be used is said** (the reviewer's N1 on #230): when a project's Files
+  folder or a worker's scratch pad is a junction, can't be looked into, or can't be made again,
+  the worker's note and the record say "the Website project's Files folder can't be used: …" or
+  "your scratch pad can't be used: …", with the reason, instead of "no folder".
 - **Grok, checked:** Plenipo runs Grok with none of its own tools (its profile allows only the two
   that reach Plenipo's tool server, and names each of its own as disallowed), and refuses every
   other tool request (`crates/runtime/src/agent/grok.rs`). So, like every AI tool here, it changes

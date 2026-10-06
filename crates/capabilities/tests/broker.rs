@@ -3016,6 +3016,94 @@ async fn an_agents_own_folder_that_is_a_junction_is_not_used() {
         "nothing was written through the junction"
     );
     assert!(h.broker.work_folder(&task).unwrap().is_none());
+    // The reviewer's N1 on #230: the worker and the record say why, in plain words.
+    let why = folder_reason(&h, &task);
+    assert!(
+        why.contains("your scratch pad can't be used") && why.contains("shortcut"),
+        "{why}"
+    );
+}
+
+/// What the record says about a step's folder: its note when it opened, or why it got no tools.
+fn folder_reason(h: &H, task: &str) -> String {
+    h.events(task, "guard.grant_opened")
+        .iter()
+        .filter_map(|g| g["note"].as_str().map(str::to_owned))
+        .chain(
+            h.events(task, "guard.grant_skipped")
+                .iter()
+                .filter_map(|g| g["reason"].as_str().map(str::to_owned)),
+        )
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// The reviewer's N1 on #230: a project whose Files folder became a junction gets no folder, and
+/// its worker and the record say why, in plain words, instead of "no folder".
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_files_folder_that_is_a_junction_is_not_used_and_says_why() {
+    let h = harness_light().await;
+    let root = h.dir.path().join("Acme");
+    plenipo_capabilities::org_folder::create(&h.ledger, &root, "Acme", "owner").unwrap();
+    let snapshot = h.workforce.snapshot().unwrap();
+    let p = snapshot
+        .projects
+        .iter()
+        .find(|p| p.name == "Website")
+        .unwrap();
+    h.workforce
+        .update_project(
+            &p.id,
+            &ProjectInput {
+                name: p.name.clone(),
+                description: p.description.clone(),
+                repository_url: None,
+                local_path: None,
+                allowed_runtimes: p.allowed_runtimes.clone(),
+                capability_profile: None,
+                branch_per_objective: None,
+                department_id: None,
+                coordinator: None,
+            },
+        )
+        .unwrap();
+    let kept = plenipo_capabilities::org_folder::keep(&h.ledger, &[]);
+    assert!(kept.problems.is_empty(), "{kept:?}");
+    let files = PathBuf::from(
+        h.ledger
+            .folder(plenipo_ledger::FolderKind::ProjectFiles, Some(&p.id))
+            .unwrap()
+            .unwrap()
+            .path,
+    );
+    std::fs::remove_dir(&files).unwrap();
+    let elsewhere = h.dir.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    if !link_out(&elsewhere, &files) {
+        eprintln!("this computer does not allow a junction or link here; skipped");
+        return;
+    }
+    let work = tool(
+        "write_file",
+        serde_json::json!({ "path": "plan.md", "content": "# Plan" }),
+    );
+    let objective = h
+        .objective(&handoff(
+            "Backend Developer",
+            &format!("[tools-list] {work}"),
+        ))
+        .await;
+    let task = h.child(&objective).await.id;
+    h.finished(&task).await;
+    h.finished(&objective).await;
+    assert!(std::fs::read_dir(&elsewhere).unwrap().next().is_none());
+    let why = folder_reason(&h, &task);
+    assert!(
+        why.contains("the Website project's Files folder can't be used")
+            && why.contains("shortcut"),
+        "{why}"
+    );
+    assert!(!why.contains("has no folder"), "{why}");
 }
 
 /// In its team's project folder, a lead reads, plans, and hands each change on (ADR-016, kept by
