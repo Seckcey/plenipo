@@ -1088,8 +1088,15 @@ impl Broker {
             (None, None) => scope.role_name.clone(),
         };
         let path = organization_folder.join(folder_name(&name, "Agent"));
+        // Nor one whose own folder is a junction or link (the reviewer's N2 on #221).
+        let is_link = |p: &std::path::Path| {
+            std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink())
+        };
+        if is_link(&path) {
+            return None;
+        }
         std::fs::create_dir_all(&path).ok()?;
-        Some(path.display().to_string())
+        (!is_link(&path)).then(|| path.display().to_string())
     }
 
     /// A lead (a VP, Manager, or Supervisor) working in its team's project folder (ADR-016):
