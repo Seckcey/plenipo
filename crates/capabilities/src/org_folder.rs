@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use plenipo_guard::places::{folder_name, link_on_the_way};
+use plenipo_guard::places::{folder_name, on_the_way};
 use plenipo_ledger::{
     Folder, FolderKind, FolderOrigin, Ledger, LedgerEvent, NewFolder, OrgRecords, Position,
 };
@@ -224,8 +224,17 @@ impl Keeper<'_> {
             .any(|f| f.path.eq_ignore_ascii_case(&shown))
     }
 
+    /// Whether the folder of `kind` for `ref_id` is recorded (it stays at its recorded place,
+    /// whatever its parent is now).
+    fn is_recorded(&self, kind: FolderKind, ref_id: Option<&str>) -> bool {
+        self.recorded
+            .iter()
+            .any(|f| f.kind == kind && f.ref_id.as_deref() == ref_id)
+    }
+
     /// The folder of `kind` for `ref_id`: as recorded (made again when missing), or made now in
-    /// `parent` under `name`. `None` when it can't be had; the reason is in `problems`.
+    /// `parent` under `name`. `None` when it can't be had this pass, so nothing is made in it;
+    /// the reason is in `problems`.
     fn place(
         &mut self,
         kind: FolderKind,
@@ -240,13 +249,12 @@ impl Keeper<'_> {
             .cloned()
         {
             let path = PathBuf::from(&f.path);
-            self.make_again(&f, &path);
-            return Some(path);
+            return self.make_again(&f, &path).then_some(path);
         }
-        if let Some(link) = link_on_the_way(parent, &self.trusted) {
+        if let Some(way) = on_the_way(parent, &self.trusted) {
             self.kept.problems.push(format!(
-                "{} is a shortcut to another place, so Plenipo didn't make a folder in it",
-                link.display()
+                "{}, so Plenipo didn't make a folder in it",
+                way.words()
             ));
             return None;
         }
@@ -292,32 +300,33 @@ impl Keeper<'_> {
     }
 
     /// A recorded folder that has gone missing is made again at its recorded path (the
-    /// reviewer's O6): never somewhere else, and never through a link.
-    fn make_again(&mut self, folder: &Folder, path: &Path) {
+    /// reviewer's O6): never somewhere else, and never through a link. Whether it is an ordinary
+    /// folder now, which Plenipo may make folders in.
+    fn make_again(&mut self, folder: &Folder, path: &Path) -> bool {
         if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
             self.kept.problems.push(format!(
                 "{} is now a shortcut to another place, so Plenipo leaves it as it is",
                 path.display()
             ));
-            return;
+            return false;
+        }
+        if let Some(way) = on_the_way(path, &self.trusted) {
+            self.kept.problems.push(format!(
+                "{}, so Plenipo leaves {} as it is",
+                way.words(),
+                path.display()
+            ));
+            return false;
         }
         if path.is_dir() {
-            return;
+            return true;
         }
         if path.exists() {
             self.kept.problems.push(format!(
                 "{} is no longer a folder, so Plenipo left it as it is",
                 path.display()
             ));
-            return;
-        }
-        if let Some(link) = link_on_the_way(path, &self.trusted) {
-            self.kept.problems.push(format!(
-                "{} is now a shortcut to another place, so Plenipo didn't make {} again",
-                link.display(),
-                path.display()
-            ));
-            return;
+            return false;
         }
         match std::fs::create_dir_all(path) {
             Ok(()) => {
@@ -325,11 +334,15 @@ impl Keeper<'_> {
                     log::warn!("could not record a folder made again: {e}");
                 }
                 self.kept.remade.push(folder.path.clone());
+                true
             }
-            Err(e) => self.kept.problems.push(format!(
-                "{} was missing and Plenipo couldn't make it again there: {e}",
-                path.display()
-            )),
+            Err(e) => {
+                self.kept.problems.push(format!(
+                    "{} was missing and Plenipo couldn't make it again there: {e}",
+                    path.display()
+                ));
+                false
+            }
         }
     }
 }
@@ -360,8 +373,7 @@ pub fn keep(ledger: &Ledger, trusted: &[PathBuf]) -> Kept {
         return keeper.kept;
     };
     let root = PathBuf::from(&org.path);
-    keeper.make_again(&org, &root);
-    if !root.is_dir() {
+    if !keeper.make_again(&org, &root) {
         return keeper.kept;
     }
     let records = match ledger.org_records() {
@@ -376,6 +388,21 @@ pub fn keep(ledger: &Ledger, trusted: &[PathBuf]) -> Kept {
     };
     let active =
         |archived: Option<u64>, deleted: Option<u64>| archived.is_none() && deleted.is_none();
+    let active_departments: HashSet<&str> = records
+        .departments
+        .iter()
+        .filter(|d| active(d.archived_at, d.deleted_at))
+        .map(|d| d.id.as_str())
+        .collect();
+    let active_projects: HashSet<&str> = records
+        .projects
+        .iter()
+        .filter(|p| active(p.archived_at, p.deleted_at))
+        .map(|p| p.id.as_str())
+        .collect();
+    // Each folder goes in its parent's folder, never somewhere else (the reviewer's S3 on #221):
+    // when the parent's folder can't be had this pass, the child waits for the next pass rather
+    // than being made (and recorded for good) a level up.
     let mut pads: HashMap<String, PathBuf> = HashMap::new();
     let mut department_folders: HashMap<String, PathBuf> = HashMap::new();
     for d in records
@@ -398,13 +425,26 @@ pub fn keep(ledger: &Ledger, trusted: &[PathBuf]) -> Kept {
         .iter()
         .filter(|p| active(p.archived_at, p.deleted_at))
     {
-        let parent = p
-            .department_id
-            .as_ref()
-            .and_then(|d| department_folders.get(d))
-            .cloned()
-            .unwrap_or_else(|| root.clone());
         let name = folder_name(&p.name, "Project");
+        let parent = match p.department_id.as_deref() {
+            // Recorded already: it stays where it is.
+            _ if keeper.is_recorded(FolderKind::Project, Some(&p.id)) => root.clone(),
+            // In no department: in the organization's own folder.
+            None => root.clone(),
+            Some(d) => match department_folders.get(d) {
+                Some(dir) => dir.clone(),
+                None => {
+                    // A project in an archived department waits quietly.
+                    if active_departments.contains(d) {
+                        keeper.kept.problems.push(format!(
+                            "Plenipo will make the {name} folder once its department's folder \
+                             is ready"
+                        ));
+                    }
+                    continue;
+                }
+            },
+        };
         let Some(dir) = keeper.place(FolderKind::Project, Some(&p.id), &parent, &name) else {
             continue;
         };
@@ -420,24 +460,33 @@ pub fn keep(ledger: &Ledger, trusted: &[PathBuf]) -> Kept {
         .iter()
         .filter(|p| active(p.archived_at, p.deleted_at))
     {
-        let home = chart
-            .project_of(&position.id)
-            .and_then(|p| pads.get(p))
-            .or_else(|| chart.department_of(&position.id).and_then(|d| pads.get(d)))
-            .cloned();
-        let container = match home {
-            Some(c) => c,
-            None => {
-                if own_pads.is_none() {
-                    own_pads = keeper.place(FolderKind::ScratchPads, None, &root, SCRATCH_PADS);
-                }
-                let Some(c) = own_pads.clone() else {
-                    continue;
-                };
-                c
-            }
-        };
         let name = folder_name(&position.title, "Agent");
+        let project = chart
+            .project_of(&position.id)
+            .filter(|p| active_projects.contains(p));
+        let department = chart
+            .department_of(&position.id)
+            .filter(|d| active_departments.contains(d));
+        let container = if keeper.is_recorded(FolderKind::ScratchPad, Some(&position.id)) {
+            // Recorded already: it stays where it is.
+            Some(root.clone())
+        } else if let Some(project) = project {
+            pads.get(project).cloned()
+        } else if let Some(department) = department {
+            pads.get(department).cloned()
+        } else {
+            if own_pads.is_none() {
+                own_pads = keeper.place(FolderKind::ScratchPads, None, &root, SCRATCH_PADS);
+            }
+            own_pads.clone()
+        };
+        let Some(container) = container else {
+            keeper.kept.problems.push(format!(
+                "Plenipo will make {name}'s scratch pad once its team's Scratch pads folder is \
+                 ready"
+            ));
+            continue;
+        };
         keeper.place(
             FolderKind::ScratchPad,
             Some(&position.id),
@@ -815,6 +864,165 @@ mod tests {
         let _ = pad_of(&o.ledger, &positions[1]);
     }
 
+    /// The reviewer's S3 on #221: when a department's folder is a junction this pass, its new
+    /// project gets no folder and no record (never one a level up); once the junction is gone,
+    /// the next pass makes the department's folder again and the project's inside it.
+    #[test]
+    fn a_project_waits_for_its_departments_folder() {
+        let o = org();
+        let root = o.base.join("Acme");
+        create(&o.ledger, &root, "Acme", "owner").unwrap();
+        let (dept, _) = o
+            .ledger
+            .create_department_with_head(
+                "Development",
+                "",
+                &position(&o.ledger, "Development Manager", "Manager", None),
+                "owner",
+            )
+            .unwrap();
+        keep(&o.ledger, &[]);
+        let dev = root.join("Development");
+        let elsewhere = o.base.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::remove_dir_all(&dev).unwrap();
+        make_link(&elsewhere, &dev);
+        let (project, supervisor) = o
+            .ledger
+            .create_project_with_coordinator(
+                &dept.id,
+                &ProjectSettings {
+                    name: "Website".into(),
+                    ..ProjectSettings::default()
+                },
+                &position(&o.ledger, "Website Supervisor", "Supervisor", None),
+                "owner",
+            )
+            .unwrap();
+        let kept = keep(&o.ledger, &[]);
+        assert!(
+            kept.problems.iter().any(|p| p.contains("shortcut")),
+            "{kept:?}"
+        );
+        assert!(
+            kept.problems
+                .iter()
+                .any(|p| p.contains("once its department's folder is ready")),
+            "{kept:?}"
+        );
+        assert_eq!(
+            o.ledger
+                .folder(FolderKind::Project, Some(&project.id))
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            o.ledger
+                .folder(FolderKind::ScratchPad, Some(&supervisor.id))
+                .unwrap(),
+            None
+        );
+        assert!(!root.join("Website").exists() && !root.join(SCRATCH_PADS).exists());
+        assert!(std::fs::read_dir(&elsewhere).unwrap().next().is_none());
+        // The junction is gone: the department's folder is made again, the project's in it.
+        remove_link(&dev);
+        let kept = keep(&o.ledger, &[]);
+        assert!(kept.problems.is_empty(), "{kept:?}");
+        assert_eq!(
+            PathBuf::from(
+                o.ledger
+                    .folder(FolderKind::Project, Some(&project.id))
+                    .unwrap()
+                    .unwrap()
+                    .path
+            ),
+            dev.join("Website")
+        );
+        assert_eq!(
+            pad_of(&o.ledger, &supervisor.id),
+            dev.join("Website")
+                .join(SCRATCH_PADS)
+                .join("Website Supervisor")
+        );
+    }
+
+    /// The reviewer's S3 on #221: a department whose folder can't be made yet (every name for it
+    /// taken) gets nothing recorded a level up: not its project, nor its agents' scratch pads.
+    #[test]
+    fn nothing_is_recorded_a_level_up_while_a_folder_cannot_be_made() {
+        let o = org();
+        let root = o.base.join("Acme");
+        create(&o.ledger, &root, "Acme", "owner").unwrap();
+        // Every name the department's folder could have is taken by one of the owner's files.
+        let blockers: Vec<PathBuf> = (1..=MAX_TRIES)
+            .map(|n| {
+                root.join(if n == 1 {
+                    "Sales".to_owned()
+                } else {
+                    format!("Sales ({n})")
+                })
+            })
+            .collect();
+        for b in &blockers {
+            std::fs::write(b, "the owner's").unwrap();
+        }
+        let (dept, head) = o
+            .ledger
+            .create_department_with_head(
+                "Sales",
+                "",
+                &position(&o.ledger, "Sales Manager", "Manager", None),
+                "owner",
+            )
+            .unwrap();
+        let (project, supervisor) = o
+            .ledger
+            .create_project_with_coordinator(
+                &dept.id,
+                &ProjectSettings {
+                    name: "Outreach".into(),
+                    ..ProjectSettings::default()
+                },
+                &position(&o.ledger, "Outreach Supervisor", "Supervisor", None),
+                "owner",
+            )
+            .unwrap();
+        let kept = keep(&o.ledger, &[]);
+        assert!(
+            kept.problems
+                .iter()
+                .any(|p| p.contains("couldn't find a free name")),
+            "{kept:?}"
+        );
+        for (kind, id) in [
+            (FolderKind::Department, dept.id.as_str()),
+            (FolderKind::Project, project.id.as_str()),
+            (FolderKind::ScratchPad, head.id.as_str()),
+            (FolderKind::ScratchPad, supervisor.id.as_str()),
+        ] {
+            assert_eq!(o.ledger.folder(kind, Some(id)).unwrap(), None, "{kind:?}");
+        }
+        assert!(!root.join("Outreach").exists() && !root.join(SCRATCH_PADS).exists());
+        // The owner moves the files away: everything is made where it belongs.
+        for b in &blockers {
+            std::fs::remove_file(b).unwrap();
+        }
+        let kept = keep(&o.ledger, &[]);
+        assert!(kept.problems.is_empty(), "{kept:?}");
+        let sales = root.join("Sales");
+        assert_eq!(
+            pad_of(&o.ledger, &head.id),
+            sales.join(SCRATCH_PADS).join("Sales Manager")
+        );
+        assert_eq!(
+            pad_of(&o.ledger, &supervisor.id),
+            sales
+                .join("Outreach")
+                .join(SCRATCH_PADS)
+                .join("Outreach Supervisor")
+        );
+    }
+
     #[cfg(windows)]
     fn make_link(target: &Path, link: &Path) {
         let status = std::process::Command::new("cmd")
@@ -830,6 +1038,15 @@ mod tests {
     #[cfg(unix)]
     fn make_link(target: &Path, link: &Path) {
         std::os::unix::fs::symlink(target, link).unwrap();
+    }
+
+    /// Remove the junction (Windows) or link itself, never what it leads to.
+    fn remove_link(link: &Path) {
+        if cfg!(windows) {
+            std::fs::remove_dir(link).unwrap();
+        } else {
+            std::fs::remove_file(link).unwrap();
+        }
     }
 
     #[test]

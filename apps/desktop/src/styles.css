@@ -1069,6 +1069,13 @@ body.popout {
   margin-top: 0;
 }
 
+.detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .output {
   height: 360px;
   margin-top: 10px;
@@ -5986,6 +5993,28 @@ body.popout {
 
 .chat-turn__foot {
   margin: 0;
+  color: var(--ui-text-muted);
+  font-size: var(--ui-font-xs);
+}
+
+/* Its tokens: a quiet word that opens how many it read, reused, and wrote (I2). */
+.chat-turn__tokens {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.chat-turn__tokens:hover {
+  color: var(--ui-text-secondary);
+}
+
+.chat-turn__usage {
+  margin: var(--ui-space-1) 0 0;
   color: var(--ui-text-muted);
   font-size: var(--ui-font-xs);
 }

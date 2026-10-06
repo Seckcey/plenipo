@@ -207,7 +207,70 @@ describe("a chat with an agent (ADR-200)", () => {
     );
     await user.click(within(log).getByRole("button", { name: "Open folder" }));
     expect(commands.openWorkFolder).toHaveBeenCalledWith("t1");
-    expect(within(log).getByText(/sonnet · 1\.2k tokens/)).toBeInTheDocument();
+    // Its tokens (pieces of words), which open to show how many it read and wrote (I2).
+    expect(within(log).getByText(/sonnet ·/)).toBeInTheDocument();
+    const counted = within(log).getByRole("button", { name: "1,200 tokens" });
+    await user.click(counted);
+    expect(counted).toHaveAttribute("aria-expanded", "true");
+    expect(within(log).getByText("900 read · 300 written")).toBeInTheDocument();
+  });
+
+  it("adds up a turn's tokens over its steps, and says at least for one stopped early", async () => {
+    vi.mocked(commands.giveObjective).mockResolvedValue(
+      detail([turn("t1", { objective: "Write a plan", startedAt: started })]),
+    );
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "Write a plan{Enter}");
+    const log = await screen.findByRole("log", {}, SLOW);
+    const usage = { inputTokens: 900, cachedInputTokens: 0, outputTokens: 300 };
+    const step = (number: number, outcome: "completed" | "cancelled", used: boolean) => ({
+      number,
+      executionId: `e${number}`,
+      running: false,
+      startedAt: started,
+      endedAt: started + 1_000,
+      result: { ...done("t1", "").result!, outcome, usage: used ? usage : null },
+    });
+    // Two steps reported (the second with 7,000 reused); a third was stopped before it did.
+    emit({
+      kind: "turn",
+      ...done("t1", ""),
+      result: { ...done("t1", "").result!, outcome: "cancelled", usage: null },
+      steps: [
+        step(1, "completed", true),
+        {
+          ...step(2, "completed", true),
+          result: {
+            ...done("t1", "").result!,
+            usage: { inputTokens: 9_000, cachedInputTokens: 7_000, outputTokens: 3_000 },
+          },
+        },
+        step(3, "cancelled", false),
+      ],
+    });
+    const counted = await within(log).findByRole("button", { name: "at least 13K tokens" }, SLOW);
+    await user.click(counted);
+    expect(within(log).getByText("9,900 read (7,000 reused) · 3,300 written")).toBeInTheDocument();
+  });
+
+  it("says when its AI tool reports no tokens", async () => {
+    vi.mocked(commands.giveObjective).mockResolvedValue(
+      detail([turn("t1", { objective: "Write a plan", startedAt: started })]),
+    );
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "Write a plan{Enter}");
+    const log = await screen.findByRole("log", {}, SLOW);
+    // Plenipo tells the page about the conversation and its AI tool.
+    emit({ kind: "session", ...session("s1", { metadata: MEMBER }) });
+    emit({
+      kind: "turn",
+      ...done("t1", "Planned."),
+      result: { ...done("t1", "Planned.").result!, usage: null },
+    });
+    expect(
+      await within(log).findByText(/Claude Code did not report tokens/, {}, SLOW),
+    ).toBeInTheDocument();
+    expect(within(log).queryByRole("button", { name: /tokens/ })).not.toBeInTheDocument();
   });
 
   it("holds a message sent while the agent works, and sends it when it finishes", async () => {
@@ -426,6 +489,44 @@ describe("a chat with an agent (ADR-200)", () => {
     expect(await screen.findByText("Write the script", {}, SLOW)).toBeInTheDocument();
     expect(await screen.findByText(/takes its work from its lead/, {}, SLOW)).toBeInTheDocument();
     expect(screen.getByLabelText("Message to Developer (on call)")).toBeDisabled();
+  });
+
+  it("shows what an on-call worker did last, after its conversation was closed (B5)", async () => {
+    // A new conversation for each task it was handed, closed once its answer was written.
+    const handed = (id: string) =>
+      session(id, {
+        state: "closed",
+        metadata: {
+          liaison: { origin: "handoff", parentSessionId: "s-lead" },
+          workforce: { positionId: "p-dev" },
+        },
+      });
+    vi.mocked(commands.getAgentOverview).mockResolvedValue({
+      runtimes: [runtime("claude-code")],
+      // Newest first: its last task's conversation, then an older one.
+      sessions: [handed("s-new"), handed("s-old")],
+      notices: [],
+    });
+    vi.mocked(commands.getAgentSession).mockImplementation((id) =>
+      Promise.resolve({
+        session: handed(id),
+        turns: [
+          {
+            ...done(`t-${id}`, id === "s-new" ? "Built the contact page." : "Fixed the header."),
+            sessionId: id,
+            objective: id === "s-new" ? "Build the contact page" : "Fix the header",
+          },
+        ],
+        activity: [],
+      }),
+    );
+    await openChat({ positionId: "p-dev", title: "Senior Developer" });
+    expect(await screen.findByText("Build the contact page", {}, SLOW)).toBeInTheDocument();
+    expect(screen.getByText("Built the contact page.")).toBeInTheDocument();
+    expect(screen.queryByText("Fix the header")).not.toBeInTheDocument();
+    // Watched, not messaged: its work comes from its lead.
+    expect(await screen.findByText(/takes its work from its lead/, {}, SLOW)).toBeInTheDocument();
+    expect(screen.getByLabelText("Message to Senior Developer")).toBeDisabled();
   });
 
   it("sends an on-call worker's message through its lead, and opens the lead's chat", async () => {

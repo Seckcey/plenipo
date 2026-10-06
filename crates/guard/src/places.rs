@@ -11,7 +11,7 @@
 //! so they are not refused (the Coordinator's answer of 2026-10-05; ADR-214 lets them through on
 //! purpose too).
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 
 /// The longest folder path Plenipo uses as one of the organization's folders.
 pub const MAX_PLACE_CHARS: usize = 1000;
@@ -149,35 +149,82 @@ impl SystemPlaces {
     }
 }
 
-/// Whether two paths are the same place, ignoring letter case where the system does (Windows and
-/// a Mac's usual disk).
-fn same(a: &Path, b: &Path) -> bool {
-    if cfg!(any(windows, target_os = "macos")) {
-        a.as_os_str()
-            .to_string_lossy()
-            .eq_ignore_ascii_case(&b.as_os_str().to_string_lossy())
-    } else {
-        a == b
+/// The parts of a path to compare, one by one (the reviewer's S2 on #221): its drive or share,
+/// whether it starts at the top, and each name. `\\?\C:\` is the same drive as `C:\`, and
+/// `\\?\UNC\server\share` the same share as `\\server\share`; `/` and `\` both separate names;
+/// and names are in small letters where the system ignores letter case (Windows, and a Mac's
+/// usual disk). Never compared as text, which a long path's `\\?\` or a `/` would fool.
+fn parts(path: &Path) -> Vec<String> {
+    let fold = |s: &std::ffi::OsStr| {
+        let s = s.to_string_lossy();
+        if cfg!(any(windows, target_os = "macos")) {
+            s.to_lowercase()
+        } else {
+            s.into_owned()
+        }
+    };
+    path.components()
+        .filter_map(|c| match c {
+            Component::Prefix(prefix) => Some(match prefix.kind() {
+                Prefix::Disk(d) | Prefix::VerbatimDisk(d) => {
+                    format!("disk:{}", char::from(d).to_ascii_lowercase())
+                }
+                Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
+                    format!("share:{}\\{}", fold(server), fold(share))
+                }
+                Prefix::Verbatim(x) => format!("verbatim:{}", fold(x)),
+                Prefix::DeviceNS(x) => format!("device:{}", fold(x)),
+            }),
+            Component::RootDir => Some("\\".into()),
+            Component::CurDir => None,
+            Component::ParentDir => Some("..".into()),
+            Component::Normal(n) => Some(fold(n)),
+        })
+        .collect()
+}
+
+/// Whether two paths are the same place, compared part by part (see [`parts`]).
+pub fn same_place(a: &Path, b: &Path) -> bool {
+    parts(a) == parts(b)
+}
+
+/// `path` is `place` or inside it, compared part by part (see [`parts`]).
+pub fn within(path: &Path, place: &Path) -> bool {
+    let (path, place) = (parts(path), parts(place));
+    path.len() >= place.len() && path[..place.len()] == place[..]
+}
+
+/// A network share's path as Windows' tools write it, `\\server\share\…`, instead of the
+/// `\\?\UNC\server\share\…` form a full path is given in, which File Explorer may not open (the
+/// reviewer's N1 on #221). Left as it is when it is too long for the usual form.
+pub fn usual_form(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|s| s.strip_prefix(r"\\?\UNC\")) {
+        Some(rest) if rest.len() + 2 < 260 => PathBuf::from(format!(r"\\{rest}")),
+        _ => path,
     }
 }
 
-/// `path` is `place` or inside it.
-fn within(path: &Path, place: &Path) -> bool {
-    path.ancestors().any(|a| same(a, place))
+/// Where a place really is.
+struct Real {
+    /// Links followed for the part that exists, the rest added as written.
+    path: PathBuf,
+    /// The deepest part that exists, as it really is.
+    found: PathBuf,
 }
 
-/// Where a place really is: links followed for the part that exists, the rest added as written.
-/// Places that don't exist are kept as written.
-fn real(path: &Path) -> PathBuf {
+/// Where a place really is; `None` when no part of it exists at all (a drive this PC hasn't, or
+/// a network place it can't reach).
+fn real(path: &Path) -> Option<Real> {
     let mut existing = path.to_path_buf();
     let mut rest: Vec<std::ffi::OsString> = Vec::new();
     loop {
         if let Ok(found) = dunce::canonicalize(&existing) {
-            let mut out = found;
+            let found = usual_form(found);
+            let mut out = found.clone();
             for name in rest.iter().rev() {
                 out.push(name);
             }
-            return out;
+            return Some(Real { path: out, found });
         }
         match (
             existing.file_name().map(|n| n.to_os_string()),
@@ -187,15 +234,53 @@ fn real(path: &Path) -> PathBuf {
                 rest.push(name);
                 existing = parent.to_path_buf();
             }
-            _ => return path.to_path_buf(),
+            _ => return None,
         }
     }
 }
 
-/// The first part of `path` (an absolute path) that is a junction or a link, from the top down,
-/// leaving out the folders above (or at) any of `trusted`, which are the system's. `None` when
-/// there is none, or when the parts that exist end before one.
-pub fn link_on_the_way(path: &Path, trusted: &[PathBuf]) -> Option<PathBuf> {
+/// A place as it really is, or as written when no part of it exists.
+fn real_or_written(path: &Path) -> PathBuf {
+    real(path).map_or_else(|| path.to_path_buf(), |r| r.path)
+}
+
+/// What stands in the way of a path, from the top down.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OnTheWay {
+    /// A junction or a link: a shortcut to another place.
+    Link(PathBuf),
+    /// A folder Plenipo isn't allowed to look at, so it can't tell (the reviewer's N3 on #221).
+    Unreadable(PathBuf),
+}
+
+impl OnTheWay {
+    /// The part in the way.
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::Link(p) | Self::Unreadable(p) => p,
+        }
+    }
+
+    /// Why nothing is made there, in plain words.
+    pub fn words(&self) -> String {
+        match self {
+            Self::Link(p) => format!(
+                "{} is a shortcut to another place (a junction or a link)",
+                p.display()
+            ),
+            Self::Unreadable(p) => format!(
+                "Plenipo isn't allowed to look inside {}, so it can't tell where it leads",
+                p.display()
+            ),
+        }
+    }
+}
+
+/// The first part of `path` (an absolute path) that is a junction or a link, or that Plenipo
+/// isn't allowed to look at, from the top down, leaving out the folders above (or at) any of
+/// `trusted`, which are the system's. `None` when there is none, or when the parts that exist end
+/// before one.
+pub fn on_the_way(path: &Path, trusted: &[PathBuf]) -> Option<OnTheWay> {
     let mut parts: Vec<&Path> = path.ancestors().collect();
     parts.reverse();
     for part in parts {
@@ -203,12 +288,101 @@ pub fn link_on_the_way(path: &Path, trusted: &[PathBuf]) -> Option<PathBuf> {
             continue;
         }
         match std::fs::symlink_metadata(part) {
-            Ok(meta) if meta.file_type().is_symlink() => return Some(part.to_path_buf()),
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Some(OnTheWay::Link(part.to_path_buf()))
+            }
             Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                return Some(OnTheWay::Unreadable(part.to_path_buf()))
+            }
+            // Not there yet (or a network place that doesn't answer): nothing more to look at.
             Err(_) => return None,
         }
     }
     None
+}
+
+/// The first part of `path` in the way (see [`on_the_way`]): a junction, a link, or a folder
+/// Plenipo isn't allowed to look at. Either way, nothing is made through it.
+pub fn link_on_the_way(path: &Path, trusted: &[PathBuf]) -> Option<PathBuf> {
+    on_the_way(path, trusted).map(|w| w.path().to_path_buf())
+}
+
+/// What a network path's server and share say about it (the reviewer's S1 on #221): one of this
+/// PC's own names (`\\localhost\C$`, `\\127.0.0.1\…`, `\\<this PC's name>\…`, WSL's
+/// `\\wsl.localhost\…`) leads back to this PC's own drives, past every check on them; and a
+/// drive's hidden share (`C$`, `ADMIN$`) on any PC is a whole drive.
+fn network_problem(server: &str, share: &str) -> Option<String> {
+    let server = server
+        .split('@')
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    let this_pc = matches!(
+        server.as_str(),
+        "localhost"
+            | "::1"
+            | "[::1]"
+            | "0.0.0.0"
+            | "0--1.ipv6-literal.net"
+            | "--1.ipv6-literal.net"
+            | "wsl$"
+            | "wsl.localhost"
+    ) || server.starts_with("127.")
+        || server.ends_with(".localhost")
+        || ["COMPUTERNAME", "HOSTNAME"]
+            .iter()
+            .filter_map(|k| std::env::var(k).ok())
+            .map(|n| n.trim().to_ascii_lowercase())
+            .filter(|n| !n.is_empty())
+            .any(|n| server == n || server.starts_with(&format!("{n}.")));
+    if this_pc {
+        return Some(
+            "That's this PC's own drive through a network name. Choose it by its drive letter, \
+             such as C:\\Work\\Acme."
+                .into(),
+        );
+    }
+    let share = share.to_ascii_lowercase();
+    let hidden_drive = share == "admin$"
+        || (share.len() == 2 && share.ends_with('$') && share.as_bytes()[0].is_ascii_alphabetic());
+    hidden_drive.then(|| {
+        "That's a whole drive's hidden network share. Choose a shared folder, or a folder on this \
+         PC by its drive letter, such as C:\\Work\\Acme."
+            .into()
+    })
+}
+
+/// [`network_problem`] for a path written as `\\server\share\…` (with `\` or `/`).
+fn written_network_problem(shown: &str) -> Option<String> {
+    let norm = shown.replace('/', "\\");
+    let rest = norm.strip_prefix("\\\\")?;
+    let mut names = rest.split('\\');
+    let server = names.next().unwrap_or("");
+    let share = names.next().unwrap_or("");
+    network_problem(server, share)
+}
+
+/// [`network_problem`] for a path as the system reads it.
+fn path_network_problem(path: &Path) -> Option<String> {
+    match path.components().next() {
+        Some(Component::Prefix(prefix)) => match prefix.kind() {
+            Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
+                network_problem(&server.to_string_lossy(), &share.to_string_lossy())
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// A path on a network share (`\\server\share\…`).
+fn is_network(path: &Path) -> bool {
+    matches!(
+        path.components().next(),
+        Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::UNC(..) | Prefix::VerbatimUNC(..))
+    )
 }
 
 /// A drive's, a network share's, or the file system's top folder.
@@ -260,7 +434,10 @@ fn name_problem(name: &str) -> Option<String> {
 /// reviewer's O6 and O2), or where it really is when it can. Refused: a path that isn't full, has
 /// `.` or `..` in it, or has an odd name; Plenipo's own data folder and anything inside it; the
 /// system's folders and anything inside them; a Startup folder; the owner's own top folder; a
-/// drive's or a network share's top folder; and a path with a junction or link on the way.
+/// drive's or a network share's top folder; a path with a junction or link on the way, or a
+/// folder Plenipo isn't allowed to look at; this PC's own drives through a network name, and a
+/// whole drive's hidden share (the reviewer's S1 on #221); a file; and a drive this PC hasn't.
+/// Every comparison is part by part, never as text (S2).
 pub fn place_problem(path: &str, places: &SystemPlaces) -> Result<PathBuf, String> {
     let shown = path.trim();
     if shown.is_empty() {
@@ -274,12 +451,14 @@ pub fn place_problem(path: &str, places: &SystemPlaces) -> Result<PathBuf, Strin
     if shown.chars().any(char::is_control) {
         return Err("That folder's path has a character a path can't hold.".into());
     }
-    if shown.starts_with("\\\\?\\")
-        || shown.starts_with("\\\\.\\")
-        || shown.starts_with("//?/")
-        || shown.starts_with("//./")
-    {
+    // `\\?\`, `\\.\`, and their mixes with `/`: never the usual way to write a folder's path.
+    let norm = shown.replace('/', "\\");
+    if norm.starts_with("\\\\?") || norm.starts_with("\\\\.") {
         return Err("Write the folder's path the usual way, such as D:\\Work\\Acme.".into());
+    }
+    // Before anything is looked at: a network name that is this PC, or a whole drive's share.
+    if let Some(why) = written_network_problem(shown) {
+        return Err(why);
     }
     let p = Path::new(shown);
     if !p.is_absolute() {
@@ -307,21 +486,52 @@ pub fn place_problem(path: &str, places: &SystemPlaces) -> Result<PathBuf, Strin
                 .into(),
         );
     }
-    if let Some(link) = link_on_the_way(p, &places.trusted()) {
-        return Err(format!(
-            "{} is a shortcut to another place (a junction or a link). Choose the folder it \
-             points to, or another one.",
-            link.display()
-        ));
+    match on_the_way(p, &places.trusted()) {
+        Some(OnTheWay::Link(link)) => {
+            return Err(format!(
+                "{} is a shortcut to another place (a junction or a link). Choose the folder it \
+                 points to, or another one.",
+                link.display()
+            ))
+        }
+        Some(unreadable @ OnTheWay::Unreadable(_)) => {
+            return Err(format!("{}. Choose another folder.", unreadable.words()))
+        }
+        None => {}
     }
-    let real_path = real(p);
+    let real_path = match real(p) {
+        Some(found) => {
+            if !found.found.is_dir() {
+                return Err(format!(
+                    "{} is a file, not a folder. Choose a folder.",
+                    found.found.display()
+                ));
+            }
+            found.path
+        }
+        // A network place that doesn't answer now is kept as written: it is checked again when
+        // the folder is made. A drive this PC hasn't is refused.
+        None if is_network(p) => p.to_path_buf(),
+        None => {
+            return Err(format!(
+                "Plenipo can't find {} on this PC. Choose a folder on one of its drives.",
+                p.components().next().map_or_else(String::new, |c| c
+                    .as_os_str()
+                    .to_string_lossy()
+                    .into_owned())
+            ))
+        }
+    };
+    if let Some(why) = path_network_problem(&real_path) {
+        return Err(why);
+    }
     if is_top(&real_path) {
         return Err(
             "That's the top of a drive. Choose a folder inside it, such as a folder in Documents."
                 .into(),
         );
     }
-    let real_place = |place: &Path| real(place);
+    let real_place = |place: &Path| real_or_written(place);
     if let Some(data) = &places.data {
         if within(&real_path, &real_place(data)) || within(p, data) {
             return Err(
@@ -352,9 +562,9 @@ pub fn place_problem(path: &str, places: &SystemPlaces) -> Result<PathBuf, Strin
     if let Some(profile) = &places.profile {
         let real_profile = real_place(profile);
         let users = real_profile.parent().map(Path::to_path_buf);
-        if same(&real_path, &real_profile)
-            || same(p, profile)
-            || users.as_deref().is_some_and(|u| same(&real_path, u))
+        if same_place(&real_path, &real_profile)
+            || same_place(p, profile)
+            || users.as_deref().is_some_and(|u| same_place(&real_path, u))
         {
             return Err(
                 "That's the top of your user folders. Choose a folder inside it, such as one in \
@@ -441,7 +651,7 @@ pub fn kept_on_this_device(path: &Path, root: &Path) -> Option<bool> {
                     return Some(false);
                 }
             }
-            if same(at, root) {
+            if same_place(at, root) {
                 break;
             }
         }
@@ -565,7 +775,15 @@ mod tests {
                 .display()
                 .to_string(),
             base.join("Windows").display().to_string(),
-            base.join("WINDOWS").join("System32").display().to_string(),
+            // Another letter case is the same folder where the system ignores case.
+            base.join(if cfg!(any(windows, target_os = "macos")) {
+                "WINDOWS"
+            } else {
+                "Windows"
+            })
+            .join("System32")
+            .display()
+            .to_string(),
             base.join("Program Files").join("App").display().to_string(),
             base.join("Startup").display().to_string(),
             base.join("Startup").join("x").display().to_string(),
@@ -626,6 +844,117 @@ mod tests {
             link_on_the_way(&via.join("you").join("Documents"), &[via.join("you")]),
             None
         );
+    }
+
+    /// The reviewer's S1 on #221: this PC's own drives through a network name (`\\localhost\C$`,
+    /// `\\127.0.0.1\…`, this PC's name, WSL's) are refused before anything is looked at, and so
+    /// is a whole drive's hidden share on any PC; a shared folder on another PC is fine.
+    #[test]
+    fn this_pcs_own_drives_through_a_network_name_are_refused() {
+        let (_d, base) = real_temp();
+        let places = places_in(&base);
+        let this_pc = "That's this PC's own drive through a network name";
+        let mut refused = vec![
+            (r"\\localhost\C$\Work\Acme".to_owned(), this_pc),
+            ("//127.0.0.1/C$/Work/Acme".to_owned(), this_pc),
+            (r"\\127.1\share\Acme".to_owned(), this_pc),
+            (r"\\[::1]\share\Acme".to_owned(), this_pc),
+            (r"\\LOCALHOST@SSL@443\DavWWWRoot\Acme".to_owned(), this_pc),
+            (r"\\wsl.localhost\Ubuntu\mnt\c\Work".to_owned(), this_pc),
+            (r"\\wsl$\Ubuntu\mnt\c\Work".to_owned(), this_pc),
+            (r"\\server\C$\Work\Acme".to_owned(), "hidden network share"),
+            (r"\\server\admin$\Acme".to_owned(), "hidden network share"),
+        ];
+        if let Ok(name) = std::env::var("COMPUTERNAME") {
+            refused.push((format!(r"\\{name}\share\Acme"), this_pc));
+            refused.push((
+                format!(r"\\{}.corp.example\share\Acme", name.to_lowercase()),
+                this_pc,
+            ));
+        }
+        // Plenipo's data folder and a Startup folder, reached through this PC's network names.
+        if cfg!(windows) {
+            let shown = base.display().to_string();
+            let (drive, rest) = shown.split_at(2);
+            let drive = drive.trim_end_matches(':');
+            refused.push((format!(r"\\localhost\{drive}${rest}\data"), this_pc));
+            refused.push((format!(r"\\127.0.0.1\{drive}${rest}\Startup\Acme"), this_pc));
+        }
+        for (bad, why) in refused {
+            let got = place_problem(&bad, &places).unwrap_err();
+            assert!(got.contains(why), "{bad}: {got}");
+        }
+        #[cfg(windows)]
+        assert!(place_problem(r"\\server\share\Acme", &places).is_ok());
+    }
+
+    /// The reviewer's S2 on #221: places are compared part by part, so a long path (which comes
+    /// back as `\\?\C:\…`), `/` instead of `\`, and other letter case can't slip past.
+    #[test]
+    fn places_are_compared_part_by_part() {
+        let (_d, base) = real_temp();
+        let places = places_in(&base);
+        // An existing folder inside the data folder, its path well over 260 characters.
+        let mut deep = base.join("data");
+        while deep.as_os_str().len() < 464 {
+            deep.push("a-rather-long-folder-name");
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        let slashed = deep.display().to_string().replace('\\', "/");
+        let why = place_problem(&slashed, &places).unwrap_err();
+        assert!(why.contains("Plenipo's own data folder"), "{why}");
+        let why = place_problem(&deep.display().to_string(), &places).unwrap_err();
+        assert!(why.contains("Plenipo's own data folder"), "{why}");
+        if cfg!(windows) {
+            let mixed = format!(r"\\?/{}", deep.display());
+            assert!(place_problem(&mixed, &places).is_err());
+            assert!(same_place(
+                Path::new(r"\\?\C:\Work\Acme"),
+                Path::new("c:/work/ACME")
+            ));
+            assert!(within(
+                Path::new(r"\\?\UNC\server\share\Acme\Files"),
+                Path::new(r"\\SERVER\share\acme")
+            ));
+            assert!(!within(Path::new(r"C:\Workshop"), Path::new(r"C:\Work")));
+            assert!(!same_place(Path::new(r"D:\Work"), Path::new(r"C:\Work")));
+        }
+    }
+
+    /// The reviewer's N1 on #221: a share is kept as `\\server\share\…`, which File Explorer
+    /// opens.
+    #[test]
+    fn a_share_is_kept_the_usual_way() {
+        assert_eq!(
+            usual_form(PathBuf::from(r"\\?\UNC\server\share\Acme")),
+            PathBuf::from(r"\\server\share\Acme")
+        );
+        let long = format!(r"\\?\UNC\server\share\{}", "a".repeat(300));
+        assert_eq!(usual_form(PathBuf::from(&long)), PathBuf::from(&long));
+        assert_eq!(
+            usual_form(PathBuf::from(r"C:\Work")),
+            PathBuf::from(r"C:\Work")
+        );
+    }
+
+    /// The reviewer's N3 on #221: a file, and a drive this PC hasn't, are refused in plain words.
+    #[test]
+    fn a_file_or_a_missing_drive_is_refused_in_plain_words() {
+        let (_d, base) = real_temp();
+        let places = places_in(&base);
+        let file = base.join("notes.txt");
+        std::fs::write(&file, "mine").unwrap();
+        for bad in [file.clone(), file.join("Acme")] {
+            let why = place_problem(&bad.display().to_string(), &places).unwrap_err();
+            assert!(why.contains("is a file, not a folder"), "{bad:?}: {why}");
+        }
+        let unused = ('D'..='Z')
+            .rev()
+            .find(|l| !Path::new(&format!("{l}:\\")).exists());
+        if let (true, Some(letter)) = (cfg!(windows), unused) {
+            let why = place_problem(&format!(r"{letter}:\Work\Acme"), &places).unwrap_err();
+            assert!(why.contains("can't find"), "{why}");
+        }
     }
 
     #[cfg(windows)]

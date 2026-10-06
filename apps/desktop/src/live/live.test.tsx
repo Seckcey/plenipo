@@ -10,7 +10,15 @@ import { position, worker } from "../test/orgFixtures";
 import { LiveConversation } from "./LiveConversation";
 import { LiveForTasks } from "./LiveForTasks";
 import { NowLine } from "./NowLine";
-import { liveProgress, liveWork, nowWords, progressWords, startingStep, stepWords } from "./words";
+import {
+  liveProgress,
+  liveWork,
+  nowFor,
+  nowWords,
+  progressWords,
+  startingStep,
+  stepWords,
+} from "./words";
 
 let seq = 0;
 const at = (event: AgentEvent, taskId = "t-1"): AgentActivity => ({
@@ -100,6 +108,25 @@ describe("the live conversation's words (Phase 25, item 3.1)", () => {
     const done = [at(starting), at({ type: "toolUse", tool: "Bash", summary: "npm test" })];
     expect(startingStep(done)).toBeNull();
     expect(nowWords(done)).toBe("Running `npm test`");
+  });
+
+  // The owner's report, 2026-10-05: a lead on Kimi sat at "Writing its answer".
+  it("says a long silence and a wait in plain words, never 'Writing' forever", () => {
+    const silent: AgentEvent = {
+      type: "status",
+      phase: "waiting",
+      text: "No word from Kimi for 3 minutes.",
+    };
+    const writing = at({ type: "textDelta", text: "half an " });
+    expect(nowWords([writing, at(silent)])).toBe("No word from Kimi for 3 minutes.");
+    // It speaks again: what it does now.
+    expect(nowWords([writing, at(silent), at({ type: "textDelta", text: "answer" })])).toBe(
+      "Writing its answer",
+    );
+    // A lead waiting for its team, or for the owner, says so, whatever it last wrote.
+    expect(nowFor("blocked", [writing])).toBe("Waiting for its team");
+    expect(nowFor("awaitingApproval", [writing])).toBe("Waiting for your approval");
+    expect(nowFor("running", [writing])).toBe("Writing its answer");
   });
 
   it("finds the work going on now, with its conversation", () => {

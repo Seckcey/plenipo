@@ -7,6 +7,7 @@ import { ObjectiveFilesList } from "../files/ObjectiveFiles";
 import { useObjectiveFiles } from "../files/useObjectiveFiles";
 import { ENTER_SENDS, enterSends } from "../components/enterSends";
 import { ObjectiveResult } from "../components/ObjectiveResult";
+import { EditProjectButton } from "../components/org/EditProject";
 import { ConfirmDialog } from "../components/org/Modal";
 import { SetUpDevelopmentDialog } from "../components/org/OrgDialogs";
 import { TASK_TONE } from "../components/tones";
@@ -246,12 +247,15 @@ function ProjectDetail({
   onOpenTask,
   onOpenApprovals,
   onOpenPage,
+  onSaved,
 }: {
   snapshot: OrgSnapshot;
   project: ProjectInfo;
   onOpenTask: (taskId: string) => void;
   onOpenApprovals: () => void;
   onOpenPage?: Go | undefined;
+  /** The organization after Edit project saved. */
+  onSaved: (next: OrgSnapshot) => void;
 }) {
   const t = titlesOf(snapshot);
   const { work, error, apply } = useProjectWork(project.id);
@@ -271,16 +275,19 @@ function ProjectDetail({
           <h2>{project.name}</h2>
           {project.description && <p className="muted">{project.description}</p>}
         </div>
-        {onOpenPage && (
-          <Button
-            size="sm"
-            variant="quiet"
-            icon="chevronRight"
-            onClick={() => onOpenPage({ view: "project", id: project.id })}
-          >
-            Open the project's page
-          </Button>
-        )}
+        <div className="detail__actions">
+          <EditProjectButton snapshot={snapshot} project={project} onSaved={onSaved} />
+          {onOpenPage && (
+            <Button
+              size="sm"
+              variant="quiet"
+              icon="chevronRight"
+              onClick={() => onOpenPage({ view: "project", id: project.id })}
+            >
+              Open the project's page
+            </Button>
+          )}
+        </div>
       </header>
       <dl className="kv" aria-label="About the project">
         <dt>Department</dt>
@@ -528,6 +535,7 @@ export function ProjectsView({
             onOpenTask={onOpenTask}
             onOpenApprovals={onOpenApprovals}
             onOpenPage={onOpenPage}
+            onSaved={apply}
           />
         </div>
       )}

@@ -4,7 +4,7 @@
  * (ADR-203), up to six at once, and comes back to the panel when it is put back. Every change is
  * a plain function, so it is easy to test.
  */
-import { liaisonInfo, type AgentState } from "../agents/store";
+import { isRunning, isWaiting, liaisonInfo, type AgentState } from "../agents/store";
 
 /** One open chat: a full-time agent's position (you talk to it), or a conversation (you watch). */
 export interface ChatTab {
@@ -64,6 +64,18 @@ export function slotOf(state: ChatTabs, key: string): number | null {
 export function tabInSlot(state: ChatTabs, slot: number): ChatTab | null {
   const key = state.popped.find((p) => p.slot === slot)?.key;
   return state.tabs.find((t) => t.key === key) ?? null;
+}
+
+/** The chat for `target` (`null` when it names neither a position nor a conversation). */
+export function tabFor(target: ChatTarget): ChatTab | null {
+  const key = keyOf(target);
+  if (key === null) return null;
+  return {
+    key,
+    positionId: target.positionId ?? null,
+    sessionId: target.sessionId ?? null,
+    title: target.title.trim() || "Agent",
+  };
 }
 
 /** Open a chat (or show it, when it is open already), in front. */
@@ -223,11 +235,24 @@ export function readChatTabs(v: unknown): ChatTabs {
   return isChatTabs(v) ? { ...v, popped: v.popped ?? [] } : NO_TABS;
 }
 
-/** A position's agent's conversation: its newest open one. */
+/**
+ * The conversation a position's chat shows: the one working now (running, or waiting for its
+ * team), or else its newest open one, or else its newest closed one. An on-call worker gets a new
+ * conversation for each task it is handed, closed as soon as its answer is written, so its chat
+ * shows what it did last instead of nothing (B5). `order` is newest first.
+ */
 export function positionSession(state: AgentState, positionId: string): string | null {
+  let open: string | null = null;
+  let closed: string | null = null;
   for (const id of state.order) {
     const s = state.sessions[id];
-    if (s && s.state === "open" && liaisonInfo(s).positionId === positionId) return id;
+    if (!s || liaisonInfo(s).positionId !== positionId) continue;
+    if (s.state === "open") {
+      if (isRunning(s) || isWaiting(s)) return id;
+      open ??= id;
+    } else {
+      closed ??= id;
+    }
   }
-  return null;
+  return open ?? closed;
 }

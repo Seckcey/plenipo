@@ -1,3 +1,4 @@
+import type { AgentSession } from "@plenipo/types";
 import { describe, expect, it } from "vitest";
 
 import { initialAgentState, type AgentState } from "../agents/store";
@@ -18,11 +19,28 @@ import {
   showTab,
   shownTabs,
   slotOf,
+  tabFor,
   tabInSlot,
   type ChatTabs,
 } from "./tabs";
 
 describe("the open chats (ADR-200)", () => {
+  it("makes a chat for a position or a conversation, and none for nothing", () => {
+    expect(tabFor({ positionId: "p1", title: "  Development Manager " })).toEqual({
+      key: "position:p1",
+      positionId: "p1",
+      sessionId: null,
+      title: "Development Manager",
+    });
+    expect(tabFor({ sessionId: "s9", title: "" })).toEqual({
+      key: "session:s9",
+      positionId: null,
+      sessionId: "s9",
+      title: "Agent",
+    });
+    expect(tabFor({ title: "Nobody" })).toBeNull();
+  });
+
   it("opens a chat in front, and opening it again shows the same one", () => {
     let t = openTab(NO_TABS, { positionId: "p1", title: "Development Manager" });
     t = openTab(t, { positionId: "p2", title: "Supervisor" });
@@ -116,6 +134,41 @@ describe("the open chats (ADR-200)", () => {
     expect(positionSession(state, "p1")).toBe("s2");
     expect(positionSession(state, "p2")).toBe("s3");
     expect(positionSession(state, "p9")).toBeNull();
+  });
+
+  it("shows an on-call worker's newest conversation after it was closed, and the one working now", () => {
+    // A new conversation for each task it was handed, each closed once its answer was written.
+    const handed = (id: string, over: Partial<AgentSession> = {}) =>
+      session(id, {
+        state: "closed",
+        metadata: { liaison: { origin: "handoff" }, workforce: { positionId: "dev" } },
+        ...over,
+      });
+    const state = (sessions: AgentSession[]): AgentState => ({
+      ...initialAgentState,
+      sessions: Object.fromEntries(sessions.map((s) => [s.id, s])),
+      order: sessions.map((s) => s.id),
+    });
+    // Newest first: its last task's conversation, though it is closed.
+    expect(positionSession(state([handed("h2"), handed("h1")]), "dev")).toBe("h2");
+    // An open one comes before a closed one.
+    expect(positionSession(state([handed("h2"), handed("h3", { state: "open" })]), "dev")).toBe(
+      "h3",
+    );
+    // The one working now comes first, even when an open one is newer.
+    expect(
+      positionSession(
+        state([
+          handed("h4", { state: "open" }),
+          handed("h3", { state: "open", activeTaskId: "t3" }),
+          handed("h2"),
+        ]),
+        "dev",
+      ),
+    ).toBe("h3");
+    expect(
+      positionSession(state([handed("h4", { state: "open", waitingTaskId: "t4" })]), "dev"),
+    ).toBe("h4");
   });
 });
 

@@ -2878,6 +2878,47 @@ async fn an_agents_own_folder_is_read_only_for_the_owner_while_it_works_there() 
         .is_ok());
 }
 
+/// The reviewer's N2 on #221: an agent's own folder in the organization folder that is a
+/// junction or link leads somewhere else, so it is never a step's folder: nothing is written
+/// through it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_agents_own_folder_that_is_a_junction_is_not_used() {
+    let h = harness_light().await;
+    let root = h.dir.path().join("Acme (2)");
+    plenipo_capabilities::org_folder::create(&h.ledger, &root, "Acme", "owner").unwrap();
+    let elsewhere = h.dir.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    if !link_out(&elsewhere, &root.join("Development Manager")) {
+        eprintln!("this computer does not allow a junction or link here; skipped");
+        return;
+    }
+    let manager = h
+        .workforce
+        .snapshot()
+        .unwrap()
+        .positions
+        .into_iter()
+        .find(|p| p.title == "Development Manager")
+        .unwrap()
+        .id;
+    let work = tool(
+        "write_file",
+        serde_json::json!({ "path": "notes.md", "content": "plan" }),
+    );
+    let detail = h
+        .workforce
+        .give_objective(&manager, &format!("[tools-list] {work}"), None)
+        .await
+        .unwrap();
+    let task = detail.turns.last().unwrap().task_id.clone();
+    h.finished(&task).await;
+    assert!(
+        std::fs::read_dir(&elsewhere).unwrap().next().is_none(),
+        "nothing was written through the junction"
+    );
+    assert!(h.broker.work_folder(&task).unwrap().is_none());
+}
+
 /// In its team's project folder, a lead reads, plans, and hands each change on (ADR-016, kept by
 /// ADR-201): the worker making a change is the folder's one writer, so the owner is never locked
 /// out while a lead only thinks. It is told why.

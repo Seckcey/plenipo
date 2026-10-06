@@ -220,6 +220,33 @@ What was there (read at `306af756`, v1.26.0):
     `a_new_organization_gets_its_organization_folder`
   - the screens: `Organizations.test.tsx` (the folder line, Change…, a refused place, the OneDrive
     alert word for word, the Settings row, another sync service's words)
+- **The page names the folder** (`create_organization`'s and `suggest_org_folder`'s `folder` are
+  free text from the window): that is the approved design, and Guard's `place_problem` checks the
+  text before anything is made (the reviewer's N4 on #221).
+
+#### The independent review's fixes (#221, 2026-10-05)
+
+- **S1, this PC through a network name:** `\\localhost\C$\…`, `\\127.0.0.1\…`, `\\[::1]\…`, this
+  PC's name or DNS name, and WSL's `\\wsl.localhost\…` and `\\wsl$\…` are refused, written or as
+  the path really is (a mapped drive): "That's this PC's own drive through a network name. Choose
+  it by its drive letter, such as C:\Work\Acme." A whole drive's hidden share (`C$`, `ADMIN$`) on
+  any PC is refused too, which also covers this PC by its network address. A shared folder on
+  another PC stays allowed.
+- **S2, compared part by part:** every check compares paths name by name (`parts`, `same_place`,
+  `within`), so `\\?\C:\` is `C:\`, `\\?\UNC\server\share` is `\\server\share`, `/` is `\`, and
+  letter case is ignored where the system ignores it. A long path (which comes back as `\\?\C:\…`)
+  or one written with `/` no longer slips past. `\\?/` and `\\./` mixes are refused like `\\?\`.
+- **S3, never a level up:** a project whose department's folder can't be had this pass, and an
+  agent whose team's **Scratch pads** can't, wait for the next pass and are never made (and
+  recorded for good) a level up. A recorded folder that is now a junction, a file, or behind one is
+  not used as a parent. Only a project in no department goes in the organization folder itself.
+- **N1:** a network share is kept as `\\server\share\…`, which File Explorer opens.
+- **N2:** an agent's own folder (work with no project) that is a junction or link is not used.
+- **N3:** a folder Plenipo isn't allowed to look into on the way, a file, and a drive this PC
+  hasn't are refused in plain words, not passed or left to fail later.
+- **Known follow-up:** Guard's confinement (`crates/guard/src/paths.rs`) compares with
+  `Path::starts_with`, which a long path's `\\?\` form could make miss a match the same way. It is
+  outside the organization folder's checks and is left for its own change.
 
 ### Part 2 (B2): Files opens the organization folder (2026-10-05)
 
