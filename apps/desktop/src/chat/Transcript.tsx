@@ -1,5 +1,5 @@
 import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { HandoffView, WorkFolder } from "@plenipo/types";
+import type { HandoffView, TaskCost, WorkFolder } from "@plenipo/types";
 import { Button, Icon, cx } from "@plenipo/ui";
 
 import { useLiaisonRevision, useTaskHandoffs } from "../agents/useTaskHandoffs";
@@ -7,6 +7,8 @@ import { getWorkFolder, openWorkFolder, toCommandError } from "../api/commands";
 import { AskedBy, RepliesBack, ReplyBack, RequestCard, type ChatLiaison } from "./Exchanges";
 import { matchRequests, splitHandoffs } from "./handoffBlocks";
 import { tokens } from "../routing/format";
+import { moneyWords, pricedWords } from "../spending/costWords";
+import { useTaskCost } from "../spending/useTaskCost";
 import { useNow } from "../runtime/useNow";
 import { Markdown } from "./Markdown";
 import {
@@ -37,7 +39,10 @@ export function Transcript({
   title,
   askFrom = null,
   tool = null,
+  paid = false,
   liaison = null,
+  onOpenTask,
+  onShowExecution,
   onOpenLink,
 }: {
   session: ChatSession | null;
@@ -46,8 +51,14 @@ export function Transcript({
   askFrom?: string | null;
   /** Its AI tool, by name: said when it reports no tokens. */
   tool?: string | null;
+  /** Its AI tool runs on a paid key: each finished answer says what it cost (I2). */
+  paid?: boolean;
   /** It works with other agents through Liaison: their requests and replies show here (B5). */
   liaison?: ChatLiaison | null;
+  /** Open a task's own page (its record), from Details under its answer. */
+  onOpenTask?: ((taskId: string) => void) | undefined;
+  /** Show a run's raw output (the AI tools page), from Raw output under its answer. */
+  onShowExecution?: ((executionId: string) => void) | undefined;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
   const revision = useLiaisonRevision();
@@ -107,7 +118,10 @@ export function Transcript({
               title={title}
               askFrom={askFrom}
               tool={tool}
+              paid={paid}
               liaison={liaison}
+              onOpenTask={onOpenTask}
+              onShowExecution={onShowExecution}
               revision={revision}
               onOpenLink={onOpenLink}
             />
@@ -178,7 +192,10 @@ const TurnView = memo(function TurnView({
   title,
   askFrom,
   tool,
+  paid,
   liaison,
+  onOpenTask,
+  onShowExecution,
   revision,
   onOpenLink,
 }: {
@@ -187,12 +204,17 @@ const TurnView = memo(function TurnView({
   title: string;
   askFrom: string | null;
   tool: string | null;
+  paid: boolean;
   liaison: ChatLiaison | null;
+  onOpenTask?: ((taskId: string) => void) | undefined;
+  onShowExecution?: ((executionId: string) => void) | undefined;
   revision: number;
   onOpenLink?: ((url: string) => void) | undefined;
 }) {
   const live = !isOver(turn);
   const files = isOver(turn) ? filesOf(turn) : [];
+  // On a paid key, what it cost once it is over: only then can a spending record exist.
+  const cost = useTaskCost(paid && !live ? turn.taskId : null);
   // What it asked of its team, and who asked it (B5): Liaison's record of this task.
   const handoffs = useTaskHandoffs(liaison ? turn.taskId : null, turn.taskId, revision, !live);
   const received = liaison ? (handoffs?.received ?? null) : null;
@@ -270,7 +292,19 @@ const TurnView = memo(function TurnView({
         {received?.reply && liaison && !live && (
           <ReplyBack view={received} worker={title} liaison={liaison} />
         )}
-        {isOver(turn) && <TurnFoot turn={turn} tool={tool} />}
+        {isOver(turn) && (
+          <TurnFoot
+            turn={turn}
+            tool={tool}
+            cost={cost}
+            onOpenTask={onOpenTask ? () => onOpenTask(turn.taskId) : undefined}
+            onShowRaw={
+              onShowExecution && turn.executionId
+                ? () => turn.executionId && onShowExecution(turn.executionId)
+                : undefined
+            }
+          />
+        )}
       </div>
     </article>
   );
@@ -466,9 +500,23 @@ function FilesCard({
 /**
  * Under a finished answer: how long it took, its model, and its tokens (pieces of words) over all
  * its steps, which open to show how many it read, reused, and wrote (I2). A turn stopped before a
- * step reported says "at least"; an AI tool that reports none says so.
+ * step reported says "at least"; an AI tool that reports none says so. Beside the tokens, what
+ * Plenipo itself sent with the task, by size (ADR-044). **Details** opens the task's own page.
  */
-function TurnFoot({ turn, tool }: { turn: ChatTurn; tool: string | null }) {
+function TurnFoot({
+  turn,
+  tool,
+  cost = null,
+  onOpenTask,
+  onShowRaw,
+}: {
+  turn: ChatTurn;
+  tool: string | null;
+  /** What it cost on a paid key; `null` on a subscription (tokens only). */
+  cost?: TaskCost | null;
+  onOpenTask?: (() => void) | undefined;
+  onShowRaw?: (() => void) | undefined;
+}) {
   const [open, setOpen] = useState(false);
   const parts: string[] = [];
   if (turn.endedAt !== null) parts.push(`${elapsed(turn.endedAt - turn.startedAt)}`);
@@ -478,7 +526,13 @@ function TurnFoot({ turn, tool }: { turn: ChatTurn; tool: string | null }) {
   const counted =
     usage && total > 0 ? `${turn.usageAtLeast ? "at least " : ""}${tokens(total)} tokens` : null;
   if (!counted && turn.state === "done" && tool) parts.push(`${tool} did not report tokens`);
-  if (parts.length === 0 && !counted) return null;
+  // With no tokens to open, its own text's size shows on the line itself.
+  if (!counted && turn.ownText) parts.push(turn.ownText);
+  const money = cost ? moneyWords(cost) : null;
+  const priced = cost ? pricedWords(cost) : null;
+  // With no tokens to open, its money shows on the line itself.
+  if (!counted && money) parts.push(money);
+  if (parts.length === 0 && !counted && !onOpenTask && !onShowRaw) return null;
   return (
     <>
       <p className="chat-turn__foot">
@@ -494,6 +548,23 @@ function TurnFoot({ turn, tool }: { turn: ChatTurn; tool: string | null }) {
             >
               {counted}
             </button>
+            {money && ` · ${money}`}
+          </>
+        )}
+        {onOpenTask && (
+          <>
+            {(parts.length > 0 || counted) && " · "}
+            <button type="button" className="chat-turn__tokens" onClick={onOpenTask}>
+              Details
+            </button>
+          </>
+        )}
+        {onShowRaw && (
+          <>
+            {(parts.length > 0 || counted || onOpenTask) && " · "}
+            <button type="button" className="chat-turn__tokens" onClick={onShowRaw}>
+              Raw output
+            </button>
           </>
         )}
       </p>
@@ -502,6 +573,8 @@ function TurnFoot({ turn, tool }: { turn: ChatTurn; tool: string | null }) {
           {tokens(usage.inputTokens)} read
           {usage.cachedInputTokens > 0 && ` (${tokens(usage.cachedInputTokens)} reused)`} ·{" "}
           {tokens(usage.outputTokens)} written
+          {turn.ownText && ` · ${turn.ownText}`}
+          {priced && ` · ${priced}`}
         </p>
       )}
     </>

@@ -1052,6 +1052,136 @@ body.popout {
   margin-top: 0;
 }
 
+/* ---- Workers page (I4): the organization's tree, and the chat of the one selected ---------- */
+
+.workers {
+  display: grid;
+  grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
+  gap: var(--ui-space-4);
+  margin-top: var(--ui-space-4);
+}
+
+.workers__side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-4);
+  min-width: 0;
+}
+
+.workers__others h2 {
+  margin: 0 0 var(--ui-space-2);
+  font-size: var(--ui-font-md);
+}
+
+.workers-others {
+  margin: 0 0 var(--ui-space-2);
+  padding: 0;
+  list-style: none;
+}
+
+/* The chat fills the page's height beside the tree, as in the Chat panel. */
+.workers__chat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: calc(100vh - 220px);
+  min-height: 420px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-bg);
+  overflow: hidden;
+}
+
+.workers__chat > .workers-start {
+  overflow: auto;
+}
+
+.workers__bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ui-space-2);
+  padding: var(--ui-space-1) var(--ui-space-3);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.workers__empty {
+  padding: var(--ui-space-5);
+}
+
+.workers-tree,
+.workers-tree__children {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workers-tree__children {
+  margin-left: var(--ui-space-3);
+  padding-left: var(--ui-space-2);
+  border-left: 1px solid var(--ui-border);
+}
+
+.workers-tree__group,
+.workers-tree__agent,
+.workers-tree__task {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  width: 100%;
+  padding: var(--ui-space-1) var(--ui-space-2);
+  border: 1px solid transparent;
+  border-radius: var(--ui-radius-md);
+  background: none;
+  color: var(--ui-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workers-tree__group {
+  font-weight: var(--ui-weight-semibold);
+}
+
+.workers-tree__task {
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-sm);
+}
+
+.workers-tree__group:hover,
+.workers-tree__agent:hover,
+.workers-tree__task:hover {
+  background: var(--ui-surface-raised);
+}
+
+.workers-tree__agent[aria-current="true"],
+.workers-tree__task[aria-current="true"] {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-soft);
+}
+
+.workers-tree__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workers-tree__count,
+.workers-tree__tool {
+  flex: none;
+  color: var(--ui-text-secondary);
+  font-size: var(--ui-font-xs);
+  font-weight: normal;
+}
+
+@media (max-width: 760px) {
+  .workers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .execution__meta {
   grid-column: 1 / -1;
   color: var(--ui-text-secondary);
@@ -1668,55 +1798,6 @@ body.popout {
   overflow-wrap: anywhere;
 }
 
-.turns {
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.turn {
-  margin-bottom: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--ui-border);
-  border-radius: 10px;
-}
-
-.turn[data-running="true"] {
-  border-color: var(--ui-accent);
-}
-
-.turn__header {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
-  align-items: start;
-}
-
-.turn__number {
-  color: var(--ui-text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.turn__objective {
-  font-weight: 600;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.turn__activity {
-  margin-top: 8px;
-}
-
-.turn__activity summary {
-  color: var(--ui-text-secondary);
-  cursor: pointer;
-  font-size: var(--ui-font-sm);
-}
-
-.turn__result {
-  margin-top: 8px;
-}
-
 .turn__text {
   padding: 8px 10px;
   border-radius: 8px;
@@ -1802,10 +1883,6 @@ body.popout {
   display: block;
   color: var(--ui-text-secondary);
   font-size: var(--ui-font-xs);
-}
-
-.turn[data-waiting="true"] {
-  border-color: var(--ui-warn);
 }
 
 .steps {
@@ -5367,6 +5444,22 @@ body.popout {
   display: flex;
   flex-wrap: wrap;
   gap: var(--ui-space-2);
+}
+
+/* Where a project's files go (ADR-205 §2.4): the folder box with Choose… beside it. */
+.project-folder__line {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ui-space-2);
+}
+
+.project-folder__line .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.project-folder__line .ui-button {
+  margin-top: var(--ui-space-5);
 }
 
 .organizations-setting__list {

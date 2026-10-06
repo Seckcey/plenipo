@@ -1,5 +1,4 @@
 import type {
-  AgentEvent,
   AgentRuntimeInfo,
   AgentTurn,
   AuthState,
@@ -100,6 +99,14 @@ export const AUTH_LABEL: Record<AuthState, string> = {
   paidKey: "Key saved (paid per use)",
 };
 
+/**
+ * It runs on a paid key, so each request costs money and is recorded as spending (ADR-085). A
+ * subscription's tools cost nothing per task: the chat shows their tokens only (I2).
+ */
+export function runsOnPaidKey(r: AgentRuntimeInfo | undefined): boolean {
+  return r?.auth.state === "paidKey";
+}
+
 export function runtimeStatus(r: AgentRuntimeInfo): {
   text: string;
   tone: "ok" | "warn" | "bad" | "muted";
@@ -136,11 +143,6 @@ export function notReadyHint(r: AgentRuntimeInfo): string | null {
     return [r.installation.detail, r.installHint].filter(Boolean).join(" ");
   }
   return [r.auth.detail, r.loginHint].filter(Boolean).join(" ");
-}
-
-export function describeUsage(u: TokenUsage): string {
-  const cached = u.cachedInputTokens > 0 ? ` (${u.cachedInputTokens.toLocaleString()} cached)` : "";
-  return `${u.inputTokens.toLocaleString()} in${cached} · ${u.outputTokens.toLocaleString()} out`;
 }
 
 /** The size of what Plenipo sent with one step of a task (ADR-044). */
@@ -191,57 +193,4 @@ export function describePrompt(sizes: PromptSize[]): string | null {
   return kinds.length > 0
     ? `Plenipo's own text: ${size} (${kinds.join(", ")})`
     : `Plenipo's own text: ${size}`;
-}
-
-/** Short label + text for one activity event. */
-export function describeActivity(e: AgentEvent): {
-  label: string;
-  text: string;
-  tone?: "warn" | "bad" | undefined;
-} {
-  switch (e.type) {
-    case "sessionStarted":
-      return {
-        label: "Conversation",
-        text:
-          [
-            e.model && `model ${e.model}`,
-            e.providerSessionId && `conversation ${e.providerSessionId}`,
-          ]
-            .filter(Boolean)
-            .join(" · ") || "started",
-      };
-    case "textDelta":
-    case "message":
-      return { label: "Agent", text: e.text };
-    case "reasoning":
-      return { label: "Thinking", text: e.text };
-    case "toolUse":
-      return { label: e.tool, text: e.summary };
-    case "toolResult":
-      return {
-        label: e.tool ?? "Tool result",
-        text: e.summary || (e.isError ? "failed" : "done"),
-        tone: e.isError ? "bad" : undefined,
-      };
-    case "notice":
-      return {
-        label: e.level === "warning" ? "Warning" : "Note",
-        text: e.text,
-        tone: e.level === "warning" ? "warn" : undefined,
-      };
-    case "usage":
-      return { label: "Usage", text: describeUsage(e.usage) };
-    case "memoryShortened":
-      return { label: "Memory", text: e.detail };
-    case "plan": {
-      const done = e.steps.filter((s) => s.status === "done").length;
-      return { label: "Plan", text: `${done} of ${e.steps.length} steps done` };
-    }
-    case "status":
-      return {
-        label: e.phase === "thinking" ? "Thinking" : e.phase === "starting" ? "Step" : "Waiting",
-        text: e.text,
-      };
-  }
 }

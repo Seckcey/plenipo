@@ -194,6 +194,21 @@ pub fn within(path: &Path, place: &Path) -> bool {
     path.len() >= place.len() && path[..place.len()] == place[..]
 }
 
+/// The names of `path` below `place`, as `path` writes them, when it is `place` or inside it
+/// (compared part by part, see [`parts`]); empty for `place` itself.
+pub fn relative_parts(path: &Path, place: &Path) -> Option<Vec<String>> {
+    if !within(path, place) {
+        return None;
+    }
+    let skip = parts(place).len();
+    let names: Vec<String> = path
+        .components()
+        .filter(|c| !matches!(c, Component::CurDir))
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    Some(names.get(skip..).unwrap_or_default().to_vec())
+}
+
 /// A network share's path as Windows' tools write it, `\\server\share\…`, instead of the
 /// `\\?\UNC\server\share\…` form a full path is given in, which File Explorer may not open (the
 /// reviewer's N1 on #221). Left as it is when it is too long for the usual form.
@@ -239,8 +254,9 @@ fn real(path: &Path) -> Option<Real> {
     }
 }
 
-/// A place as it really is, or as written when no part of it exists.
-fn real_or_written(path: &Path) -> PathBuf {
+/// A place as it really is: links and short names followed for the part that exists, the rest
+/// added as written; as written when no part of it exists.
+pub fn real_or_written(path: &Path) -> PathBuf {
     real(path).map_or_else(|| path.to_path_buf(), |r| r.path)
 }
 
@@ -664,9 +680,56 @@ pub fn kept_on_this_device(path: &Path, root: &Path) -> Option<bool> {
     }
 }
 
+/// Windows' marks on a file kept only online (OneDrive's "Files On-Demand", and other cloud
+/// services' placeholders): reading it makes the service download it first.
+const ONLINE_ONLY: u32 = 0x0040_0000 // FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+    | 0x0004_0000 // FILE_ATTRIBUTE_RECALL_ON_OPEN
+    | 0x0000_1000; // FILE_ATTRIBUTE_OFFLINE
+
+/// Whether a file with Windows' `attributes` is kept only online (ADR-205 §3).
+pub fn online_only_attributes(attributes: u32) -> bool {
+    attributes & ONLINE_ONLY != 0
+}
+
+/// Whether the file whose metadata is `meta` is kept only online: reading it would download it.
+/// Looking at its marks never does. Always `false` outside Windows, where Plenipo can't tell.
+pub fn online_only(meta: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        online_only_attributes(meta.file_attributes())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = meta;
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Files kept only online carry one of three marks; a file on this computer, pinned or not,
+    /// carries none of them.
+    #[test]
+    fn files_kept_only_online_are_known_by_their_marks() {
+        for online in [0x0040_0000, 0x0004_0000, 0x0000_1000, 0x0040_0020] {
+            assert!(online_only_attributes(online), "{online:#x}");
+        }
+        for here in [
+            0,
+            0x20,
+            FILE_ATTRIBUTE_PINNED,
+            FILE_ATTRIBUTE_UNPINNED | 0x20,
+        ] {
+            assert!(!online_only_attributes(here), "{here:#x}");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "here").unwrap();
+        assert!(!online_only(&std::fs::metadata(&file).unwrap()));
+    }
 
     fn real_temp() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
@@ -871,6 +934,28 @@ mod tests {
             ));
             assert!(!within(Path::new(r"C:\Workshop"), Path::new(r"C:\Work")));
             assert!(!same_place(Path::new(r"D:\Work"), Path::new(r"C:\Work")));
+        }
+    }
+
+    /// The names below a place, found part by part, as the path writes them.
+    #[test]
+    fn the_names_below_a_place() {
+        let (_d, base) = real_temp();
+        let deep = base.join("Acme").join("Development").join("Files");
+        assert_eq!(
+            relative_parts(&deep, &base.join("Acme")),
+            Some(vec!["Development".to_owned(), "Files".to_owned()])
+        );
+        assert_eq!(relative_parts(&base, &base), Some(Vec::new()));
+        assert_eq!(relative_parts(&base, &deep), None);
+        if cfg!(windows) {
+            assert_eq!(
+                relative_parts(
+                    Path::new(r"\\?\C:\Work\Acme\Scratch pads\Alex"),
+                    Path::new(r"c:\work\ACME")
+                ),
+                Some(vec!["Scratch pads".to_owned(), "Alex".to_owned()])
+            );
         }
     }
 

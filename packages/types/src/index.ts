@@ -402,6 +402,7 @@ export type { OrgWorker } from "./generated/OrgWorker";
 // Phase 25 (ADR-205): the organization folder.
 export type { Folder } from "./generated/Folder";
 export type { FolderKind } from "./generated/FolderKind";
+export type { FolderPlace } from "./generated/FolderPlace";
 export type { FolderSync } from "./generated/FolderSync";
 export type { OrgFolderInfo } from "./generated/OrgFolderInfo";
 // Phase 16 Wave 3 (ADR-085, paid AI keys with spending caps): spending caps and prices.
@@ -414,6 +415,11 @@ export type { SpendingCap } from "./generated/SpendingCap";
 export type { SpendingPage } from "./generated/SpendingPage";
 export type { SpendingRecord } from "./generated/SpendingRecord";
 export type { SpendingState } from "./generated/SpendingState";
+// What a task cost: its tokens, and its money on paid keys (I2).
+export type { CostPricedBy } from "./generated/CostPricedBy";
+export type { TaskCost } from "./generated/TaskCost";
+export type { TaskCostPart } from "./generated/TaskCostPart";
+export type { TaskTreeCost } from "./generated/TaskTreeCost";
 // Free and Pro, and the license key (Phase 11A, ADR-100 to ADR-118).
 export type { Blocked } from "./generated/Blocked";
 export type { Edition } from "./generated/Edition";

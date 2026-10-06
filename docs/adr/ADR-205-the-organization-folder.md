@@ -205,9 +205,9 @@ What was there (read at `306af756`, v1.26.0):
     `orgs/OrgFolder.tsx` (the alert, and Settings → Organization's **Organization folder** row)
 - **§1.2, a chosen folder:** checked again when the organization is made, before anything is made.
 - **§2, Scratch pads** of agents in no department: made the first time one is needed.
-- **Not yet (parts 2 to 4):** Files, work in its place, and organizations made before this. The
-  first organization, and every organization made before this version, show "This organization
-  has no organization folder yet."
+- **Not yet:** Files (part 2, below), work in its place (part 3), and organizations made before
+  this (part 4). The first organization, and every organization made before this version, show
+  "This organization has no organization folder yet."
 - **Checked:**
   - the Ledger's `folders` tests (one of each kind, the organization folder first, paths, events,
     rows never deleted)
@@ -247,3 +247,98 @@ What was there (read at `306af756`, v1.26.0):
 - **Known follow-up:** Guard's confinement (`crates/guard/src/paths.rs`) compares with
   `Path::starts_with`, which a long path's `\\?\` form could make miss a match the same way. It is
   outside the organization folder's checks and is left for its own change.
+
+### Part 2 (B2): Files opens the organization folder (2026-10-05)
+
+- **Code:** `crates/capabilities/src/broker/owner_files.rs` (the `org:folder` top folder, its
+  marks, and the one-writer check); `FileRootKind::OrganizationFolder`, `FileRoots.organization`,
+  `FileRoot.insideOrganization`, `FolderEntry.place` and `onlineOnly`, `FolderPlace`;
+  `plenipo_guard::places::online_only`; on screen, `files/FilesPanel.tsx` and
+  `ledger/format.ts`.
+- **§15, what Files shows:** the organization folder first, opened by itself, with its folders
+  marked (Department, Project, Finished files, Scratch pads, "Website Supervisor's scratch pad");
+  then **Working copies**, for projects whose folder is inside it; then **Elsewhere on this PC**,
+  for project folders outside it, each with its working copies, as before. An organization with no
+  organization folder shows Files exactly as before; with nothing at all, "No organization folder
+  yet".
+- **§12, the alert in Files:** at the top while OneDrive keeps the folder online and it isn't set
+  to stay on this device, with **Show in folder** and **Check again**.
+- **§14, files kept only online:** marked "online only" from the folder listing's own marks
+  (`FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`, `RECALL_ON_OPEN`, `OFFLINE`), so looking never
+  downloads them.
+- **One writer at a time (ADR-093 §10) now reaches every folder a step may change files in**,
+  through whichever top folder it is reached: a working copy, a project folder, and, new, an
+  agent's own folder. Before, a step in its own folder was not counted, so the owner could save
+  over a file a worker was writing there.
+- **A change a worker makes** in a project folder inside the organization folder is marked where
+  the organization folder shows it too. A change in an agent's own folder is not marked yet: Watch
+  doesn't name its folder (part 3).
+- **A save in the organization folder** is recorded as `file.saved` with `place:
+"organizationFolder"` and no project; Activity says "You saved … in the organization folder".
+- **An organization folder that became a junction or link** isn't opened, and Files says it isn't
+  there.
+- **Checked:**
+  - `owner_files` tests (the first folder with its marks, projects inside it, reading and saving
+    in it and nowhere outside, `org:` names, a folder that became a junction)
+  - the broker's `an_agents_own_folder_is_read_only_for_the_owner_while_it_works_there`
+  - Guard's `files_kept_only_online_are_known_by_their_marks`
+  - `Files.test.tsx` (opened first, marks, online only, Working copies, Elsewhere on this PC, the
+    alert, the empty state) and `format.test.ts`
+
+#### The independent review's fixes (#224, 2026-10-05)
+
+- **S1, never opened to be listed:** a file kept only online is described from the folder
+  listing's own marks alone. Following it as a link would open it, and OneDrive downloads a file
+  marked to download when opened (`RECALL_ON_OPEN`). A cloud file is never a link, so nothing is
+  lost. Opening it in Plenipo still downloads it, as the page says.
+- **N1:** the one-writer check and the marks compare paths part by part, with Guard's
+  `same_place` and `within` (the same as #221's S2), so a long path can't miss its writer.
+- **N2:** the owner can't save a file where one of the organization's folders belongs, even while
+  that folder is missing.
+- **N3, for later:** the file view looks up where each recorded folder really is each time it
+  lists. If Files feels slow on a large organization folder, keep that and refresh it on the
+  `folder.*` events.
+
+### Part 3 (B3): work goes in its place (2026-10-05)
+
+- **Code:** `crates/capabilities/src/broker.rs` (`organization_place`, `project_files_folder`,
+  `own_folder`, `try_open`, and the tools note), `broker/owner_files.rs` (`marked`),
+  `plenipo_guard::places::relative_parts`; the app passes the system's own folders
+  (`BrokerConfig.trusted_places`); on screen, `components/org/ProjectFolderField.tsx` in New
+  project, Edit project, and Set up a Development project.
+- **§2.4, which folder each step gets,** with an organization folder:
+  - **Work that belongs to no project** (a lead's own work too) is done in the worker's **scratch
+    pad**, as recorded. Not recorded yet, or missing: one pass of keeping the folder makes it, at
+    its place, before the step opens. Never through a junction, a link, or a folder Plenipo may not
+    look into (then the step has no folder, and its note says so). A step that is no position's
+    gets no scratch pad.
+  - **A project with no folder of its own** works in its **Files** folder: that is its project
+    folder. Its workers write there; its leads read there and hand changes on (ADR-016), as in any
+    project folder. Before this, a lead wrote in Plenipo's folder for such a project; now its own
+    notes belong in its scratch pad on work that is no project's. A Files folder is never a working
+    copy's repository, even inside a git repository.
+  - Code work is unchanged: the objective's working copy.
+  - An organization without an organization folder works as before (ADR-201).
+- **The tools note says where files go:** "Your scratch pad is …: … Keep your notes and drafts
+  there, and save the files you make for the owner there."; "The project folder is …, the Website
+  project's Files folder in the organization folder. Finished work for the project goes here, where
+  the owner looks for it."; and on a working copy, "Your work is the project's code: put documents
+  where the project keeps them (for example docs/)."
+- **Files marks** a file a worker is changing in its scratch pad, or in a project's Files folder,
+  where the organization folder shows it (the gap left by part 2).
+- **The project dialog, "Where its files go":** **Make a folder in the organization folder** (the
+  default for a new project: it works in its Files folder) or **Use a folder I already have**,
+  written or picked with **Choose…** (the system's folder chooser; a place Guard refuses is said in
+  plain words and not taken). An organization without an organization folder shows the folder box
+  as before. **No folder**, the design's third choice, is left out: every project in an
+  organization folder gets its Files folder anyway, so it would mean the same as the first.
+- **Grok, checked:** Plenipo runs Grok with none of its own tools (its profile allows only the two
+  that reach Plenipo's tool server, and names each of its own as disallowed), and refuses every
+  other tool request (`crates/runtime/src/agent/grok.rs`). So, like every AI tool here, it changes
+  files in the organization folder only through Plenipo's checked tools.
+- **Checked:** the broker's `work_with_no_project_lands_in_its_scratch_pad`,
+  `a_project_without_a_folder_works_in_its_files_folder`,
+  `an_agents_own_folder_is_read_only_for_the_owner_while_it_works_there`, and
+  `an_agents_own_folder_that_is_a_junction_is_not_used`; `the_note_says_where_files_go`;
+  `changes_in_a_scratch_pad_and_a_files_folder_are_marked_in_the_organization_folder`; Guard's
+  `the_names_below_a_place`; and `ProjectFolderField.test.tsx`.

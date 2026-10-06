@@ -8,6 +8,7 @@
 mod activity;
 pub mod backups;
 pub mod community;
+pub mod cost;
 pub mod dto;
 pub mod error;
 mod events;
@@ -39,6 +40,7 @@ use rusqlite::{Connection, ErrorCode};
 
 pub use activity::{MAX_ACTIVITY_BUCKETS, MAX_ACTIVITY_RANGE_MS, MAX_ACTIVITY_SCOPES};
 pub use backups::{BackupKind, LedgerBackup, LedgerBackups, RestoreOutcome};
+pub use cost::{CostPricedBy, TaskCost, TaskCostPart, TaskTreeCost, TREE_MAX};
 pub use dto::*;
 pub use error::{LedgerError, Result};
 pub use lessons::{clean_lesson, MAX_LESSONS_PER_TASK, MAX_LESSON_CHARS};

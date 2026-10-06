@@ -58,6 +58,8 @@ vi.mock("../api/commands", async (importOriginal) => {
     getWatchChange: vi.fn(),
     cancelAgentTurn: vi.fn(),
     getControlStatus: vi.fn(),
+    getOrgFolder: vi.fn(),
+    openOrgFolder: vi.fn(),
   };
 });
 vi.mock("../api/events", () => ({
@@ -214,6 +216,14 @@ beforeEach(() => {
   api.openFileOutside.mockResolvedValue();
   api.showInFolder.mockResolvedValue();
   api.cancelAgentTurn.mockResolvedValue({} as never);
+  api.getOrgFolder.mockResolvedValue({
+    path: null,
+    exists: false,
+    syncedBy: null,
+    keptOnThisDevice: null,
+    problem: null,
+  });
+  api.openOrgFolder.mockResolvedValue();
 });
 
 describe("the Files panel (Phase 21, ADR-093)", () => {
@@ -589,5 +599,123 @@ describe("files on an objective (Phase 21, ADR-093 §19)", () => {
       );
     });
     expect(screen.getByText(/objective for a project/)).toBeInTheDocument();
+  });
+});
+
+describe("the organization folder in Files (Phase 25, ADR-205)", () => {
+  const ORG = "org:folder";
+  const OUTSIDE = "project:p2";
+  const withOrganization = (): FileRoots => ({
+    ...roots(),
+    roots: [
+      { ...roots().roots[0]!, insideOrganization: true },
+      roots().roots[1]!,
+      {
+        id: OUTSIDE,
+        projectId: "p2",
+        projectName: "Old Site",
+        kind: "projectFolder",
+        label: "Project folder",
+        path: "D:\\code\\old-site",
+        exists: true,
+      },
+    ],
+    organization: {
+      id: ORG,
+      projectId: "",
+      projectName: "",
+      kind: "organizationFolder",
+      label: "Acme Co",
+      path: "C:\\Users\\you\\OneDrive\\Documents\\Plenipo\\Acme Co",
+      exists: true,
+    },
+  });
+  const entry = (name: string, extra: object = {}) => ({
+    name,
+    path: name,
+    folder: true,
+    size: null,
+    modified: null,
+    blocked: false,
+    runs: false,
+    ...extra,
+  });
+
+  it("opens the organization folder first, with its folders marked and files kept online", async () => {
+    const user = userEvent.setup();
+    api.getFileRoots.mockResolvedValue(withOrganization());
+    api.listFolder.mockImplementation((root, path) =>
+      Promise.resolve({
+        root,
+        path,
+        more: 0,
+        entries:
+          root === ORG && path === ""
+            ? [
+                entry("Development", { place: { kind: "department", label: "Department" } }),
+                entry("Scratch pads", { place: { kind: "scratchPads", label: "Scratch pads" } }),
+                entry("plan.docx", { folder: false, size: 10, onlineOnly: true }),
+                entry("Read me.md", { folder: false, size: 300 }),
+              ]
+            : [],
+      }),
+    );
+    render(<FilesPanel go={vi.fn()} />);
+    const tree = await screen.findByRole("tree", {
+      name: "Organization folder, working copies, and project folders",
+    });
+    // Open by itself, first.
+    const rows = await within(tree).findAllByRole("treeitem");
+    expect(rows[0]).toHaveTextContent("Acme Co");
+    expect(await within(tree).findByText("Development")).toBeInTheDocument();
+    expect(within(tree).getByText("Department")).toBeInTheDocument();
+    const plan = within(tree).getByText("plan.docx").closest("[role=treeitem]")!;
+    expect(plan).toHaveTextContent("online only");
+    expect(within(tree).getByText("Read me.md").closest("[role=treeitem]")).not.toHaveTextContent(
+      "online only",
+    );
+    // The working copies of its projects, and project folders elsewhere on this PC.
+    await user.dblClick(within(tree).getByText("Working copies"));
+    await user.dblClick(await within(tree).findByText("Website"));
+    expect(await within(tree).findByText("plenipo/fix-login-a1b2")).toBeInTheDocument();
+    // Website's own folder is shown in the organization folder, not again here.
+    expect(within(tree).queryByText("Project folder")).toBeNull();
+    await user.dblClick(within(tree).getByText("Elsewhere on this PC"));
+    await user.dblClick(await within(tree).findByText("Old Site"));
+    expect(await within(tree).findByText("Project folder")).toBeInTheDocument();
+  });
+
+  it("shows the keep-on-this-computer alert while OneDrive keeps it online", async () => {
+    const user = userEvent.setup();
+    api.getFileRoots.mockResolvedValue(withOrganization());
+    api.getOrgFolder.mockResolvedValue({
+      path: "C:\\Users\\you\\OneDrive\\Documents\\Plenipo\\Acme Co",
+      exists: true,
+      syncedBy: "oneDrive",
+      keptOnThisDevice: false,
+      problem: null,
+    });
+    render(<FilesPanel go={vi.fn()} />);
+    const alert = await screen.findByRole("note", { name: "Keep it on this computer" });
+    expect(alert).toHaveTextContent("choose Always keep on this device");
+    await user.click(within(alert).getByRole("button", { name: "Show in folder" }));
+    expect(api.openOrgFolder).toHaveBeenCalledTimes(1);
+    api.getOrgFolder.mockResolvedValue({
+      path: "C:\\Users\\you\\OneDrive\\Documents\\Plenipo\\Acme Co",
+      exists: true,
+      syncedBy: "oneDrive",
+      keptOnThisDevice: true,
+      problem: null,
+    });
+    await user.click(within(alert).getByRole("button", { name: "Check again" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("note", { name: "Keep it on this computer" })).toBeNull(),
+    );
+  });
+
+  it("says so when there is no organization folder and no project folder", async () => {
+    api.getFileRoots.mockResolvedValue({ desktopInUse: false, roots: [] });
+    render(<FilesPanel go={vi.fn()} />);
+    expect(await screen.findByText("No organization folder yet")).toBeInTheDocument();
   });
 });
