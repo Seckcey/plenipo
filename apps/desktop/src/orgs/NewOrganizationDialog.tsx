@@ -1,16 +1,27 @@
-import { useState, type FormEvent } from "react";
-import type { OrgListing, OrgStart, OrgSummary } from "@plenipo/types";
+import { useEffect, useId, useState, type FormEvent } from "react";
+import type { OrgFolderInfo, OrgListing, OrgStart, OrgSummary } from "@plenipo/types";
+import { Button } from "@plenipo/ui";
 
-import { createOrganization, toCommandError } from "../api/commands";
+import {
+  chooseFolder,
+  createOrganization,
+  suggestOrgFolder,
+  toCommandError,
+} from "../api/commands";
 import { Field, Footer, FormError } from "../components/org/OrgDialogs";
 import { useSubmit } from "../components/org/dialogHelpers";
 import { Modal } from "../components/org/Modal";
+import { KeepOnThisDeviceAlert } from "./OrgFolder";
+
+/** How long typing pauses before the folder's place is looked up again. */
+const LOOK_UP_AFTER_MS = 250;
 
 type How = OrgStart["kind"];
 
 /**
- * New organization (Phase 21, ADR-094 §15): a name, and how to start — a template (coming
- * later), a copy of one of your organizations' setup, or from scratch.
+ * New organization (Phase 21, ADR-094 §15): a name, how to start — a template, a copy of one of
+ * your organizations' setup, or from scratch — and its organization folder (ADR-205): in
+ * Documents → Plenipo, or a folder the owner chooses.
  */
 export function NewOrganizationDialog({
   listing,
@@ -29,6 +40,40 @@ export function NewOrganizationDialog({
   const { pending, error, run } = useSubmit();
   const templates = listing.templates;
   const [template, setTemplate] = useState(templates[0]?.id ?? "");
+  // The folder the owner chose (`null`: the usual place), and where the organization's folder
+  // would be.
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [folder, setFolder] = useState<OrgFolderInfo | null>(null);
+  const [chooseError, setChooseError] = useState<string | null>(null);
+  const folderLabel = useId();
+
+  useEffect(() => {
+    let live = true;
+    const timer = setTimeout(() => {
+      suggestOrgFolder(name.trim(), chosen)
+        .then((info) => {
+          if (live) setFolder(info);
+        })
+        .catch((reason: unknown) => {
+          if (live) setChooseError(toCommandError(reason).message);
+        });
+    }, LOOK_UP_AFTER_MS);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [name, chosen]);
+
+  const change = () => {
+    setChooseError(null);
+    chooseFolder()
+      .then((picked) => {
+        if (!picked?.path) return;
+        if (picked.problem) setChooseError(picked.problem);
+        else setChosen(picked.path);
+      })
+      .catch((reason: unknown) => setChooseError(toCommandError(reason).message));
+  };
 
   const start = (): OrgStart =>
     how === "copy"
@@ -41,7 +86,7 @@ export function NewOrganizationDialog({
     e.preventDefault();
     void run(async () => {
       try {
-        onCreated(await createOrganization(name.trim(), start()));
+        onCreated(await createOrganization(name.trim(), start(), chosen));
         return null;
       } catch (reason) {
         return toCommandError(reason).message;
@@ -125,11 +170,29 @@ export function NewOrganizationDialog({
             "Plenipo's starting settings, as a new copy has.",
           )}
         </fieldset>
+        {/* Not a <label>: a click on its words must not press Change…. */}
+        <div className="field" role="group" aria-labelledby={folderLabel}>
+          <span id={folderLabel}>Organization folder</span>
+          <div className="org-folder__where">
+            <code className="org-folder__path" aria-label="Where its folder goes">
+              {folder?.path ?? "…"}
+            </code>
+            <Button size="sm" onClick={change}>
+              Change…
+            </Button>
+          </div>
+          <small className="field__hint">
+            Plenipo keeps a folder here for each department and project, with their finished files,
+            and a scratch pad for each worker.
+          </small>
+        </div>
+        <FormError error={folder?.problem ?? chooseError} />
+        <KeepOnThisDeviceAlert info={folder?.problem ? null : folder} />
         <FormError error={error} />
         <Footer
           pending={pending}
           label="Create and open"
-          disabled={name.trim() === ""}
+          disabled={name.trim() === "" || Boolean(folder?.problem)}
           onCancel={onClose}
         />
       </form>

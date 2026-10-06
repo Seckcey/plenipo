@@ -1046,15 +1046,38 @@ impl Broker {
     /// The folder for work that belongs to no project (ADR-201): `<files>/<organization>/<name>`,
     /// where the name is the project's, or the position's when there is no project. Made here
     /// when it is not there yet. `None` when Plenipo has no such place or cannot make it.
+    ///
+    /// An organization with an organization folder (ADR-205) keeps it there, never in a folder
+    /// worked out from its name, which another organization of the same name may have.
     fn own_folder(&self, scope: &Scope, position_id: Option<&str>) -> Option<String> {
-        let base = self.inner.config.files_dir.as_ref()?;
         let l = self.ledger();
-        let organization = l
-            .setting("organization")
+        let recorded = l
+            .organization_folder()
             .ok()
             .flatten()
-            .and_then(|v| v["name"].as_str().map(str::to_owned))
-            .unwrap_or_default();
+            .map(|f| std::path::PathBuf::from(f.path));
+        let organization_folder = match recorded {
+            // One that became a junction or link leads somewhere else: no folder (ADR-205).
+            Some(folder)
+                if std::fs::symlink_metadata(&folder).is_ok_and(|m| m.file_type().is_symlink()) =>
+            {
+                return None
+            }
+            Some(folder) => folder,
+            None => {
+                let organization = l
+                    .setting("organization")
+                    .ok()
+                    .flatten()
+                    .and_then(|v| v["name"].as_str().map(str::to_owned))
+                    .unwrap_or_default();
+                self.inner
+                    .config
+                    .files_dir
+                    .as_ref()?
+                    .join(folder_name(&organization, "Organization"))
+            }
+        };
         let name = match (&scope.project, position_id) {
             (Some(p), _) => p.name.clone(),
             (None, Some(id)) => l
@@ -1064,11 +1087,16 @@ impl Broker {
                 .map_or_else(|| scope.role_name.clone(), |p| p.title),
             (None, None) => scope.role_name.clone(),
         };
-        let path = base
-            .join(folder_name(&organization, "Organization"))
-            .join(folder_name(&name, "Agent"));
+        let path = organization_folder.join(folder_name(&name, "Agent"));
+        // Nor one whose own folder is a junction or link (the reviewer's N2 on #221).
+        let is_link = |p: &std::path::Path| {
+            std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink())
+        };
+        if is_link(&path) {
+            return None;
+        }
         std::fs::create_dir_all(&path).ok()?;
-        Some(path.display().to_string())
+        (!is_link(&path)).then(|| path.display().to_string())
     }
 
     /// A lead (a VP, Manager, or Supervisor) working in its team's project folder (ADR-016):
@@ -3377,36 +3405,9 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// A name that is safe as one folder's name on every system: no slashes, colons, or other
-/// marks a file name cannot hold, no dots or spaces at the end, no Windows device name, and at
-/// most 60 characters. `fallback` when nothing is left.
-pub(crate) fn folder_name(name: &str, fallback: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| {
-            if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
-                ' '
-            } else {
-                c
-            }
-        })
-        .collect();
-    let mut out = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
-    out = out.chars().take(60).collect::<String>();
-    let out = out.trim_matches(|c: char| c == '.' || c == ' ').to_owned();
-    const DEVICES: &[&str] = &[
-        "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
-        "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
-    ];
-    let stem = out.split('.').next().unwrap_or("").to_ascii_lowercase();
-    if out.is_empty() {
-        fallback.to_owned()
-    } else if DEVICES.contains(&stem.as_str()) {
-        format!("_{out}")
-    } else {
-        out
-    }
-}
+/// A name that is safe as one folder's name on every system (Guard's, shared with the
+/// organization folder, ADR-205).
+pub(crate) use plenipo_guard::places::folder_name;
 
 /// What a worker's note says beyond its permissions (ADR-201).
 #[derive(Debug, Clone, Copy, Default)]

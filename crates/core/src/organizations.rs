@@ -65,6 +65,36 @@ pub enum OrgStart {
     Template { template: String },
 }
 
+/// Who syncs a folder online, when Plenipo can tell (ADR-205 §2.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum FolderSync {
+    /// OneDrive: Plenipo can see whether it is told to keep the folder on this device.
+    OneDrive,
+    /// Another sync service (Dropbox, Google Drive, iCloud): Plenipo can't see that.
+    Other,
+}
+
+/// An organization's folder (ADR-205): where it is, or where a new one would go, and whether a
+/// sync service keeps it online.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct OrgFolderInfo {
+    /// Where it is (or would be). `None`: this organization has no organization folder yet.
+    pub path: Option<String>,
+    /// The folder is there now.
+    pub exists: bool,
+    /// Who syncs it online, when Plenipo can tell.
+    pub synced_by: Option<FolderSync>,
+    /// For OneDrive: whether it is set to "Always keep on this device". `None`: Plenipo can't
+    /// tell.
+    pub kept_on_this_device: Option<bool>,
+    /// Why this place can't be the organization's folder, in plain words.
+    pub problem: Option<String>,
+}
+
 /// What opening an organization did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

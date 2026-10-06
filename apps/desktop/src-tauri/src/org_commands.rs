@@ -23,7 +23,7 @@ const OWNER: &str = "owner";
 const GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The calling window, when it is an organization's window.
-fn org_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<String, CommandError> {
+pub(crate) fn org_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<String, CommandError> {
     let label = window.label();
     if is_org_window(label) {
         Ok(label.to_owned())
@@ -268,7 +268,9 @@ pub async fn get_organizations<R: Runtime>(
     Ok(listing(&orgs, &label))
 }
 
-/// Make a new organization (ADR-094 §15).
+/// Make a new organization (ADR-094 §15), with its organization folder (ADR-205): in `folder`
+/// when the owner chose one, otherwise in `Documents\Plenipo`. The place is checked before
+/// anything is made.
 #[tauri::command]
 pub async fn create_organization<R: Runtime>(
     app: AppHandle<R>,
@@ -276,10 +278,19 @@ pub async fn create_organization<R: Runtime>(
     orgs: State<'_, Arc<Orgs>>,
     name: String,
     start: OrgStart,
+    folder: Option<String>,
 ) -> Result<OrgSummary, CommandError> {
     let label = org_window(&window)?;
     let name = plenipo_ledger::workforce::clean_line("the organization's name", &name, MAX_NAME)
         .map_err(ledger_error)?;
+    if folder
+        .as_ref()
+        .is_some_and(|f| f.chars().count() > plenipo_guard::places::MAX_PLACE_CHARS)
+    {
+        return Err(CommandError::invalid_input(
+            "That folder's path is too long.",
+        ));
+    }
     // One change to the list at a time (as archive, bring back, and delete), held until this one
     // is in the list: two made at once never both pass the plan's number (ADR-110, ADR-119).
     let _changing = orgs.changing().await;
@@ -313,6 +324,18 @@ pub async fn create_organization<R: Runtime>(
             })?)
         }
         OrgStart::Scratch => None,
+    };
+    // Its folder: the place is checked (Guard's places) before anything is made.
+    let persistence = app.state::<Defaults>().persistence;
+    let org_folder = {
+        let app = app.clone();
+        let name = name.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::folder_commands::new_place(&app, persistence, &name, folder.as_deref())
+        })
+        .await
+        .map_err(|e| CommandError::internal(format!("checking its folder failed: {e}")))?
+        .map_err(CommandError::invalid_input)?
     };
     let orgs = orgs.inner().clone();
     let orgs2 = orgs.clone();
@@ -349,12 +372,22 @@ pub async fn create_organization<R: Runtime>(
             .workforce
             .rename(&name)
             .map_err(crate::commands::workforce_error)?;
+        // The organization folder (ADR-205), before its template adds departments, so each gets
+        // its folder. Checked above; if it can't be made now after all, the organization still
+        // stands, and the owner is offered a folder later.
+        if let Err(e) =
+            plenipo_capabilities::org_folder::create(&stack.ledger, &org_folder, &name, OWNER)
+        {
+            log::warn!("the new organization's folder could not be made: {e}");
+        }
         if let Some(template) = &built_in {
             stack
                 .workforce
                 .apply_organization_template(template)
                 .map_err(crate::commands::workforce_error)?;
         }
+        // Its departments' and projects' folders now, so they are there when its window opens.
+        stack.folders.keep_now();
         orgs.add(OrgEntry {
             id: made.clone(),
             name: name.clone(),

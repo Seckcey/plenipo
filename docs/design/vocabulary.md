@@ -428,6 +428,11 @@ shells, this PC, the tray, notices, Windows closed Plenipo) use the words in
 | Waits its turn / goes when it finishes (a message sent while it works)         | queued message, message queue, pending send                                                |
 | Files saved / Open folder (under an answer)                                    | artifacts, output directory, workspace path                                                |
 | Plenipo's folder (Documents → Plenipo → your organization → the agent)         | files_dir, default working directory, sandbox folder                                       |
+| Organization folder (Documents → Plenipo → your organization)                  | org root, workspace, storage root, artifacts directory                                     |
+| Files (finished files) / Scratch pads / an agent's scratch pad                 | artifacts, outputs, scratch dir, temp folder                                               |
+| Change… (choose another folder)                                                | browse, pick directory, open file dialog                                                   |
+| Always keep on this device (OneDrive) / Keep Downloaded (Mac)                  | pinned, hydrated, Files On-Demand                                                          |
+| kept only online                                                               | placeholder, dehydrated, cloud-only file                                                   |
 | Safety: Light / Careful / Strict (Settings → Safety, ADR-201)                  | permission mode, sandbox level, bypass permissions, YOLO mode                              |
 | Everyday work (the leads' starting permission set)                             | default capability profile, standard grant                                                 |
 | writes answers only (an AI tool that cannot save files or run programs)        | text-only model, no tool use, no function calling                                          |

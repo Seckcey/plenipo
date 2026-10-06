@@ -1958,6 +1958,22 @@ impl Ledger {
         })
     }
 
+    /// The owner's own task for an on-call position, recorded with the worker staffed for it
+    /// (ADR-208: the owner talks to an on-call worker directly). The worker starts with its task
+    /// and leaves when it ends, as one staffed for a hand-off does.
+    pub fn create_owner_task_with_worker(
+        &self,
+        new: NewTask,
+        worker: &NewWorker,
+        actor: &str,
+    ) -> Result<Task> {
+        self.write(|tx, out| {
+            let task = crate::tasks::insert(tx, out, new, actor)?;
+            insert_worker(tx, out, worker, &task.id, actor)?;
+            crate::tasks::require(tx, &task.id)
+        })
+    }
+
     /// Retire the incumbent of a persistent position, leaving it vacant.
     pub fn vacate_position(&self, id: &str, actor: &str) -> Result<AgentInstance> {
         self.write(|tx, out| {
@@ -3365,6 +3381,79 @@ mod tests {
         assert!(l
             .write(|tx, out| insert_worker(tx, out, &again, &task.id, "liaison"))
             .is_err());
+    }
+
+    /// The owner's own task for an on-call position comes with its worker (ADR-208): recorded
+    /// together, started as its conversation's turn by that conversation only, and the worker
+    /// leaves when the task ends. A worker the task does not name records nothing.
+    #[test]
+    fn an_owners_task_for_an_on_call_position_comes_with_its_worker() {
+        let (l, roles) = setup();
+        let (_, _, project, coordinator) = development(&l, &roles);
+        let (dev, _) = l
+            .create_position(
+                &position(
+                    &roles["Senior Developer"],
+                    "Senior Developer",
+                    Some(&coordinator.id),
+                    "codex",
+                ),
+                "owner",
+            )
+            .unwrap();
+        let agent_id = uuid::Uuid::new_v4().to_string();
+        let new = |agent: &str| NewTask {
+            requested_by: "owner".into(),
+            objective: "Write the tests".into(),
+            project_id: Some(project.id.clone()),
+            metadata: json!({
+                "sessionId": "s-direct",
+                "workforce": { "positionId": dev.id, "agentId": agent },
+            }),
+            ..NewTask::default()
+        };
+        let worker = NewWorker {
+            agent_id: agent_id.clone(),
+            position_id: dev.id.clone(),
+            role_id: dev.role_id.clone(),
+            runtime_id: "codex".into(),
+            runtime_provider: Some("openai".into()),
+            model: None,
+            project_id: Some(project.id.clone()),
+            routing: json!({ "reason": "test" }),
+        };
+        let before = l.status().unwrap().task_count;
+        assert!(l
+            .create_owner_task_with_worker(new("someone-else"), &worker, "owner")
+            .is_err());
+        assert_eq!(l.status().unwrap().task_count, before, "nothing recorded");
+        let task = l
+            .create_owner_task_with_worker(new(&agent_id), &worker, "owner")
+            .unwrap();
+        assert_eq!(task.requested_by, "owner");
+        assert!(l
+            .begin_task_turn(&task.id, "s-other", 3, "agent:codex")
+            .is_err());
+        let running = l
+            .begin_task_turn(&task.id, "s-direct", 3, "agent:codex")
+            .unwrap();
+        assert_eq!(running.state, TaskState::Running);
+        assert_eq!(running.metadata["turn"], 3);
+        l.transition_task(&task.id, TaskState::Succeeded, "agent:codex", None)
+            .unwrap();
+        let types: Vec<String> = l
+            .events_for_task(&task.id)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.event_type)
+            .collect();
+        for kind in [
+            "org.worker_spawned",
+            "org.worker_started",
+            "org.worker_retired",
+        ] {
+            assert!(types.iter().any(|t| t == kind), "{kind}: {types:?}");
+        }
     }
 
     #[test]

@@ -316,7 +316,7 @@ describe("a chat with an agent (ADR-200)", () => {
     await user.type(box, "Never mind{Enter}");
     await user.click(screen.getByRole("button", { name: "Do not send this" }));
     expect(screen.queryByRole("list", { name: "Waiting to send" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+    await user.click(await screen.findByRole("button", { name: "Stop Development Manager" }, SLOW));
     expect(commands.cancelAgentTurn).toHaveBeenCalledWith("s1");
     emit({ kind: "turn", ...done("t1", "") });
     expect(commands.giveObjective).toHaveBeenCalledTimes(1);
@@ -336,7 +336,7 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat();
     await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
     await screen.findByRole("log", {}, SLOW);
-    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+    await user.click(await screen.findByRole("button", { name: "Stop Development Manager" }, SLOW));
 
     // Plenipo asks its AI tool to stop, and ends it if it does not: that takes a moment.
     const stopping = screen.getByRole("button", { name: "Stopping Development Manager…" });
@@ -378,7 +378,7 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat();
     await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
     await screen.findByRole("log", {}, SLOW);
-    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+    await user.click(await screen.findByRole("button", { name: "Stop Development Manager" }, SLOW));
 
     expect(await screen.findByText(/Stopped\. It was no longer running\./, {}, SLOW)).toBeVisible();
     expect(commands.getAgentSession).toHaveBeenCalledWith("s1");
@@ -402,7 +402,7 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat();
     await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
     await screen.findByRole("log", {}, SLOW);
-    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+    await user.click(await screen.findByRole("button", { name: "Stop Development Manager" }, SLOW));
 
     await waitFor(() => expect(commands.getAgentSession).toHaveBeenCalledWith("s1"), SLOW);
     await waitFor(() =>
@@ -431,7 +431,7 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat();
     await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
     await screen.findByRole("log", {}, SLOW);
-    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+    await user.click(await screen.findByRole("button", { name: "Stop Development Manager" }, SLOW));
 
     expect(await screen.findByText(/Stopped\. It was no longer running\./, {}, SLOW)).toBeVisible();
     expect(screen.getAllByText(/It was no longer running/)).toHaveLength(1);
@@ -452,7 +452,7 @@ describe("a chat with an agent (ADR-200)", () => {
     const user = await openChat();
     await user.type(screen.getByLabelText("Message to Development Manager"), "First{Enter}");
     await screen.findByRole("log", {}, SLOW);
-    await user.click(screen.getByRole("button", { name: "Stop Development Manager" }));
+    await user.click(await screen.findByRole("button", { name: "Stop Development Manager" }, SLOW));
 
     const alert = await screen.findByRole("alert", {}, SLOW);
     expect(alert).toHaveTextContent("Could not stop Development Manager");
@@ -533,40 +533,80 @@ describe("a chat with an agent (ADR-200)", () => {
     expect(within(log).getByRole("article", { name: "Message 2" })).toHaveTextContent(
       "Build the contact page",
     );
-    // Watched, not messaged: its work comes from its lead.
-    expect(await screen.findByText(/takes its work from its lead/, {}, SLOW)).toBeInTheDocument();
-    expect(screen.getByLabelText("Message to Senior Developer")).toBeDisabled();
+    // Its own chat takes your words: you talk to it directly (ADR-208).
+    expect(screen.getByLabelText("Message to Senior Developer")).toBeEnabled();
+    expect(screen.queryByText(/takes its work from its lead/)).not.toBeInTheDocument();
   });
 
-  it("sends an on-call worker's message through its lead, and opens the lead's chat", async () => {
+  it("talks to an on-call worker directly, in its own chat, until you end it (ADR-208)", async () => {
+    const direct = session("s5", {
+      title: "Senior Developer",
+      activeTaskId: "t5",
+      metadata: {
+        liaison: { origin: "member" },
+        workforce: { positionId: "p-dev" },
+        directChat: true,
+      },
+    });
     vi.mocked(commands.giveObjective).mockResolvedValue({
-      session: session("s5", {
-        title: "Cloudline Supervisor",
-        activeTaskId: "t5",
-        metadata: { liaison: { origin: "member" }, workforce: { positionId: "p-lead" } },
-      }),
-      turns: [
-        turn("t5", {
-          sessionId: "s5",
-          objective:
-            "Write the tests\n\n(The owner asks this of your Senior Developer, through you)",
-          startedAt: started,
-        }),
-      ],
+      session: direct,
+      turns: [turn("t5", { sessionId: "s5", objective: "Write the tests", startedAt: started })],
       activity: [],
     });
     const user = await openChat({ positionId: "p-dev", title: "Senior Developer" });
     await user.type(screen.getByLabelText("Message to Senior Developer"), "Write the tests{Enter}");
     expect(commands.giveObjective).toHaveBeenCalledWith("p-dev", "Write the tests");
-    expect(await screen.findByRole("tab", { name: /Cloudline Supervisor/ }, SLOW)).toHaveAttribute(
-      "aria-selected",
-      "true",
+    const log = screen.getByRole("log", { name: "Conversation with Senior Developer" });
+    expect(await within(log).findByText("Write the tests", {}, SLOW)).toBeInTheDocument();
+    // No lead in between: the answer comes in this chat, and no other chat opens.
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    expect(screen.queryByText(/Sent to/)).not.toBeInTheDocument();
+    // While it answers, the chat can't be ended; once it has, it can.
+    emit({ kind: "session", ...direct });
+    const end = await screen.findByRole(
+      "button",
+      { name: /End this chat with Senior Developer/ },
+      SLOW,
     );
-    expect(await screen.findByText(/through you/, {}, SLOW)).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: /Senior Developer/ }));
-    expect(
-      screen.getByText(/Sent to Cloudline Supervisor, who hands it to Senior Developer/),
-    ).toBeInTheDocument();
+    expect(end).toBeDisabled();
+    emit({
+      kind: "turn",
+      ...turn("t5", {
+        sessionId: "s5",
+        objective: "Write the tests",
+        running: false,
+        startedAt: started,
+        endedAt: started + 1_000,
+        result: done("t5", "Wrote them.").result,
+      }),
+    });
+    emit({ kind: "session", ...direct, activeTaskId: null });
+    vi.mocked(commands.closeAgentSession).mockResolvedValue({
+      ...direct,
+      activeTaskId: null,
+      state: "closed",
+    });
+    await waitFor(() => expect(end).toBeEnabled(), SLOW);
+    await user.click(end);
+    expect(commands.closeAgentSession).toHaveBeenCalledWith("s5");
+    await waitFor(
+      () =>
+        expect(
+          screen.queryByRole("button", { name: /End this chat with Senior Developer/ }),
+        ).not.toBeInTheDocument(),
+      SLOW,
+    );
+  });
+
+  it("offers to end only an on-call worker's open direct chat", async () => {
+    vi.mocked(commands.giveObjective).mockResolvedValue(detail([done("t1", "Planned.")]));
+    const user = await openChat();
+    await user.type(screen.getByLabelText("Message to Development Manager"), "Plan{Enter}");
+    expect(await screen.findByText("Planned.", {}, SLOW)).toBeInTheDocument();
+    // Its conversation is known (its AI tool shows): a full-time member's, not a direct chat.
+    emit({ kind: "session", ...session("s1", { metadata: MEMBER }) });
+    expect((await screen.findAllByText("Claude Code", {}, SLOW)).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /End this chat/ })).not.toBeInTheDocument();
   });
 
   it("shows your orders that went past this agent, and what came back up", async () => {

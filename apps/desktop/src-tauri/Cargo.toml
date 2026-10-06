@@ -50,6 +50,9 @@ tauri-plugin-notification = "~2.4"
 # commands are granted to no window.
 tauri-plugin-autostart = "~2.5"
 tauri-plugin-single-instance = "~2.4"
+# The system's own folder chooser for the organization folder (Phase 25, ADR-205), opened from
+# Rust only: no page can open one or read a path itself.
+rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
 # One change to an organization at a time (Phase 21, ADR-094): an async lock, on every system.
 tokio = { version = "1", features = ["sync"] }
 

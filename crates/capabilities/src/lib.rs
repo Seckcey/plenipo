@@ -24,6 +24,7 @@ pub mod files;
 pub mod github;
 pub mod license_check;
 pub mod mcp;
+pub mod org_folder;
 pub mod paid;
 pub mod phone_notices;
 mod process;
