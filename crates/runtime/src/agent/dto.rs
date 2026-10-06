@@ -842,6 +842,8 @@ pub struct AgentTurn {
     pub session_id: String,
     pub number: u32,
     pub objective: String,
+    /// Who asked for it: the owner, or the lead that handed it on.
+    pub requested_by: RequestedBy,
     /// The latest step's execution.
     pub execution_id: Option<String>,
     /// A step is running.
@@ -872,6 +874,68 @@ pub struct TurnStep {
     pub started_at: Option<u64>,
     #[ts(type = "number | null")]
     pub ended_at: Option<u64>,
+    /// What started a continuation: its team's replies, or a check-in on its team. Left out for
+    /// the turn's own first step, and for steps recorded before this was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub started_by: Option<StepStart>,
+}
+
+/// Who asked for a turn (Phase 25, B5): the owner, or a lead that handed the work on, with the
+/// lead's position and task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RequestedBy {
+    pub kind: RequesterKind,
+    /// The lead's position.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub position_id: Option<String>,
+    /// The lead's task, which handed this one on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub task_id: Option<String>,
+}
+
+impl RequestedBy {
+    pub fn owner() -> Self {
+        Self {
+            kind: RequesterKind::Owner,
+            position_id: None,
+            task_id: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum RequesterKind {
+    Owner,
+    Lead,
+}
+
+/// What started a continuation step (Phase 25, B5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct StepStart {
+    pub kind: StepStartKind,
+    /// The replies delivered into the step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub message_ids: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum StepStartKind {
+    /// Its team's replies to its hand-offs.
+    Replies,
+    /// A lead's check-in on its team (ADR-259).
+    CheckIn,
 }
 
 /// Live activity for one turn. `seq` increases per turn: step `n` numbers its activity from

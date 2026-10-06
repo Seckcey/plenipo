@@ -2,7 +2,7 @@
 //! sessions, and turns. The desktop app wires these; they live here because Liaison records its
 //! handoff steps in the same transactions as turn state (ADR-008), and its tests need them.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use plenipo_ledger::{
@@ -10,8 +10,9 @@ use plenipo_ledger::{
     RuntimeSessionState, Task, TaskState,
 };
 use plenipo_runtime::agent::{
-    AgentEvent, AgentSession, AgentTurn, Effort, KeptActivity, SessionChange, SessionState,
-    SessionStore, StepNote, TurnInput, TurnOutcome, TurnRef, TurnResult, TurnStep, TurnTask, OWNER,
+    AgentEvent, AgentSession, AgentTurn, Effort, KeptActivity, RequestedBy, RequesterKind,
+    SessionChange, SessionState, SessionStore, StepNote, StepStart, StepStartKind, TurnInput,
+    TurnOutcome, TurnRef, TurnResult, TurnStep, TurnTask, OWNER,
 };
 use plenipo_runtime::store::Loaded;
 use plenipo_runtime::{
@@ -205,6 +206,38 @@ pub fn result_event(turn: &TurnRef<'_>, result: &TurnResult) -> Result<NewEvent,
 }
 
 impl LedgerSessionStore {
+    /// Who asked for `task` (Phase 25, B5): the owner, or the agent whose task handed it on —
+    /// in an organization, the worker's lead, with the lead's position.
+    fn requested_by(&self, task: &Task) -> Result<RequestedBy, String> {
+        let parent = task.parent_task_id.clone().or_else(|| {
+            task.metadata["liaison"]["parentTaskId"]
+                .as_str()
+                .map(str::to_owned)
+        });
+        if task.requested_by == OWNER
+            || (parent.is_none() && !task.requested_by.starts_with("agent:"))
+        {
+            return Ok(RequestedBy::owner());
+        }
+        let position_id = match &parent {
+            Some(id) => self
+                .0
+                .task(id)
+                .map_err(|e| e.to_string())?
+                .and_then(|lead| {
+                    lead.metadata["workforce"]["positionId"]
+                        .as_str()
+                        .map(str::to_owned)
+                }),
+            None => None,
+        };
+        Ok(RequestedBy {
+            kind: RequesterKind::Lead,
+            position_id,
+            task_id: parent,
+        })
+    }
+
     fn to_turn(&self, task: Task) -> Result<AgentTurn, String> {
         let session_id = task.metadata["sessionId"]
             .as_str()
@@ -218,13 +251,39 @@ impl LedgerSessionStore {
             .0
             .executions_for_task(&task.id)
             .map_err(|e| e.to_string())?;
-        let results: Vec<_> = self
+        let events = self
             .0
             .events_for_task(&task.id)
-            .map_err(|e| e.to_string())?
-            .into_iter()
+            .map_err(|e| e.to_string())?;
+        let results: Vec<_> = events
+            .iter()
             .filter(|e| e.event_type == "agent.result")
             .collect();
+        // What started each continuation, by its step (Phase 25, B5): a check-in on its team,
+        // or its team's replies. Events recorded before replies kept their step have none.
+        let starts: BTreeMap<u32, (StepStart, u64)> = events
+            .iter()
+            .filter_map(|e| {
+                let start = match e.event_type.as_str() {
+                    "liaison.check_in_started" => StepStart {
+                        kind: StepStartKind::CheckIn,
+                        message_ids: None,
+                    },
+                    "liaison.replies_delivered" => StepStart {
+                        kind: StepStartKind::Replies,
+                        message_ids: e.payload["messageIds"].as_array().map(|ids| {
+                            ids.iter()
+                                .filter_map(|id| id.as_str().map(str::to_owned))
+                                .collect()
+                        }),
+                    },
+                    _ => return None,
+                };
+                let step = u32::try_from(e.payload.get("step")?.as_u64()?).ok()?;
+                Some((step, (start, e.created_at)))
+            })
+            .collect();
+        let started_by = |number: u32| starts.get(&number).map(|(s, _)| s.clone());
         let parse = |payload: &Value| serde_json::from_value::<TurnResult>(payload.clone()).ok();
         let started = |execution: &Option<String>| {
             executions
@@ -243,6 +302,7 @@ impl LedgerSessionStore {
                     result: parse(&e.payload),
                     started_at: started(&e.execution_id),
                     ended_at: Some(e.created_at),
+                    started_by: started_by(number),
                 })
             })
             .collect();
@@ -262,15 +322,36 @@ impl LedgerSessionStore {
                         result: parse(&last.payload),
                         started_at: Some(execution.started_at),
                         ended_at: Some(last.created_at),
+                        started_by: None,
                     });
                 }
             }
         }
+        // A continuation that started and has no result yet is the running step: listed here
+        // with what started it, and marked running by the runtime (`decorate`).
+        if task.state == TaskState::Running {
+            let last = steps.iter().map(|s| s.number).max().unwrap_or(0);
+            if let Some((&number, (start, at))) =
+                starts.iter().next_back().filter(|(n, _)| **n > last)
+            {
+                steps.push(TurnStep {
+                    number,
+                    execution_id: None,
+                    running: false,
+                    result: None,
+                    started_at: Some(*at),
+                    ended_at: None,
+                    started_by: Some(start.clone()),
+                });
+            }
+        }
+        let requested_by = self.requested_by(&task)?;
         Ok(AgentTurn {
             task_id: task.id,
             session_id,
             number,
             objective: task.objective,
+            requested_by,
             execution_id: executions.last().map(|e| e.id.clone()),
             running: task.state == TaskState::Running,
             waiting: task.state == TaskState::Blocked,
@@ -460,6 +541,7 @@ impl SessionStore for LedgerSessionStore {
             self.0.resume_with_replies(
                 turn.task_id,
                 &deliver,
+                turn.step,
                 reason.unwrap_or("continuing"),
                 turn.actor,
             )
@@ -729,6 +811,7 @@ mod tests {
             result: None,
             started_at: None,
             ended_at: None,
+            started_by: None,
         };
         turn.steps = vec![step(1, "e1"), step(2, "e2")];
         let kept = store.kept_activity(&turn).unwrap();
@@ -785,6 +868,11 @@ mod tests {
         assert_eq!(turns.len(), 1);
         assert_eq!(turns[0].number, 1);
         assert_eq!(turns[0].objective, "Say hello");
+        assert_eq!(turns[0].requested_by, RequestedBy::owner());
+        assert_eq!(
+            turns[0].steps.first().and_then(|s| s.started_by.clone()),
+            None
+        );
         assert!(!turns[0].running);
         assert_eq!(turns[0].result, Some(result(TurnOutcome::Completed)));
         assert_eq!(turns[0].steps.len(), 1);

@@ -15,8 +15,8 @@ use plenipo_router::{CrossCompany, LimitBehavior, ModelInput, Router, RoutingOpt
 use plenipo_runtime::agent::paid::MemoryPaidGate;
 use plenipo_runtime::agent::{
     builtin_adapters, AgentConfig, AgentEvent, AgentRuntime, AgentSession, AgentSink, AgentTurn,
-    AgentUpdate, Bridge, Effort, HostEnv, SessionChange, SessionStore, StepNote, TurnInput,
-    TurnRef, TurnResult,
+    AgentUpdate, Bridge, Effort, HostEnv, RequestedBy, RequesterKind, SessionChange, SessionStore,
+    StepNote, TurnInput, TurnRef, TurnResult,
 };
 use plenipo_runtime::{
     EventSink, ExecutablePolicy, ProfileRegistry, RuntimeEvent, Supervisor, SupervisorConfig,
@@ -1706,6 +1706,21 @@ async fn acceptance_a_roles_model_choices_decide_its_next_worker() {
         h.text(&first).contains("(Codex): completed"),
         "{}",
         h.text(&first)
+    );
+    // Its turn says who handed it on (Phase 25, B5): the coordinator, with its task.
+    let handed =
+        h.rt.session(child.metadata["sessionId"].as_str().unwrap())
+            .await
+            .unwrap()
+            .turns
+            .remove(0);
+    assert_eq!(
+        handed.requested_by,
+        RequestedBy {
+            kind: RequesterKind::Lead,
+            position_id: Some(o.coordinator.clone()),
+            task_id: Some(first.clone()),
+        }
     );
 
     // The owner changes the preference in Settings: the next worker uses the new first choice.
