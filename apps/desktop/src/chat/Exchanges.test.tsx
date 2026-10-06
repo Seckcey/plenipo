@@ -49,6 +49,19 @@ vi.mock("../api/events", () => ({
 const api = vi.mocked(commands);
 const SLOW = { timeout: 5000 };
 
+/**
+ * A request's card once Liaison's record of it is drawn, showing `text`. Until the record comes
+ * the card says "Sending…", and the record's card is drawn in its place: a card found before it
+ * came would stay the old one, so this finds it again each time it looks.
+ */
+async function recordCard(log: HTMLElement, name: string, text: string | RegExp) {
+  await waitFor(
+    () => expect(within(log).getByRole("listitem", { name })).toHaveTextContent(text),
+    SLOW,
+  );
+  return within(log).getByRole("listitem", { name });
+}
+
 /** The Website Supervisor's own conversation, and the one its Senior Developer worked in. */
 const LEAD = session("s-lead", {
   title: "Website Supervisor",
@@ -225,13 +238,12 @@ describe("what agents say to each other, in their chats (B5)", () => {
       title: "Website Supervisor",
     });
     const log = await screen.findByRole("log", { name: "Conversation with Website Supervisor" });
-    const card = await within(log).findByRole(
-      "listitem",
-      { name: "Handoff to Senior Developer: Review the parser" },
-      SLOW,
+    const card = await recordCard(
+      log,
+      "Handoff to Senior Developer: Review the parser",
+      "Answered",
     );
     expect(card).toHaveTextContent("→ Senior Developer");
-    expect(card).toHaveTextContent("Answered");
     // Its words, not the raw request.
     expect(within(log).getByText("I will get a review.")).toBeInTheDocument();
     expect(log).not.toHaveTextContent("plenipo-handoff");
@@ -372,12 +384,8 @@ describe("what agents say to each other, in their chats (B5)", () => {
     );
     await openChat({ positionId: "p-lead", sessionId: "s-lead", title: "Website Supervisor" });
     const log = await screen.findByRole("log", { name: "Conversation with Website Supervisor" });
-    const card = await within(log).findByRole(
-      "listitem",
-      { name: "Handoff to gemini: Ask around" },
-      SLOW,
-    );
-    expect(await within(card).findByText("Refused", {}, SLOW)).toBeInTheDocument();
+    const card = await recordCard(log, "Handoff to gemini: Ask around", "Refused");
+    expect(within(card).getByText("Refused")).toBeInTheDocument();
     expect(within(card).getByText(/no AI tool named "gemini"/)).toBeInTheDocument();
     expect(within(card).queryByRole("button", { name: "Open worker conversation" })).toBeNull();
   });
@@ -401,12 +409,12 @@ describe("what agents say to each other, in their chats (B5)", () => {
       title: "Website Supervisor",
     });
     const log = await screen.findByRole("log", { name: "Conversation with Website Supervisor" });
-    const card = await within(log).findByRole(
-      "listitem",
-      { name: "Handoff to Senior Developer: Review the parser" },
-      SLOW,
+    const card = await recordCard(
+      log,
+      "Handoff to Senior Developer: Review the parser",
+      "Worker running",
     );
-    expect(await within(card).findByText("Worker running", {}, SLOW)).toBeInTheDocument();
+    expect(within(card).getByText("Worker running")).toBeInTheDocument();
     expect(within(card).getByText(/Context: The requester's answer/)).toBeInTheDocument();
     expect(screen.getByText("Waiting for its team")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Stop Website Supervisor" }));
