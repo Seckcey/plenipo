@@ -3,7 +3,7 @@
 // conversation outside the organization, read each turn (its folds opened, so its thinking, its
 // steps, and its tokens can be read), write to it, and stop it.
 
-import { clickButton, nav, screenshot, textOf, waitForText, waitUntil } from "./app.mjs";
+import { clickButton, nav, screenshot, textOf, waitUntil } from "./app.mjs";
 
 /** The chat shown on the Workers page. */
 export const CHAT = ".workers__chat";
@@ -12,8 +12,15 @@ export const CHAT_LOG = `${CHAT} [role="log"]`;
 const START = '//form[@aria-label="Start a conversation"]';
 export const START_FORM = 'form[aria-label="Start a conversation"]';
 
-/** A conversation's title as the chat shows it (markers like "[slow]" left out). */
-export const titleOf = (objective) => objective.replace(/\s*\[.*$/, "");
+/**
+ * The chat shown on the Workers page when it is the conversation titled `title`. A conversation's
+ * title is its objective's first line as written, test markers like "[slow]" included, and its
+ * chat is named for it ("Chat with …", as the Chat panel's is), so a test names it by the words
+ * before its markers.
+ */
+const chatTitled = (title) =>
+  `//div[contains(concat(" ", normalize-space(@class), " "), " workers__chat ")]` +
+  `//section[starts-with(@aria-label, "Chat with ${title}")]`;
 
 /**
  * Wait until the chat shown is the one titled `title`. When it is not, the error says what the
@@ -24,7 +31,10 @@ export const titleOf = (objective) => objective.replace(/\s*\[.*$/, "");
  */
 export async function waitForChat(browser, title) {
   try {
-    await waitForText(browser, `${CHAT} .chat-head__title`, titleOf(title));
+    await waitUntil(
+      async () => (await browser.$(chatTitled(title))).isExisting(),
+      `the chat titled "${title}" in ${CHAT}`,
+    );
   } catch (error) {
     const shown = await browser.execute((selector) => {
       const words = (el, max) =>
@@ -46,11 +56,26 @@ export async function waitForChat(browser, title) {
         window: `${window.innerWidth}x${window.innerHeight}`,
       };
     }, CHAT);
-    await screenshot(
-      browser,
-      `chat-not-shown-${titleOf(title).replace(/\W+/g, "-").toLowerCase()}`,
+    const head = await browser.$(`${CHAT} .chat-head__title`);
+    const read = (await head.isExisting())
+      ? { text: await head.getText(), displayed: await head.isDisplayed() }
+      : null;
+    await screenshot(browser, `chat-not-shown-${title.replace(/\W+/g, "-").toLowerCase()}`);
+    throw new Error(
+      `${error.message}; shown instead: ${JSON.stringify({ ...shown, titleAsRead: read })}`,
+      { cause: error },
     );
-    throw new Error(`${error.message}; shown instead: ${JSON.stringify(shown)}`, { cause: error });
+  }
+  // Found by its name. The specs used to read its title's words instead, which the real-app
+  // driver did not give back (I4 2b's first runs), though the page showed them: say what it reads,
+  // once, so the reason can be seen in the log.
+  const head = await browser.$(`${CHAT} .chat-head__title`);
+  const words = await head.getText();
+  if (!words.includes(title)) {
+    console.log(
+      `# waitForChat: the driver reads the title of "${title}" as ${JSON.stringify(words)} ` +
+        `(shown: ${await head.isDisplayed()})`,
+    );
   }
 }
 
