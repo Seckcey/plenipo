@@ -1,6 +1,6 @@
 # Privacy statement
 
-**Last updated: September 30, 2026**
+**Last updated: October 5, 2026**
 
 This statement describes how information is handled when you use the Plenipo desktop
 application, visit its website, or contact 8 West Ventures, LLC ("8 West", "we", "us").
@@ -113,6 +113,41 @@ It never sends your projects, files, folder names, tasks, workers' answers, or a
 from your records. If you buy Pro, your account, payments, and emails are covered by the
 account [privacy notice](https://account.getplenipo.com/privacy).
 
+A free copy of Plenipo also contacts 8 West if, and only while, you sign in to Community in it
+(see "Plenipo Community" below). A free copy that never signs in to Community never contacts
+8 West.
+
+## Plenipo Community
+
+Community is off until you turn it on. When you do, you sign in to your 8 West account, and the
+account privacy notice covers what 8 West keeps. On your computer, Plenipo then also keeps your
+private messages, your conversations, your links with other organizations, your collaborators,
+and a record of what collaborators did in your organization. These stay on your computer until you
+delete them, and are in Plenipo's backups and exports, like your other records.
+
+**Private messages are sealed** on your computer for the computers of the person you write to.
+8 West carries them and cannot read them.
+
+**What Community sends.** While Community is on, Plenipo sends 8 West only: a pass for your
+computer, its public keys, sealed messages and who they are for, your profile while you do not
+appear offline, blocks, reports you make, and links and invitations. It never sends your projects,
+files, folder names, tasks, workers' answers, keys, or your activity history, unless you send
+something on purpose (for example, the answer to a linked organization's objective, or messages you
+report).
+
+**Other people's words** that reach you through Community (messages, objectives from a linked
+organization) are shown to your AI workers only if you choose to give them, and then as
+information, never as instructions. If you give them to an AI worker, the AI tool sends them to its
+provider like any other task text.
+
+**Your profile is shown** to people signed in to Community, and you are listed in the Community
+directory and on the leaderboard, from the moment you turn Community on, unless you choose
+**Appear offline**. Members under 18 are never listed or on the leaderboard.
+
+**Collaborators** you invite can see the parts of your organization you choose, including task
+conversations, from their own computers. Their computers keep only their own record of what they
+did. If you are a collaborator, the owner's computer records what you do there, with your name.
+
 ## Sharing and the reasons for handling information
 
 The desktop app does not automatically upload your local task history to 8 West for
@@ -176,9 +211,10 @@ Internet and AI services may process information outside your country. Their pol
 describe where they operate and any safeguards they apply. Consider those policies
 before connecting an account or sending information with location restrictions.
 
-Plenipo is intended for people managing work and AI tools, not as a service directed
-to children. If you believe a child has sent personal information directly to 8 West,
-contact us so we can investigate and address the request.
+Plenipo is intended for people managing work and AI tools, not as a service directed to children.
+Community is only for people 13 and older, and members under 18 have extra protections. If you
+believe a child under 13 has sent personal information to 8 West, or is using Community, contact
+us so we can investigate and address it.
 
 ## Changes and contact
 
