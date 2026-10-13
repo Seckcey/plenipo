@@ -93,7 +93,7 @@ jobs:
           cp "$relay" "relay-dist/plenipo-relay-$version-linux-x86_64"
           (cd relay-dist && sha256sum "plenipo-relay-$version-linux-x86_64" > "plenipo-relay-$version-linux-x86_64.sha256")
           cat "relay-dist/plenipo-relay-$version-linux-x86_64.sha256"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: plenipo-relay
           path: relay-dist/
@@ -169,7 +169,7 @@ jobs:
             echo "Lowest macOS: $(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "${app[0]}/Contents/Info.plist")"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: plenipo-unsigned-trial-${{ matrix.name }}
           path: ${{ matrix.files }}
@@ -237,7 +237,7 @@ jobs:
             ls -l linux-dist
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: plenipo-linux
           path: linux-dist/
@@ -454,7 +454,7 @@ jobs:
         run: pnpm --filter @plenipo/desktop tauri build --verbose
       - name: Keep the unsigned installer (dry run)
         if: inputs.dry_run
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: plenipo-unsigned-installer-dry-run
           path: target/release/bundle/nsis/*-setup.exe
