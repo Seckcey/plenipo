@@ -4,18 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#ffffff" />
-    <title>Plenipo — Hire your AI team. Give it a goal.</title>
+    <title>Pleni and Plenipo — See your AI team at work</title>
     <meta
       name="description"
-      content="Hire AI agents by role and give them a goal. Plenipo coordinates work across providers, with suggested role policies and model and effort choices you control."
+      content="Pleni shows your Claude Code, Codex, Grok and Kimi Code sessions live in your browser. Plenipo for Windows hires an AI team and gives it a goal."
     />
     <link rel="canonical" href="https://getplenipo.com/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Plenipo" />
-    <meta property="og:title" content="Plenipo — Hire your AI team. Give it a goal." />
+    <meta property="og:title" content="Pleni and Plenipo — See your AI team at work" />
     <meta
       property="og:description"
-      content="A coordinator. The roles your project needs. AI models from different providers working toward one outcome, with policies you control."
+      content="Pleni puts your AI coding sessions, their helpers, and the work they hand to each other on one live map in your browser. Plenipo for Windows runs a whole AI team for you."
     />
     <meta property="og:url" content="https://getplenipo.com/" />
     <meta property="og:image" content="https://getplenipo.com/brand/plenipo-pip-social.png" />
@@ -23,10 +23,10 @@
     <meta property="og:image:height" content="640" />
     <meta property="og:image:alt" content="Plenipo — local-first AI workforce orchestration" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Plenipo — Hire your AI team. Give it a goal." />
+    <meta name="twitter:title" content="Pleni and Plenipo — See your AI team at work" />
     <meta
       name="twitter:description"
-      content="Hire agents by role. Let a coordinator organize their work across AI providers. Start with suggested role policies and adjust the model and effort choices."
+      content="See your Claude Code, Codex, Grok and Kimi Code sessions on one live map with Pleni, or hire a whole AI team with Plenipo for Windows."
     />
     <meta name="twitter:image" content="https://getplenipo.com/brand/plenipo-pip-social.png" />
     <meta name="twitter:image:alt" content="Plenipo — local-first AI workforce orchestration" />
@@ -66,6 +66,24 @@
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
       }
     </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Pleni",
+        "alternateName": "Plenipo Browser",
+        "url": "https://getplenipo.com/#pleni",
+        "description": "See your Claude Code, Codex, Grok and Kimi Code sessions, the helpers they start, and the work they hand to each other on one live map in your browser. Read-only, and it stays on your computer.",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Windows, macOS, Linux",
+        "softwareRequirements": "Node.js 22.12 or newer",
+        "license": "https://github.com/Seckcey/pleni/blob/main/LICENSE",
+        "sameAs": "https://github.com/Seckcey/pleni",
+        "image": "https://getplenipo.com/media/pleni-map.webp",
+        "author": { "@type": "Organization", "name": "8 West Ventures, LLC" },
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -91,14 +109,15 @@
         </button>
         <nav class="main-navigation" id="main-navigation" aria-label="Main navigation">
           <div class="nav-sections">
-            <a href="#product">How it works</a>
+            <a href="#pleni">Pleni</a>
+            <a href="#desktop">Desktop app</a>
             <a href="#ai-tools">AI tools</a>
             <a href="#editions">Free &amp; Pro</a>
             <a href="#resources">Resources</a>
           </div>
           <div class="nav-actions">
             <a href="https://account.getplenipo.com/signin">Sign in</a>
-            <a class="button button-small" href="#download">Download</a>
+            <a class="button button-small" href="#download">Get started</a>
           </div>
         </nav>
       </div>
@@ -116,11 +135,224 @@
               alt="Pip, Plenipo’s mascot, waving hello"
               fetchpriority="high"
             />
-            <h1 id="hero-title">Hire your AI team.<br />Give it a goal.</h1>
+            <h1 id="hero-title">See your AI team at work.<br />Live, in your browser.</h1>
+          </div>
+          <p class="hero-description">
+            Pleni puts your Claude Code, Codex, Grok and Kimi Code sessions on one live map: who
+            started whom, what each one is doing, and the work they hand to each other. It only
+            reads the files those tools already write, and nothing leaves your computer.
+          </p>
+          <div class="button-row">
+            <a class="button" href="#get-pleni">Get Pleni</a>
+            <a class="button button-outline" href="https://github.com/Seckcey/pleni"
+              >Pleni on GitHub <span aria-hidden="true">↗</span></a
+            >
+          </div>
+          <p class="fine-print">
+            Free and source-available. Windows, macOS and Linux, with Node.js 22.12 or newer.
+          </p>
+        </div>
+        <figure class="pleni-shot container">
+          <img
+            src="/media/pleni-map.webp"
+            alt="Pleni's map: you on the left, then each session and the helpers it started. Glowing lines show work handed down and reports coming back up, and one session is marked Needs you."
+            width="1585"
+            height="1240"
+          />
+          <figcaption>Pleni's demo. Every session and task in it is made up.</figcaption>
+        </figure>
+      </section>
+
+      <section class="pleni section container" id="pleni" aria-labelledby="pleni-title">
+        <div class="section-heading">
+          <h2 class="section-title" id="pleni-title">
+            Every session. Every hand-off.<br />One page.
+          </h2>
+          <p>
+            Lines light up when work goes down to a helper and when a report comes back up. Pleni
+            never moves a tile on its own, so things stay where you put them.
+          </p>
+        </div>
+        <div class="workflow-tabs" data-tabs>
+          <div class="feature-tabs" data-tablist aria-label="What Pleni shows">
+            <a id="pleni-tab-needs" href="#pleni-needs-panel" data-tab>See who needs you</a>
+            <a id="pleni-tab-activity" href="#pleni-activity-panel" data-tab
+              >Follow the hand-offs</a
+            >
+            <a id="pleni-tab-details" href="#pleni-details-panel" data-tab>Open any session</a>
+            <a id="pleni-tab-tasks" href="#pleni-tasks-panel" data-tab>Track shared tasks</a>
+          </div>
+          <div class="feature-panel" id="pleni-needs-panel" data-panel>
+            <div class="feature-copy">
+              <h3>Know when a session <br />is waiting on you.</h3>
+              <p>
+                A session that asks a question, wants a plan approved, or waits for permission to
+                use a tool shows <strong>Needs you</strong>. The notice stays at the top of the page
+                until you answer it or dismiss it.
+              </p>
+              <p>The list groups your sessions by project, with a filter for each state.</p>
+            </div>
+            <figure class="feature-media">
+              <img
+                src="/media/pleni-list.webp"
+                alt="Pleni's list of sessions grouped by project, with their state, what each one is doing, and its AI model. One session needs you."
+                width="1585"
+                height="1000"
+                loading="lazy"
+              />
+            </figure>
+          </div>
+          <div class="feature-panel" id="pleni-activity-panel" data-panel>
+            <div class="feature-copy">
+              <h3>Every hand-off, <br />newest first.</h3>
+              <p>
+                See each piece of work a session hands to a helper, and each report that comes back.
+              </p>
+              <p>Filter to the work handed out, the reports back, or the errors.</p>
+            </div>
+            <figure class="feature-media">
+              <img
+                src="/media/pleni-activity.webp"
+                alt="Pleni's activity feed: sessions handing work to helpers and helpers reporting back, newest first."
+                width="1585"
+                height="1000"
+                loading="lazy"
+              />
+            </figure>
+          </div>
+          <div class="feature-panel" id="pleni-details-panel" data-panel>
+            <div class="feature-copy">
+              <h3>Open any session <br />for the details.</h3>
+              <p>
+                Click a tile to see what the session is doing now, its recent steps, its AI model
+                and effort, and who it reports to.
+              </p>
+              <p>Drag a tile onto another to change who it reports to.</p>
+            </div>
+            <figure class="feature-media">
+              <img
+                src="/media/pleni-panel.webp"
+                alt="A session's side panel in Pleni, with who it reports to and its recent steps."
+                width="1585"
+                height="1000"
+                loading="lazy"
+              />
+            </figure>
+          </div>
+          <div class="feature-panel" id="pleni-tasks-panel" data-panel>
+            <div class="feature-copy">
+              <h3>Track tasks from <br />a shared folder.</h3>
+              <p>
+                If your sessions pass work to each other through a shared mailbox folder, Pleni
+                lists each task, its state, and the ones that need a look.
+              </p>
+            </div>
+            <figure class="feature-media">
+              <img
+                src="/media/pleni-tasks.webp"
+                alt="Pleni's task list: one task is blocked by a question, one is ready for review, and one is in progress."
+                width="1585"
+                height="420"
+                loading="lazy"
+              />
+            </figure>
+          </div>
+        </div>
+        <p class="section-caption">Screens from Pleni's demo. The sessions in them are made up.</p>
+        <div class="workspace-grid">
+          <article>
+            <h3>It only looks</h3>
+            <p>
+              Pleni never starts, stops, or types into a session, and it never changes the files it
+              reads.
+            </p>
+          </article>
+          <article>
+            <h3>It stays on your computer</h3>
+            <p>
+              It opens only on your own computer and sends nothing anywhere. No account, no sign-in,
+              no tracking.
+            </p>
+          </article>
+          <article>
+            <h3>Check in from your phone</h3>
+            <p>
+              Link your own devices privately with Tailscale, then open Pleni on your phone or
+              laptop.
+            </p>
+          </article>
+          <article>
+            <h3>Your chain of command</h3>
+            <p>
+              Say who reports to whom, and pick the titles you like: plain, military, or company.
+            </p>
+          </article>
+        </div>
+        <div class="get-pleni" id="get-pleni">
+          <h3>Start Pleni.</h3>
+          <ol class="workflow-steps">
+            <li>
+              <span class="step-number" aria-hidden="true">01</span
+              ><span
+                >Install <a href="https://nodejs.org/">Node.js</a> 22.12 or newer, and git.</span
+              >
+            </li>
+            <li>
+              <span class="step-number" aria-hidden="true">02</span>
+              <div>
+                In a terminal, run:
+                <pre class="command"><code>git clone https://github.com/Seckcey/pleni.git
+cd pleni
+node bin/pleni.js</code></pre>
+              </div>
+            </li>
+            <li>
+              <span class="step-number" aria-hidden="true">03</span
+              ><span
+                >Open the whole address Pleni prints. The key at the end keeps other people who use
+                your computer out.</span
+              >
+            </li>
+          </ol>
+          <p>
+            No sessions yet? Run <code>node bin/pleni.js --demo</code> to look around with made-up
+            ones.
+          </p>
+          <p>
+            Pleni only watches for now. Answering questions and approving plans from your browser is
+            planned.
+          </p>
+          <a class="text-link" href="https://github.com/Seckcey/pleni#readme"
+            >Read the Pleni guide <span aria-hidden="true">↗</span></a
+          >
+        </div>
+      </section>
+
+      <section class="desktop section" id="desktop" aria-labelledby="desktop-title">
+        <div class="hero-copy container">
+          <div class="hero-heading">
+            <img
+              class="hero-pip"
+              src="/brand/pip/pip-03-presenting.webp"
+              width="480"
+              height="480"
+              alt=""
+              loading="lazy"
+            />
+            <div>
+              <p class="product-name">Plenipo for Windows</p>
+              <h2 class="section-title" id="desktop-title">
+                Hire your AI team.<br />Give it a goal.
+              </h2>
+            </div>
           </div>
           <p class="hero-description">
             Hire agents for the roles you need. A coordinator brings their work together across AI
             providers, with model and effort choices guided by policies you control.
+          </p>
+          <p class="desktop-compare">
+            Pleni watches the sessions you run yourself. Plenipo runs a team for you: it starts the
+            workers, checks their permissions, and keeps a record of what they did.
           </p>
           <div class="button-row">
             <a
@@ -551,6 +783,7 @@
       </section>
 
       <section class="whats-new container" id="whats-new" aria-labelledby="whats-new-title">
+        <p class="product-name">Plenipo for Windows</p>
         <h2 class="section-title" id="whats-new-title">What&rsquo;s new in v__PLENIPO_VERSION__</h2>
         <div class="release-notes">
           <!-- __RELEASE_NOTES__ -->
@@ -568,35 +801,67 @@
             loading="lazy"
           />
           <h2 class="section-title" id="download-title">Put your AI team to work.</h2>
-          <div class="button-row">
-            <a
-              class="button"
-              data-download
-              href="https://github.com/Seckcey/plenipo/releases/download/v__PLENIPO_VERSION__/Plenipo___PLENIPO_VERSION___x64-setup.exe"
-              >Download for Windows
-              <svg viewBox="0 0 20 20" aria-hidden="true">
-                <path d="M10 3v10m-4-4 4 4 4-4M4 14v3h12v-3" /></svg
-            ></a>
-            <a class="text-link" href="https://github.com/Seckcey/plenipo"
-              >View on GitHub <span aria-hidden="true">↗</span></a
-            >
+          <div class="download-choices">
+            <div class="download-choice">
+              <h3>Pleni</h3>
+              <p>See the sessions you already run, live in your browser.</p>
+              <div class="button-row">
+                <a class="button" href="#get-pleni">Get Pleni</a>
+                <a class="text-link" href="https://github.com/Seckcey/pleni"
+                  >View on GitHub <span aria-hidden="true">↗</span></a
+                >
+              </div>
+              <p class="fine-print">Windows, macOS and Linux · Node.js 22.12 or newer</p>
+              <a
+                class="release-link"
+                href="https://github.com/Seckcey/pleni/blob/main/docs/privacy.md"
+                >What Pleni reads, and what it never does <span aria-hidden="true">↗</span></a
+              >
+            </div>
+            <div class="download-choice">
+              <h3>Plenipo for Windows</h3>
+              <p>Hire a team of AI workers and give it a goal.</p>
+              <div class="button-row">
+                <a
+                  class="button"
+                  data-download
+                  href="https://github.com/Seckcey/plenipo/releases/download/v__PLENIPO_VERSION__/Plenipo___PLENIPO_VERSION___x64-setup.exe"
+                  >Download for Windows
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M10 3v10m-4-4 4 4 4-4M4 14v3h12v-3" /></svg
+                ></a>
+                <a class="text-link" href="https://github.com/Seckcey/plenipo"
+                  >View on GitHub <span aria-hidden="true">↗</span></a
+                >
+              </div>
+              <p class="fine-print">
+                Windows 11 · x64 · <span data-version>v__PLENIPO_VERSION__</span>
+              </p>
+              <p class="fine-print">
+                Read the <a href="/terms/">terms of service</a> and
+                <a href="/privacy/">privacy statement</a> before using Plenipo.
+              </p>
+              <a class="release-link" href="https://github.com/Seckcey/plenipo/releases/latest"
+                >Release notes and other downloads <span aria-hidden="true">↗</span></a
+              >
+            </div>
           </div>
-          <p class="fine-print">
-            Windows 11 · x64 · <span data-version>v__PLENIPO_VERSION__</span>
-          </p>
-          <p class="fine-print">
-            Read the <a href="/terms/">terms of service</a> and
-            <a href="/privacy/">privacy statement</a> before using Plenipo.
-          </p>
-          <a class="release-link" href="https://github.com/Seckcey/plenipo/releases/latest"
-            >Release notes and other downloads <span aria-hidden="true">↗</span></a
-          >
         </div>
       </section>
 
       <section class="faq section container" id="resources" aria-labelledby="faq-title">
         <h2 id="faq-title">A few good questions.</h2>
         <div class="faq-list">
+          <details id="pleni-or-plenipo-faq">
+            <summary>Pleni or Plenipo: which one is for me?</summary>
+            <p>
+              Use Pleni if you already run Claude Code, Codex, Grok, or Kimi Code yourself and want
+              to see all your sessions in one place. It only watches, and it works on Windows,
+              macOS, and Linux. Use Plenipo for Windows if you want an app that hires and runs a
+              team of AI workers for you. You can use either one, or both. Both are made by 8 West
+              Ventures, LLC.
+            </p>
+          </details>
           <details>
             <summary>What does it mean to hire an agent?</summary>
             <p>
@@ -658,7 +923,8 @@
             <p>
               Yes. Plenipo is source-available under the
               <a href="https://github.com/Seckcey/plenipo/blob/main/LICENSE">Elastic License 2.0</a
-              >. You can read the source, build it, and change it for your own use, subject to the
+              >, and so is <a href="https://github.com/Seckcey/pleni/blob/main/LICENSE">Pleni</a>.
+              You can read the source, build it, and change it for your own use, subject to the
               license terms.
             </p>
           </details>
@@ -681,15 +947,18 @@
       <nav class="footer-links" aria-label="Footer navigation">
         <div>
           <h2>Product</h2>
-          <a href="#product">Overview</a><a href="#ai-tools">AI tools</a
+          <a href="#pleni">Pleni</a><a href="#desktop">Plenipo for Windows</a
+          ><a href="#product">How Plenipo works</a><a href="#ai-tools">AI tools</a
           ><a href="#editions">Free &amp; Pro</a>
         </div>
         <div>
           <h2>Resources</h2>
-          <a href="#download">Download</a
+          <a href="#download">Get started</a
           ><a href="https://account.getplenipo.com/account">Manage account</a
-          ><a href="https://github.com/Seckcey/plenipo#readme">Documentation</a
-          ><a href="https://github.com/Seckcey/plenipo">GitHub</a
+          ><a href="https://github.com/Seckcey/pleni#readme">Pleni guide</a
+          ><a href="https://github.com/Seckcey/pleni">Pleni on GitHub</a
+          ><a href="https://github.com/Seckcey/plenipo#readme">Plenipo documentation</a
+          ><a href="https://github.com/Seckcey/plenipo">Plenipo on GitHub</a
           ><a href="/plenipo-brand-kit.zip?v=pip-19" download>Brand assets</a>
         </div>
         <div>
