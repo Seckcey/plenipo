@@ -970,6 +970,144 @@ figcaption {
   margin-top: 6px;
 }
 
+/* Pleni, the browser edition: the hero map, its views, and how to start it. */
+#hero-title {
+  text-wrap: balance;
+}
+.pleni-shot {
+  margin-top: 48px;
+}
+.pleni-shot img {
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid #263041;
+  background: #111827;
+  box-shadow:
+    0 16px 38px rgb(21 30 49 / 16%),
+    0 2px 7px rgb(21 30 49 / 12%);
+}
+.pleni .section-heading > p {
+  max-width: 760px;
+  margin-inline: auto;
+}
+.pleni .workflow-tabs {
+  margin-top: 44px;
+}
+.get-pleni {
+  max-width: 820px;
+  margin: 56px auto 0;
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.get-pleni h3 {
+  font-size: 22px;
+  font-weight: 550;
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+}
+.get-pleni .workflow-steps {
+  grid-template-columns: minmax(0, 1fr);
+  margin: 22px 0 24px;
+  gap: 18px;
+}
+.get-pleni .workflow-steps li {
+  max-width: none;
+  min-width: 0;
+}
+.get-pleni .workflow-steps li > div {
+  flex: 1;
+  min-width: 0;
+}
+.get-pleni > p {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.65;
+}
+.get-pleni > p + p {
+  margin-top: 10px;
+}
+.get-pleni > .text-link {
+  margin-top: 20px;
+}
+.get-pleni code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, Menlo, monospace;
+}
+.get-pleni > p code {
+  font-size: 0.92em;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  overflow-wrap: anywhere;
+}
+.command {
+  margin: 12px 0 0;
+  padding: 16px 20px;
+  border-radius: 8px;
+  background: #0f1522;
+  color: #e6ebf3;
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+
+/* Plenipo for Windows, introduced after Pleni. */
+.product-name {
+  color: var(--blue);
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.desktop-compare {
+  max-width: 640px;
+  margin: 0 auto 26px;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+/* The closing section offers both: Pleni and Plenipo for Windows. */
+.download-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  max-width: 1000px;
+  margin-inline: auto;
+  text-align: left;
+}
+.download-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 30px 28px 26px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--white);
+}
+.download-choice h3 {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+  line-height: 1.25;
+}
+.download-choice > p:not(.fine-print) {
+  color: var(--muted);
+  font-size: 15px;
+  margin: 8px 0 22px;
+}
+.download-choice .button-row {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 14px 24px;
+}
+.download-choice .fine-print {
+  margin-top: 16px;
+}
+.download-choice .fine-print + .fine-print {
+  margin-top: 6px;
+}
+
 .legal-header .header-inner {
   justify-content: space-between;
   padding-block: 16px;
@@ -1494,6 +1632,56 @@ figcaption {
   }
   .footer-links a {
     font-size: 11px;
+  }
+}
+
+/* Five menu links still fit on one line just above the phone layout. */
+@media (min-width: 821px) and (max-width: 960px) {
+  .header-inner {
+    gap: 20px;
+  }
+  .brand img {
+    width: 140px;
+  }
+  .nav-sections {
+    gap: 16px;
+  }
+  .nav-actions {
+    gap: 14px;
+  }
+}
+
+@media (max-width: 820px) {
+  .pleni-shot {
+    margin-top: 34px;
+  }
+  .download-choices {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .get-pleni {
+    padding: 24px;
+  }
+  .command {
+    font-size: 13px;
+    padding: 14px 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .pleni-shot img {
+    border-radius: 6px;
+  }
+  .desktop-compare {
+    font-size: 15px;
+  }
+  .download-choice {
+    padding: 24px 20px;
+  }
+  .download-choice .button-row {
+    align-items: flex-start;
   }
 }
 

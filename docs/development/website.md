@@ -113,6 +113,18 @@ The GitHub About description and topics were improved by the maintainers. The ho
 should point to the final hostname when its origin is ready. Do not change repository visibility,
 license terms, the maintainers' profile avatars, or authentication settings as an SEO shortcut.
 
+### Pleni first (the owner's decision, 2026-10-13)
+
+The homepage leads with Pleni, the browser edition from the separate
+[Seckcey/pleni](https://github.com/Seckcey/pleni) repository: the hero, its map screenshot, a
+tabbed tour, and the steps to start it. Plenipo for Windows follows in its own section, with its
+download button, version label, and the interactive sample, and the closing section offers both.
+Pleni has no installer and no release on this site, so the two download buttons, the two version
+labels, and the first structured-data block all stay Plenipo's; Pleni's own structured data comes
+second and never types a version. The Pleni screenshots in `public/media/pleni-*.webp` come from
+Pleni's demo (`node bin/pleni.js --demo`, with a blank settings file), so every name in them is
+made up. Retake them from the demo, never from real sessions.
+
 ## Terms and privacy
 
 The full [terms of service](../../apps/website/legal/terms.md) and

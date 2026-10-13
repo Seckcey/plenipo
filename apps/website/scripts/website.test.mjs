@@ -135,6 +135,34 @@ test("search metadata describes the actual free Windows release without fabricat
   assert.ok(!html.includes("$9") && !html.includes("$99"));
 });
 
+test("Pleni leads the page, and each product links to its own repository", async () => {
+  const html = await readFile(resolve(websiteRoot, "index.html"), "utf8");
+  const hero = html.slice(html.indexOf('<section class="hero"'), html.indexOf('id="pleni"'));
+  assert.match(hero, /<h1 id="hero-title">See your AI team at work\./);
+  assert.ok(hero.includes('href="#get-pleni"'));
+  assert.ok(hero.includes('src="/media/pleni-map.webp"'));
+  assert.ok(!hero.includes("data-download"), "the Windows download comes after Pleni");
+  for (const repo of ["pleni", "plenipo"]) {
+    assert.ok(html.includes(`href="https://github.com/Seckcey/${repo}"`), `no link to ${repo}`);
+  }
+  // Pleni has no installer: it is cloned and run with Node.js.
+  assert.ok(html.includes("git clone https://github.com/Seckcey/pleni.git"));
+  // Pleni's structured data comes after Plenipo's, and never carries a typed version.
+  const blocks = [
+    ...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g),
+  ].map((match) => JSON.parse(match[1]));
+  assert.deepEqual(
+    blocks.map((data) => data.name),
+    ["Plenipo", "Pleni"],
+  );
+  const pleni = blocks[1];
+  assert.equal(pleni["@type"], "SoftwareApplication");
+  assert.equal(pleni.license, "https://github.com/Seckcey/pleni/blob/main/LICENSE");
+  assert.equal(pleni.offers.price, "0");
+  assert.ok(!("softwareVersion" in pleni));
+  assert.ok(!("aggregateRating" in pleni) && !("review" in pleni));
+});
+
 test("the page carries no version typed by hand", async () => {
   const source = await readFile(resolve(websiteRoot, "index.html"), "utf8");
   assert.ok(!/\/v\d+\.\d+\.\d+\//.test(source), "a download link carries a typed version");
