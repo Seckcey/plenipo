@@ -116,14 +116,20 @@ license terms, the maintainers' profile avatars, or authentication settings as a
 ### Pleni first (the owner's decision, 2026-10-13)
 
 The homepage leads with Pleni, the browser edition from the separate
-[Seckcey/pleni](https://github.com/Seckcey/pleni) repository: the hero, its map screenshot, a
-tabbed tour, and the steps to start it. Plenipo for Windows follows in its own section, with its
-download button, version label, and the interactive sample, and the closing section offers both.
-Pleni has no installer and no release on this site, so the two download buttons, the two version
-labels, and the first structured-data block all stay Plenipo's; Pleni's own structured data comes
-second and never types a version. The Pleni screenshots in `public/media/pleni-*.webp` come from
-Pleni's demo (`node bin/pleni.js --demo`, with a blank settings file), so every name in them is
-made up. Retake them from the demo, never from real sessions.
+[Seckcey/pleni](https://github.com/Seckcey/pleni) repository: the hero, its moving tour, a tabbed
+tour of its views, and the steps to start it (`npx pleni`; Pleni is on npm as `pleni`). Plenipo
+for Windows follows in its own section, with its download button, version label, and the
+interactive sample, and the closing section offers both. Pleni has no installer and no release on
+this site, so the two download buttons, the two version labels, and the first structured-data
+block all stay Plenipo's; Pleni's own structured data comes second and never types a version.
+
+The hero's tour is `public/media/pleni-demo.mp4` (H.264, silent, about 20 seconds, under 1 MB)
+with `pleni-demo-poster.webp` as its first frame. It plays muted and looped, and keeps its controls
+so a visitor can pause it. People who ask their system for less motion see the still map
+(`pleni-map.webp`) instead; that switch is CSS only. The tour, the screenshots in
+`public/media/pleni-*.webp`, and the poster come from Pleni's demo (`npx pleni --demo`, with a
+blank settings file), so every name in them is made up. Retake them from the demo, never from real
+sessions.
 
 ## Terms and privacy
 

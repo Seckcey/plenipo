@@ -977,14 +977,21 @@ figcaption {
 .pleni-shot {
   margin-top: 48px;
 }
+.pleni-shot video,
 .pleni-shot img {
+  display: block;
   width: 100%;
+  height: auto;
   border-radius: var(--radius);
   border: 1px solid #263041;
   background: #111827;
   box-shadow:
     0 16px 38px rgb(21 30 49 / 16%),
     0 2px 7px rgb(21 30 49 / 12%);
+}
+/* People who ask for less motion get the still map instead of the moving tour. */
+.pleni-shot .pleni-still {
+  display: none;
 }
 .pleni .section-heading > p {
   max-width: 760px;
@@ -1671,6 +1678,7 @@ figcaption {
 }
 
 @media (max-width: 480px) {
+  .pleni-shot video,
   .pleni-shot img {
     border-radius: 6px;
   }
@@ -1688,6 +1696,12 @@ figcaption {
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+  .pleni-shot .pleni-tour {
+    display: none;
+  }
+  .pleni-shot .pleni-still {
+    display: block;
   }
   *,
   *::before,

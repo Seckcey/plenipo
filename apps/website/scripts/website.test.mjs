@@ -140,13 +140,22 @@ test("Pleni leads the page, and each product links to its own repository", async
   const hero = html.slice(html.indexOf('<section class="hero"'), html.indexOf('id="pleni"'));
   assert.match(hero, /<h1 id="hero-title">See your AI team at work\./);
   assert.ok(hero.includes('href="#get-pleni"'));
+  // The hero shows Pleni's moving tour: silent, looping, with controls to pause it, and a still
+  // map for people who ask for less motion.
+  const tour = hero.match(/<video\b[^>]*>/)?.[0] ?? "";
+  for (const attribute of ["autoplay", "muted", "loop", "playsinline", "controls"]) {
+    assert.match(tour, new RegExp(`\\s${attribute}\\b`), `the tour needs ${attribute}`);
+  }
+  assert.ok(tour.includes('poster="/media/pleni-demo-poster.webp"'));
+  assert.ok(hero.includes('<source src="/media/pleni-demo.mp4" type="video/mp4" />'));
   assert.ok(hero.includes('src="/media/pleni-map.webp"'));
+  await access(join(websiteRoot, "public", "media", "pleni-demo-poster.webp"));
   assert.ok(!hero.includes("data-download"), "the Windows download comes after Pleni");
   for (const repo of ["pleni", "plenipo"]) {
     assert.ok(html.includes(`href="https://github.com/Seckcey/${repo}"`), `no link to ${repo}`);
   }
-  // Pleni has no installer: it is cloned and run with Node.js.
-  assert.ok(html.includes("git clone https://github.com/Seckcey/pleni.git"));
+  // Pleni has no installer: it runs from npm with Node.js.
+  assert.ok(html.includes("<code>npx pleni</code>"));
   // Pleni's structured data comes after Plenipo's, and never carries a typed version.
   const blocks = [
     ...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g),
