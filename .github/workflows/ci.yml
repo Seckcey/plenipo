@@ -21,13 +21,15 @@ env:
 
 jobs:
   # Documentation only (Markdown files, and pictures under docs/) needs only the Docs check: the
-  # long jobs below are skipped, and a skipped job counts as passed. Anything else, or a run by
-  # hand, runs everything.
+  # long jobs below are skipped, and a skipped job counts as passed. The website alone (apps/website
+  # and its own workflow, which runs the website's checks) also needs Frontend, but not the Rust,
+  # E2E, Mac or Windows jobs. Anything else, or a run by hand, runs everything.
   changes:
     name: What changed
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      app: ${{ steps.diff.outputs.app }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,16 +49,25 @@ jobs:
             || [ -z "$files" ]; then
             echo "Could not tell what changed; running everything."
             echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "app=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "$files"
           code=$(printf '%s\n' "$files" \
             | grep -Eiv '\.md$|^docs/.*\.(png|jpe?g|gif|svg|webp)$' || true)
-          if [ -n "$code" ]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-          else
+          app=$(printf '%s\n' "$code" \
+            | grep -Ev '^apps/website/|^\.github/workflows/website\.yml$' || true)
+          if [ -z "$code" ]; then
             echo "Documentation only: the Docs check is enough."
             echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "app=false" >> "$GITHUB_OUTPUT"
+          elif [ -z "$app" ]; then
+            echo "Website only: Frontend and the Website workflow check it; the app jobs are skipped."
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "app=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "app=true" >> "$GITHUB_OUTPUT"
           fi
 
   docs:
@@ -94,7 +105,7 @@ jobs:
   rust:
     name: Rust (fmt, clippy, test, bindings)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -162,7 +173,7 @@ jobs:
   e2e:
     name: E2E (real app via tauri-driver, Linux)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.app == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -286,7 +297,7 @@ jobs:
   macos:
     name: Mac (clippy, test; reported, not yet required)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.app == 'true'
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
@@ -343,7 +354,7 @@ jobs:
   windows:
     name: Windows (test, build, installer, launch smoke, installer tests)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.app == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
