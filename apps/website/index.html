@@ -79,6 +79,7 @@
         "softwareRequirements": "Node.js 22.12 or newer",
         "license": "https://github.com/Seckcey/pleni/blob/main/LICENSE",
         "sameAs": "https://github.com/Seckcey/pleni",
+        "downloadUrl": "https://www.npmjs.com/package/pleni",
         "image": "https://getplenipo.com/media/pleni-map.webp",
         "author": { "@type": "Organization", "name": "8 West Ventures, LLC" },
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
@@ -153,13 +154,31 @@
           </p>
         </div>
         <figure class="pleni-shot container">
+          <video
+            class="pleni-tour"
+            autoplay
+            muted
+            loop
+            playsinline
+            controls
+            poster="/media/pleni-demo-poster.webp"
+            width="1264"
+            height="720"
+            aria-label="A 20-second tour of Pleni's demo: the live map with hand-offs moving between sessions, a session's side panel with its recent steps, the list of sessions, and the activity feed."
+          >
+            <source src="/media/pleni-demo.mp4" type="video/mp4" />
+          </video>
           <img
+            class="pleni-still"
             src="/media/pleni-map.webp"
             alt="Pleni's map: you on the left, then each session and the helpers it started. Glowing lines show work handed down and reports coming back up, and one session is marked Needs you."
             width="1585"
             height="1240"
+            loading="lazy"
           />
-          <figcaption>Pleni's demo. Every session and task in it is made up.</figcaption>
+          <figcaption>
+            A 20-second tour of Pleni's demo. Every session and task in it is made up.
+          </figcaption>
         </figure>
       </section>
 
@@ -293,17 +312,13 @@
           <ol class="workflow-steps">
             <li>
               <span class="step-number" aria-hidden="true">01</span
-              ><span
-                >Install <a href="https://nodejs.org/">Node.js</a> 22.12 or newer, and git.</span
-              >
+              ><span>Install <a href="https://nodejs.org/">Node.js</a> 22.12 or newer.</span>
             </li>
             <li>
               <span class="step-number" aria-hidden="true">02</span>
               <div>
                 In a terminal, run:
-                <pre class="command"><code>git clone https://github.com/Seckcey/pleni.git
-cd pleni
-node bin/pleni.js</code></pre>
+                <pre class="command"><code>npx pleni</code></pre>
               </div>
             </li>
             <li>
@@ -315,12 +330,11 @@ node bin/pleni.js</code></pre>
             </li>
           </ol>
           <p>
-            No sessions yet? Run <code>node bin/pleni.js --demo</code> to look around with made-up
-            ones.
+            No sessions yet? Run <code>npx pleni --demo</code> to look around with made-up ones.
           </p>
           <p>
             Pleni only watches for now. Answering questions and approving plans from your browser is
-            planned.
+            planned. To run it from the source instead, follow the Pleni guide.
           </p>
           <a class="text-link" href="https://github.com/Seckcey/pleni#readme"
             >Read the Pleni guide <span aria-hidden="true">↗</span></a
