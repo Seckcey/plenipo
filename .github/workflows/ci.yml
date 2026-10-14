@@ -268,7 +268,7 @@ jobs:
         # ADR-153: the Vault on Linux is the desktop's password store. This machine has none, so
         # GNOME Keyring is started for the run, unlocked, on the run's own session bus.
         run: dbus-run-session -- bash tests/e2e/run-ci.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: e2e-screenshots
@@ -282,7 +282,7 @@ jobs:
         run: |
           sudo dmesg -T 2> /dev/null | grep -iE "out of memory|killed process|gnome-keyring" | tail -20 \
             > "$RUNNER_TEMP/e2e-keyring/kernel.log" || true
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: e2e-keyring
@@ -434,7 +434,7 @@ jobs:
           if (Test-Path $report) { Copy-Item $report $out -Force }
       - name: Plenipo's log files (when a test failed)
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: plenipo-windows-logs
           path: windows-logs/
@@ -442,7 +442,7 @@ jobs:
           retention-days: 7
       # This run's installer trusts this run's throwaway updater key (see above): for testing
       # only, never a release.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: plenipo-windows-installer
           path: target/release/bundle/nsis/*.exe
