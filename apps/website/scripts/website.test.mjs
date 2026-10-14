@@ -156,6 +156,13 @@ test("Pleni leads the page, and each product links to its own repository", async
   }
   // Pleni has no installer: it runs from npm with Node.js.
   assert.ok(html.includes("<code>npx pleni</code>"));
+  // Plenipo for Windows stays downloadable, and says plainly that it is no longer updated.
+  const desktop = html.slice(html.indexOf('id="desktop"'), html.indexOf('id="product"'));
+  assert.match(
+    desktop,
+    /id="windows-app-status"[^>]*>\s*Plenipo for Windows is no longer being updated/,
+  );
+  assert.ok(desktop.includes("data-download"));
   // Pleni's structured data comes after Plenipo's, and never carries a typed version.
   const blocks = [
     ...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g),
