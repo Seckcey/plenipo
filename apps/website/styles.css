@@ -1073,6 +1073,17 @@ figcaption {
   font-size: 16px;
   line-height: 1.6;
 }
+/* The Windows app is no longer updated; say so plainly before its download button. */
+.frozen-note {
+  max-width: 640px;
+  margin: -8px auto 26px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 15px;
+  line-height: 1.6;
+}
 
 /* The closing section offers both: Pleni and Plenipo for Windows. */
 .download-choices {
