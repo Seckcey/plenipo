@@ -18,6 +18,7 @@ test("production build includes every local asset and valid internal destination
       "index.html",
       "terms/index.html",
       "privacy/index.html",
+      "moderation/index.html",
       "robots.txt",
       "sitemap.xml",
     ]) {
@@ -54,9 +55,13 @@ test("production build includes every local asset and valid internal destination
     for (const [slug, title] of [
       ["terms", "Terms of service"],
       ["privacy", "Privacy statement"],
+      ["moderation", "How we keep Community safe"],
     ]) {
       const page = await readFile(join(output, slug, "index.html"), "utf8");
-      assert.ok(html.includes(`href="/${slug}/"`), `Homepage is missing ${slug}`);
+      // The Community terms link the moderation page; the homepage links the other two.
+      if (slug !== "moderation") {
+        assert.ok(html.includes(`href="/${slug}/"`), `Homepage is missing ${slug}`);
+      }
       assert.ok(page.includes(`<h1>${title}</h1>`));
       assert.equal([...page.matchAll(/<h1\b/g)].length, 1);
       assert.ok(page.includes(`href="https://getplenipo.com/${slug}/"`));
@@ -76,6 +81,11 @@ test("production build includes every local asset and valid internal destination
         "Policies share the current homepage stylesheet",
       );
     }
+    const terms = await readFile(join(output, "terms", "index.html"), "utf8");
+    assert.ok(terms.includes('href="https://getplenipo.com/moderation/"'));
+    // Only the public part of the moderation process is published.
+    const moderation = await readFile(join(output, "moderation", "index.html"), "utf8");
+    assert.ok(!moderation.includes("Inside 8 West"));
     const manifest = JSON.parse(await readFile(join(output, "site.webmanifest"), "utf8"));
     for (const icon of manifest.icons) {
       await access(join(output, icon.src.slice(1)));
