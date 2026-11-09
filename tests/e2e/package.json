@@ -10,6 +10,6 @@
     "test": "echo \"@plenipo/e2e: run with 'pnpm e2e' (needs a built app and tauri-driver)\""
   },
   "devDependencies": {
-    "webdriverio": "^9.32.0"
+    "webdriverio": "^9.33.1"
   }
 }
